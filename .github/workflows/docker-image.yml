@@ -14,17 +14,9 @@ jobs:
     steps:
     - uses: actions/checkout@v4
     - name: Build all the images
-      run: >
-        mkdir -p dist;
-        mkdir -p metadata;
-        for path in `find . -name Dockerfile -maxdepth 2`;
-        do
-            subdir=$(dirname "$path");
-            container_name=$(basename $subdir);
-            docker buildx build --sbom=true -f $path -o type=tar,dest=dist/$container_name.tar .;
-            tar xvf dist/$container_name.tar sbom.spdx.json -C metadata;
-        done
-        ls;
+      run: ./build.sh build_container osv zizmor
+    - name: What do we have
+      run: docker image ls
     - name: Archive image tarballs
       uses: actions/upload-artifact@v4
       with:
