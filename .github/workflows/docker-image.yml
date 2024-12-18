@@ -17,11 +17,11 @@ jobs:
       matrix:
         include:
           - tool: build_container
-            imagename: ${{ env.REGISTRY }}/${{ github.repository }}/build_container
+            imagename: ghcr.io/${{ github.repository }}/build_container
           - tool: osv
-            imagename: ${{ env.REGISTRY }}/${{ github.repository }}/osv
+            imagename: ghcr.io/${{ github.repository }}/osv
           - tool: zizmor
-            imagename: ${{ env.REGISTRY }}/${{ github.repository }}/zizmor
+            imagename: ghcr.io/${{ github.repository }}/zizmor
     permissions:
       contents: read
       packages: write
