@@ -12,8 +12,8 @@ do
     docker run \
        --mount type=bind,source=./dist/$tool,target=/dist \
 	   --mount type=bind,source=./metadata/$tool,target=/metadata \
-	   --mount type=bind,source=./src,target=/src,readonly \
+	   --mount type=bind,source=./,target=/src,readonly \
        -v /var/run/docker.sock:/var/run/docker.sock \
-	   tool_$tool
+	   ghcr.io/tomhennen/wrangle/$tool
     echo "$tool done"
 done
