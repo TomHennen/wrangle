@@ -22,3 +22,8 @@ jobs:
       run: ./run.sh osv zizmor
     - name: Display results
       run: find ./
+    - name: Upload SARIF file
+      uses: github/codeql-action/upload-sarif@v3
+      with:
+        sarif_file: ./metadata/
+        category: wrangle
