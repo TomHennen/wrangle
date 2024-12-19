@@ -19,6 +19,6 @@ jobs:
         password: ${{ secrets.GITHUB_TOKEN }}
     - name: Scan the source repo
       id: scan
-      run: ./run.sh
+      run: ./run.sh osv zizmor
     - name: Display results
       run: find ./metadata
