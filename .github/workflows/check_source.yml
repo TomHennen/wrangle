@@ -34,3 +34,7 @@ jobs:
       with:
         sarif_file: ./metadata/
         category: wrangle
+    - uses: actions/upload-artifact@v4
+      with:
+        name: scan-results
+        path: ./metadata/
