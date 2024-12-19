@@ -7,3 +7,4 @@ echo "osv"
 /osv-scanner --format sarif --output /metadata/osv.sarif -r /src || true
 # Run it again for the markdown. (if only we could output in multiple formats from one run...)
 /osv-scanner --format markdown --output /metadata/osv.md -r /src || true
+cat /metadata/osv.md
