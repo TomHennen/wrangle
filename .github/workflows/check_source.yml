@@ -4,7 +4,8 @@ on:
   push:
     branches: [ "main" ]
   pull_request:
-    branches: [ "main" ]
+    branches: [ "**" ]
+  workflow_dispatch:
 
 jobs:
   scan-source:
@@ -22,7 +23,7 @@ jobs:
       run: ./run.sh osv zizmor
     - name: Display results
       run: find ./
-    - name: Upload SARIF file
+    - name: Upload SARIFs
       uses: github/codeql-action/upload-sarif@v3
       with:
         sarif_file: ./metadata/
