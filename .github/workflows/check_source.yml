@@ -13,6 +13,7 @@ jobs:
     permissions:
       actions: read
       contents: read
+      packages: read
       security-events: write # So we can upload sarif
     steps:
     - uses: actions/checkout@v4
