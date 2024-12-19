@@ -21,4 +21,4 @@ jobs:
       id: scan
       run: ./run.sh osv zizmor
     - name: Display results
-      run: find ./metadata
+      run: find ./
