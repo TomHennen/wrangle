@@ -3,6 +3,6 @@ set -e
 
 echo "zizmor"
 NO_COLOR=1
-/usr/local/cargo/bin/zizmor --format sarif -o `find /src/ -name "*.yml"` > /metadata/zizmor.sarif
+/usr/local/cargo/bin/zizmor --format sarif -o `find /src/.github/workflows -name "*.yml"` > /metadata/zizmor.sarif
 # Run it again for the plain output. (if only we could output in multiple formats from one run...)
-/usr/local/cargo/bin/zizmor --format plain -o `find /src/ -name "*.yml"` > /metadata/zizmor.txt
+/usr/local/cargo/bin/zizmor --format plain -o `find /src/.github/workflows -name "*.yml"` > /metadata/zizmor.txt
