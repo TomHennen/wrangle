@@ -19,4 +19,5 @@ do
 	   ghcr.io/tomhennen/wrangle/$tool:main || (echo "$tool failed" && WRANGLE_EXIT_STATUS=1)
     echo "$tool done"
 done
+echo "Done with all tools. Exiting with $WRANGLE_EXIT_STATUS"
 exit $WRANGLE_EXIT_STATUS
