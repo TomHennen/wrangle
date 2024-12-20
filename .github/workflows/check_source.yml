@@ -25,7 +25,7 @@ jobs:
         password: ${{ secrets.GITHUB_TOKEN }}
     - name: Scan the source repo
       id: scan
-      run: ./run.sh osv zizmor
+      run: ./run.sh osv zizmor && cat ./metadata/summary.md >> $GITHUB_STEP_SUMMARY 
     - name: Display results
       run: find ./
     - name: Upload SARIFs
