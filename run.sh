@@ -11,7 +11,7 @@ do
     mkdir -p ./metadata/$tool
     mkdir -p ./dist/$tool
     docker run \
-       --quiet
+       --quiet \
        --mount type=bind,source=./dist/$tool,target=/dist \
 	   --mount type=bind,source=./metadata/$tool,target=/metadata \
 	   --mount type=bind,source=./,target=/src,readonly \
