@@ -39,7 +39,7 @@ do
     echo "```" >> $SUMMARY_FILE
     cat ./metadata/$tool/output.txt >> $SUMMARY_FILE
     echo "```" >> $SUMMARY_FILE
-    echo "" >> $SUMMARY_FILE
+    printf "\n" >> $SUMMARY_FILE
 done
 echo "Done with all tools. Exiting with $WRANGLE_EXIT_STATUS"
 exit $WRANGLE_EXIT_STATUS
