@@ -6,6 +6,7 @@ set -e
 
 mkdir ./metadata
 SUMMARY_FILE=./metadata/summary.md
+echo "# Wrangle results" >> $SUMMARY_FILE
 echo "| Tool | Status | Results |" >> $SUMMARY_FILE
 echo "| ---- | ------ | ------- |" >> $SUMMARY_FILE
 WRANGLE_EXIT_STATUS=0
@@ -31,7 +32,7 @@ echo "" >> $SUMMARY_FILE
 # Add in the details
 for tool in $@;
 do
-    echo "##$tool Details" >> $SUMMARY_FILE
+    echo "## $tool Details" >> $SUMMARY_FILE
     echo "" # Maybe replace with printfs?
     echo "```" >> $SUMMARY_FILE
     cat ./metadata/$tool/output.txt >> $SUMMARY_FILE
