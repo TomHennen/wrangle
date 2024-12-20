@@ -26,15 +26,17 @@ do
     echo "| $tool | $TOOL_STATUS | [Details](#$tool-details) |" >> $SUMMARY_FILE
 done
 
-echo "\n" >> $SUMMARY_FILE
+echo "" >> $SUMMARY_FILE
 
 # Add in the details
 for tool in $@;
 do
     echo "##$tool Details" >> $SUMMARY_FILE
-    echo "\n```" >> $SUMMARY_FILE
+    echo "" # Maybe replace with printfs?
+    echo "```" >> $SUMMARY_FILE
     cat ./metadata/$tool/output.txt >> $SUMMARY_FILE
-    echo "```\n" >> $SUMMARY_FILE
+    echo "```" >> $SUMMARY_FILE
+    echo ""
 done
 echo "Done with all tools. Exiting with $WRANGLE_EXIT_STATUS"
 exit $WRANGLE_EXIT_STATUS
