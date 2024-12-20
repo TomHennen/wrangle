@@ -24,7 +24,6 @@ do
        -v /var/run/docker.sock:/var/run/docker.sock \
 	   ghcr.io/tomhennen/wrangle/$tool:main | tee ./metadata/$tool/output.txt || WRANGLE_EXIT_STATUS=1; TOOL_STATUS="Failed"
     echo "$tool $TOOL_STATUS"
-    ls -l ./metadata/$tool/output.txt
     echo "| $tool | $TOOL_STATUS | [Details](#$tool-details) |" >> $SUMMARY_FILE
 done
 
@@ -33,7 +32,6 @@ echo "" >> $SUMMARY_FILE
 # Add in the details
 for tool in $@;
 do
-    ls -l ./metadata/$tool
     echo "## $tool Details" >> $SUMMARY_FILE
     printf "\n\n<pre><code>" >> $SUMMARY_FILE
     cat ./metadata/$tool/output.txt >> $SUMMARY_FILE
