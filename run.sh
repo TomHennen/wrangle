@@ -16,7 +16,7 @@ do
 	   --mount type=bind,source=./metadata/$tool,target=/metadata \
 	   --mount type=bind,source=./,target=/src,readonly \
        -v /var/run/docker.sock:/var/run/docker.sock \
-	   ghcr.io/tomhennen/wrangle/$tool:main || echo ("$tool failed") && WRANGLE_EXIT_STATUS=1
+	   ghcr.io/tomhennen/wrangle/$tool:main || echo "$tool failed" && WRANGLE_EXIT_STATUS=1
     echo "$tool done"
 done
 exit $WRANGLE_EXIT_STATUS
