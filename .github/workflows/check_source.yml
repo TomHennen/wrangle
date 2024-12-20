@@ -27,7 +27,7 @@ jobs:
       id: scan
       run: ./run.sh osv zizmor
     - name: Display results
-      run: find ./
+      run: cat ./metadata/summary.md >> $GITHUB_STEP_SUMMARY 
     - name: Upload SARIFs
       if: ${{ false }} # We're still a private repo so we can't enable code scanning. :(
       uses: github/codeql-action/upload-sarif@v3
