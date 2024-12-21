@@ -3,8 +3,20 @@ set -e
 
 # Pass tools to run as arguments.
 # e.g. run.sh foo bar
+# Specify the repo to get the tools from with -r
+# run.sh -r ghrc.io/tomhennen/wrangle foo bar
 
-mkdir ./metadata
+while getopts "r:" opt
+do
+   case "$opt" in
+      r ) parameterReg="$OPTARG/"
+          shift;;
+   esac
+done
+
+echo "Registry is '$parameterReg'"
+
+mkdir -p ./metadata
 SUMMARY_FILE=./metadata/summary.md
 echo "# Wrangle results" >> $SUMMARY_FILE
 echo "| Tool | Status | Results |" >> $SUMMARY_FILE
@@ -22,7 +34,7 @@ do
 	   --mount type=bind,source=./metadata/$tool,target=/metadata \
 	   --mount type=bind,source=./,target=/src,readonly \
        -v /var/run/docker.sock:/var/run/docker.sock \
-	   ghcr.io/tomhennen/wrangle/tool_$tool:latest | tee ./metadata/$tool/output.txt || WRANGLE_EXIT_STATUS=1; TOOL_STATUS="Failed"
+	   "${parameterReg}tool_${tool}:latest" | tee ./metadata/$tool/output.txt || WRANGLE_EXIT_STATUS=1; TOOL_STATUS="Failed"
     echo "$tool $TOOL_STATUS"
     echo "| $tool | $TOOL_STATUS | [Details](#$tool-details) |" >> $SUMMARY_FILE
 done
