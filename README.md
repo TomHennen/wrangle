@@ -8,5 +8,5 @@ NOTE: I've never really used GitHub for professional development
 before, so this is a bit of a learning process too.
 
 ## Next
-  - Figure out how to display results to the user.
-    Maybe each tool is a 'test' and we use https://github.com/ctrf-io and [github-test-reporter](https://github.com/ctrf-io/github-test-reporter) to integrate nicely?
+  - ensure we can run locally easily too
+  - https://github.com/ctrf-io/ctrf-cli for test results
