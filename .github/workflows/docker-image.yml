@@ -1,6 +1,11 @@
 name: Docker Image CI
 
 on:
+  push:
+    branches:
+      - 'main'
+    tags:
+      - 'v*'
   workflow_dispatch:
 
 env:
@@ -14,11 +19,11 @@ jobs:
       matrix:
         include:
           - tool: build_container
-            imagename: ghcr.io/${{ github.repository }}/build_container
+            imagename: ghcr.io/${{ github.repository }}/tool_build_container
           - tool: osv
-            imagename: ghcr.io/${{ github.repository }}/osv
+            imagename: ghcr.io/${{ github.repository }}/tool_osv
           - tool: zizmor
-            imagename: ghcr.io/${{ github.repository }}/zizmor
+            imagename: ghcr.io/${{ github.repository }}/tool_zizmor
     permissions:
       contents: read
       packages: write
@@ -37,6 +42,9 @@ jobs:
       uses: docker/metadata-action@9ec57ed1fcdbf14dcef7dfbe97b2010124a938b7
       with:
         images: ${{ matrix.imagename }}
+        tags: |
+          # set latest tag for default branch
+          type=raw,value=latest,enable={{is_default_branch}}
     - name: Build and push Docker image
       id: push
       uses: docker/build-push-action@f2a1d5e99d037542a71f64918e516c093c6f3fc4
@@ -45,4 +53,3 @@ jobs:
         push: true
         tags: ${{ steps.meta.outputs.tags }}
         labels: ${{ steps.meta.outputs.labels }}
-
