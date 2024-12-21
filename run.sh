@@ -34,7 +34,7 @@ do
 	   --mount type=bind,source=./metadata/$tool,target=/metadata \
 	   --mount type=bind,source=./,target=/src,readonly \
        -v /var/run/docker.sock:/var/run/docker.sock \
-	   "${parameterReg}tool_${tool}:latest" | tee ./metadata/$tool/output.txt || WRANGLE_EXIT_STATUS=1; TOOL_STATUS="Failed"
+	   "${parameterReg}tool_${tool}:latest" | tee ./metadata/$tool/output.txt || { WRANGLE_EXIT_STATUS=1; TOOL_STATUS="Failed" }
     echo "$tool $TOOL_STATUS"
     echo "| $tool | $TOOL_STATUS | [Details](#$tool-details) |" >> $SUMMARY_FILE
 done
