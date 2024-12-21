@@ -1,4 +1,4 @@
-name: Docker Image CI
+name: Tools CI
 
 on:
   push:
@@ -6,6 +6,8 @@ on:
       - 'main'
     tags:
       - 'v*'
+    paths:
+      - tools/** # only rebuild if something under tools changed.
   workflow_dispatch:
 
 env:
