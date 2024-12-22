@@ -26,7 +26,8 @@ jobs:
     - name: Scan the source repo
       id: scan
       run: |
-        ./run.sh -r ghcr.io/tomhennen/wrangle osv zizmor || cat ./metadata/summary.md >> $GITHUB_STEP_SUMMARY
+        set -o pipefail
+        ./run.sh -r ghcr.io/tomhennen/wrangle zizmor osv || cat ./metadata/summary.md >> $GITHUB_STEP_SUMMARY
       shell: bash
     - name: Upload SARIFs
       if: ${{ false }} # We're still a private repo so we can't enable code scanning. :(
