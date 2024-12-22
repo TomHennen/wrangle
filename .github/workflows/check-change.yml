@@ -7,10 +7,10 @@ on:
 
 jobs:
   # Whenever new source is pushed or a PR is received, scan it for any issues
-  scan-source:
+  check-change:
     permissions:
       actions: read
       contents: read
       packages: read
       security-events: write # So we can upload sarif
-    uses: tomhennen/wrangle/.github/workflows/check_source.yml@reusable_actions
+    uses: tomhennen/wrangle/.github/workflows/scan-source.yml@reusable_actions
