@@ -1,0 +1,25 @@
+name: Build Tools
+
+on:
+  push:
+    branches: [ 'main' ]
+    tags: [ 'v*' ]
+    paths:
+      - tools/** # only rebuild if something under tools changed.
+  workflow_dispatch:
+
+jobs:
+  build-and-push:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+    strategy:
+      fail-fast: false
+      matrix:
+        tool: [ build_container, osv, zizmor ]
+    uses: tomhennen/wrangle/.github/workflows/docker-image-callable.yml@main
+    with:
+      path: tools/${{ matrix.tool }}
+      imagename: ghcr.io/${{ github.repository }}/tool_${{ matrix.tool }}
+      registry: 'ghcr.io'
