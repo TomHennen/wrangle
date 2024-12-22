@@ -10,6 +10,7 @@ while getopts "r:" opt
 do
    case "$opt" in
       r ) parameterReg="$OPTARG/"
+          shift
           shift;;
    esac
 done
