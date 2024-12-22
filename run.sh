@@ -1,5 +1,4 @@
 #!/bin/bash
-set -e
 
 # Pass tools to run as arguments.
 # e.g. run.sh foo bar
@@ -29,6 +28,10 @@ do
     mkdir -p ./metadata/$tool
     mkdir -p ./dist/$tool
     TOOL_STATUS="Success"
+
+    # We don't want the pipe/tee output to make it look like this succeeded.
+    set -o pipefail
+
     docker run \
        --quiet \
        --mount type=bind,source=./dist/$tool,target=/dist \

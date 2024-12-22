@@ -1,22 +1,21 @@
-#!/bin/sh
+#!/bin/bash
 set -e
 
 WRANGLE_EXIT_STATUS=0
 NO_COLOR=1
 
-echo "zizmor sarif"
+echo "Generate sarif"
 /usr/local/cargo/bin/zizmor --format sarif -o `find /src/.github/workflows -name "*.yml"` > /metadata/zizmor.sarif || WRANGLE_EXIT_STATUS=1
 # Run it again for the plain output. (if only we could output in multiple formats from one run...)
-echo "zizmor plain"
+echo "Generate plain"
 /usr/local/cargo/bin/zizmor --format plain -o `find /src/.github/workflows -name "*.yml"` > /metadata/zizmor.txt || WRANGLE_EXIT_STATUS=1
 
 cat /metadata/zizmor.txt
 
-# Check to see if we got any failed results so we can mark this as failed.
-# Zizmor doesn't do this on its own AFAICT.
-grep /metadata/zizmor.sarif "\"kind\": \"fail\""
-if [ $? -eq 0 ] then
-    # grep found something that looks like failures.
+# zizmor sarif generation doesn't set exit codes if there are problems, but plain does.
+# let's hedge our bets and set the exit status manually based on sarif results.
+kind_fail=$(jq 'any(.runs[].results[].kind; contains("fail"))' /metadata/zizmor.sarif)
+if [ "$kind_fail" = "true" ]; then
     WRANGLE_EXIT_STATUS=1
 fi
 
