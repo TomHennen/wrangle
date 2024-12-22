@@ -1,3 +1,4 @@
+name: Check Change
 on:
   push:
     branches: [ "main" ]
@@ -13,4 +14,4 @@ jobs:
       contents: read
       packages: read
       security-events: write # So we can upload sarif
-    uses: tomhennen/wrangle/.github/workflows/scan-source.yml@main
+    uses: tomhennen/wrangle/.github/workflows/scan-source-callable.yml@main

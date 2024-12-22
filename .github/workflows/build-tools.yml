@@ -18,7 +18,7 @@ jobs:
       fail-fast: false
       matrix:
         tool: [ build_container, osv, zizmor ]
-    uses: tomhennen/wrangle/.github/workflows/docker-image.yml@main
+    uses: tomhennen/wrangle/.github/workflows/docker-image-callable.yml@main
     with:
       path: tools/${{ matrix.tool }}
       imagename: ghcr.io/${{ github.repository }}/tool_${{ matrix.tool }}
