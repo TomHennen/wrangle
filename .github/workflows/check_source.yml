@@ -25,10 +25,10 @@ jobs:
         password: ${{ secrets.GITHUB_TOKEN }}
     - name: Scan the source repo
       id: scan
-      run: |
-        set -o pipefail
-        ./run.sh -r ghcr.io/tomhennen/wrangle zizmor osv || cat ./metadata/summary.md >> $GITHUB_STEP_SUMMARY
-      shell: bash
+      run: ./run.sh -r ghcr.io/tomhennen/wrangle osv zizmor
+    - name: Display results
+      if: always()
+      run: cat ./metadata/summary.md >> $GITHUB_STEP_SUMMARY
     - name: Upload SARIFs
       if: ${{ false }} # We're still a private repo so we can't enable code scanning. :(
       uses: github/codeql-action/upload-sarif@v3
