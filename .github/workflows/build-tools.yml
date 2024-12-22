@@ -17,7 +17,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        tool: [ build_container, osv, zizmor ]
+        tool: [build_container, osv, zizmor]
     uses: tomhennen/wrangle/.github/workflows/docker-image-callable.yml@main
     with:
       path: tools/${{ matrix.tool }}
