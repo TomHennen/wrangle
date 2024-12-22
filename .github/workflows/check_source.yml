@@ -1,20 +1,11 @@
 name: Check Source Code
 
 on:
-  push:
-    branches: [ "main" ]
-  pull_request:
-    branches: [ "**" ]
-  workflow_dispatch:
+  workflow_call:
 
 jobs:
   scan-source:
     runs-on: ubuntu-latest
-    permissions:
-      actions: read
-      contents: read
-      packages: read
-      security-events: write # So we can upload sarif
     steps:
     - uses: actions/checkout@v4
     - name: Log in to the Container registry
