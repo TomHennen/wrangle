@@ -13,4 +13,4 @@ jobs:
       contents: read
       packages: read
       security-events: write # So we can upload sarif
-    uses: tomhennen/wrangle/.github/workflows/check_source.yml
+    uses: tomhennen/wrangle/.github/workflows/check_source.yml@reusable_actions
