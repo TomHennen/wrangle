@@ -12,4 +12,12 @@ echo "zizmor plain"
 
 cat /metadata/zizmor.txt
 
+# Check to see if we got any failed results so we can mark this as failed.
+# Zizmor doesn't do this on its own AFAICT.
+grep /metadata/zizmor.sarif "\"kind\": \"fail\""
+if [ $? -eq 0 ] then
+    # grep found something that looks like failures.
+    WRANGLE_EXIT_STATUS=1
+fi
+
 exit $WRANGLE_EXIT_STATUS
