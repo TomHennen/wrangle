@@ -14,6 +14,9 @@ jobs:
         registry: ghcr.io
         username: ${{ github.actor }}
         password: ${{ secrets.GITHUB_TOKEN }}
+    - name: Setup dirs
+      # We only need to setup directories for independent actions.
+      run: mkdir -p ./metadata/scorecard
     - name: Scan the source repo
       id: scan
       run: ./run.sh -r ghcr.io/tomhennen/wrangle osv zizmor
