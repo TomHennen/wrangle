@@ -6,11 +6,15 @@ on:
     branches: [ "**" ]
   workflow_dispatch:
 
-permissions: read-all
-
 jobs:
   # Whenever new source is pushed or a PR is received, scan it for any issues
   check-change:
     permissions:
+      actions: read
+      contents: read
+      packages: read
+      issues: read
+      pull-requests: read
       security-events: write # So we can upload sarif
+      statuses: read
     uses: tomhennen/wrangle/.github/workflows/scan-source-callable.yml@main
