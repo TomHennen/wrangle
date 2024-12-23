@@ -6,12 +6,6 @@ runs:
   using: "composite"
   steps:
     - uses: actions/checkout@v4
-    - name: Log in to the Container registry
-      uses: docker/login-action@65b78e6e13532edd9afa3aa52ac7964289d1a9c1
-      with:
-        registry: ghcr.io
-        username: ${{ github.actor }}
-        password: ${{ secrets.GITHUB_TOKEN }}
     - name: Scan the source repo
       id: scan
       run: ./run.sh -r ghcr.io/tomhennen/wrangle osv zizmor
