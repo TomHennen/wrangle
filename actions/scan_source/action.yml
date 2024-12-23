@@ -1,12 +1,10 @@
-name: Check Source Code
+name: Scan source
 
-on:
-  workflow_call:
+description: Scan source with wrangle
 
-jobs:
-  scan-source:
-    runs-on: ubuntu-latest
-    steps:
+runs:
+  using: "composite"
+  steps:
     - uses: actions/checkout@v4
     - name: Log in to the Container registry
       uses: docker/login-action@65b78e6e13532edd9afa3aa52ac7964289d1a9c1
@@ -14,18 +12,17 @@ jobs:
         registry: ghcr.io
         username: ${{ github.actor }}
         password: ${{ secrets.GITHUB_TOKEN }}
-    - name: Setup dirs
-      # We only need to setup directories for independent actions.
-      run: mkdir -p ./metadata/scorecard
     - name: Scan the source repo
       id: scan
       run: ./run.sh -r ghcr.io/tomhennen/wrangle osv zizmor
+      shell: bash
     - name: Scorecard
       if: always()
       uses: tomhennen/wrangle/actions/scorecard@actions_dev
     - name: Generate summary
       if: always()
       run: cat ./metadata/summary.md >> $GITHUB_STEP_SUMMARY
+      shell: bash
     - name: Upload SARIFs
       if: ${{ false }} # We're still a private repo so we can't enable code scanning. :(
       uses: github/codeql-action/upload-sarif@v3
