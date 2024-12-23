@@ -1,5 +1,5 @@
 # Summary table...
-echo "# Wrangle results\n"
+echo "# Wrangle results"
 echo "| Tool | Status | Results |"
 echo "| ---- | ------ | ------- |"
 for tool in $@;
