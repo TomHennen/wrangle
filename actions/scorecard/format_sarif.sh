@@ -3,4 +3,4 @@ echo "## Scorecard Details"
 echo ""
 echo "Rule Name | Location | Message"
 echo "--------- | -------- | -------"
-jq '[.runs[].results[] | {rule: .ruleId, message: .message.text, locations: .locations[].physicalLocation.artifactLocation.uri }] | .[] | @html "\(.rule) | \(.locations) | \(.message)"' $1 | cut -d '"' -f 2
+jq -r '[.runs[].results[] | {rule: .ruleId, message: .message.text, locations: .locations[].physicalLocation.artifactLocation.uri }] | .[] | @html "\(.rule) | \(.locations) | \(.message)"' $1
