@@ -17,15 +17,16 @@ jobs:
     - name: Scan the source repo
       id: scan
       run: ./run.sh -r ghcr.io/tomhennen/wrangle osv zizmor
-    - name: Generate summary
-      if: always()
-      run: cat ./metadata/summary.md >> $GITHUB_STEP_SUMMARY
     - name: Scorecard
+      if: always()
       uses: ossf/scorecard-action@62b2cac7ed8198b15735ed49ab1e5cf35480ba46
       with:
         results_file: ./metadata/scorecard/scorecard.sarif
         results_format: sarif
         publish_results: false
+    - name: Generate summary
+      if: always()
+      run: cat ./metadata/summary.md >> $GITHUB_STEP_SUMMARY
     - name: Upload SARIFs
       if: ${{ false }} # We're still a private repo so we can't enable code scanning. :(
       uses: github/codeql-action/upload-sarif@v3
