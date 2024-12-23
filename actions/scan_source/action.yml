@@ -28,13 +28,13 @@ runs:
       run: ./run.sh -r ghcr.io/tomhennen/wrangle osv zizmor
       shell: bash
       # TODO: Have some script that handles this for everyone, not just run.sh stuff
-    - name: Generate summary
-      if: always()
-      run: cat ./metadata/summary.md >> $GITHUB_STEP_SUMMARY
-      shell: bash
     - name: Scorecard
       if: always()
       uses: tomhennen/wrangle/actions/scorecard@main
+    - name: Generate summary
+      if: always()
+      run: ${{ github.action_path }}/format_summary.sh osv zizmor scorecard >> $GITHUB_STEP_SUMMARY
+      shell: bash
     - name: Upload SARIFs
       if: ${{ false }} # We're still a private repo so we can't enable code scanning. :(
       uses: github/codeql-action/upload-sarif@v3
