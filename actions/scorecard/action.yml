@@ -1,0 +1,18 @@
+name: Scorecard
+
+on:
+  workflow_call:
+
+jobs:
+  scan-source:
+    runs-on: ubuntu-latest
+    steps:
+    - name: Setup dir
+      # We only need to setup directories for independent actions.
+      run: mkdir -p ./metadata/scorecard
+    - name: Scorecard
+      uses: ossf/scorecard-action@62b2cac7ed8198b15735ed49ab1e5cf35480ba46
+      with:
+        results_file: ./metadata/scorecard/scorecard.sarif
+        results_format: sarif
+        publish_results: false
