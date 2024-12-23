@@ -1,14 +1,11 @@
 name: Scorecard
 
-on:
-  workflow_call:
+description: Runs Scorecard within wrangle
 
-jobs:
-  scan-source:
-    runs-on: ubuntu-latest
-    steps:
+runs:
+  using: "composite"
+  steps:
     - name: Setup dir
-      # We only need to setup directories for independent actions.
       run: mkdir -p ./metadata/scorecard
     - name: Scorecard
       uses: ossf/scorecard-action@62b2cac7ed8198b15735ed49ab1e5cf35480ba46
