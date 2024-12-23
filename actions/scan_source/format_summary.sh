@@ -26,7 +26,7 @@ do
         cat ./metadata/$tool/output.txt
         printf "</code></pre>\n"
     elif [ -f ./metadata/$tool/output.md ]; then
-        cat ./metadata/$tool/output.txt
+        cat ./metadata/$tool/output.md
     fi
     printf "\n"
 done
