@@ -20,7 +20,7 @@ jobs:
         tool: [build_container, osv, zizmor]
     steps:
     - name: "build and publish"
-      uses: tomhennen/wrangle/docker_builder@actions_dev
+      uses: tomhennen/wrangle/actions/docker_builder@actions_dev
       with:
         path: tools/${{ matrix.tool }}
         imagename: ghcr.io/${{ github.repository }}/tool_${{ matrix.tool }}
