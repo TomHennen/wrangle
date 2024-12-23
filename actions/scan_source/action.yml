@@ -24,6 +24,7 @@ runs:
         sarif_file: ./metadata/
         category: wrangle
     - uses: actions/upload-artifact@v4
+      if: always() # Always upload results
       with:
         name: scan-results
         path: ./metadata/
