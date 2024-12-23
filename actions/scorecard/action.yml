@@ -15,5 +15,5 @@ runs:
         results_format: sarif
         publish_results: false
     - name: Format results
-      run: ./format_sarif.sh ./metadata/scorecard/scorecard.sarif >> $GITHUB_STEP_SUMMARY
+      run: ${{ github.action_path }}/format_sarif.sh ./metadata/scorecard/scorecard.sarif >> $GITHUB_STEP_SUMMARY
       shell: bash
