@@ -10,13 +10,13 @@ inputs:
   github_token:
     description: "GitHub token with read access"
     required: true
+    type: string
 
 runs:
   using: "composite"
   steps:
     - uses: actions/checkout@v4
-    # We need to be logged in since these tool images are private.
-    # TODO: remove once public?
+    # TODO: Remove once images are public?
     - name: Log in to the Container registry
       uses: docker/login-action@65b78e6e13532edd9afa3aa52ac7964289d1a9c1
       with:
@@ -28,9 +28,8 @@ runs:
       run: ./run.sh -r ghcr.io/tomhennen/wrangle osv zizmor
       shell: bash
     - name: Scorecard
-      # TODO: in the future we could turn this into a strategy so we can easily add new stuff?
       if: always()
-      uses: tomhennen/wrangle/actions/scorecard@actions_dev
+      uses: tomhennen/wrangle/actions/scorecard@main
     - name: Generate summary
       if: always()
       run: cat ./metadata/summary.md >> $GITHUB_STEP_SUMMARY
@@ -42,7 +41,7 @@ runs:
         sarif_file: ./metadata/
         category: wrangle
     - uses: actions/upload-artifact@v4
-      if: always() # Always upload results
+      if: always()
       with:
         name: scan-results
         path: ./metadata/
