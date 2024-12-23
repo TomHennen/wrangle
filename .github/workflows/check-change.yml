@@ -1,4 +1,4 @@
-name: Check Change
+name: Check Change Test
 on:
   push:
     branches: [ "main" ]
