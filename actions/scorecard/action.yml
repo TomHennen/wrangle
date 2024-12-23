@@ -7,6 +7,7 @@ runs:
   steps:
     - name: Setup dir
       run: mkdir -p ./metadata/scorecard
+      shell: bash
     - name: Scorecard
       uses: ossf/scorecard-action@62b2cac7ed8198b15735ed49ab1e5cf35480ba46
       with:
