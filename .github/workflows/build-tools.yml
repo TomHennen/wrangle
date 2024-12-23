@@ -6,6 +6,12 @@ on:
     tags: [ 'v*' ]
     paths:
       - tools/** # only rebuild if something under tools changed.
+  pull_request:
+    branches: [ "**" ]
+    paths:
+      - tools/** # only rebuild if something related to our docker images changed
+      - workflows/build-tools.yml
+      - actions/docker_builder/**
   workflow_dispatch:
 
 jobs:
