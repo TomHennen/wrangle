@@ -13,12 +13,15 @@ jobs:
     permissions:
       contents: read
       packages: write
+    runs-on: ubuntu-latest
     strategy:
       fail-fast: false
       matrix:
         tool: [build_container, osv, zizmor]
-    uses: tomhennen/wrangle/.github/workflows/docker-image-callable.yml@main
-    with:
-      path: tools/${{ matrix.tool }}
-      imagename: ghcr.io/${{ github.repository }}/tool_${{ matrix.tool }}
-      registry: 'ghcr.io'
+    steps:
+    - name: "build and publish"
+      uses: tomhennen/wrangle/docker_builder@actions_dev
+      with:
+        path: tools/${{ matrix.tool }}
+        imagename: ghcr.io/${{ github.repository }}/tool_${{ matrix.tool }}
+        registry: 'ghcr.io'
