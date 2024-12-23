@@ -2,6 +2,7 @@ name: Scan source
 
 description: Scan source with wrangle
 
+# TODO: Remove once images are public?
 inputs:
   registry:
     required: true
@@ -15,6 +16,7 @@ runs:
   using: "composite"
   steps:
     - uses: actions/checkout@v4
+    # TODO: Remove once images are public?
     - name: Log in to the Container registry
       uses: docker/login-action@65b78e6e13532edd9afa3aa52ac7964289d1a9c1
       with:
@@ -27,7 +29,7 @@ runs:
       shell: bash
       continue-on-error: true
     - name: Scorecard
-      uses: tomhennen/wrangle/actions/scorecard@actions_dev
+      uses: tomhennen/wrangle/actions/scorecard@main
     - name: Generate summary
       if: always()
       run: cat ./metadata/summary.md >> $GITHUB_STEP_SUMMARY
