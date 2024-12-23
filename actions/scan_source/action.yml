@@ -27,8 +27,8 @@ runs:
       id: scan
       run: ./run.sh -r ghcr.io/tomhennen/wrangle osv zizmor
       shell: bash
-      continue-on-error: true
     - name: Scorecard
+      if: always()
       uses: tomhennen/wrangle/actions/scorecard@main
     - name: Generate summary
       if: always()
@@ -41,6 +41,7 @@ runs:
         sarif_file: ./metadata/
         category: wrangle
     - uses: actions/upload-artifact@v4
+      if: always()
       with:
         name: scan-results
         path: ./metadata/
