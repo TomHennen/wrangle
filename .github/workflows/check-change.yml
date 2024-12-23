@@ -17,4 +17,7 @@ jobs:
       pull-requests: read
       security-events: write # So we can upload sarif
       statuses: read
-    uses: tomhennen/wrangle/.github/workflows/scan-source-callable.yml@main
+    runs-on: ubuntu-latest
+    steps:
+    - name: "Run Scan"
+      uses: tomhennen/wrangle/actions/scan_source@actions_dev

@@ -6,6 +6,12 @@ on:
     tags: [ 'v*' ]
     paths:
       - tools/** # only rebuild if something under tools changed.
+  pull_request:
+    branches: [ "**" ]
+    paths:
+      - tools/** # only rebuild if something related to our docker images changed
+      - workflows/build-tools.yml
+      - actions/docker_builder/**
   workflow_dispatch:
 
 jobs:
@@ -13,12 +19,16 @@ jobs:
     permissions:
       contents: read
       packages: write
+    runs-on: ubuntu-latest
     strategy:
       fail-fast: false
       matrix:
         tool: [build_container, osv, zizmor]
-    uses: tomhennen/wrangle/.github/workflows/docker-image-callable.yml@main
-    with:
-      path: tools/${{ matrix.tool }}
-      imagename: ghcr.io/${{ github.repository }}/tool_${{ matrix.tool }}
-      registry: 'ghcr.io'
+    steps:
+    - name: "build and publish"
+      uses: tomhennen/wrangle/actions/docker_builder@actions_dev
+      with:
+        path: tools/${{ matrix.tool }}
+        imagename: ghcr.io/${{ github.repository }}/tool_${{ matrix.tool }}
+        registry: 'ghcr.io'
+        github_token: ${{ secrets.GITHUB_TOKEN }}

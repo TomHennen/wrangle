@@ -1,0 +1,31 @@
+name: Scan source
+
+description: Scan source with wrangle
+
+runs:
+  using: "composite"
+  steps:
+    - uses: actions/checkout@v4
+    - name: Scan the source repo
+      id: scan
+      run: ./run.sh -r ghcr.io/tomhennen/wrangle osv zizmor
+      shell: bash
+    - name: Scorecard
+      # TODO: in the future we could turn this into a strategy so we can easily add new stuff?
+      if: always()
+      uses: tomhennen/wrangle/actions/scorecard@actions_dev
+    - name: Generate summary
+      if: always()
+      run: cat ./metadata/summary.md >> $GITHUB_STEP_SUMMARY
+      shell: bash
+    - name: Upload SARIFs
+      if: ${{ false }} # We're still a private repo so we can't enable code scanning. :(
+      uses: github/codeql-action/upload-sarif@v3
+      with:
+        sarif_file: ./metadata/
+        category: wrangle
+    - uses: actions/upload-artifact@v4
+      if: always() # Always upload results
+      with:
+        name: scan-results
+        path: ./metadata/
