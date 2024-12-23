@@ -34,7 +34,7 @@ runs:
       shell: bash
     - name: Scorecard
       if: always()
-      uses: tomhennen/wrangle/actions/scorecard@scorecard_results
+      uses: tomhennen/wrangle/actions/scorecard@main
     - name: Upload SARIFs
       if: ${{ false }} # We're still a private repo so we can't enable code scanning. :(
       uses: github/codeql-action/upload-sarif@v3
