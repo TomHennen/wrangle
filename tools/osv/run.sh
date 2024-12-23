@@ -9,8 +9,6 @@ echo "Generate sarif"
 /osv-scanner --format sarif --output /metadata/osv.sarif -r /src || WRANGLE_EXIT_STATUS=1
 # Run it again for the markdown. (if only we could output in multiple formats from one run...)
 echo "Generate markdown"
-/osv-scanner --format markdown --output /metadata/osv.md -r /src || WRANGLE_EXIT_STATUS=1
-
-cat /metadata/osv.md
+/osv-scanner --format markdown --output /metadata/output.md -r /src || WRANGLE_EXIT_STATUS=1
 
 exit $WRANGLE_EXIT_STATUS

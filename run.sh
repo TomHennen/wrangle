@@ -17,10 +17,6 @@ done
 echo "Registry is '$parameterReg'"
 
 mkdir -p ./metadata
-SUMMARY_FILE=./metadata/summary.md
-echo "# Wrangle results" >> $SUMMARY_FILE
-echo "| Tool | Status | Results |" >> $SUMMARY_FILE
-echo "| ---- | ------ | ------- |" >> $SUMMARY_FILE
 WRANGLE_EXIT_STATUS=0
 for tool in $@;
 do
@@ -38,25 +34,14 @@ do
 	   --mount type=bind,source=./metadata/$tool,target=/metadata \
 	   --mount type=bind,source=./,target=/src,readonly \
        -v /var/run/docker.sock:/var/run/docker.sock \
-	   "${parameterReg}tool_${tool}:latest" | tee ./metadata/$tool/output.txt
+	   "${parameterReg}tool_${tool}:latest"
     if [ $? -ne 0 ]; then
         WRANGLE_EXIT_STATUS=1
         TOOL_STATUS="Failed"
     fi
 
     echo "$tool $TOOL_STATUS"
-    echo "| $tool | $TOOL_STATUS | [Details](#$tool-details) |" >> $SUMMARY_FILE
 done
 
-echo "" >> $SUMMARY_FILE
-
-# Add in the details
-for tool in $@;
-do
-    echo "## $tool Details" >> $SUMMARY_FILE
-    printf "\n\n<pre><code>" >> $SUMMARY_FILE
-    cat ./metadata/$tool/output.txt >> $SUMMARY_FILE
-    printf "</code></pre>\n" >> $SUMMARY_FILE
-done
 echo "Done with all tools. Exiting with $WRANGLE_EXIT_STATUS"
 exit $WRANGLE_EXIT_STATUS
