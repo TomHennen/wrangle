@@ -12,6 +12,10 @@ inputs:
   registry:
     required: true
     type: string
+  github_token:
+    description: "GitHub token with write access"
+    required: true
+    default: ${{ github.token }}
 
 runs:
   using: "composite"
@@ -24,7 +28,7 @@ runs:
     with:
       registry: ${{ inputs.registry }}
       username: ${{ github.actor }}
-      password: ${{ secrets.GITHUB_TOKEN }}
+      password: ${{ inputs.github_token }}
   - name: Extract metadata (tags, labels) for Docker
     id: meta
     uses: docker/metadata-action@9ec57ed1fcdbf14dcef7dfbe97b2010124a938b7
