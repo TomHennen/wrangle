@@ -29,7 +29,7 @@ runs:
       shell: bash
     - name: Scorecard
       if: always()
-      uses: tomhennen/wrangle/actions/scorecard@main
+      uses: tomhennen/wrangle/actions/scorecard@scorecard_results
     - name: Generate summary
       if: always()
       run: cat ./metadata/summary.md >> $GITHUB_STEP_SUMMARY
