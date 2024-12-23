@@ -2,8 +2,9 @@
 echo "# Wrangle results\n"
 echo "| Tool | Status | Results |"
 echo "| ---- | ------ | ------- |"
-for tool in $@;
+for dir in $(find metadata -depth 1 -type d);
 do
+    tool=$(basename $dir)
     TOOL_STATUS="No findings"
     if [ -f ./metadata/$tool/$tool.sarif ]; then
         NUM_FINDINGS=$(jq '[.runs[].results[]] | length' ./metadata/$tool/$tool.sarif)
@@ -18,8 +19,9 @@ done
 printf "\n"
 
 # Get the details...
-for tool in $@;
+for dir in $(find metadata -depth 1 -type d);
 do
+    tool=$(basename $dir)
     echo "## $tool Details"
     if [ -f ./metadata/$tool/output.txt ]; then
         printf "\n<pre><code>"

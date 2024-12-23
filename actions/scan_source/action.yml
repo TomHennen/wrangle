@@ -33,7 +33,7 @@ runs:
       uses: tomhennen/wrangle/actions/scorecard@main
     - name: Generate summary
       if: always()
-      run: ${{ github.action_path }}/format_summary.sh osv zizmor scorecard >> $GITHUB_STEP_SUMMARY
+      run: ${{ github.action_path }}/format_summary.sh >> $GITHUB_STEP_SUMMARY
       shell: bash
     - name: Upload SARIFs
       if: ${{ false }} # We're still a private repo so we can't enable code scanning. :(
