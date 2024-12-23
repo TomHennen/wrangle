@@ -2,10 +2,27 @@ name: Scan source
 
 description: Scan source with wrangle
 
+# TODO: Remove once images are public?
+inputs:
+  registry:
+    required: true
+    type: string
+  github_token:
+    description: "GitHub token with read access"
+    required: true
+
 runs:
   using: "composite"
   steps:
     - uses: actions/checkout@v4
+    # We need to be logged in since these tool images are private.
+    # TODO: remove once public?
+    - name: Log in to the Container registry
+      uses: docker/login-action@65b78e6e13532edd9afa3aa52ac7964289d1a9c1
+      with:
+        registry: ${{ inputs.registry }}
+        username: ${{ github.actor }}
+        password: ${{ inputs.github_token }}
     - name: Scan the source repo
       id: scan
       run: ./run.sh -r ghcr.io/tomhennen/wrangle osv zizmor

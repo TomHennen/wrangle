@@ -21,3 +21,7 @@ jobs:
     steps:
     - name: "Run Scan"
       uses: tomhennen/wrangle/actions/scan_source@actions_dev
+      # TODO: Remove once images are public?
+      with:
+        registry: 'ghcr.io'
+        github_token: ${{ secrets.GITHUB_TOKEN }}
