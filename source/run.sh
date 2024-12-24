@@ -8,7 +8,7 @@
 while getopts "r:" opt
 do
    case "$opt" in
-      r ) parameterReg="$OPTARG"
+      r ) parameterReg="$OPTARG/"
           shift
           shift;;
    esac
@@ -34,7 +34,7 @@ do
 	   --mount type=bind,source=./metadata/$tool,target=/metadata \
 	   --mount type=bind,source=./,target=/src,readonly \
        -v /var/run/docker.sock:/var/run/docker.sock \
-	   "${parameterReg}/source/tools/${tool}:latest"
+	   "${parameterReg}source/tools/${tool}:latest"
     if [ $? -ne 0 ]; then
         WRANGLE_EXIT_STATUS=1
         TOOL_STATUS="Failed"
