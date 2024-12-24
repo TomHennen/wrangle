@@ -2,7 +2,8 @@
 echo "# Wrangle results"
 echo "| Tool | Status | Results |"
 echo "| ---- | ------ | ------- |"
-echo "for dir in $(find 'metadata' -depth 1 -type d);"
+echo `pwd`
+echo `find metadata`
 echo "find 'metadata' -depth 1 -type d);"
 for dir in $(find 'metadata' -depth 1 -type d);
 do
