@@ -2,7 +2,7 @@
 echo "# Wrangle results"
 echo "| Tool | Status | Results |"
 echo "| ---- | ------ | ------- |"
-TOOLS=$(find 'metadata' --maxdepth 1 -type d)
+TOOLS=$(find 'metadata' -maxdepth 1 -type d)
 for dir in $TOOLS;
 do
     tool=$(basename $dir)
