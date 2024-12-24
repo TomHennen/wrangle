@@ -2,7 +2,7 @@
 echo "# Wrangle results"
 echo "| Tool | Status | Results |"
 echo "| ---- | ------ | ------- |"
-for dir in $(find metadata -depth 1 -type d);
+for dir in metadata/*/
 do
     tool=$(basename $dir)
     TOOL_STATUS="No findings"
@@ -19,7 +19,7 @@ done
 printf "\n"
 
 # Get the details...
-for dir in $(find metadata -depth 1 -type d);
+for dir in metadata/*/
 do
     tool=$(basename $dir)
     echo "## $tool Details"
