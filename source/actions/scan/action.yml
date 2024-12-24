@@ -31,9 +31,6 @@ runs:
     - name: Scorecard
       if: always()
       uses: tomhennen/wrangle/source/actions/scorecard@main
-    - name: dir layout
-      run: find .
-      shell: bash
     - name: Generate summary
       if: always()
       run: ${{ github.action_path }}/format_summary.sh >> $GITHUB_STEP_SUMMARY
