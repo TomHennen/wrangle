@@ -25,7 +25,7 @@ runs:
         password: ${{ inputs.github_token }}
     - name: Scan the source repo
       id: scan
-      run: ./run.sh -r ghcr.io/tomhennen/wrangle osv zizmor
+      run: ./source/run.sh -r ghcr.io/tomhennen/wrangle osv zizmor
       shell: bash
       # TODO: Have some script that handles this for everyone, not just run.sh stuff
     - name: Scorecard
