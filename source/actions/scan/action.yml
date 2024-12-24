@@ -23,11 +23,11 @@ runs:
         registry: ${{ inputs.registry }}
         username: ${{ github.actor }}
         password: ${{ inputs.github_token }}
-    - name: Scan the source repo
+    - name: Scan the source repo with tools
       id: scan
-      run: ./source/run.sh -r ghcr.io/tomhennen/wrangle osv zizmor
+      run: ./source/tools/run.sh -r ghcr.io/tomhennen/wrangle osv zizmor
       shell: bash
-      # TODO: Have some script that handles this for everyone, not just run.sh stuff
+      # TODO: better handle various actions that we call?  Don't treat scorecards special?
     - name: Scorecard
       if: always()
       uses: tomhennen/wrangle/source/actions/scorecard@main
