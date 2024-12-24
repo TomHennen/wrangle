@@ -4,7 +4,7 @@ echo "| Tool | Status | Results |"
 echo "| ---- | ------ | ------- |"
 echo `pwd`
 echo `find metadata`
-echo "find 'metadata' -depth 1 -type d);"
+echo `find 'metadata' -depth 1 -type d;`
 for dir in $(find 'metadata' -depth 1 -type d);
 do
     tool=$(basename $dir)
