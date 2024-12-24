@@ -30,7 +30,7 @@ runs:
       # TODO: Have some script that handles this for everyone, not just run.sh stuff
     - name: Scorecard
       if: always()
-      uses: tomhennen/wrangle/actions/scorecard@main
+      uses: tomhennen/wrangle/source/actions/scorecard@main
     - name: Generate summary
       if: always()
       run: ${{ github.action_path }}/format_summary.sh >> $GITHUB_STEP_SUMMARY
