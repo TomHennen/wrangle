@@ -20,7 +20,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
     - name: "Run Scan"
-      uses: tomhennen/wrangle/actions/scan_source@main
+      uses: tomhennen/wrangle/source/actions/scan_source@main
       # TODO: Remove once images are public?
       with:
         registry: 'ghcr.io'

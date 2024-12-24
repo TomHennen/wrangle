@@ -9,9 +9,11 @@ on:
   pull_request:
     branches: [ "**" ]
     paths:
-      - tools/** # only rebuild if something related to our docker images changed
+      # only rebuild if something related to our docker images changed
+      - tools/**
       - workflows/build-tools.yml
       - actions/docker_builder/**
+      - source/tools/**
   workflow_dispatch:
 
 jobs:
@@ -23,12 +25,12 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        tool: [build_container, osv, zizmor]
+        tool: [tools/build_container, source/tools/osv, source/tools/zizmor]
     steps:
     - name: "build and publish"
       uses: tomhennen/wrangle/actions/docker_builder@main
       with:
-        path: tools/${{ matrix.tool }}
-        imagename: ghcr.io/${{ github.repository }}/tool_${{ matrix.tool }}
+        path: ${{ matrix.tool }}
+        imagename: ghcr.io/${{ github.repository }}/${{ matrix.tool }}
         registry: 'ghcr.io'
         github_token: ${{ secrets.GITHUB_TOKEN }}

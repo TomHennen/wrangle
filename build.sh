@@ -9,8 +9,8 @@ set -e
 for tool in $@
 do
     echo "Build $tool..."
-    pushd tools/$tool
-    docker buildx build --sbom=true -f Dockerfile -o type=docker -t tool_$tool .
+    pushd $tool
+    docker buildx build --sbom=true -f Dockerfile -o type=docker -t $tool .
     popd
     echo "$tool done"
 done
