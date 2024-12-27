@@ -32,7 +32,7 @@ jobs:
         tool: [source/tools/osv, source/tools/zizmor]
     steps:
     - name: "build and publish"
-      uses: tomhennen/wrangle/publish/actions/container@main
+      uses: tomhennen/wrangle/publish/actions/container@fix_params
       with:
         path: ${{ matrix.tool }}
         imagename: ghcr.io/${{ github.repository }}/${{ matrix.tool }}
