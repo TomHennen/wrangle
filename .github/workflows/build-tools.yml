@@ -5,15 +5,19 @@ on:
     branches: [ 'main' ]
     tags: [ 'v*' ]
     paths:
-      - tools/** # only rebuild if something under tools changed.
+      # only rebuild if something related to our docker images changed
+      - tools/**
+      - workflows/build-tools.yml
+      - source/tools/**
+      - publish/actions/container/**
   pull_request:
     branches: [ "**" ]
     paths:
       # only rebuild if something related to our docker images changed
       - tools/**
       - workflows/build-tools.yml
-      - actions/docker_builder/**
       - source/tools/**
+      - publish/actions/container/**
   workflow_dispatch:
 
 jobs:
@@ -25,10 +29,10 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        tool: [tools/build_container, source/tools/osv, source/tools/zizmor]
+        tool: [source/tools/osv, source/tools/zizmor]
     steps:
     - name: "build and publish"
-      uses: tomhennen/wrangle/actions/docker_builder@main
+      uses: tomhennen/wrangle/publish/actions/container@rearrange_publish
       with:
         path: ${{ matrix.tool }}
         imagename: ghcr.io/${{ github.repository }}/${{ matrix.tool }}
