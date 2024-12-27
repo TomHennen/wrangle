@@ -1,5 +1,0 @@
-FROM alpine:latest
-WORKDIR /app
-COPY run.sh .
-RUN apk --update add jq
-CMD ["sh", "/app/run.sh"]
