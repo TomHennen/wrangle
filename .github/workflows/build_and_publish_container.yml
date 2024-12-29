@@ -42,9 +42,9 @@ jobs:
         registry: ${{ inputs.registry }}
         github_token: ${{ secrets.GITHUB_TOKEN }}
   provenance:
-    # only generate provenance for committed changes.
-    # TODO: Should we do this for more things? Tags? IDK.
-    if: github.event_name == 'push'
+    # Generate provenance for anything that's not a PR
+    # We should probably be more restrictive in the future?
+    if: ${{ ! startsWith(github.event_name, 'pull_') }}
     needs: [build]
     permissions:
       actions: read # for detecting the Github Actions environment.
