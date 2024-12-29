@@ -35,13 +35,16 @@ jobs:
     steps:
     - name: "build and publish"
       id: build    
-      uses: tomhennen/wrangle/publish/actions/container@slsaify
+      uses: tomhennen/wrangle/publish/actions/container@main
       with:
         path: ${{ inputs.path }}
         imagename: ${{ inputs.imagename }}
         registry: ${{ inputs.registry }}
         github_token: ${{ secrets.GITHUB_TOKEN }}
   provenance:
+    # only generate provenance for committed changes.
+    # TODO: Should we do this for more things? Tags? IDK.
+    if: github.event_name == 'push'
     needs: [build]
     permissions:
       actions: read # for detecting the Github Actions environment.

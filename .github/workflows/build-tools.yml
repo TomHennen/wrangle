@@ -31,7 +31,7 @@ jobs:
       fail-fast: false
       matrix:
         tool: [source/tools/osv, source/tools/zizmor]
-    uses: tomhennen/wrangle/.github/workflows/build_and_publish_container.yml@slsaify
+    uses: tomhennen/wrangle/.github/workflows/build_and_publish_container.yml@main
     with:
       path: ${{ matrix.tool }}
       imagename: ghcr.io/${{ github.repository }}/${{ matrix.tool }}
