@@ -4,12 +4,6 @@ on:
   push:
     branches: [ 'main' ]
     tags: [ 'v*' ]
-    paths:
-      # only rebuild if something related to our docker images changed
-      - tools/**
-      - workflows/build-tools.yml
-      - source/tools/**
-      - publish/actions/container/**
   pull_request:
     branches: [ "**" ]
     paths:
