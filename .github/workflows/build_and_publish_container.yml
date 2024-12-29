@@ -35,13 +35,12 @@ jobs:
     steps:
     - name: "build and publish"
       id: build    
-      uses: tomhennen/wrangle/publish/actions/container@main
+      uses: tomhennen/wrangle/publish/actions/container@slsaify
       with:
         path: ${{ inputs.path }}
         imagename: ${{ inputs.imagename }}
         registry: ${{ inputs.registry }}
         github_token: ${{ secrets.GITHUB_TOKEN }}
-        publish_provenance_for_private_repo: ${{ inputs.publish_provenance_for_private_repo }}
   provenance:
     needs: [build]
     permissions:
@@ -53,5 +52,6 @@ jobs:
       image: ${{ inputs.imagename }}
       digest: ${{ needs.build.outputs.digest }}
       registry-username: ${{ github.actor }}
+      private-repository: ${{ inputs.publish_provenance_for_private_repo }}
     secrets:
       registry-password: ${{ secrets.gh_token }}
