@@ -20,10 +20,14 @@ inputs:
     description: "Publish provenance to Sigstore for a private repo"
     required: false
     default: false
+
 outputs:
   digest:
     description: 'Image digest'
     value: ${{ steps.push.outputs.digest }}
+  image:
+    description: 'The image name'
+    value: ${{ steps.push.outputs.image }}
 
 runs:
   using: "composite"

@@ -28,7 +28,7 @@ jobs:
     uses: tomhennen/wrangle/.github/workflows/build_and_publish_container.yml@main
     with:
       path: ${{ matrix.tool }}
-      imagename: ghcr.io/tomhennen/wrangle/${{ matrix.tool }}
+      imagename: ghcr.io/${{ github.repository }}/${{ matrix.tool }}
       registry: 'ghcr.io'
       publish_provenance_for_private_repo: true
     secrets:
