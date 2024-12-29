@@ -41,6 +41,14 @@ jobs:
         imagename: ${{ inputs.imagename }}
         registry: ${{ inputs.registry }}
         github_token: ${{ secrets.GITHUB_TOKEN }}
+    - name: check outputs
+      run: echo "digest ${{steps.build.outputs.digest }}"
+  check:
+    needs: [build]
+    runs-on: ubuntu-latest
+    steps:
+    - name: check job
+      run: echo "digest ${{needs.build.outputs.digest }}"
   provenance:
     needs: [build]
     permissions:
