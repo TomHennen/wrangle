@@ -31,6 +31,7 @@ jobs:
       packages: write
     outputs:
       digest: ${{ steps.build.outputs.digest }}
+      image: ${{ steps.build.outputs.image }}
     runs-on: ubuntu-latest
     steps:
     - name: "build and publish"
@@ -52,7 +53,7 @@ jobs:
       packages: write # for uploading attestations.
     uses: slsa-framework/slsa-github-generator/.github/workflows/generator_container_slsa3.yml@v2.0.0
     with:
-      image: ${{ inputs.imagename }}
+      image: ${{ needs.build.outputs.image }}
       digest: ${{ needs.build.outputs.digest }}
       registry-username: ${{ github.actor }}
       private-repository: ${{ inputs.publish_provenance_for_private_repo }}
