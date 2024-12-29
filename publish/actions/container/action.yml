@@ -16,10 +16,6 @@ inputs:
   github_token:
     description: "GitHub token with write access"
     required: true
-  publish_provenance_for_private_repo:
-    description: "Publish provenance to Sigstore for a private repo"
-    required: false
-    default: false
 
 outputs:
   digest:

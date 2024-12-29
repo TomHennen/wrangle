@@ -25,7 +25,16 @@ on:
         required: true
 
 jobs:
+  normalize:
+    outputs:
+      imagename: ${{ steps.normalize.outputs.imagename }}
+    runs-on: ubuntu-latest
+    steps:
+    - id: normalize
+      run: INPUT=${{ inputs.imagename }} echo "::set-output name=imagename::${INPUT,,}"
+
   build:
+    needs: [normalize]
     permissions:
       contents: read
       packages: write
@@ -39,21 +48,22 @@ jobs:
       uses: tomhennen/wrangle/publish/actions/container@main
       with:
         path: ${{ inputs.path }}
-        imagename: ${{ inputs.imagename }}
+        imagename: ${{ needs.normalize.outputs.imagename }}
         registry: ${{ inputs.registry }}
         github_token: ${{ secrets.GITHUB_TOKEN }}
+
   provenance:
     # Generate provenance for anything that's not a PR
     # We should probably be more restrictive in the future?
     if: ${{ ! startsWith(github.event_name, 'pull_') }}
-    needs: [build]
+    needs: [build, normalize]
     permissions:
       actions: read # for detecting the Github Actions environment.
       id-token: write # for creating OIDC tokens for signing.
       packages: write # for uploading attestations.
     uses: slsa-framework/slsa-github-generator/.github/workflows/generator_container_slsa3.yml@v2.0.0
     with:
-      image: ${{ needs.build.outputs.image }}
+      image: ${{ needs.normalize.outputs.imagename }}
       digest: ${{ needs.build.outputs.digest }}
       registry-username: ${{ github.actor }}
       private-repository: ${{ inputs.publish_provenance_for_private_repo }}
