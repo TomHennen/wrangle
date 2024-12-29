@@ -4,6 +4,7 @@ description: Build a docker image
 
 inputs:
   path:
+    description: "A path, within the repo, to the folder containiner a Dockerfile you want to build."
     required: true
     type: string
   imagename:
@@ -19,6 +20,9 @@ inputs:
     description: "Publish provenance to Sigstore for a private repo"
     required: false
     default: false
+outputs:
+  digest:
+    description: 'Image digest'
 
 runs:
   using: "composite"
@@ -53,3 +57,7 @@ runs:
       labels: ${{ steps.meta.outputs.labels }}
       cache-from: type=gha
       cache-to: type=gha,mode=max
+  - name: Set output
+    id: set_output
+    run: echo "digest=${{ push.digest }}" >> $GITHUB_OUTPUT
+    shell: bash
