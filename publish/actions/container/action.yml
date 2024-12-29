@@ -23,6 +23,7 @@ inputs:
 outputs:
   digest:
     description: 'Image digest'
+    value: ${{ steps.push.outputs.digest }}
 
 runs:
   using: "composite"
@@ -57,7 +58,3 @@ runs:
       labels: ${{ steps.meta.outputs.labels }}
       cache-from: type=gha
       cache-to: type=gha,mode=max
-  - name: Set output
-    id: set_output
-    run: echo "digest=${{ steps.push.outputs.digest }}" >> $GITHUB_OUTPUT
-    shell: bash
