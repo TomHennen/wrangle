@@ -29,7 +29,10 @@ runs:
   using: "composite"
   steps:
   - id: normalize
-    run: INPUT=${{ inputs.imagename }} echo "::set-output name=imagename::${INPUT,,}"
+    run: INPUT=${{ inputs.imagename }} echo "imagename=${INPUT,,}" >> $GITHUB_OUTPUT
+    shell: bash
+  - id: check
+    run: echo imagename "${{ steps.normalize.outputs.imagename }}"
     shell: bash
   - uses: actions/checkout@v4
   - name: Set up Docker Buildx
