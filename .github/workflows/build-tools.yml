@@ -30,12 +30,10 @@ jobs:
       fail-fast: false
       matrix:
         tool: [source/tools/osv, source/tools/zizmor]
-    steps:
-    - name: "build and publish"
-      uses: tomhennen/wrangle/.github/workflows/build_and_publish_container.yml@slsaify
-      with:
-        path: ${{ matrix.tool }}
-        imagename: ghcr.io/${{ github.repository }}/${{ matrix.tool }}
-        registry: 'ghcr.io'
-        github_token: ${{ secrets.GITHUB_TOKEN }}
-        publish_provenance_for_private_repo: true
+    uses: tomhennen/wrangle/.github/workflows/build_and_publish_container.yml@slsaify
+    with:
+      path: ${{ matrix.tool }}
+      imagename: ghcr.io/${{ github.repository }}/${{ matrix.tool }}
+      registry: 'ghcr.io'
+      github_token: ${{ secrets.GITHUB_TOKEN }}
+      publish_provenance_for_private_repo: true
