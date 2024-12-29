@@ -1,0 +1,60 @@
+name: "Build and publish a container using best practices."
+
+on:
+  workflow_call:
+    inputs:
+      path:
+        description: "A path, within the repo, to the folder containiner a Dockerfile you want to build."
+        required: true
+        type: string
+      imagename:
+        description: "The full path, including registry, specifying where the image should be published."
+        required: true
+        type: string
+      registry:
+        required: true
+        type: string
+      publish_provenance_for_private_repo:
+        description: "Publish provenance to Sigstore for a private repo"
+        required: false
+        default: false
+        type: boolean
+    secrets:
+      gh_token:
+        description: "GitHub token with write access"
+        required: true
+
+jobs:
+  build:
+    permissions:
+      contents: read
+      packages: write
+    outputs:
+      digest: ${{ steps.build.outputs.digest }}
+    runs-on: ubuntu-latest
+    steps:
+    - name: "build and publish"
+      id: build    
+      uses: tomhennen/wrangle/publish/actions/container@main
+      with:
+        path: ${{ inputs.path }}
+        imagename: ${{ inputs.imagename }}
+        registry: ${{ inputs.registry }}
+        github_token: ${{ secrets.GITHUB_TOKEN }}
+  provenance:
+    # only generate provenance for committed changes.
+    # TODO: Should we do this for more things? Tags? IDK.
+    if: github.event_name == 'push'
+    needs: [build]
+    permissions:
+      actions: read # for detecting the Github Actions environment.
+      id-token: write # for creating OIDC tokens for signing.
+      packages: write # for uploading attestations.
+    uses: slsa-framework/slsa-github-generator/.github/workflows/generator_container_slsa3.yml@v2.0.0
+    with:
+      image: ${{ inputs.imagename }}
+      digest: ${{ needs.build.outputs.digest }}
+      registry-username: ${{ github.actor }}
+      private-repository: ${{ inputs.publish_provenance_for_private_repo }}
+    secrets:
+      registry-password: ${{ secrets.gh_token }}
