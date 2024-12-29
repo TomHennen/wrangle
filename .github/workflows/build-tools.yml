@@ -35,5 +35,6 @@ jobs:
       path: ${{ matrix.tool }}
       imagename: ghcr.io/${{ github.repository }}/${{ matrix.tool }}
       registry: 'ghcr.io'
-      github_token: ${{ secrets.GITHUB_TOKEN }}
       publish_provenance_for_private_repo: true
+    secrets:
+      gh_token: ${{ secrets.GITHUB_TOKEN }}

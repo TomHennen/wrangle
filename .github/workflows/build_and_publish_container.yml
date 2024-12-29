@@ -20,7 +20,7 @@ on:
         default: false
         type: boolean
     secrets:
-      github_token:
+      gh_token:
         description: "GitHub token with write access"
         required: true
 
@@ -55,4 +55,4 @@ jobs:
       digest: ${{ needs.build.outputs.digest }}
       registry-username: ${{ github.actor }}
     secrets:
-      registry-password: ${{ secrets.GITHUB_TOKEN }}
+      registry-password: ${{ secrets.gh_token }}
