@@ -30,6 +30,7 @@ runs:
   steps:
   - id: normalize
     run: INPUT=${{ inputs.imagename }} echo "::set-output name=imagename::${INPUT,,}"
+    shell: bash
   - uses: actions/checkout@v4
   - name: Set up Docker Buildx
     uses: docker/setup-buildx-action@v3
