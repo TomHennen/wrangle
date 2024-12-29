@@ -31,7 +31,7 @@ jobs:
       packages: write
     outputs:
       digest: ${{ steps.build.outputs.digest }}
-      image: ${{ steps.build.outputs.image }}
+      imagename: ${{ steps.build.outputs.imagename }}
     runs-on: ubuntu-latest
     steps:
     - name: "build and publish"
@@ -42,6 +42,7 @@ jobs:
         imagename: ${{ inputs.imagename }}
         registry: ${{ inputs.registry }}
         github_token: ${{ secrets.GITHUB_TOKEN }}
+
   provenance:
     # Generate provenance for anything that's not a PR
     # We should probably be more restrictive in the future?
@@ -53,7 +54,7 @@ jobs:
       packages: write # for uploading attestations.
     uses: slsa-framework/slsa-github-generator/.github/workflows/generator_container_slsa3.yml@v2.0.0
     with:
-      image: ${{ needs.build.outputs.image }}
+      image: ${{ needs.build.outputs.imagename }}
       digest: ${{ needs.build.outputs.digest }}
       registry-username: ${{ github.actor }}
       private-repository: ${{ inputs.publish_provenance_for_private_repo }}
