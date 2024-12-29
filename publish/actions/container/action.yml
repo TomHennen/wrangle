@@ -29,7 +29,9 @@ runs:
   using: "composite"
   steps:
   - id: normalize
-    run: INPUT=${{ inputs.imagename }} echo "imagename=${INPUT,,}" >> $GITHUB_OUTPUT
+    run: echo "imagename=${UPPERCASE_VAR,,}" >> $GITHUB_OUTPUT
+    env:
+      UPPERCASE_VAR: ${{ inputs.imagename }}
     shell: bash
   - id: check
     run: echo imagename "${{ steps.normalize.outputs.imagename }}"
