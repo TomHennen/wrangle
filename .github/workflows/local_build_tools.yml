@@ -30,7 +30,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        tool: [source/tools/osv, source/tools/zizmor]
+        tool: [source/tools/osv, source/tools/zizmor, publish/tools/get_container_prov]
     uses: tomhennen/wrangle/.github/workflows/build_and_publish_container.yml@main
     with:
       path: ${{ matrix.tool }}
