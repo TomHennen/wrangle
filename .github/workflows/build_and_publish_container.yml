@@ -24,12 +24,6 @@ on:
         description: "GitHub token with write access"
         required: true
 
-# Make sure we cancel any outstanding workflows that are outdated.
-# This should save time & money.
-concurrency:
-  group: ${{ github.workflow }}-${{ github.head_ref || github.ref }}-${{ toJson(github.event.inputs) }}
-  cancel-in-progress: true
-
 jobs:
   build:
     permissions:
