@@ -27,7 +27,7 @@ on:
 # Make sure we cancel any outstanding workflows that are outdated.
 # This should save time & money.
 concurrency:
-  group: ${{ github.workflow }}-${{ github.head_ref || github.ref }}
+  group: ${{ github.workflow }}-${{ github.head_ref || github.ref }}-${{ toJson(github.event.inputs) }}
   cancel-in-progress: true
 
 jobs:
