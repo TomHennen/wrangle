@@ -1,16 +1,19 @@
-# Wrangle Publish
+name: Build and Publish Container
 
-This folder contains all the tools and actions for dealing with publication.
+on:
+  push:
+    branches: [ 'main' ]
+    tags: [ 'v*' ]
+  pull_request:
+    branches: [ "**" ]
+  workflow_dispatch:
 
-For now it just includes container publication.
+# Make sure we cancel any outstanding workflows that are outdated.
+# This should save time & money.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.head_ref || github.ref }}
+  cancel-in-progress: true
 
-## GitHub Actions Example
-
-To build and publish a container image using Wrangle, all you have to do is add
-this snippet (with appropriate modifications) to your corresponding GitHub Action
-workflow.
-
-```
 jobs:
   build-and-publish:
     permissions:
@@ -25,11 +28,3 @@ jobs:
       registry: 'ghcr.io'
     secrets:
       gh_token: ${{ secrets.GITHUB_TOKEN }}
-```
-
-See the [full example here](../gh_workflow_examples/build_and_publish_containers.yml).
-
-## Next
-
-- Generate SBOMs
-- Document how inputs and metadata should be handled by tooling.

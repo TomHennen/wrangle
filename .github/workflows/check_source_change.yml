@@ -1,0 +1,29 @@
+name: Check Change
+
+on:
+  workflow_call:
+    secrets:
+      gh_token:
+        # TODO: Is this needed for public repos and if wrangle images are public?
+        description: "GitHub token with permission to read wrangle images, repo data, and write security-events."
+        required: true
+
+jobs:
+  # Whenever new source is pushed or a PR is received, scan it for any issues
+  check-change:
+    permissions:
+      actions: read
+      contents: read
+      packages: read
+      issues: read
+      pull-requests: read
+      security-events: write # So we can upload sarif
+      statuses: read
+    runs-on: ubuntu-latest
+    steps:
+    - name: "Run Scan"
+      uses: tomhennen/wrangle/source/actions/scan@main
+      # TODO: Remove once images are public?
+      with:
+        registry: 'ghcr.io'
+        github_token: ${{ secrets.gh_token }}
