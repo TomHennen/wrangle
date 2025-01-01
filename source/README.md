@@ -9,7 +9,7 @@ For now it just includes source scanning integrations.
 To scan your source code for issues using Wrangle, all you have to do is add this snippet
 (with appropriate modifications) to your corresponding GitHub Action workflow.
 
-```
+```yaml
 jobs:
   check-change:
     permissions:

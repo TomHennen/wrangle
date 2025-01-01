@@ -10,7 +10,7 @@ To build and publish a container image using Wrangle, all you have to do is add
 this snippet (with appropriate modifications) to your corresponding GitHub Action
 workflow.
 
-```
+```yaml
 jobs:
   build-and-publish:
     permissions:
