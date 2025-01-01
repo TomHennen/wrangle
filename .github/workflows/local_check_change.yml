@@ -21,4 +21,3 @@ jobs:
     uses: tomhennen/wrangle/.github/workflows/check_source_change.yml@examples
     secrets:
       gh_token: ${{ secrets.GITHUB_TOKEN }}
-
