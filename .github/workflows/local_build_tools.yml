@@ -30,7 +30,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        tool: [source/tools/osv, source/tools/zizmor, tools/cosign]
+        tool: [source/tools/osv, source/tools/slsa_vsa, source/tools/zizmor, tools/cosign]
     uses: tomhennen/wrangle/.github/workflows/build_and_publish_container.yml@main
     with:
       path: ${{ matrix.tool }}
