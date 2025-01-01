@@ -31,6 +31,9 @@ next version of Wrangle.
 
 Wrangle is composed of a few pieces:
 
+
+- [GitHub Workflow Examples](gh_workflow_examples/README.md)
+  - GitHub workflow examples that GitHub users can copy, paste, and tweak in their own repos to adopt wrangle.
 - [publish](publish/README.md)
   - Integrations for managing publishing artifacts and any metadata related to those published artifacts.
 - [source](source/README.md)

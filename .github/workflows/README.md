@@ -23,3 +23,11 @@ It's goal is to follow all best practices for building and publishing container 
 2. (TODO) Creating and publishing SBOMs.
 3. (TODO) Scanning for vulnerabilities.
 4. ...
+
+## check_source_changes.yml
+
+This reusable workflow allows callers to easily scan their source changes.
+
+It creates a summary of all the tool results in the GitHub Action.
+
+![check_source_change_summary](/assets/images/check_source_change_summary.png)

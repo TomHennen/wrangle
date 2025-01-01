@@ -1,4 +1,4 @@
-name: Check Change
+name: Check Source Change
 on:
   push:
     branches: [ "main" ]
