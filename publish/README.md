@@ -27,7 +27,7 @@ jobs:
       gh_token: ${{ secrets.GITHUB_TOKEN }}
 ```
 
-See the [full example here](../gh_workflow_examples/build_and_publish_containers.yml).
+See the [full example here](/gh_workflow_examples/build_and_publish_containers.yml).
 
 ## Next
 
