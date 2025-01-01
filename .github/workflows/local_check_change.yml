@@ -17,7 +17,6 @@ jobs:
       pull-requests: read
       security-events: write # So we can upload sarif
       statuses: read
-    # TODO change @examples back to @main
-    uses: tomhennen/wrangle/.github/workflows/check_source_change.yml@examples
+    uses: tomhennen/wrangle/.github/workflows/check_source_change.yml@main
     secrets:
       gh_token: ${{ secrets.GITHUB_TOKEN }}
