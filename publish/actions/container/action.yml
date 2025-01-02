@@ -81,7 +81,7 @@ runs:
     shell: bash
   - name: Scan the SBOM
     id: scan
-    run: ./tools/check_sbom.sh -r ghcr.io/tomhennen/wrangle -s ${{ steps.get_sbom.outputs.sbom }} tools/osv_sbom
+    run: ./tools/check_sbom.sh -r ghcr.io/tomhennen/wrangle -s ${{ steps.get_sbom.outputs.sbom }} osv_sbom
     shell: bash
   - uses: actions/upload-artifact@v4
     if: always()
