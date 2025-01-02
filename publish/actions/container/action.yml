@@ -68,7 +68,7 @@ runs:
       cache-to: type=gha,mode=max
   - name: Generate SBOM
     id: sbom
-    runs: docker sbom --format spdx-json --output ./metadata/${{ steps.normalize.outputs.imagename }}.spdx.json ${{ steps.normalize.outputs.imagename }}
+    run: docker sbom --format spdx-json --output ./metadata/${{ steps.normalize.outputs.imagename }}.spdx.json ${{ steps.normalize.outputs.imagename }}
     shell: bash
   - uses: actions/upload-artifact@v4
     if: always()
