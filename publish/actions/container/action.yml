@@ -66,9 +66,10 @@ runs:
       labels: ${{ steps.meta.outputs.labels }}
       cache-from: type=gha
       cache-to: type=gha,mode=max
-  - name: Generate SBOM
-    id: sbom
-    run: docker sbom --format spdx-json --output ./metadata/${{ steps.normalize.outputs.imagename }}.spdx.json ${{ steps.normalize.outputs.imagename }}
+      sbom: true
+  - name: Get the SBOM
+    id: get_sbom
+    run: docker buildx imagetools inspect ${{ steps.normalize.outputs.imagename }} --format "{{ json .SBOM.SPDX }}" > ./metadata/sbom.spdx.json
     shell: bash
   - uses: actions/upload-artifact@v4
     if: always()
