@@ -29,9 +29,12 @@ runs:
   using: "composite"
   steps:
   - id: normalize
-    run: echo "imagename=${UPPERCASE_VAR,,}" >> $GITHUB_OUTPUT
+    run: |
+      echo "imagename=${IMAGENAME,,}" >> $GITHUB_OUTPUT
+      echo "shortname=${PATH////_}" >> $GITHUB_OUTPUT
     env:
-      UPPERCASE_VAR: ${{ inputs.imagename }}
+      IMAGENAME: ${{ inputs.imagename }}
+      PATH: ${{ inputs.path }}
     shell: bash
   - id: check
     run: echo imagename "${{ steps.normalize.outputs.imagename }}"
@@ -68,14 +71,14 @@ runs:
       cache-to: type=gha,mode=max
       sbom: true
   - id: prep_metadata
-    run: mkdir -p ./metadata/container/${{ steps.normalize.outputs.imagename }}
+    run: mkdir -p ./metadata/container/${{ steps.normalize.outputs.shortname }}
     shell: bash
   - name: Get the SBOM
     id: get_sbom
-    run: docker buildx imagetools inspect ${{ steps.normalize.outputs.imagename }} --format "{{ json .SBOM.SPDX }}" > ./metadata/container/${{ steps.normalize.outputs.imagename }}/sbom.spdx.json
+    run: docker buildx imagetools inspect ${{ steps.normalize.outputs.imagename }} --format "{{ json .SBOM.SPDX }}" > ./metadata/container/${{ steps.normalize.outputs.shortname }}/sbom.spdx.json
     shell: bash
   - uses: actions/upload-artifact@v4
     if: always()
     with:
-      name: container-build-results-${{ steps.normalize.outputs.imagename }}
+      name: container-build-results-${{ steps.normalize.outputs.shortname }}
       path: ./metadata/
