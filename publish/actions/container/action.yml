@@ -66,4 +66,12 @@ runs:
       labels: ${{ steps.meta.outputs.labels }}
       cache-from: type=gha
       cache-to: type=gha,mode=max
-      sbom: true
+  - name: Generate SBOM
+    id: sbom
+    runs: docker sbom --format spdx-json --output ./metadata/${{ steps.normalize.outputs.imagename }}.spdx.json ${{ steps.normalize.outputs.imagename }}
+    shell: bash
+  - uses: actions/upload-artifact@v4
+    if: always()
+    with:
+      name: container-build-results
+      path: ./metadata/
