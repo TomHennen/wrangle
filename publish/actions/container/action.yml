@@ -77,5 +77,5 @@ runs:
   - uses: actions/upload-artifact@v4
     if: always()
     with:
-      name: container-build-results
+      name: container-build-results-${{ steps.normalize.outputs.imagename }}
       path: ./metadata/
