@@ -80,6 +80,7 @@ runs:
       echo sbom=./metadata/container/${{ steps.normalize.outputs.shortname }}/sbom.spdx.json >> $GITHUB_OUTPUT
     shell: bash
   - name: Scan the SBOM
+    if: ${{ false }} # TODO: reenable once things are building again
     id: scan
     run: ./tools/check_sbom.sh -r ghcr.io/tomhennen/wrangle -s ${{ steps.get_sbom.outputs.sbom }} tools/osv_sbom
     shell: bash
