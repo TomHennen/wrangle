@@ -77,11 +77,11 @@ runs:
     id: get_sbom
     run: |
       docker buildx imagetools inspect ${{ steps.normalize.outputs.imagename }} --format "{{ json .SBOM.SPDX }}" > ./metadata/container/${{ steps.normalize.outputs.shortname }}/sbom.spdx.json
-      echo sbom=./metadata/container/${{ steps.normalize.outputs.shortname }}/sbom.spdx.json >> $GITHUB_OUTPUT
+      echo sbom=metadata/container/${{ steps.normalize.outputs.shortname }}/sbom.spdx.json >> $GITHUB_OUTPUT
     shell: bash
   - name: Scan the SBOM
     id: scan
-    run: ./tools/check_sbom.sh -r ghcr.io/tomhennen/wrangle -s ${{ steps.get_sbom.outputs.sbom }} osv_sbom
+    run: ./tools/check_sbom.sh -r ghcr.io/tomhennen/wrangle -s /${{ steps.get_sbom.outputs.sbom }} osv_sbom
     shell: bash
   - uses: actions/upload-artifact@v4
     if: always()

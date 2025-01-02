@@ -33,7 +33,7 @@ do
 
     docker run \
        --quiet \
-	   --mount type=bind,source=./metadata/$tool,target=/metadata \
+	   --mount type=bind,source=./metadata,target=/metadata \
        -v /var/run/docker.sock:/var/run/docker.sock \
 	   "${parameterReg}tools/${tool}:latest" $parameterSbom
     if [ $? -ne 0 ]; then
