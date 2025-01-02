@@ -72,7 +72,7 @@ runs:
     shell: bash
   - name: Get the SBOM
     id: get_sbom
-    run: docker buildx imagetools inspect ${{ steps.normalize.outputs.imagename }} --format "{{ json .SBOM.SPDX }}" > ./metadata/container/sbom.spdx.json
+    run: docker buildx imagetools inspect ${{ steps.normalize.outputs.imagename }} --format "{{ json .SBOM.SPDX }}" > ./metadata/container/${{ steps.normalize.outputs.imagename }}-sbom.spdx.json
     shell: bash
   - uses: actions/upload-artifact@v4
     if: always()
