@@ -8,17 +8,14 @@
 # Specify SBOM tools to run as arguments.
 # run.sh -r ghrc.io/tomhennen/wrangle -s ./metadata/foo/sbom.spdx.json foo bar
 
-while getopts "r:s:" opt
-do
+while getopts "r:s:" opt; do
    case "$opt" in
-      r ) parameterReg="$OPTARG/"
-          shift
-          shift;;
-      s ) parameterSbom="$OPTARG"
-          shift
-          shift;;
+        s) parameterSbom="$OPTARG";;
+        r) parameterReg="$OPTARG/";;
    esac
 done
+
+shift $((OPTIND-1))
 
 echo "Registry is '$parameterReg'"
 echo "SBOM is '$parameterSbom'"
