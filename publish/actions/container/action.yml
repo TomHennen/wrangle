@@ -66,3 +66,4 @@ runs:
       labels: ${{ steps.meta.outputs.labels }}
       cache-from: type=gha
       cache-to: type=gha,mode=max
+      sbom: true
