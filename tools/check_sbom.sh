@@ -35,7 +35,7 @@ do
        --quiet \
 	   --mount type=bind,source=./metadata/$tool,target=/metadata \
        -v /var/run/docker.sock:/var/run/docker.sock \
-	   "${parameterReg}source/tools/${tool}:latest" $parameterSbom
+	   "${parameterReg}tools/${tool}:latest" $parameterSbom
     if [ $? -ne 0 ]; then
         WRANGLE_EXIT_STATUS=1
         TOOL_STATUS="Failed"
