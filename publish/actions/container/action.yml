@@ -24,6 +24,9 @@ outputs:
   imagename:
     description: 'The normalized image name'
     value: ${{ steps.normalize.outputs.imagename }}
+  sbom:
+    description: 'Path to an SBOM that describes the container'
+    value: ${{ steps.get_sbom.outputs.sbom}}
 
 runs:
   using: "composite"
@@ -35,9 +38,6 @@ runs:
     env:
       IMAGENAME: ${{ inputs.imagename }}
       PATH: ${{ inputs.path }}
-    shell: bash
-  - id: check
-    run: echo imagename "${{ steps.normalize.outputs.imagename }}"
     shell: bash
   - uses: actions/checkout@v4
   - name: Set up Docker Buildx
@@ -75,7 +75,9 @@ runs:
     shell: bash
   - name: Get the SBOM
     id: get_sbom
-    run: docker buildx imagetools inspect ${{ steps.normalize.outputs.imagename }} --format "{{ json .SBOM.SPDX }}" > ./metadata/container/${{ steps.normalize.outputs.shortname }}/sbom.spdx.json
+    run: |
+      docker buildx imagetools inspect ${{ steps.normalize.outputs.imagename }} --format "{{ json .SBOM.SPDX }}" > ./metadata/container/${{ steps.normalize.outputs.shortname }}/sbom.spdx.json
+      echo sbom=./metadata/container/${{ steps.normalize.outputs.shortname }}/sbom.spdx.json >> $GITHUB_OUTPUT
     shell: bash
   - uses: actions/upload-artifact@v4
     if: always()
