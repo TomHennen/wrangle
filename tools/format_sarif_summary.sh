@@ -6,8 +6,8 @@ for dir in metadata/*/
 do
     tool=$(basename $dir)
     TOOL_STATUS="No findings"
-    if [ -f ./metadata/$tool/$tool.sarif ]; then
-        NUM_FINDINGS=$(jq '[.runs[].results[]] | length' ./metadata/$tool/$tool.sarif)
+    if [ -f ./metadata/$tool/output.sarif ]; then
+        NUM_FINDINGS=$(jq '[.runs[].results[]] | length' ./metadata/$tool/output.sarif)
         if [ $NUM_FINDINGS -gt 0 ]; then
             TOOL_STATUS="$NUM_FINDINGS findings"
         fi
