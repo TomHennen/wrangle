@@ -24,17 +24,20 @@ outputs:
   imagename:
     description: 'The normalized image name'
     value: ${{ steps.normalize.outputs.imagename }}
+  sbom:
+    description: 'Path to an SBOM that describes the container'
+    value: ${{ steps.get_sbom.outputs.sbom}}
 
 runs:
   using: "composite"
   steps:
   - id: normalize
-    run: echo "imagename=${UPPERCASE_VAR,,}" >> $GITHUB_OUTPUT
+    run: |
+      echo "imagename=${IMAGENAME,,}" >> $GITHUB_OUTPUT
+      echo "shortname=${PATH////_}" >> $GITHUB_OUTPUT
     env:
-      UPPERCASE_VAR: ${{ inputs.imagename }}
-    shell: bash
-  - id: check
-    run: echo imagename "${{ steps.normalize.outputs.imagename }}"
+      IMAGENAME: ${{ inputs.imagename }}
+      PATH: ${{ inputs.path }}
     shell: bash
   - uses: actions/checkout@v4
   - name: Set up Docker Buildx
@@ -66,3 +69,22 @@ runs:
       labels: ${{ steps.meta.outputs.labels }}
       cache-from: type=gha
       cache-to: type=gha,mode=max
+      sbom: true
+  - id: prep_metadata
+    run: mkdir -p ./metadata/container/${{ steps.normalize.outputs.shortname }}
+    shell: bash
+  - name: Get the SBOM
+    id: get_sbom
+    run: |
+      docker buildx imagetools inspect ${{ steps.normalize.outputs.imagename }} --format "{{ json .SBOM.SPDX }}" > ./metadata/container/${{ steps.normalize.outputs.shortname }}/sbom.spdx.json
+      echo sbom=metadata/container/${{ steps.normalize.outputs.shortname }}/sbom.spdx.json >> $GITHUB_OUTPUT
+    shell: bash
+  - name: Scan the SBOM
+    id: scan
+    run: ./tools/check_sbom.sh -r ghcr.io/tomhennen/wrangle -s /${{ steps.get_sbom.outputs.sbom }} osv_sbom
+    shell: bash
+  - uses: actions/upload-artifact@v4
+    if: always()
+    with:
+      name: container-build-results-${{ steps.normalize.outputs.shortname }}
+      path: ./metadata/
