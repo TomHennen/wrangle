@@ -34,8 +34,8 @@ Wrangle is composed of a few pieces:
 
 - [GitHub Workflow Examples](gh_workflow_examples/README.md)
   - GitHub workflow examples that GitHub users can copy, paste, and tweak in their own repos to adopt wrangle.
-- [publish](publish/README.md)
-  - Integrations for managing publishing artifacts and any metadata related to those published artifacts.
+- [build](build/README.md)
+  - Integrations for managing building artifacts and any metadata related to those published artifacts.
 - [source](source/README.md)
   - Integrations for managing source code.  Currently limited to 'scans' which look for problems.
     Could be expanded to linting, formatting, etc in the future.

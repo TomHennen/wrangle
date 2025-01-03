@@ -1,4 +1,4 @@
-# Wrangle Publish Container
+# Wrangle Build Container
 
 A GitHub action that builds and publishes a container image following best practices.
 
@@ -8,7 +8,5 @@ for container images (even if it isn't ideal.)
 TODO:
 
 - See if we can split build and publication.
-- Scan container for vulns.
 - Sign container image.
-- Generate provenance.
-- Generate SBOM.
+- Maybe we should just have this _always_ publish to the ghcr registry and then we can handle 'promotion' in another step.
