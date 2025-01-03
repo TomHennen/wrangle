@@ -4,6 +4,14 @@ This folder contains all the tools and actions for dealing with source.
 
 For now it just includes source scanning integrations.
 
+## User instructions
+
+Users can use Wrangle Source in multiple ways:
+
+1. (GitHub only) By using Wrangle's reusable source workflow, [example](/gh_workflow_examples/check_source_change.yml).
+2. (GitHub only) By calling Wrangle's [source/actions/scan](/source/actions/scan) GitHub action directly.
+3. By having Wrangle run the containerized tools directly, e.g. `./source/tools/run.sh -r ghcr.io/tomhennen/wrangle osv zizmor`
+
 ## Actions
 
 Wrangle Source Actions are [GitHub Actions](https://github.com/features/actions) that process source code and emit results.
