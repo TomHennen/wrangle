@@ -22,7 +22,6 @@ for tool in $@;
 do
     echo "Running $tool..."
     mkdir -p ./metadata/$tool
-    mkdir -p ./dist/$tool
     TOOL_STATUS="Success"
 
     # We don't want the pipe/tee output to make it look like this succeeded.
@@ -30,7 +29,6 @@ do
 
     docker run \
        --quiet \
-       --mount type=bind,source=./dist/$tool,target=/dist \
 	   --mount type=bind,source=./metadata/$tool,target=/metadata \
 	   --mount type=bind,source=./,target=/src,readonly \
        -v /var/run/docker.sock:/var/run/docker.sock \
