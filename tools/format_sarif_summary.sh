@@ -5,15 +5,14 @@ echo "| ---- | ------ | ------- |"
 for dir in metadata/*/
 do
     tool=$(basename $dir)
-    TOOL_STATUS="No findings"
-    if [ -f ./metadata/$tool/output.sarif ]; then
+    if [ -f ./metadata/$tool/output.sarif ]; then    
+        TOOL_STATUS="No findings"
         NUM_FINDINGS=$(jq '[.runs[].results[]] | length' ./metadata/$tool/output.sarif)
         if [ $NUM_FINDINGS -gt 0 ]; then
             TOOL_STATUS="$NUM_FINDINGS findings"
         fi
+        echo "| $tool | $TOOL_STATUS | [Details](#$tool-details) |"
     fi
-
-    echo "| $tool | $TOOL_STATUS | [Details](#$tool-details) |"
 done
 
 printf "\n"
@@ -22,13 +21,14 @@ printf "\n"
 for dir in metadata/*/
 do
     tool=$(basename $dir)
-    echo "## $tool Details"
     if [ -f ./metadata/$tool/output.txt ]; then
+        echo "## $tool Details"
         printf "\n<pre><code>"
         cat ./metadata/$tool/output.txt
         printf "</code></pre>\n"
     elif [ -f ./metadata/$tool/output.md ]; then
+        echo "## $tool Details"
         cat ./metadata/$tool/output.md
+        printf "\n"
     fi
-    printf "\n"
 done
