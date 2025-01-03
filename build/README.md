@@ -1,12 +1,12 @@
-# Wrangle Publish
+# Wrangle Build
 
-This folder contains all the tools and actions for dealing with publication.
+This folder contains all the tools and actions for dealing with building packages.
 
-For now it just includes container publication.
+For now it just includes container builds.
 
 ## GitHub Actions Example
 
-To build and publish a container image using Wrangle, all you have to do is add
+To build a container image using Wrangle, all you have to do is add
 this snippet (with appropriate modifications) to your corresponding GitHub Action
 workflow.
 

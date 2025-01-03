@@ -36,7 +36,7 @@ jobs:
     steps:
     - name: "build and publish"
       id: build    
-      uses: tomhennen/wrangle/publish/actions/container@main
+      uses: tomhennen/wrangle/build/actions/container@main
       with:
         path: ${{ inputs.path }}
         imagename: ${{ inputs.imagename }}
