@@ -2,34 +2,18 @@
 
 This folder contains all the tools and actions for dealing with building packages.
 
-For now it just includes container builds.
+Wrangle will have customized build methods for each supported artifact type/destination.
 
-## GitHub Actions Example
+For now Wrangle only supports building containers.
 
-To build a container image using Wrangle, all you have to do is add
-this snippet (with appropriate modifications) to your corresponding GitHub Action
-workflow.
+## Containers with GitHub Actions
 
-```yaml
-jobs:
-  build-and-publish:
-    permissions:
-      contents: read
-      actions: read # for detecting the Github Actions environment.
-      id-token: write # for creating OIDC tokens for signing.
-      packages: write # for uploading attestations.
-    uses: tomhennen/wrangle/.github/workflows/build_and_publish_container.yml@main
-    with:
-      path: PATH/TO/FOLDER/WITH/Dockerfile
-      imagename: ghcr.io/${{ github.repository }}/YOUR_IMAGE_NAME
-      registry: 'ghcr.io'
-    secrets:
-      gh_token: ${{ secrets.GITHUB_TOKEN }}
-```
+### User Instructions
 
-See the [full example here](/gh_workflow_examples/build_and_publish_containers.yml).
+Wrangle supports building containers with GitHub actions in two ways:
 
-## Next
+* A reusable workflow that handles everything, SBOM generation, vuln scanning, and provenance generation. [Example](/gh_workflow_examples/build_and_publish_containers.yml)
+* An [action](/build/actions/container/action.yml) that you can plug into your existing workflow.  Handles SBOM generation and vuln scanning.
 
-- Generate SBOMs
-- Document how inputs and metadata should be handled by tooling.
+Example vulnerability scan results:
+![Wrangle Build Container Summary showing vulns found by OSV](/assets/images/osv_sbom_summary.png)
