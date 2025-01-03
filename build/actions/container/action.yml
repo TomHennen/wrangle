@@ -83,6 +83,10 @@ runs:
     id: scan
     run: ./tools/check_sbom.sh -r ghcr.io/tomhennen/wrangle -s /${{ steps.get_sbom.outputs.sbom }} osv_sbom
     shell: bash
+  - name: Generate summary
+    if: always()
+    run: ./tools/format_sarif_summary.sh >> $GITHUB_STEP_SUMMARY
+    shell: bash
   - uses: actions/upload-artifact@v4
     if: always()
     with:
