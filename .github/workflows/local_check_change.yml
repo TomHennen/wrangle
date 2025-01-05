@@ -6,12 +6,14 @@ on:
     branches: [ "**" ]
   workflow_dispatch:
 
+permissions:
+  contents: read
+
 jobs:
   # Whenever new source is pushed or a PR is received, scan it for any issues
   check-change:
     permissions:
       actions: read
-      contents: read
       packages: read
       issues: read
       pull-requests: read
