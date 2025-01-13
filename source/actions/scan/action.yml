@@ -1,0 +1,48 @@
+name: Scan source
+
+description: Scan source with wrangle
+
+# TODO: Remove once images are public?
+inputs:
+  registry:
+    required: true
+    type: string
+  github_token:
+    description: "GitHub token with read access"
+    required: true
+    type: string
+
+runs:
+  using: "composite"
+  steps:
+    - uses: actions/checkout@v4
+    # TODO: Remove once images are public?
+    - name: Log in to the Container registry
+      uses: docker/login-action@65b78e6e13532edd9afa3aa52ac7964289d1a9c1
+      with:
+        registry: ${{ inputs.registry }}
+        username: ${{ github.actor }}
+        password: ${{ inputs.github_token }}
+    - name: Scan the source repo with tools
+      id: scan
+      run: ./source/tools/run.sh -r ghcr.io/tomhennen/wrangle osv zizmor
+      shell: bash
+      # TODO: better handle various actions that we call?  Don't treat scorecards special?
+    - name: Scorecard
+      if: always()
+      uses: tomhennen/wrangle/source/actions/scorecard@main
+    - name: Generate summary
+      if: always()
+      run: ./tools/format_sarif_summary.sh >> $GITHUB_STEP_SUMMARY
+      shell: bash
+    - name: Upload SARIFs
+      if: ${{ false }} # We're still a private repo so we can't enable code scanning. :(
+      uses: github/codeql-action/upload-sarif@v3
+      with:
+        sarif_file: ./metadata/
+        category: wrangle
+    - uses: actions/upload-artifact@v4
+      if: always()
+      with:
+        name: scan-results
+        path: ./metadata/

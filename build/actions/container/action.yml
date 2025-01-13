@@ -1,0 +1,94 @@
+name: Docker image builder
+
+description: Build a docker image
+
+inputs:
+  path:
+    description: "A path, within the repo, to the folder containiner a Dockerfile you want to build."
+    required: true
+    type: string
+  imagename:
+    required: true
+    type: string
+  registry:
+    required: true
+    type: string
+  github_token:
+    description: "GitHub token with write access"
+    required: true
+
+outputs:
+  digest:
+    description: 'Image digest'
+    value: ${{ steps.push.outputs.digest }}
+  imagename:
+    description: 'The normalized image name'
+    value: ${{ steps.normalize.outputs.imagename }}
+  sbom:
+    description: 'Path to an SBOM that describes the container'
+    value: ${{ steps.get_sbom.outputs.sbom}}
+
+runs:
+  using: "composite"
+  steps:
+  - id: normalize
+    run: |
+      echo "imagename=${IMAGENAME,,}" >> $GITHUB_OUTPUT
+      echo "shortname=${PATH////_}" >> $GITHUB_OUTPUT
+    env:
+      IMAGENAME: ${{ inputs.imagename }}
+      PATH: ${{ inputs.path }}
+    shell: bash
+  - uses: actions/checkout@v4
+  - name: Set up Docker Buildx
+    uses: docker/setup-buildx-action@v3
+  - name: Extract metadata (tags, labels) for Docker
+    id: meta
+    uses: docker/metadata-action@9ec57ed1fcdbf14dcef7dfbe97b2010124a938b7
+    with:
+      images: ${{ steps.normalize.outputs.imagename }}
+      tags: |
+        type=ref,event=branch
+        type=ref,event=pr
+        type=semver,pattern={{version}}
+        type=semver,pattern={{major}}.{{minor}}
+        type=raw,value=latest,enable=${{ github.ref == 'refs/heads/main' }}
+  - name: Log in to the Container registry
+    uses: docker/login-action@65b78e6e13532edd9afa3aa52ac7964289d1a9c1
+    with:
+      registry: ${{ inputs.registry }}
+      username: ${{ github.actor }}
+      password: ${{ inputs.github_token }}
+  - name: Build and push Docker image
+    id: push
+    uses: docker/build-push-action@f2a1d5e99d037542a71f64918e516c093c6f3fc4
+    with:
+      context: "{{defaultContext}}:${{ inputs.path }}"
+      push: true
+      tags: ${{ steps.meta.outputs.tags }}
+      labels: ${{ steps.meta.outputs.labels }}
+      cache-from: type=gha
+      cache-to: type=gha,mode=max
+      sbom: true
+  - id: prep_metadata
+    run: mkdir -p ./metadata/container/${{ steps.normalize.outputs.shortname }}
+    shell: bash
+  - name: Get the SBOM
+    id: get_sbom
+    run: |
+      docker buildx imagetools inspect ${{ steps.normalize.outputs.imagename }} --format "{{ json .SBOM.SPDX }}" > ./metadata/container/${{ steps.normalize.outputs.shortname }}/sbom.spdx.json
+      echo sbom=metadata/container/${{ steps.normalize.outputs.shortname }}/sbom.spdx.json >> $GITHUB_OUTPUT
+    shell: bash
+  - name: Scan the SBOM
+    id: scan
+    run: ./tools/check_sbom.sh -r ghcr.io/tomhennen/wrangle -s /${{ steps.get_sbom.outputs.sbom }} osv_sbom
+    shell: bash
+  - name: Generate summary
+    if: always()
+    run: ./tools/format_sarif_summary.sh >> $GITHUB_STEP_SUMMARY
+    shell: bash
+  - uses: actions/upload-artifact@v4
+    if: always()
+    with:
+      name: container-build-results-${{ steps.normalize.outputs.shortname }}
+      path: ./metadata/

@@ -1,0 +1,22 @@
+name: Check Change
+on:
+  push:
+    branches: [ "main" ]
+  pull_request:
+    branches: [ "**" ]
+  workflow_dispatch:
+
+jobs:
+  # Whenever new source is pushed or a PR is received, scan it for any issues
+  check-change:
+    permissions:
+      actions: read
+      contents: read
+      packages: read
+      issues: read
+      pull-requests: read
+      security-events: write # So we can upload sarif
+      statuses: read
+    uses: tomhennen/wrangle/.github/workflows/check_source_change.yml@main
+    secrets:
+      gh_token: ${{ secrets.GITHUB_TOKEN }}

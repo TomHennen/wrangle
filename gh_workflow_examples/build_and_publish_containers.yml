@@ -1,0 +1,30 @@
+name: Build and Publish Container
+
+on:
+  push:
+    branches: [ 'main' ]
+    tags: [ 'v*' ]
+  pull_request:
+    branches: [ "**" ]
+  workflow_dispatch:
+
+# Make sure we cancel any outstanding workflows that are outdated.
+# This should save time & money.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.head_ref || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build-and-publish:
+    permissions:
+      contents: read
+      actions: read # for detecting the Github Actions environment.
+      id-token: write # for creating OIDC tokens for signing.
+      packages: write # for uploading attestations.
+    uses: tomhennen/wrangle/.github/workflows/build_and_publish_container.yml@main
+    with:
+      path: PATH/TO/FOLDER/WITH/Dockerfile
+      imagename: ghcr.io/${{ github.repository }}/YOUR_IMAGE_NAME
+      registry: 'ghcr.io'
+    secrets:
+      gh_token: ${{ secrets.GITHUB_TOKEN }}
