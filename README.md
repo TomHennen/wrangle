@@ -7,9 +7,6 @@ users without them needing to know all the details.
 NOTE: I've never really used GitHub for professional development
 before, so this is a bit of a learning process too.
 
-Alternate name: "streetlights"
-
-
 ## Goals
 
 ### Project Owners
