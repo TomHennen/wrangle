@@ -30,14 +30,14 @@ Wrangle is a composable CI/CD security framework for GitHub Actions that provide
                    │ uses:
 ┌──────────────────▼───────────────────────────────┐
 │  Wrangle Composite Action                        │
-│  source/actions/scan/action.yml                  │
+│  actions/scan/action.yml                         │
 │  (installs tools, runs adapters, uploads results)│
 └──────────────────┬───────────────────────────────┘
                    │ calls
 ┌──────────────────▼───────────────────────────────┐
-│  Orchestrator + Adapters                         │
-│  source/run.sh → source/install/*.sh             │
-│                → source/adapters/*.sh            │
+│  Orchestrator + Tools                            │
+│  run.sh → tools/<name>/install.sh                │
+│         → tools/<name>/adapter.sh                │
 │  (download binaries, run tools, normalize output)│
 └──────────────────────────────────────────────────┘
 ```
@@ -46,33 +46,38 @@ Wrangle is a composable CI/CD security framework for GitHub Actions that provide
 
 ```
 wrangle/
-├── source/
-│   ├── adapters/           # Tool adapter scripts (one per tool)
-│   │   ├── osv.sh
-│   │   └── zizmor.sh
-│   ├── install/            # Tool installation scripts (one per tool)
-│   │   ├── osv.sh
-│   │   └── zizmor.sh
-│   ├── lib/                # Shared helper library
-│   │   └── download_verify.sh  # wrangle_download_verify(), wrangle_verify_provenance()
-│   ├── run.sh              # Orchestrator
-│   └── actions/
-│       ├── scan/
-│       │   └── action.yml  # Composite action entry point
-│       └── scorecard/
-│           └── action.yml  # OSSF Scorecard wrapper
-├── build/
+├── tools/                  # One directory per tool — everything in one place
+│   ├── osv/
+│   │   ├── install.sh      # Downloads + verifies OSV-Scanner binary
+│   │   ├── adapter.sh      # Runs OSV-Scanner, produces SARIF
+│   │   └── test.bats       # Tests for this tool
+│   └── zizmor/
+│       ├── install.sh
+│       ├── adapter.sh
+│       └── test.bats
+├── lib/                    # Shared helpers
+│   ├── download_verify.sh  # wrangle_download_verify(), wrangle_verify_provenance()
+│   └── format_sarif_summary.sh  # SARIF → markdown summary
+├── actions/                # GitHub Actions entry points
+│   ├── scan/
+│   │   └── action.yml      # Composite action: scan source code
+│   └── scorecard/
+│       └── action.yml      # OSSF Scorecard wrapper (GitHub Action, not adapter)
+├── build/                  # Build/publish workflows
 │   └── actions/
 │       └── container/
 │           └── action.yml  # Container build/publish action
-├── tools/
-│   └── format_sarif_summary.sh  # SARIF → markdown summary
+├── run.sh                  # Orchestrator (installs + runs tools)
 ├── gh_workflow_examples/   # Copy-paste templates for adopters
-├── test/                   # Tests (bats, fixtures, schemas)
+├── test/                   # Integration tests, fixtures, schemas
 ├── docs/
 │   └── SPEC.md             # This document
-└── CLAUDE.md               # AI agent adoption instructions
+└── AGENTS.md               # AI agent adoption instructions
 ```
+
+**Why per-tool directories?** Everything related to a single capability lives in one place. To understand "what does wrangle's OSV integration entail?" — look in `tools/osv/`. To add a new tool — copy any `tools/<name>/` directory and adapt. This makes the project easy to navigate and extend.
+
+**`build/actions/` extensibility:** The `build/actions/container/` directory is the first build type. Future build types (e.g., `build/actions/python/`, `build/actions/npm/`) follow the same pattern, providing opinionated build+publish workflows for different project types.
 
 ---
 
@@ -80,11 +85,13 @@ wrangle/
 
 ### Adapter Script Interface
 
-Each adapter in `source/adapters/` wraps a security tool with a standard interface.
+Each tool directory contains an `adapter.sh` that wraps the tool with a standard interface.
 
 **Contract:**
 
 ```
+LOCATION: tools/<name>/adapter.sh
+
 USAGE:  adapter.sh <src_dir> <output_dir>
 
 ARGUMENTS:
@@ -120,7 +127,9 @@ ENVIRONMENT:
   requiring adapter forks for authenticated tools.
 
 SECURITY:
-  - Adapter scripts MUST NOT write files outside of output_dir
+  - Adapter scripts MUST NOT write files outside of output_dir.
+    The orchestrator performs a post-execution filesystem check to detect
+    unexpected modifications outside output_dir and flags violations.
   - Adapter scripts MUST NOT make network requests beyond what the tool
     requires for its scan (e.g., fetching vulnerability databases)
   - All output written to GITHUB_STEP_SUMMARY MUST be sanitized to
@@ -130,11 +139,13 @@ SECURITY:
 
 ### Install Script Interface
 
-Each script in `source/install/` downloads and caches a tool binary.
+Each tool directory contains an `install.sh` that downloads and verifies the tool binary. Install scripts are called by the orchestrator (`run.sh`), not by users directly.
 
 **Contract:**
 
 ```
+LOCATION: tools/<name>/install.sh
+
 USAGE:  install.sh [version]
 
 ARGUMENTS:
@@ -155,22 +166,28 @@ EXIT CODES:
 
 INTEGRITY VERIFICATION (mandatory):
   Every install script MUST verify the downloaded binary before placing it
-  on PATH. Install scripts MUST use source/lib/download_verify.sh for this.
+  on PATH. Install scripts MUST use lib/download_verify.sh for this.
+  The shared library handles slsa-verifier installation automatically.
 
-  Required: SHA-256 checksum verification against checksums hardcoded in the
-  install script itself (NOT downloaded alongside the binary from the same
-  source). Each version bump requires updating the pinned checksum.
+  Verification hierarchy (use the strongest available):
+    1. SLSA provenance verification (preferred) — if the tool publishes
+       SLSA attestations, verify them via slsa-verifier. This is strictly
+       stronger than checksum verification because it proves the binary was
+       built from specific source by a specific builder. When provenance
+       verification passes, checksum verification is optional.
+    2. SHA-256 checksum (fallback) — if no SLSA provenance is available,
+       verify against a checksum hardcoded in the install script itself
+       (NOT downloaded alongside the binary). Each version bump requires
+       updating the pinned checksum.
 
-  Recommended: Where available, verify SLSA provenance attestations using
-  slsa-verifier. OSV-Scanner publishes SLSA provenance; new tools that
-  provide attestations should verify them.
+  Tools with SLSA provenance: OSV-Scanner
+  Tools without (checksum only): Zizmor
 
   The download/verify flow:
     1. Download binary to a temporary file ($RUNNER_TEMP/wrangle-dl-XXXXX)
-    2. Verify SHA-256 checksum against pinned value
-    3. Optionally verify SLSA provenance
-    4. Atomically move (mv) to $WRANGLE_BIN_DIR/<tool>
-    5. On verification failure: delete temp file, exit 1, print clear error
+    2. Verify via SLSA provenance (if available) OR SHA-256 checksum
+    3. Atomically move (mv) to $WRANGLE_BIN_DIR/<tool>
+    4. On verification failure: delete temp file, exit 1, print clear error
 
 INSTALL DIRECTORY:
   Binaries are installed to $WRANGLE_BIN_DIR, which defaults to
@@ -188,7 +205,7 @@ IDEMPOTENCY:
 
 ### Orchestrator Interface
 
-`source/run.sh` installs and runs multiple adapters.
+`run.sh` (at the repo root) installs and runs multiple adapters.
 
 **Contract:**
 
@@ -205,10 +222,10 @@ ARGUMENTS:
 BEHAVIOR:
   For each tool:
     1. Validate tool name matches ^[a-z][a-z0-9_-]*$ (reject otherwise)
-    2. Verify source/adapters/<tool>.sh and source/install/<tool>.sh exist
-    3. Run source/install/<tool>.sh (timeout: 5 minutes)
+    2. Verify tools/<tool>/adapter.sh and tools/<tool>/install.sh exist
+    3. Run tools/<tool>/install.sh (timeout: 5 minutes)
     4. Create <output_dir>/<tool>/
-    5. Run source/adapters/<tool>.sh <src_dir> <output_dir>/<tool>/ (timeout: 10 minutes)
+    5. Run tools/<tool>/adapter.sh <src_dir> <output_dir>/<tool>/ (timeout: 10 minutes)
     6. Record pass/fail status
 
   After all tools:
@@ -253,7 +270,7 @@ NOTES:
 
 ## Composite Action Interface
 
-The scan action (`source/actions/scan/action.yml`) is the primary entry point for GitHub Actions users.
+The scan action (`actions/scan/action.yml`) is the primary entry point for GitHub Actions users.
 
 ```yaml
 name: Wrangle Source Scan
@@ -278,7 +295,7 @@ inputs:
 
 **Portability:** All internal paths use `${{ github.action_path }}` so the action works when called from any repo.
 
-**Path constraint:** The composite action resolves the orchestrator via `${{ github.action_path }}/../../run.sh`, which means the scan action MUST remain at exactly `source/actions/scan/` (two directories below `source/`). This is a hard structural constraint — moving the action to a different depth breaks the relative path. If the directory layout changes, these paths must be updated in the same commit.
+**Path constraint:** The composite action resolves the orchestrator via `${{ github.action_path }}/../../run.sh`, which means the scan action MUST remain at exactly `actions/scan/` (two directories below the repo root). This is a hard structural constraint — moving the action to a different depth breaks the relative path. If the directory layout changes, these paths must be updated in the same commit.
 
 **Input safety:** The `tools` input is passed to the orchestrator via an environment variable, never via direct `${{ }}` interpolation in `run:` blocks. This prevents expression injection:
 
@@ -345,7 +362,7 @@ This is the entire file an adopter needs. No secrets, no configuration, no depen
 
 ### Why Scorecard is different
 
-OSV and Zizmor follow the adapter pattern (install script + adapter script + SARIF output). Scorecard does not — it is invoked as a separate composite action (`source/actions/scorecard/`) that wraps the upstream `ossf/scorecard-action`.
+OSV and Zizmor follow the adapter pattern (install script + adapter script + SARIF output). Scorecard does not — it is invoked as a separate composite action (`actions/scorecard/`) that wraps the upstream `ossf/scorecard-action`.
 
 This is because Scorecard is itself a GitHub Action, not a standalone binary. It requires the GitHub Actions context (repository metadata, API access) to function, which makes it incompatible with the adapter pattern's environment isolation. New tools that are standalone binaries should use the adapter pattern. Tools that are GitHub Actions should follow the Scorecard pattern (wrapped composite action, called separately by the scan action).
 
@@ -359,15 +376,13 @@ The install scripts include OS/arch detection (`linux/darwin`, `amd64/arm64`) as
 
 To add a tool named `foo`:
 
-1. Create `source/install/foo.sh` following the install script contract
-   - Use `source/lib/download_verify.sh` for download and checksum verification
-   - Pin an exact version with its SHA-256 checksum hardcoded in the script
-   - If the tool publishes SLSA provenance, add `wrangle_verify_provenance` call
-2. Create `source/adapters/foo.sh` following the adapter script contract
-3. Add `foo` to the default tool list in `source/actions/scan/action.yml`
-4. Add bats tests in `test/adapters/test_foo.bats` and `test/install/test_foo.bats`
+1. Create `tools/foo/` directory with:
+   - `install.sh` — uses `lib/download_verify.sh` for download and verification. If the tool publishes SLSA provenance, use `wrangle_verify_provenance`; otherwise pin a SHA-256 checksum.
+   - `adapter.sh` — follows the adapter contract above
+   - `test.bats` — tests for this tool (mock binaries for local, real tool in CI)
+2. Add `foo` to the default tool list in `actions/scan/action.yml`
 
-No Docker images, no registry management, no workflow changes for adopters.
+Everything for one tool lives in one directory. No Docker images, no registry management, no workflow changes for adopters.
 
 ---
 
@@ -430,8 +445,8 @@ All downloaded binaries are verified before execution:
 | Layer | Mechanism | Status |
 |-------|-----------|--------|
 | Transport | HTTPS only | Required |
-| Content | SHA-256 checksum (pinned in install script) | Required |
-| Provenance | SLSA attestation via slsa-verifier | Recommended (where available) |
+| Provenance | SLSA attestation via slsa-verifier | Required (where available; supersedes checksum) |
+| Content | SHA-256 checksum (pinned in install script) | Required (when no SLSA provenance available) |
 
 Checksums are hardcoded in each install script, not downloaded from the same source as the binary. Updating a tool version requires updating the checksum in the same commit.
 
@@ -439,7 +454,7 @@ Checksums are hardcoded in each install script, not downloaded from the same sou
 
 ### Shared Download/Verify Library
 
-`source/lib/download_verify.sh` provides helper functions used by all install scripts:
+`lib/download_verify.sh` provides helper functions used by all install scripts:
 
 ```bash
 # Download a file and verify its SHA-256 checksum
@@ -471,10 +486,21 @@ All install scripts MUST use `wrangle_download_verify` rather than implementing 
 - No runtime monitoring of tool behavior (process spawning, file access).
 
 **Mitigations for known limitations:**
-- Integrity verification (checksums + provenance) is the primary defense against malicious binaries
+- Integrity verification (checksums + SLSA provenance) is the primary defense against malicious binaries
 - GitHub-hosted runners are ephemeral, limiting the blast radius of any compromise
 - For self-hosted runners, adopters should use [StepSecurity Harden-Runner](https://github.com/step-security/harden-runner) alongside wrangle for network monitoring
+- Post-execution filesystem check: the orchestrator snapshots the workspace file list before and after each adapter run, flagging any unexpected file modifications outside `output_dir`
 - Future versions may use lightweight sandboxing (bubblewrap, firejail) on Linux runners
+
+### Protecting Wrangle Itself
+
+Wrangle is a supply chain amplifier — a compromise of wrangle propagates to every adopter. Protections for the wrangle repo itself:
+
+- **[SLSA Source Track](https://slsa.dev/spec/v1.2/):** Wrangle adopts the SLSA source track via [slsa-framework/source-tool](https://github.com/slsa-framework/source-tool) to enforce branch protection, generate source provenance attestations, and establish a verifiable chain of trust for its own source code. This protects against threat #2 (compromised wrangle).
+- **Action reference pinning:** All third-party actions pinned to full commit SHAs (protects against upstream action compromise).
+- **Signed commits:** All commits to the wrangle repo should be signed.
+- **Minimal permissions:** Wrangle's own workflows request only the permissions they need.
+- **Dependency management:** Dependabot for GitHub Actions dependencies; `make update-tool` for tool binary versions.
 
 ### Action Reference Pinning
 
@@ -516,7 +542,7 @@ Layers:
 
 ### CI (integration)
 
-`.github/workflows/test.yml` runs `make test` plus integration tests that exercise the composite action via `uses: ./source/actions/scan`.
+`.github/workflows/test.yml` runs `make test` plus integration tests that exercise the composite action via `uses: ./actions/scan`.
 
 ### End-to-end (cross-repo)
 
@@ -534,7 +560,7 @@ Layers:
 
 ### For AI agents
 
-`CLAUDE.md` in the repo root provides adoption instructions for AI coding agents. It MUST contain:
+`AGENTS.md` in the repo root provides adoption instructions for AI coding agents. It MUST contain:
 
 1. A single-command adoption instruction (e.g., "create this file at this path")
 2. The exact workflow YAML to generate, parameterized by default branch name
@@ -542,7 +568,7 @@ Layers:
 4. How to detect project type (check for Dockerfile, language files, etc.)
 5. Expected output after adoption (what the user should see on their next PR)
 
-The goal: any AI agent that reads `CLAUDE.md` can adopt wrangle on a new repo without additional context or web searches.
+The goal: any AI agent that reads `AGENTS.md` can adopt wrangle on a new repo without additional context or web searches.
 
 ### Long-term: OpenSSF contribution
 
@@ -553,25 +579,28 @@ The adapter pattern, tool composition logic, and profile system are candidates f
 ## Roadmap
 
 ### v0.1.0 (this spec)
-- [ ] Adapter API implemented (OSV, Zizmor)
-- [ ] Binary download installation with SHA-256 verification (no Docker)
-- [ ] Shared download/verify library (`source/lib/download_verify.sh`)
+- [ ] Per-tool directories (`tools/<name>/`) with adapter + install + test
+- [ ] Binary download with SLSA provenance (preferred) or SHA-256 verification
+- [ ] Shared download/verify library (`lib/download_verify.sh`)
 - [ ] Portable composite action (`github.action_path`)
 - [ ] Input validation and environment isolation in orchestrator
-- [ ] SARIF upload enabled
+- [ ] SARIF upload enabled (per-tool categories)
 - [ ] Output sanitization for step summaries
 - [ ] All action references pinned to SHAs
+- [ ] SLSA source track adopted for the wrangle repo itself
 - [ ] Testing infrastructure (actionlint + shellcheck + bats)
 - [ ] Tested on Concordance
-- [ ] CLAUDE.md for AI agent adoption
+- [ ] AGENTS.md for AI agent adoption
 
 ### v0.2.0 (future)
 - [ ] Profile system (`wrangle.yml` with `profile: container` / `profile: library`)
 - [ ] `wrangle init` CLI or GitHub Action for bootstrapping
 - [ ] Additional tools (e.g., Semgrep, Trivy)
 - [ ] Build workflow portability fixes
-- [ ] `source/tools.lock` manifest — single file listing all tool versions, URLs, and checksums per platform (replaces hardcoded values in individual install scripts, makes upgrades scriptable and auditable in one place)
+- [ ] `tools.lock` manifest — single file listing all tool versions, URLs, and checksums per platform (replaces hardcoded values in individual install scripts, makes upgrades scriptable and auditable in one place)
 - [ ] Lightweight sandboxing for adapters (bubblewrap/firejail on Linux)
+- [ ] [Ampel](https://github.com/carabiner-dev/ampel) integration — policy verification layer that evaluates attestations (SARIF, SLSA provenance, SBOMs) against CEL-based policies and produces Verification Summary Attestations (VSAs)
+- [ ] Help adopters adopt the SLSA source track in their repos
 
 ### v1.0.0 (future)
 - [ ] OpenSSF contribution proposal
