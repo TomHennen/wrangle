@@ -110,9 +110,14 @@ ENVIRONMENT:
   are passed through from the runner:
     PATH, HOME, TMPDIR, RUNNER_TEMP, GITHUB_WORKSPACE, GITHUB_STEP_SUMMARY
   Sensitive variables (GITHUB_TOKEN, ACTIONS_RUNTIME_TOKEN, etc.) are NOT
-  available to adapters. If a tool requires authentication (e.g., for
-  private vulnerability databases), it must be explicitly documented and
-  passed via the orchestrator.
+  available to adapters by default. If a tool requires an additional
+  environment variable (e.g., a private vulnerability DB token), it can
+  be passed through by setting it in the composite action's `env:` block
+  with a `WRANGLE_EXTRA_` prefix. The orchestrator forwards any variable
+  matching `WRANGLE_EXTRA_*` to adapters with the prefix stripped.
+  Example: `WRANGLE_EXTRA_OSV_DB_TOKEN=xxx` becomes `OSV_DB_TOKEN=xxx`
+  in the adapter environment. This keeps the allowlist explicit without
+  requiring adapter forks for authenticated tools.
 
 SECURITY:
   - Adapter scripts MUST NOT write files outside of output_dir
@@ -201,13 +206,24 @@ BEHAVIOR:
   For each tool:
     1. Validate tool name matches ^[a-z][a-z0-9_-]*$ (reject otherwise)
     2. Verify source/adapters/<tool>.sh and source/install/<tool>.sh exist
-    3. Run source/install/<tool>.sh
+    3. Run source/install/<tool>.sh (timeout: 5 minutes)
     4. Create <output_dir>/<tool>/
-    5. Run source/adapters/<tool>.sh <src_dir> <output_dir>/<tool>/
+    5. Run source/adapters/<tool>.sh <src_dir> <output_dir>/<tool>/ (timeout: 10 minutes)
     6. Record pass/fail status
 
   After all tools:
     7. Print summary table to stdout
+
+TIMEOUTS:
+  Each adapter invocation is wrapped in `timeout(1)` to prevent a hung tool
+  from consuming the entire GitHub Actions job timeout (default 6 hours).
+
+  Default timeouts:
+    - Install scripts: 5 minutes (sufficient for binary download + verify)
+    - Adapter scripts: 10 minutes (sufficient for scanning large repos)
+
+  A timeout expiration is treated as exit code 2 (tool failure). The
+  orchestrator logs the timeout and continues to the next tool.
 
 EXIT CODES:
   0  All tools passed with no findings
@@ -262,6 +278,8 @@ inputs:
 
 **Portability:** All internal paths use `${{ github.action_path }}` so the action works when called from any repo.
 
+**Path constraint:** The composite action resolves the orchestrator via `${{ github.action_path }}/../../run.sh`, which means the scan action MUST remain at exactly `source/actions/scan/` (two directories below `source/`). This is a hard structural constraint — moving the action to a different depth breaks the relative path. If the directory layout changes, these paths must be updated in the same commit.
+
 **Input safety:** The `tools` input is passed to the orchestrator via an environment variable, never via direct `${{ }}` interpolation in `run:` blocks. This prevents expression injection:
 
 ```yaml
@@ -274,7 +292,7 @@ run: ${{ github.action_path }}/../../run.sh $WRANGLE_TOOLS
 run: ${{ github.action_path }}/../../run.sh ${{ inputs.tools }}
 ```
 
-The orchestrator performs additional validation on tool names (see orchestrator INPUT VALIDATION).
+Note: `$WRANGLE_TOOLS` is intentionally unquoted so it word-splits into multiple arguments. This is safe because the orchestrator validates each token against `^[a-z][a-z0-9_-]*$` before use, and the orchestrator runs `set -f` (disable globbing) before processing arguments. Defense in depth: even if a glob character survived the regex, it would not expand.
 
 ---
 
@@ -325,6 +343,18 @@ This is the entire file an adopter needs. No secrets, no configuration, no depen
 | [Zizmor](https://github.com/woodruffw/zizmor) | Workflow linter | Security-focused linting of GitHub Actions workflows |
 | [OSSF Scorecard](https://scorecard.dev/) | Supply chain scoring | Assesses repo security health across 18+ categories |
 
+### Why Scorecard is different
+
+OSV and Zizmor follow the adapter pattern (install script + adapter script + SARIF output). Scorecard does not — it is invoked as a separate composite action (`source/actions/scorecard/`) that wraps the upstream `ossf/scorecard-action`.
+
+This is because Scorecard is itself a GitHub Action, not a standalone binary. It requires the GitHub Actions context (repository metadata, API access) to function, which makes it incompatible with the adapter pattern's environment isolation. New tools that are standalone binaries should use the adapter pattern. Tools that are GitHub Actions should follow the Scorecard pattern (wrapped composite action, called separately by the scan action).
+
+### Supported Platforms (v0.1)
+
+v0.1 targets **Linux x86_64** (Ubuntu) runners only. This is what GitHub-hosted `ubuntu-latest` provides and covers the vast majority of CI workloads.
+
+The install scripts include OS/arch detection (`linux/darwin`, `amd64/arm64`) as forward-looking scaffolding, but macOS and ARM runners are not tested or guaranteed to work in v0.1. Platform support will expand based on demand.
+
 ### Adding a New Tool
 
 To add a tool named `foo`:
@@ -371,6 +401,15 @@ All tools produce SARIF 2.1.0. This enables:
 
 Human-readable output (markdown/text) is optional and used only for step summaries.
 
+### Per-tool SARIF uploads (not merged)
+
+Each tool's SARIF file is uploaded to GitHub Code Scanning separately via `github/codeql-action/upload-sarif` with a per-tool `category` (e.g., `wrangle/osv`, `wrangle/zizmor`). This means:
+- Each tool appears as a separate check run in the Security tab
+- Findings are attributed to the specific tool that found them
+- A noisy tool can be identified and tuned without affecting others
+
+The alternative (merging all SARIF into one file) was rejected because it loses tool attribution and makes it harder to diagnose which tool produced which finding.
+
 ---
 
 ## Security Model
@@ -396,6 +435,8 @@ All downloaded binaries are verified before execution:
 
 Checksums are hardcoded in each install script, not downloaded from the same source as the binary. Updating a tool version requires updating the checksum in the same commit.
 
+**Version upgrade workflow:** To update a tool version, run `make update-tool TOOL=osv VERSION=x.y.z`. This helper downloads the new binary, computes its SHA-256 checksum, and patches the install script. The contributor then verifies the change, commits both the version and checksum update together, and opens a PR. Dependabot is not used for tool binaries because it cannot update hardcoded checksums.
+
 ### Shared Download/Verify Library
 
 `source/lib/download_verify.sh` provides helper functions used by all install scripts:
@@ -403,7 +444,9 @@ Checksums are hardcoded in each install script, not downloaded from the same sou
 ```bash
 # Download a file and verify its SHA-256 checksum
 # Usage: wrangle_download_verify <url> <expected_sha256> <output_path>
-# Exits 1 on checksum mismatch (temp file is deleted)
+# Retries up to 3 times with exponential backoff (1s, 2s, 4s) on transient
+# download failures (CDN blips, rate limits, DNS hiccups).
+# Exits 1 on checksum mismatch or exhausted retries (temp file is deleted).
 wrangle_download_verify() { ... }
 
 # Verify SLSA provenance for a downloaded artifact (optional)
@@ -469,6 +512,8 @@ Layers:
 3. **bats-core** — unit tests for adapters, install scripts, orchestrator, and formatter
 4. **SARIF schema validation** — validates fixture/output SARIF against the 2.1.0 JSON schema
 
+**Adapter testing pattern:** Adapter bats tests use mock tool binaries that produce fixture SARIF, not real tool downloads. This keeps local tests fast and deterministic. Integration tests in CI download real tools and run them against the wrangle repo itself (dogfooding). Install script tests verify the download/verify flow using a known test binary hosted in the wrangle repo's releases.
+
 ### CI (integration)
 
 `.github/workflows/test.yml` runs `make test` plus integration tests that exercise the composite action via `uses: ./source/actions/scan`.
@@ -489,7 +534,15 @@ Layers:
 
 ### For AI agents
 
-See `CLAUDE.md` in the repo root. The instructions enable any AI coding agent to adopt wrangle with a single command like "adopt wrangle for this repo."
+`CLAUDE.md` in the repo root provides adoption instructions for AI coding agents. It MUST contain:
+
+1. A single-command adoption instruction (e.g., "create this file at this path")
+2. The exact workflow YAML to generate, parameterized by default branch name
+3. The required GitHub permissions
+4. How to detect project type (check for Dockerfile, language files, etc.)
+5. Expected output after adoption (what the user should see on their next PR)
+
+The goal: any AI agent that reads `CLAUDE.md` can adopt wrangle on a new repo without additional context or web searches.
 
 ### Long-term: OpenSSF contribution
 
@@ -517,6 +570,8 @@ The adapter pattern, tool composition logic, and profile system are candidates f
 - [ ] `wrangle init` CLI or GitHub Action for bootstrapping
 - [ ] Additional tools (e.g., Semgrep, Trivy)
 - [ ] Build workflow portability fixes
+- [ ] `source/tools.lock` manifest — single file listing all tool versions, URLs, and checksums per platform (replaces hardcoded values in individual install scripts, makes upgrades scriptable and auditable in one place)
+- [ ] Lightweight sandboxing for adapters (bubblewrap/firejail on Linux)
 
 ### v1.0.0 (future)
 - [ ] OpenSSF contribution proposal
