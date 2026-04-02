@@ -4,12 +4,94 @@
 
 Project maintainers should ship features securely without tracking security tooling details. Security engineers should update tools and best practices without bothering maintainers.
 
-Wrangle is a composable CI/CD security framework for GitHub Actions that provides:
+Wrangle is a composable CI/CD framework for GitHub Actions that handles the full software development lifecycle — not just security scanning, but also building, testing, publishing, and provenance — using best practices out of the box.
 
-1. **One-shot adoption** — a single workflow file gives you vulnerability scanning, workflow security linting, supply chain scoring, SBOM generation, and provenance
-2. **Pluggable tools** — new security tools are added via adapters without changing adopting repos
-3. **Automatic updates** — adopters reference wrangle's reusable workflow; updates flow to everyone
-4. **AI-agent friendly** — designed so "Claude, adopt wrangle for this repo" just works
+### Core principles
+
+1. **Full lifecycle** — wrangle handles source scanning, building, testing, publishing, SBOM generation, signing, and SLSA provenance. Not just one stage.
+2. **One-shot adoption** — a maintainer picks a profile matching their project type, gets one or two workflow files, and everything works
+3. **Pluggable tools** — new tools are added via adapters without changing adopting repos
+4. **Automatic updates** — adopters reference wrangle's reusable workflows; updates flow to everyone
+5. **AI-agent friendly** — designed so "Claude, adopt wrangle for this repo" just works
+
+---
+
+## Full Lifecycle
+
+Wrangle covers the entire path from source to published artifact. Each stage has a corresponding reusable workflow that adopters can use independently or together.
+
+### Stages
+
+```
+┌─────────────┐    ┌─────────────┐    ┌─────────────┐    ┌─────────────┐
+│   Source     │    │   Build     │    │   Publish    │    │   Verify    │
+│             │    │             │    │             │    │             │
+│ • Vuln scan │───▶│ • Compile   │───▶│ • Push to   │───▶│ • SLSA      │
+│ • Workflow  │    │ • Run tests │    │   registry  │    │   provenance│
+│   linting   │    │ • Generate  │    │ • Sign with │    │ • Policy    │
+│ • Scorecard │    │   SBOM      │    │   Cosign    │    │   check     │
+│ • SLSA      │    │ • Scan SBOM │    │             │    │ • VSA       │
+│   source    │    │             │    │             │    │             │
+└─────────────┘    └─────────────┘    └─────────────┘    └─────────────┘
+```
+
+| Stage | What wrangle does | Reusable workflow | Status |
+|-------|------------------|-------------------|--------|
+| **Source** | Vulnerability scanning (OSV), workflow linting (Zizmor), supply chain scoring (Scorecard), SLSA source provenance | `check_source_change.yml` | v0.1 |
+| **Build** | Compile/build the project, run tests, generate SBOM, scan SBOM for vulnerabilities | `build_and_publish_*.yml` | v0.1 (container), v0.2+ (others) |
+| **Publish** | Push artifact to registry, sign with Cosign | `build_and_publish_*.yml` | v0.1 (container) |
+| **Verify** | Generate SLSA L3 build provenance, verify attestations against policy (Ampel) | `build_and_publish_*.yml` / future | v0.1 (provenance), v0.2 (policy) |
+
+### What adopters get today (container project example)
+
+With two workflow files, a container project gets:
+
+**Source workflow (`check_source_change.yml`):**
+- OSV vulnerability scanning on every PR and push
+- Zizmor workflow security linting
+- OSSF Scorecard supply chain assessment
+- Results in GitHub Security tab via SARIF
+
+**Build workflow (`build_and_publish_container.yml`):**
+- Docker image built with Buildx (multi-platform capable, cached)
+- SBOM generated automatically (SPDX format)
+- SBOM scanned for vulnerabilities before publish
+- Image pushed to container registry (ghcr.io)
+- Image signed with Cosign (keyless, via Sigstore OIDC)
+- SLSA Level 3 provenance attestation via `slsa-github-generator`
+
+This is the "batteries included" experience: the maintainer provides a Dockerfile and wrangle handles everything else.
+
+### Build type extensibility
+
+The `build/actions/` directory is the extensibility point for different project types:
+
+| Build type | Directory | What it does | Status |
+|-----------|-----------|-------------|--------|
+| Container | `build/actions/container/` | Docker build, SBOM, sign, push | v0.1 (exists) |
+| Python | `build/actions/python/` | Build wheel/sdist, generate SBOM, publish to PyPI | Future |
+| npm | `build/actions/npm/` | Build, generate SBOM, publish to npm registry | Future |
+| Go | `build/actions/go/` | Build binary, generate SBOM, publish to GitHub Releases | Future |
+| Generic | `build/actions/generic/` | Run user-defined build command, generate SBOM | Future |
+
+Each build type follows the same pattern:
+1. Build the artifact
+2. Generate an SBOM describing it
+3. Scan the SBOM for vulnerabilities
+4. Publish the artifact
+5. Sign the artifact
+6. Generate SLSA provenance
+
+New build types can be added without changing the source scanning workflow or the adopter's existing setup.
+
+### Test integration
+
+Wrangle doesn't replace your test framework — it orchestrates it. The build workflow runs your existing tests as part of the build stage:
+
+- **Container projects:** Tests run during `docker build` (multi-stage builds) or as a pre-build step
+- **Future build types:** Wrangle detects and runs the project's test command (`make test`, `pytest`, `npm test`, `go test`, etc.) before proceeding to build and publish
+
+If tests fail, the pipeline stops. No artifact is built or published from untested code.
 
 ## Architecture
 
@@ -578,7 +660,9 @@ The adapter pattern, tool composition logic, and profile system are candidates f
 
 ## Roadmap
 
-### v0.1.0 (this spec)
+### v0.1.0 — Source scanning + container build (this spec)
+
+**Source stage:**
 - [ ] Per-tool directories (`tools/<name>/`) with adapter + install + test
 - [ ] Binary download with SLSA provenance (preferred) or SHA-256 verification
 - [ ] Shared download/verify library (`lib/download_verify.sh`)
@@ -586,23 +670,34 @@ The adapter pattern, tool composition logic, and profile system are candidates f
 - [ ] Input validation and environment isolation in orchestrator
 - [ ] SARIF upload enabled (per-tool categories)
 - [ ] Output sanitization for step summaries
+
+**Build/publish stage (container):**
+- [ ] Container build action portability fixes (`${{ github.action_path }}`)
+- [ ] Container build action security fixes (PATH clobbering, expression injection)
+- [ ] SBOM generation + vulnerability scanning working cross-repo
+
+**Infrastructure:**
 - [ ] All action references pinned to SHAs
 - [ ] SLSA source track adopted for the wrangle repo itself
 - [ ] Testing infrastructure (actionlint + shellcheck + bats)
 - [ ] Tested on Concordance
 - [ ] AGENTS.md for AI agent adoption
 
-### v0.2.0 (future)
-- [ ] Profile system (`wrangle.yml` with `profile: container` / `profile: library`)
+### v0.2.0 — Profiles + additional build types
+
+- [ ] Profile system (`wrangle.yml` with `profile: container` / `profile: library` / `profile: python`)
 - [ ] `wrangle init` CLI or GitHub Action for bootstrapping
-- [ ] Additional tools (e.g., Semgrep, Trivy)
-- [ ] Build workflow portability fixes
-- [ ] `tools.lock` manifest — single file listing all tool versions, URLs, and checksums per platform (replaces hardcoded values in individual install scripts, makes upgrades scriptable and auditable in one place)
+- [ ] Test integration — detect and run project tests before build
+- [ ] Additional source tools (e.g., Semgrep, Trivy)
+- [ ] Additional build types (Python, npm, Go)
+- [ ] `tools.lock` manifest — single file listing all tool versions, URLs, and checksums per platform
 - [ ] Lightweight sandboxing for adapters (bubblewrap/firejail on Linux)
-- [ ] [Ampel](https://github.com/carabiner-dev/ampel) integration — policy verification layer that evaluates attestations (SARIF, SLSA provenance, SBOMs) against CEL-based policies and produces Verification Summary Attestations (VSAs)
+- [ ] [Ampel](https://github.com/carabiner-dev/ampel) integration — policy verification layer that evaluates attestations against CEL-based policies and produces Verification Summary Attestations
 - [ ] Help adopters adopt the SLSA source track in their repos
 
-### v1.0.0 (future)
+### v1.0.0 — OpenSSF ready
+
 - [ ] OpenSSF contribution proposal
 - [ ] Stable adapter API with versioning guarantees
 - [ ] Multi-CI support (GitLab, etc.)
+- [ ] Full lifecycle coverage for all major project types
