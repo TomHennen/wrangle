@@ -27,18 +27,19 @@ Wrangle covers the entire path from source to published artifact. Each stage has
 │   Source     │    │   Build     │    │   Publish    │    │   Verify    │
 │             │    │             │    │             │    │             │
 │ • Vuln scan │───▶│ • Compile   │───▶│ • Push to   │───▶│ • SLSA      │
-│ • Workflow  │    │ • Run tests │    │   registry  │    │   provenance│
-│   linting   │    │ • Generate  │    │ • Sign with │    │ • Policy    │
-│ • Scorecard │    │   SBOM      │    │   Cosign    │    │   check     │
-│ • SLSA      │    │ • Scan SBOM │    │             │    │ • VSA       │
+│ • Workflow  │    │ • Generate  │    │   registry  │    │   provenance│
+│   linting   │    │   SBOM      │    │ • Sign with │    │ • Policy    │
+│ • Scorecard │    │ • Scan SBOM │    │   Cosign    │    │   check     │
+│ • Run tests │    │             │    │             │    │ • VSA       │
+│ • SLSA      │    │             │    │             │    │             │
 │   source    │    │             │    │             │    │             │
 └─────────────┘    └─────────────┘    └─────────────┘    └─────────────┘
 ```
 
 | Stage | What wrangle does | Reusable workflow | Status |
 |-------|------------------|-------------------|--------|
-| **Source** | Vulnerability scanning (OSV), workflow linting (Zizmor), supply chain scoring (Scorecard), SLSA source provenance | `check_source_change.yml` | v0.1 |
-| **Build** | Compile/build the project, run tests, generate SBOM, scan SBOM for vulnerabilities | `build_and_publish_*.yml` | v0.1 (container), v0.2+ (others) |
+| **Source** | Vulnerability scanning (OSV), workflow linting (Zizmor), supply chain scoring (Scorecard), run tests, SLSA source provenance | `check_source_change.yml` | v0.1 |
+| **Build** | Compile/build the project, generate SBOM, scan SBOM for vulnerabilities | `build_and_publish_*.yml` | v0.1 (container), v0.2+ (others) |
 | **Publish** | Push artifact to registry, sign with Cosign | `build_and_publish_*.yml` | v0.1 (container) |
 | **Verify** | Generate SLSA L3 build provenance, verify attestations against policy (Ampel) | `build_and_publish_*.yml` / future | v0.1 (provenance), v0.2 (policy) |
 
@@ -47,6 +48,7 @@ Wrangle covers the entire path from source to published artifact. Each stage has
 With two workflow files, a container project gets:
 
 **Source workflow (`check_source_change.yml`):**
+- Run project tests (detected automatically or configured) on every PR
 - OSV vulnerability scanning on every PR and push
 - Zizmor workflow security linting
 - OSSF Scorecard supply chain assessment
@@ -68,6 +70,7 @@ The `build/actions/` directory is the extensibility point for different project 
 
 | Build type | Directory | What it does | Status |
 |-----------|-----------|-------------|--------|
+| Shell | `build/actions/shell/` | Run shellcheck + tests (bats/shunit2), no publishable artifact | v0.1 (wrangle dogfoods this) |
 | Container | `build/actions/container/` | Docker build, SBOM, sign, push | v0.1 (exists) |
 | Python | `build/actions/python/` | Build wheel/sdist, generate SBOM, publish to PyPI | Future |
 | npm | `build/actions/npm/` | Build, generate SBOM, publish to npm registry | Future |
@@ -86,12 +89,17 @@ New build types can be added without changing the source scanning workflow or th
 
 ### Test integration
 
-Wrangle doesn't replace your test framework — it orchestrates it. The build workflow runs your existing tests as part of the build stage:
+Wrangle doesn't replace your test framework — it orchestrates it. Tests run in **two places**:
 
+1. **Source stage (on every PR):** The source workflow detects and runs the project's test command. This gives fast feedback on PRs before any build or publish step. Tests here use the shell/script build type adapter for detection.
+2. **Build stage (on merge/tag):** Tests run again as part of the build, ensuring the artifact being published passes all checks.
+
+Test detection by project type:
+- **Shell projects:** `bats` tests, `make test`, or shellcheck
 - **Container projects:** Tests run during `docker build` (multi-stage builds) or as a pre-build step
-- **Future build types:** Wrangle detects and runs the project's test command (`make test`, `pytest`, `npm test`, `go test`, etc.) before proceeding to build and publish
+- **Future build types:** `pytest`, `npm test`, `go test`, etc.
 
-If tests fail, the pipeline stops. No artifact is built or published from untested code.
+If tests fail at either stage, the pipeline stops. No artifact is built or published from untested code.
 
 ### Build stage failure contract
 
