@@ -18,7 +18,7 @@ runs:
     - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
     # TODO: Remove once images are public?
     - name: Log in to the Container registry
-      uses: docker/login-action@65b78e6e13532edd9afa3aa52ac7964289d1a9c1
+      uses: docker/login-action@65b78e6e13532edd9afa3aa52ac7964289d1a9c1 # v3.1.0
       with:
         registry: ${{ inputs.registry }}
         username: ${{ github.actor }}

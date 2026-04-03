@@ -9,7 +9,7 @@ runs:
       run: mkdir -p ./metadata/scorecard
       shell: bash
     - name: Scorecard
-      uses: ossf/scorecard-action@62b2cac7ed8198b15735ed49ab1e5cf35480ba46
+      uses: ossf/scorecard-action@62b2cac7ed8198b15735ed49ab1e5cf35480ba46 # v2.4.0
       with:
         results_file: ./metadata/scorecard/output.sarif
         results_format: sarif

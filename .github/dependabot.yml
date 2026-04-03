@@ -5,10 +5,31 @@ updates:
     schedule:
       interval: "weekly"
 
+  # Workflows in .github/workflows/
   - package-ecosystem: "github-actions"
     directory: "/"
     schedule:
       interval: "weekly"
-    # Do not auto-merge. Allow 7-day window for supply chain attack
-    # discovery before adopting new action versions (per SPEC.md).
     open-pull-requests-limit: 5
+
+  # Composite actions outside .github/workflows/ need separate entries
+  - package-ecosystem: "github-actions"
+    directory: "/build/actions/container"
+    schedule:
+      interval: "weekly"
+
+  - package-ecosystem: "github-actions"
+    directory: "/source/actions/scan"
+    schedule:
+      interval: "weekly"
+
+  - package-ecosystem: "github-actions"
+    directory: "/source/actions/scorecard"
+    schedule:
+      interval: "weekly"
+
+  # NOTE: Dependabot opens PRs immediately when new versions are detected.
+  # The spec requires a ~7 day delay before adopting new upstream versions
+  # to allow supply chain attack discovery. This delay is enforced by human
+  # review discipline, not by Dependabot configuration (Dependabot does not
+  # support delayed adoption). Do not auto-merge Dependabot PRs.
