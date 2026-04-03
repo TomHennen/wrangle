@@ -12,17 +12,25 @@ lint:
 	@actionlint
 
 # Lint all shell scripts
-# Exclude legacy scripts (source/tools/, tools/osv_sbom/, tools/cosign/, build.sh)
-# that will be deleted in PR 10. New code must pass shellcheck.
+# Legacy scripts excluded individually — they'll be deleted in PR 10.
+# New scripts (lib/, tools/<name>/, run.sh) must pass shellcheck.
+LEGACY_EXCLUDES := \
+	-not -path './source/tools/*' \
+	-not -path './source/actions/scorecard/format_sarif.sh' \
+	-not -path './tools/osv_sbom/*' \
+	-not -path './tools/cosign/*' \
+	-not -path './tools/check_sbom.sh' \
+	-not -path './tools/format_sarif_summary.sh' \
+	-not -path './build.sh'
+
 shellcheck:
 	@echo "=== shellcheck ==="
-	@find . -name '*.sh' \
-		-not -path './.git/*' \
-		-not -path './source/*' \
-		-not -path './tools/*' \
-		-not -path './build.sh' \
-		-exec shellcheck {} + \
-		|| echo "No new shell scripts to check (legacy scripts excluded)"
+	@SCRIPTS=$$(find . -name '*.sh' -not -path './.git/*' $(LEGACY_EXCLUDES)); \
+	if [ -n "$$SCRIPTS" ]; then \
+		echo $$SCRIPTS | xargs shellcheck; \
+	else \
+		echo "No non-legacy shell scripts to check yet"; \
+	fi
 
 # Run bats tests
 bats:

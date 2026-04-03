@@ -87,3 +87,39 @@ teardown() {
 
     [ "$status" -eq 0 ]
 }
+
+@test "format_sarif_summary: handles empty metadata directory" {
+    mkdir -p metadata
+
+    # No tool subdirectories — should produce header only, no crash
+    run "$ORIG_DIR/tools/format_sarif_summary.sh"
+
+    [ "$status" -eq 0 ]
+    [[ "$output" == *"# Wrangle results"* ]]
+}
+
+@test "format_sarif_summary: exits 0 on normal input" {
+    mkdir -p metadata/test-tool
+    cp "$ORIG_DIR/test/fixtures/findings.sarif" metadata/test-tool/output.sarif
+
+    run "$ORIG_DIR/tools/format_sarif_summary.sh"
+
+    [ "$status" -eq 0 ]
+}
+
+# NOTE: The following tests document known gaps in the current implementation.
+# format_sarif_summary.sh does NOT sanitize output today. These tests are
+# intentionally written to pass against current behavior (no sanitization)
+# and should be updated in PR 6b when sanitization is implemented.
+
+@test "format_sarif_summary: current behavior passes through HTML in output.txt (known gap)" {
+    mkdir -p metadata/injected
+    cp "$ORIG_DIR/test/fixtures/empty.sarif" metadata/injected/output.sarif
+    echo '<script>alert("xss")</script>' > metadata/injected/output.txt
+
+    output=$("$ORIG_DIR/tools/format_sarif_summary.sh")
+
+    # Current behavior: HTML passes through unsanitized
+    # TODO(PR 6b): After sanitization, this should NOT contain <script> tags
+    [[ "$output" == *"<script>"* ]]
+}
