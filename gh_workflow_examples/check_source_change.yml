@@ -17,6 +17,7 @@ jobs:
       pull-requests: read
       security-events: write # So we can upload sarif
       statuses: read
+    # TODO(v0.1.0): Pin to release tag @v0.1.0 before release
     uses: tomhennen/wrangle/.github/workflows/check_source_change.yml@main
     secrets:
       gh_token: ${{ secrets.GITHUB_TOKEN }}
