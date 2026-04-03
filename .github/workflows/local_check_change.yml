@@ -1,13 +1,15 @@
 name: Check Change
+
+# DISABLED: This workflow uses the old Docker-based scan pipeline which
+# requires private container images and fails on repos without package
+# sources (#71). It will be replaced by the new binary-download pipeline
+# in the v0.1 cutover (PR 8 of #72).
+#
+# The `test` workflow (.github/workflows/test.yml) is the active CI gate.
 on:
-  push:
-    branches: [ "main" ]
-  pull_request:
-    branches: [ "**" ]
   workflow_dispatch:
 
 jobs:
-  # Whenever new source is pushed or a PR is received, scan it for any issues
   check-change:
     permissions:
       actions: read
@@ -15,7 +17,7 @@ jobs:
       packages: read
       issues: read
       pull-requests: read
-      security-events: write # So we can upload sarif
+      security-events: write
       statuses: read
     uses: tomhennen/wrangle/.github/workflows/check_source_change.yml@main
     secrets:
