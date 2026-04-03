@@ -1,0 +1,9 @@
+{
+  "version": "2.1.0",
+  "runs": [
+    {
+      "tool": {},
+      "results": "this should be an array not a string"
+    }
+  ]
+}
