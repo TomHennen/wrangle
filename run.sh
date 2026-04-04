@@ -87,10 +87,42 @@ for tool in "$@"; do
     tool_output_dir="${output_dir}/${tool}"
     mkdir -p "$tool_output_dir"
 
-    # Step 3: Run adapter
+    # Step 3: Snapshot workspace for post-execution filesystem check
+    # Records file paths, sizes, and mtimes to detect additions, removals, and modifications
+    pre_snapshot="$(mktemp "${TMPDIR:-/tmp}/wrangle-pre-XXXXX")"
+    find "$src_dir" -type f -printf '%p %s %T@\n' 2>/dev/null | sort > "$pre_snapshot" || true
+
+    # Step 4: Run adapter with isolated environment
     printf 'wrangle: running %s...\n' "$tool"
     adapter_exit=0
-    timeout "$ADAPTER_TIMEOUT" "${TOOLS_DIR}/${tool}/adapter.sh" "$src_dir" "$tool_output_dir" || adapter_exit=$?
+
+    # Build restricted environment: only allowlisted variables + WRANGLE_EXTRA_*
+    adapter_env=(
+        "PATH=${PATH}"
+        "HOME=${HOME:-}"
+        "TMPDIR=${TMPDIR:-/tmp}"
+        "RUNNER_TEMP=${RUNNER_TEMP:-}"
+        "GITHUB_WORKSPACE=${GITHUB_WORKSPACE:-}"
+        "GITHUB_STEP_SUMMARY=${GITHUB_STEP_SUMMARY:-}"
+    )
+    # Forward WRANGLE_EXTRA_* variables with prefix stripped
+    while IFS='=' read -r key value; do
+        if [[ "$key" == WRANGLE_EXTRA_* ]]; then
+            stripped_key="${key#WRANGLE_EXTRA_}"
+            adapter_env+=("${stripped_key}=${value}")
+        fi
+    done < <(env)
+
+    timeout "$ADAPTER_TIMEOUT" env -i "${adapter_env[@]}" \
+        "${TOOLS_DIR}/${tool}/adapter.sh" "$src_dir" "$tool_output_dir" || adapter_exit=$?
+
+    # Step 5: Post-execution filesystem check
+    post_snapshot="$(mktemp "${TMPDIR:-/tmp}/wrangle-post-XXXXX")"
+    find "$src_dir" -type f -printf '%p %s %T@\n' 2>/dev/null | sort > "$post_snapshot" || true
+    if ! diff -q "$pre_snapshot" "$post_snapshot" >/dev/null 2>&1; then
+        printf 'wrangle: WARNING: %s modified files outside its output directory\n' "$tool" >&2
+    fi
+    rm -f "$pre_snapshot" "$post_snapshot"
 
     case "$adapter_exit" in
         0)
