@@ -1,0 +1,29 @@
+name: Shell Build
+
+on:
+  workflow_call:
+    inputs:
+      shellcheck-args:
+        description: "Additional arguments to pass to shellcheck"
+        required: false
+        type: string
+        default: ""
+      bats-path:
+        description: "Path to bats test files (default: auto-detect)"
+        required: false
+        type: string
+        default: ""
+
+jobs:
+  shell-build:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+
+      - name: Run shell build
+        uses: ./build/actions/shell
+        with:
+          shellcheck-args: ${{ inputs.shellcheck-args }}
+          bats-path: ${{ inputs.bats-path }}
