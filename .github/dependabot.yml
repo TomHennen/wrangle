@@ -1,39 +1,13 @@
 version: 2
 updates:
-  - package-ecosystem: "docker"
-    directory: "/"
-    schedule:
-      interval: "weekly"
-    cooldown:
-      default-days: 7
-
-  # Workflows in .github/workflows/
   - package-ecosystem: "github-actions"
-    directory: "/"
+    # Glob finds all action.yml files: .github/workflows/, actions/scan/,
+    # build/actions/container/, tools/scorecard/, tools/zizmor/, etc.
+    # New composite actions are picked up automatically.
+    directories:
+      - "/**"
     schedule:
       interval: "weekly"
     open-pull-requests-limit: 5
-    cooldown:
-      default-days: 7
-
-  # Composite actions outside .github/workflows/ need separate entries
-  - package-ecosystem: "github-actions"
-    directory: "/build/actions/container"
-    schedule:
-      interval: "weekly"
-    cooldown:
-      default-days: 7
-
-  - package-ecosystem: "github-actions"
-    directory: "/source/actions/scan"
-    schedule:
-      interval: "weekly"
-    cooldown:
-      default-days: 7
-
-  - package-ecosystem: "github-actions"
-    directory: "/source/actions/scorecard"
-    schedule:
-      interval: "weekly"
     cooldown:
       default-days: 7

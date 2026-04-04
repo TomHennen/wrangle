@@ -12,24 +12,13 @@ lint:
 	@actionlint
 
 # Lint all shell scripts
-# Legacy scripts excluded individually — they'll be deleted in PR 10.
-# New scripts (lib/, tools/<name>/, run.sh) must pass shellcheck.
-LEGACY_EXCLUDES := \
-	-not -path './source/tools/*' \
-	-not -path './source/actions/scorecard/format_sarif.sh' \
-	-not -path './tools/osv_sbom/*' \
-	-not -path './tools/cosign/*' \
-	-not -path './tools/check_sbom.sh' \
-	-not -path './tools/format_sarif_summary.sh' \
-	-not -path './build.sh'
-
 shellcheck:
 	@echo "=== shellcheck ==="
-	@SCRIPTS=$$(find . -name '*.sh' -not -path './.git/*' $(LEGACY_EXCLUDES)); \
+	@SCRIPTS=$$(find . -name '*.sh' -not -path './.git/*' -not -path './.beads/*'); \
 	if [ -n "$$SCRIPTS" ]; then \
 		echo $$SCRIPTS | xargs shellcheck -x --source-path=SCRIPTDIR; \
 	else \
-		echo "No non-legacy shell scripts to check yet"; \
+		echo "No shell scripts to check"; \
 	fi
 
 # Run bats tests
@@ -40,6 +29,6 @@ bats:
 # Update a tool version and its checksum
 # Usage: make update-tool TOOL=osv VERSION=1.2.3
 update-tool:
-	@echo "Tool version update helper — not yet implemented (PR 3)"
+	@echo "Tool version update helper — not yet implemented"
 	@echo "Will download $(TOOL) $(VERSION), compute SHA-256, and patch tools/$(TOOL)/install.sh"
 	@exit 1
