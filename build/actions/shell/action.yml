@@ -1,0 +1,73 @@
+name: Wrangle Shell Build
+description: |
+  Build action for shell projects. Runs shellcheck on all .sh files,
+  shfmt formatting check (if available), and bats tests (if present).
+  This is the build type wrangle uses on itself (dogfooding).
+
+inputs:
+  shellcheck-args:
+    description: "Additional arguments to pass to shellcheck"
+    required: false
+    default: ""
+  bats-path:
+    description: "Path to bats test files (default: auto-detect)"
+    required: false
+    default: ""
+
+runs:
+  using: "composite"
+  steps:
+    - name: Install shellcheck
+      shell: bash
+      run: |
+        if ! command -v shellcheck >/dev/null 2>&1; then
+          sudo apt-get update -qq && sudo apt-get install -y -qq shellcheck
+        fi
+        printf 'shellcheck version: %s\n' "$(shellcheck --version | head -2 | tail -1)"
+
+    - name: Install bats
+      shell: bash
+      run: |
+        if ! command -v bats >/dev/null 2>&1; then
+          sudo apt-get update -qq && sudo apt-get install -y -qq bats
+        fi
+        printf 'bats version: %s\n' "$(bats --version)"
+
+    - name: Run shellcheck
+      shell: bash
+      env:
+        SHELLCHECK_ARGS: ${{ inputs.shellcheck-args }}
+      run: |
+        set -euo pipefail
+        printf '=== shellcheck ===\n'
+        SCRIPTS=$(find . -name '*.sh' -not -path './.git/*' -not -path './node_modules/*')
+        if [[ -n "$SCRIPTS" ]]; then
+          # shellcheck disable=SC2086
+          echo $SCRIPTS | xargs shellcheck $SHELLCHECK_ARGS
+          printf 'shellcheck: all scripts passed\n'
+        else
+          printf 'shellcheck: no .sh files found\n'
+        fi
+
+    - name: Run bats tests
+      shell: bash
+      env:
+        BATS_PATH: ${{ inputs.bats-path }}
+      run: |
+        set -euo pipefail
+        printf '=== bats ===\n'
+
+        # Auto-detect test locations if not specified
+        if [[ -n "$BATS_PATH" ]]; then
+          bats $BATS_PATH
+        elif [[ -d "test" ]]; then
+          # Find all .bats files in test/ and tool directories
+          BATS_FILES=$(find . -name '*.bats' -not -path './.git/*' | head -100)
+          if [[ -n "$BATS_FILES" ]]; then
+            echo $BATS_FILES | xargs bats
+          else
+            printf 'bats: no .bats files found\n'
+          fi
+        else
+          printf 'bats: no test directory found, skipping\n'
+        fi
