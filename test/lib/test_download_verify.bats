@@ -135,11 +135,12 @@ teardown() {
 
 # --- wrangle_verify_provenance tests ---
 
-@test "verify_provenance: returns 2 when slsa-verifier not available" {
+@test "verify_provenance: fails when slsa-verifier not available" {
     # Use a restricted PATH that definitely won't have slsa-verifier
     PATH="/usr/bin:/bin" run wrangle_verify_provenance "$TEST_DIR/test_artifact" "test/repo" "v1.0.0"
 
-    [ "$status" -eq 2 ]
+    [ "$status" -eq 1 ]
+    [[ "$output" == *"cannot verify provenance"* ]]
 }
 
 @test "verify_provenance: requires 3 arguments" {
@@ -151,10 +152,11 @@ teardown() {
 
 # --- wrangle_verify_signature tests ---
 
-@test "verify_signature: returns 2 when cosign not available" {
+@test "verify_signature: fails when cosign not available" {
     PATH="/usr/bin:/bin" run wrangle_verify_signature "$TEST_DIR/test_artifact" "expected-identity" "expected-issuer"
 
-    [ "$status" -eq 2 ]
+    [ "$status" -eq 1 ]
+    [[ "$output" == *"cannot verify signature"* ]]
 }
 
 @test "verify_signature: requires 3 arguments" {

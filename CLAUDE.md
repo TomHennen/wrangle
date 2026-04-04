@@ -70,7 +70,8 @@ Adapters take exactly two positional arguments: `<src_dir>` (read-only) and `<ou
 
 Install scripts MUST:
 - Use `lib/download_verify.sh` for all downloads (never raw `curl | sh`)
-- Verify integrity: SLSA provenance (preferred) > Sigstore signature > hardcoded SHA-256 checksum
+- Verify integrity using the strongest method the upstream tool supports: SLSA provenance > Sigstore signature > hardcoded SHA-256 checksum
+- **NEVER fall back to a weaker verification method if a stronger one fails.** If a tool is configured for SLSA provenance verification and it fails, the install MUST abort — do not silently continue with only checksum verification. A verification failure may be a supply chain attack.
 - Install to `$WRANGLE_BIN_DIR` (default: `$RUNNER_TEMP/.wrangle/bin`), never `/usr/local/bin`
 - Be idempotent (skip if correct version already installed)
 - Use atomic `mv` (not `cp`) to prevent TOCTOU races

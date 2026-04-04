@@ -13,7 +13,7 @@ TOOL_NAME="osv-scanner"
 SOURCE_REPO="google/osv-scanner"
 BIN_DIR="${WRANGLE_BIN_DIR:-${RUNNER_TEMP:-.}/.wrangle/bin}"
 
-# SHA-256 checksums (fallback when provenance verification is unavailable)
+# SHA-256 checksums (baseline integrity check, always verified)
 CHECKSUM_AMD64="bb30c580afe5e757d3e959f4afd08a4795ea505ef84c46962b9a738aa573b41b"
 CHECKSUM_ARM64="fa46ad2b3954db5d5335303d45de921613393285d9a93c140b63b40e35e9ce50"
 
@@ -44,22 +44,28 @@ mkdir -p "$BIN_DIR"
 wrangle_download_verify "$URL" "$EXPECTED_CHECKSUM" "${BIN_DIR}/${TOOL_NAME}"
 chmod +x "${BIN_DIR}/${TOOL_NAME}"
 
-# Attempt SLSA provenance verification (best-effort: success is logged, failure
-# falls back to the checksum verification that already passed above).
-# Note: raw curl is used here (not wrangle_download_verify) because verifying
-# the provenance file's own checksum would be circular — the provenance file
-# is the trust anchor, not something we verify with another checksum.
+# SLSA provenance verification (mandatory for OSV-Scanner).
+# OSV-Scanner publishes SLSA provenance — verification MUST succeed.
+# If provenance download or verification fails, the install aborts.
+# Note: raw curl is used to download the provenance file (not
+# wrangle_download_verify) because verifying the provenance file's own
+# checksum would be circular — it IS the trust anchor.
 PROVENANCE_URL="https://github.com/${SOURCE_REPO}/releases/download/v${VERSION}/multiple.intoto.jsonl"
 PROVENANCE_PATH="${BIN_DIR}/${TOOL_NAME}.intoto.jsonl"
-if curl -fsSL -o "$PROVENANCE_PATH" "$PROVENANCE_URL" 2>/dev/null; then
-    if wrangle_verify_provenance "${BIN_DIR}/${TOOL_NAME}" "$SOURCE_REPO" "v${VERSION}"; then
-        printf 'wrangle: SLSA provenance verified for %s %s\n' "$TOOL_NAME" "$VERSION"
-    else
-        printf 'wrangle: SLSA provenance verification unavailable, checksum verified\n' >&2
-    fi
-    rm -f "$PROVENANCE_PATH"
-else
-    printf 'wrangle: provenance file not downloaded, checksum verified\n' >&2
+if ! curl -fsSL -o "$PROVENANCE_PATH" "$PROVENANCE_URL"; then
+    printf 'wrangle: FATAL: failed to download SLSA provenance for %s %s\n' "$TOOL_NAME" "$VERSION" >&2
+    rm -f "${BIN_DIR}/${TOOL_NAME}"
+    exit 1
 fi
+
+if ! wrangle_verify_provenance "${BIN_DIR}/${TOOL_NAME}" "$SOURCE_REPO" "v${VERSION}"; then
+    printf 'wrangle: FATAL: SLSA provenance verification failed for %s %s\n' "$TOOL_NAME" "$VERSION" >&2
+    printf 'wrangle: this may indicate a supply chain attack — aborting\n' >&2
+    rm -f "${BIN_DIR}/${TOOL_NAME}" "$PROVENANCE_PATH"
+    exit 1
+fi
+
+printf 'wrangle: SLSA provenance verified for %s %s\n' "$TOOL_NAME" "$VERSION"
+rm -f "$PROVENANCE_PATH"
 
 printf 'wrangle: installed %s %s\n' "$TOOL_NAME" "$VERSION"
