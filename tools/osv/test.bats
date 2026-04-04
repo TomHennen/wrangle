@@ -181,3 +181,95 @@ teardown() {
     [ "$status" -eq 0 ]
     [[ "$output" == *"already installed"* ]]
 }
+
+@test "osv install: fails if binary download fails" {
+    export WRANGLE_BIN_DIR="$TEST_DIR/install_bin"
+    mkdir -p "$WRANGLE_BIN_DIR"
+
+    # Create a mock curl that always fails
+    cat > "$TEST_DIR/mock_curl" << 'MOCK'
+#!/bin/bash
+exit 1
+MOCK
+    chmod +x "$TEST_DIR/mock_curl"
+    PATH="$TEST_DIR:$PATH"
+    ln -sf "$TEST_DIR/mock_curl" "$TEST_DIR/curl"
+
+    run "$ORIG_DIR/tools/osv/install.sh" "2.3.5"
+
+    [ "$status" -eq 1 ]
+    [[ "$output" == *"FATAL"* ]]
+    # Binary should not exist
+    [ ! -f "$WRANGLE_BIN_DIR/osv-scanner" ]
+}
+
+@test "osv install: fails if provenance download fails" {
+    export WRANGLE_BIN_DIR="$TEST_DIR/install_bin"
+    mkdir -p "$WRANGLE_BIN_DIR"
+
+    # Create a mock curl that succeeds for binary but fails for provenance
+    echo "0" > "$TEST_DIR/curl_call_count"
+    cat > "$TEST_DIR/curl" << 'MOCK'
+#!/bin/bash
+count=$(cat "$TEST_DIR/curl_call_count")
+count=$((count + 1))
+echo "$count" > "$TEST_DIR/curl_call_count"
+# First call (binary download) succeeds
+if [ "$count" -eq 1 ]; then
+    # Parse -o flag to find output file
+    while [ $# -gt 0 ]; do
+        case "$1" in
+            -o) echo "fake binary" > "$2"; exit 0 ;;
+            *) shift ;;
+        esac
+    done
+fi
+# Second call (provenance download) fails
+exit 1
+MOCK
+    chmod +x "$TEST_DIR/curl"
+    PATH="$TEST_DIR:$PATH"
+
+    run "$ORIG_DIR/tools/osv/install.sh" "2.3.5"
+
+    [ "$status" -eq 1 ]
+    [[ "$output" == *"FATAL"* ]]
+    [[ "$output" == *"provenance"* ]]
+    # Binary and provenance files should be cleaned up
+    leftover=$(find "$WRANGLE_BIN_DIR" -name 'wrangle-dl-*' -o -name '*.intoto.jsonl' 2>/dev/null | wc -l)
+    [ "$leftover" -eq 0 ]
+}
+
+@test "osv install: fails if provenance verification fails" {
+    export WRANGLE_BIN_DIR="$TEST_DIR/install_bin"
+    mkdir -p "$WRANGLE_BIN_DIR"
+
+    # Create a mock curl that always succeeds (writes dummy files)
+    cat > "$TEST_DIR/curl" << 'MOCK'
+#!/bin/bash
+while [ $# -gt 0 ]; do
+    case "$1" in
+        -o) echo "fake content" > "$2"; exit 0 ;;
+        *) shift ;;
+    esac
+done
+exit 0
+MOCK
+    chmod +x "$TEST_DIR/curl"
+
+    # Create a mock slsa-verifier that always fails
+    cat > "$TEST_DIR/slsa-verifier" << 'MOCK'
+#!/bin/bash
+exit 1
+MOCK
+    chmod +x "$TEST_DIR/slsa-verifier"
+    PATH="$TEST_DIR:$PATH"
+
+    run "$ORIG_DIR/tools/osv/install.sh" "2.3.5"
+
+    [ "$status" -eq 1 ]
+    [[ "$output" == *"FATAL"* ]]
+    [[ "$output" == *"supply chain attack"* ]]
+    # Binary and provenance files should be cleaned up
+    [ ! -f "$WRANGLE_BIN_DIR/osv-scanner" ]
+}

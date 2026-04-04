@@ -289,9 +289,9 @@ INTEGRITY VERIFICATION (mandatory):
     1. SLSA provenance verification — if the tool publishes SLSA
        attestations, the install script verifies them via slsa-verifier.
        This proves the binary was built from specific source by a specific
-       builder. SHA-256 checksums are still hardcoded as a secondary
-       check (belt and suspenders), but if provenance verification fails,
-       the install MUST abort even if the checksum matches.
+       builder. Provenance verification is sufficient on its own — no
+       additional checksum is needed because the provenance attestation
+       covers the artifact's identity and integrity.
     2. Sigstore signature verification — if the tool signs releases with
        Cosign/Sigstore but does not publish full SLSA attestations, the
        install script verifies the signature. If signature verification
@@ -312,10 +312,10 @@ INTEGRITY VERIFICATION (mandatory):
 
   The download/verify flow:
     1. Download binary to a temporary file ($RUNNER_TEMP/wrangle-dl-XXXXX)
-    2. Verify checksum (always, as a baseline integrity check)
-    3. Verify provenance or signature (if configured for this tool)
-    4. If ANY verification step fails: delete temp file, exit 1
-    5. Atomically move (mv) to $WRANGLE_BIN_DIR/<tool>
+    2. Verify using the tool's configured method (provenance, signature,
+       or checksum — exactly one)
+    3. If verification fails: delete temp file, exit 1
+    4. Atomically move (mv) to $WRANGLE_BIN_DIR/<tool>
 
 INSTALL DIRECTORY:
   Binaries are installed to $WRANGLE_BIN_DIR, which defaults to
