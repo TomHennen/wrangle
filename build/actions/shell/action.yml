@@ -1,0 +1,87 @@
+name: Wrangle Shell Build
+description: |
+  Build action for shell projects. Runs shellcheck on all .sh files
+  and bats tests (if present).
+  This is the build type wrangle uses on itself (dogfooding).
+
+inputs:
+  bats-path:
+    description: "Path to bats test files (default: auto-detect)"
+    required: false
+    default: ""
+
+runs:
+  using: "composite"
+  steps:
+    - name: Install shellcheck
+      shell: bash
+      run: |
+        set -euo pipefail
+        if ! command -v shellcheck >/dev/null 2>&1; then
+          # Version pinning via apt is fragile across Ubuntu releases.
+          # We verify the tool is functional rather than pinning a
+          # specific package version. For stricter control, adopters
+          # can pre-install shellcheck in their runner image.
+          sudo apt-get update -qq && sudo apt-get install -y -qq shellcheck
+        fi
+        printf 'shellcheck version: %s\n' "$(shellcheck --version | head -2 | tail -1)"
+
+    - name: Install bats
+      shell: bash
+      run: |
+        set -euo pipefail
+        if ! command -v bats >/dev/null 2>&1; then
+          sudo apt-get update -qq && sudo apt-get install -y -qq bats
+        fi
+        printf 'bats version: %s\n' "$(bats --version)"
+
+    - name: Run shellcheck
+      shell: bash
+      run: |
+        set -euo pipefail
+        printf '=== shellcheck ===\n'
+        # Use find -print0 + xargs -0 for safe filename handling.
+        # shellcheck also supports .bats files (bash syntax).
+        find . \( -name '*.sh' -o -name '*.bats' \) \
+          -not -path './.git/*' \
+          -not -path './node_modules/*' \
+          -print0 | xargs -0 -r shellcheck
+        printf 'shellcheck: all scripts passed\n'
+
+    - name: Run bats tests
+      shell: bash
+      env:
+        BATS_PATH: ${{ inputs.bats-path }}
+      run: |
+        set -euo pipefail
+        printf '=== bats ===\n'
+
+        # Validate bats-path if provided: must be a relative path with
+        # only safe characters. Reject absolute paths and path traversal.
+        if [[ -n "$BATS_PATH" ]]; then
+          if [[ "$BATS_PATH" == /* ]]; then
+            printf 'bats: absolute paths not allowed: %s\n' "$BATS_PATH" >&2
+            exit 1
+          fi
+          if [[ "$BATS_PATH" == *..* ]]; then
+            printf 'bats: path traversal not allowed: %s\n' "$BATS_PATH" >&2
+            exit 1
+          fi
+          if [[ ! "$BATS_PATH" =~ ^[a-zA-Z0-9_./-]+$ ]]; then
+            printf 'bats: invalid characters in bats-path: %s\n' "$BATS_PATH" >&2
+            exit 1
+          fi
+          bats "$BATS_PATH"
+        else
+          # Auto-detect: find all .bats files
+          bats_files=()
+          while IFS= read -r -d '' f; do
+            bats_files+=("$f")
+          done < <(find . -name '*.bats' -not -path './.git/*' -print0 2>/dev/null)
+
+          if [[ ${#bats_files[@]} -gt 0 ]]; then
+            bats "${bats_files[@]}"
+          else
+            printf 'bats: no .bats files found, skipping\n'
+          fi
+        fi
