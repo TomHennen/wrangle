@@ -4,10 +4,10 @@ on:
   workflow_call:
     inputs:
       tools:
-        description: "Space-separated list of tools to run"
+        description: "Space-separated list of adapter-pattern tools to run"
         required: false
         type: string
-        default: "osv zizmor"
+        default: "osv"
 
 jobs:
   check-change:
@@ -18,14 +18,13 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
 
+      # The scan action runs adapter-pattern tools (via run.sh) and
+      # action-pattern tools (zizmor, scorecard) via uses: internally.
       # TODO(PR 14): Pin to release tag @v0.1.0 — @main is temporary
       - name: Source scan
         uses: tomhennen/wrangle/actions/scan@main
         with:
           tools: ${{ inputs.tools }}
-
-      # TODO(PR 14): Pin to release tag @v0.1.0
-      - name: Scorecard
-        if: always()
-        uses: tomhennen/wrangle/actions/scorecard@main
