@@ -73,11 +73,13 @@ wrangle_download_verify() {
 
 # Verify SLSA provenance for a downloaded artifact via slsa-verifier.
 #
+# Prerequisite: slsa-verifier must be on PATH. The scan action installs
+# it via the official slsa-framework/slsa-verifier/actions/installer.
+#
 # Usage: wrangle_verify_provenance <artifact_path> <source_repo> <expected_tag>
 # Returns: 0 on success, 1 on verification failure or tool not available
 #
-# IMPORTANT: This function returns 1 (failure) if slsa-verifier is not
-# installed. Callers MUST NOT fall back to a weaker verification method
+# IMPORTANT: Callers MUST NOT fall back to a weaker verification method
 # on failure — a failed provenance check may indicate a supply chain attack.
 wrangle_verify_provenance() {
     if [[ $# -ne 3 ]]; then
@@ -90,8 +92,8 @@ wrangle_verify_provenance() {
     local expected_tag="$3"
 
     if ! command -v slsa-verifier >/dev/null 2>&1; then
-        printf 'wrangle: slsa-verifier not found — cannot verify provenance\n' >&2
-        printf 'wrangle: install slsa-verifier or the provenance check will fail\n' >&2
+        printf 'wrangle: slsa-verifier not found on PATH\n' >&2
+        printf 'wrangle: the scan action installs it via slsa-framework/slsa-verifier/actions/installer\n' >&2
         return 1
     fi
 

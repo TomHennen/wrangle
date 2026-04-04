@@ -274,7 +274,8 @@ EXIT CODES:
 INTEGRITY VERIFICATION (mandatory):
   Every install script MUST verify the downloaded binary before placing it
   on PATH. Install scripts MUST use lib/download_verify.sh for this.
-  The shared library handles slsa-verifier installation automatically.
+  The scan action installs slsa-verifier via the official
+  slsa-framework/slsa-verifier/actions/installer action.
 
   Verification method (chosen per tool at development time, not at runtime):
 
