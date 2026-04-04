@@ -117,6 +117,49 @@ exit 0
 ADAPT
     chmod +x "$MOCK_TOOLS/slow-install/adapter.sh"
 
+    # Create a tool that checks its environment (for isolation tests)
+    mkdir -p "$MOCK_TOOLS/env-check"
+    cat > "$MOCK_TOOLS/env-check/install.sh" << 'INST'
+#!/bin/bash
+set -euo pipefail
+exit 0
+INST
+    chmod +x "$MOCK_TOOLS/env-check/install.sh"
+
+    cat > "$MOCK_TOOLS/env-check/adapter.sh" << 'ADAPT'
+#!/bin/bash
+set -euo pipefail
+# Dump environment to output for test inspection
+env | sort > "$2/env_dump.txt"
+cat > "$2/output.sarif" << 'SARIF'
+{"version":"2.1.0","runs":[{"tool":{"driver":{"name":"env-check"}},"results":[]}]}
+SARIF
+exit 0
+ADAPT
+    chmod +x "$MOCK_TOOLS/env-check/adapter.sh"
+
+    # Create a tool that writes outside its output directory (for filesystem check test)
+    mkdir -p "$MOCK_TOOLS/rogue-tool"
+    cat > "$MOCK_TOOLS/rogue-tool/install.sh" << 'INST'
+#!/bin/bash
+set -euo pipefail
+exit 0
+INST
+    chmod +x "$MOCK_TOOLS/rogue-tool/install.sh"
+
+    cat > "$MOCK_TOOLS/rogue-tool/adapter.sh" << 'ADAPT'
+#!/bin/bash
+set -euo pipefail
+# Write output normally
+cat > "$2/output.sarif" << 'SARIF'
+{"version":"2.1.0","runs":[{"tool":{"driver":{"name":"rogue-tool"}},"results":[]}]}
+SARIF
+# Also write outside output_dir (into src_dir) — should trigger warning
+echo "rogue file" > "$1/rogue_file.txt"
+exit 0
+ADAPT
+    chmod +x "$MOCK_TOOLS/rogue-tool/adapter.sh"
+
     # Create test source and output directories
     mkdir -p "$TEST_DIR/src" "$TEST_DIR/output"
 }
@@ -258,6 +301,45 @@ run_orchestrator() {
 
     [ "$status" -eq 2 ]
     [[ "$output" == *"timed out"* ]]
+}
+
+# --- Path resolution tests ---
+
+# --- Environment isolation tests ---
+
+@test "orchestrator: strips GITHUB_TOKEN from adapter environment" {
+    export GITHUB_TOKEN="secret-token-value"
+    WRANGLE_TOOLS_DIR="$MOCK_TOOLS" run "$ORIG_DIR/run.sh" -s "$TEST_DIR/src" -o "$TEST_DIR/output" "env-check"
+
+    [ "$status" -eq 0 ]
+    [ -f "$TEST_DIR/output/env-check/env_dump.txt" ]
+    # GITHUB_TOKEN must not be in the adapter's environment
+    ! grep -q "GITHUB_TOKEN" "$TEST_DIR/output/env-check/env_dump.txt"
+}
+
+@test "orchestrator: forwards WRANGLE_EXTRA_ vars with prefix stripped" {
+    export WRANGLE_EXTRA_MY_VAR="test-value"
+    WRANGLE_TOOLS_DIR="$MOCK_TOOLS" run "$ORIG_DIR/run.sh" -s "$TEST_DIR/src" -o "$TEST_DIR/output" "env-check"
+
+    [ "$status" -eq 0 ]
+    [ -f "$TEST_DIR/output/env-check/env_dump.txt" ]
+    # MY_VAR (without prefix) should be present
+    grep -q "MY_VAR=test-value" "$TEST_DIR/output/env-check/env_dump.txt"
+}
+
+@test "orchestrator: detects filesystem modifications outside output_dir" {
+    WRANGLE_TOOLS_DIR="$MOCK_TOOLS" run "$ORIG_DIR/run.sh" -s "$TEST_DIR/src" -o "$TEST_DIR/output" "rogue-tool"
+
+    [ "$status" -eq 0 ]
+    [[ "$output" == *"WARNING"* ]]
+    [[ "$output" == *"modified files"* ]]
+}
+
+@test "orchestrator: PATH is available to adapter" {
+    WRANGLE_TOOLS_DIR="$MOCK_TOOLS" run "$ORIG_DIR/run.sh" -s "$TEST_DIR/src" -o "$TEST_DIR/output" "env-check"
+
+    [ "$status" -eq 0 ]
+    grep -q "^PATH=" "$TEST_DIR/output/env-check/env_dump.txt"
 }
 
 # --- Path resolution tests ---
