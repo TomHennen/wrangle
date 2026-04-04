@@ -1,0 +1,65 @@
+name: Wrangle Source Scan
+description: Scan source code with wrangle security tools
+
+inputs:
+  tools:
+    description: "Space-separated list of tools to run (default: osv zizmor)"
+    required: false
+    default: "osv zizmor"
+
+runs:
+  using: "composite"
+  steps:
+    - name: Set up wrangle bin directory
+      shell: bash
+      run: |
+        WRANGLE_BIN_DIR="${RUNNER_TEMP}/.wrangle/bin"
+        mkdir -p "$WRANGLE_BIN_DIR"
+        echo "$WRANGLE_BIN_DIR" >> "$GITHUB_PATH"
+        echo "WRANGLE_BIN_DIR=$WRANGLE_BIN_DIR" >> "$GITHUB_ENV"
+
+    - name: Run wrangle scan
+      shell: bash
+      # tools input passed via env var to prevent expression injection
+      env:
+        WRANGLE_TOOLS: ${{ inputs.tools }}
+      run: |
+        # $WRANGLE_TOOLS is intentionally unquoted so it word-splits into
+        # multiple arguments. This is safe because the orchestrator validates
+        # each token against ^[a-z][a-z0-9_-]*$ and runs set -f.
+        ${{ github.action_path }}/../../run.sh \
+          -s "$GITHUB_WORKSPACE" \
+          -o "$RUNNER_TEMP/.wrangle/metadata" \
+          $WRANGLE_TOOLS
+
+    - name: Generate step summary
+      if: always()
+      shell: bash
+      run: |
+        METADATA_DIR="$RUNNER_TEMP/.wrangle/metadata"
+        if [[ -d "$METADATA_DIR" ]]; then
+          "${{ github.action_path }}/../../lib/format_sarif_summary.sh" "$METADATA_DIR" >> "$GITHUB_STEP_SUMMARY"
+        fi
+
+    - name: Upload OSV SARIF
+      if: always()
+      uses: github/codeql-action/upload-sarif@5c8a8a642e79153f5d047b10ec1cba1d1cc65699 # v3
+      continue-on-error: true
+      with:
+        sarif_file: ${{ runner.temp }}/.wrangle/metadata/osv/output.sarif
+        category: wrangle/osv
+
+    - name: Upload Zizmor SARIF
+      if: always()
+      uses: github/codeql-action/upload-sarif@5c8a8a642e79153f5d047b10ec1cba1d1cc65699 # v3
+      continue-on-error: true
+      with:
+        sarif_file: ${{ runner.temp }}/.wrangle/metadata/zizmor/output.sarif
+        category: wrangle/zizmor
+
+    - name: Upload scan results artifact
+      if: always()
+      uses: actions/upload-artifact@bbbca2ddaa5d8feaa63e36b76fdaad77386f024f # v7.0.0
+      with:
+        name: wrangle-scan-results
+        path: ${{ runner.temp }}/.wrangle/metadata/

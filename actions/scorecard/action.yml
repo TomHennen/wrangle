@@ -1,0 +1,26 @@
+name: Wrangle Scorecard
+description: Run OSSF Scorecard within wrangle
+
+runs:
+  using: "composite"
+  steps:
+    - name: Create output directory
+      shell: bash
+      run: mkdir -p "$RUNNER_TEMP/.wrangle/metadata/scorecard"
+
+    - name: Run Scorecard
+      uses: ossf/scorecard-action@4eaacf0543bb3f2c246792bd56e8cdeffafb205a # v2.4.3
+      with:
+        results_file: ${{ runner.temp }}/.wrangle/metadata/scorecard/output.sarif
+        results_format: sarif
+        publish_results: false
+
+    - name: Format results
+      if: always()
+      shell: bash
+      run: |
+        SARIF_FILE="$RUNNER_TEMP/.wrangle/metadata/scorecard/output.sarif"
+        MD_FILE="$RUNNER_TEMP/.wrangle/metadata/scorecard/output.md"
+        if [[ -f "$SARIF_FILE" ]]; then
+          "${{ github.action_path }}/format_sarif.sh" "$SARIF_FILE" > "$MD_FILE"
+        fi
