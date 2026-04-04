@@ -276,22 +276,35 @@ INTEGRITY VERIFICATION (mandatory):
   on PATH. Install scripts MUST use lib/download_verify.sh for this.
   The shared library handles slsa-verifier installation automatically.
 
-  Verification hierarchy (use the strongest available):
-    1. SLSA provenance verification (preferred) — if the tool publishes
-       SLSA attestations, verify them via slsa-verifier. This is strictly
-       stronger than other methods because it proves the binary was built
-       from specific source by a specific builder. When provenance
-       verification passes, lower-tier verification is optional.
+  Verification method (chosen per tool at development time, not at runtime):
+
+    Each tool's install script uses exactly ONE verification method,
+    chosen at development time based on what the upstream tool publishes.
+    There is NO runtime fallback between methods. If the chosen method
+    fails, the install MUST fail — a verification failure may indicate a
+    supply chain attack, and falling back to a weaker method would defeat
+    the purpose of the stronger one.
+
+    The methods, in order of preference:
+    1. SLSA provenance verification — if the tool publishes SLSA
+       attestations, the install script verifies them via slsa-verifier.
+       This proves the binary was built from specific source by a specific
+       builder. Provenance verification is sufficient on its own — no
+       additional checksum is needed because the provenance attestation
+       covers the artifact's identity and integrity.
     2. Sigstore signature verification — if the tool signs releases with
-       Cosign/Sigstore but does not publish full SLSA attestations, verify
-       the signature using cosign verify. This proves the artifact was
-       signed by the expected identity (e.g., the tool's GitHub Actions
-       workflow) without requiring full build provenance.
-    3. SHA-256 checksum (fallback) — if neither SLSA provenance nor
-       Sigstore signatures are available, verify against a checksum
-       hardcoded in the install script itself (NOT downloaded alongside
-       the binary). Each version bump requires updating the pinned
-       checksum.
+       Cosign/Sigstore but does not publish full SLSA attestations, the
+       install script verifies the signature. If signature verification
+       fails, the install MUST abort.
+    3. SHA-256 checksum — if neither SLSA provenance nor Sigstore
+       signatures are available, verify against a checksum hardcoded in
+       the install script itself (NOT downloaded alongside the binary).
+       Each version bump requires updating the pinned checksum.
+
+    CRITICAL: There is no fallback. A tool configured for SLSA provenance
+    MUST NOT silently continue with only checksum verification if
+    provenance verification fails. A failed verification of any kind is
+    an error, not a reason to try something weaker.
 
   Tools with SLSA provenance: OSV-Scanner
   Tools with Sigstore signatures: (to be determined per tool)
@@ -299,9 +312,10 @@ INTEGRITY VERIFICATION (mandatory):
 
   The download/verify flow:
     1. Download binary to a temporary file ($RUNNER_TEMP/wrangle-dl-XXXXX)
-    2. Verify via SLSA provenance (if available) OR SHA-256 checksum
-    3. Atomically move (mv) to $WRANGLE_BIN_DIR/<tool>
-    4. On verification failure: delete temp file, exit 1, print clear error
+    2. Verify using the tool's configured method (provenance, signature,
+       or checksum — exactly one)
+    3. If verification fails: delete temp file, exit 1
+    4. Atomically move (mv) to $WRANGLE_BIN_DIR/<tool>
 
 INSTALL DIRECTORY:
   Binaries are installed to $WRANGLE_BIN_DIR, which defaults to
@@ -558,12 +572,14 @@ All downloaded binaries are verified before execution:
 
 | Layer | Mechanism | Status |
 |-------|-----------|--------|
-| Transport | HTTPS only | Required |
-| Provenance | SLSA attestation via slsa-verifier | Required (where available; supersedes lower tiers) |
-| Signature | Sigstore/Cosign signature verification | Required (where available; supersedes checksum) |
-| Content | SHA-256 checksum (pinned in install script) | Required (when no provenance or signature available) |
+| Transport | HTTPS only | Always required |
+| Content | SHA-256 checksum (pinned in install script) | Always required (baseline integrity) |
+| Provenance | SLSA attestation via slsa-verifier | Required for tools that publish it; failure = hard stop |
+| Signature | Sigstore/Cosign signature verification | Required for tools that publish it; failure = hard stop |
 
 Checksums are hardcoded in each install script, not downloaded from the same source as the binary. Updating a tool version requires updating the checksum in the same commit.
+
+**No fallback between verification methods.** Each tool's verification method is chosen at development time. If provenance verification fails for a tool configured to use it, the install MUST fail — even if the checksum passed. A verification failure may indicate a supply chain attack; silently downgrading to a weaker method would mask the attack.
 
 **Version upgrade workflow:** To update a tool version, run `make update-tool TOOL=osv VERSION=x.y.z`. This helper downloads the new binary, computes its SHA-256 checksum, and patches the install script. The contributor then verifies the change, commits both the version and checksum update together, and opens a PR. Dependabot is not used for tool binaries because it cannot update hardcoded checksums.
 
@@ -581,12 +597,16 @@ wrangle_download_verify() { ... }
 
 # Verify SLSA provenance for a downloaded artifact
 # Usage: wrangle_verify_provenance <artifact_path> <source_repo> <expected_tag>
-# Exits 0 on success, 1 on failure, 2 if slsa-verifier not available
+# Exits 0 on success, 1 on failure (including tool not available)
+# IMPORTANT: Returns 1 if slsa-verifier is not installed. Callers
+# MUST NOT fall back to weaker verification on failure.
 wrangle_verify_provenance() { ... }
 
 # Verify Sigstore signature for a downloaded artifact
 # Usage: wrangle_verify_signature <artifact_path> <expected_identity> <expected_issuer>
-# Exits 0 on success, 1 on failure, 2 if cosign not available
+# Exits 0 on success, 1 on failure (including tool not available)
+# IMPORTANT: Returns 1 if cosign is not installed. Callers
+# MUST NOT fall back to weaker verification on failure.
 wrangle_verify_signature() { ... }
 ```
 

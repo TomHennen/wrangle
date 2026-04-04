@@ -74,7 +74,11 @@ wrangle_download_verify() {
 # Verify SLSA provenance for a downloaded artifact via slsa-verifier.
 #
 # Usage: wrangle_verify_provenance <artifact_path> <source_repo> <expected_tag>
-# Returns: 0 on success, 1 on failure, 2 if slsa-verifier not available
+# Returns: 0 on success, 1 on verification failure or tool not available
+#
+# IMPORTANT: This function returns 1 (failure) if slsa-verifier is not
+# installed. Callers MUST NOT fall back to a weaker verification method
+# on failure — a failed provenance check may indicate a supply chain attack.
 wrangle_verify_provenance() {
     if [[ $# -ne 3 ]]; then
         printf 'Usage: wrangle_verify_provenance <artifact_path> <source_repo> <expected_tag>\n' >&2
@@ -86,8 +90,9 @@ wrangle_verify_provenance() {
     local expected_tag="$3"
 
     if ! command -v slsa-verifier >/dev/null 2>&1; then
-        printf 'wrangle: slsa-verifier not found, skipping provenance verification\n' >&2
-        return 2
+        printf 'wrangle: slsa-verifier not found — cannot verify provenance\n' >&2
+        printf 'wrangle: install slsa-verifier or the provenance check will fail\n' >&2
+        return 1
     fi
 
     if slsa-verifier verify-artifact "$artifact_path" \
@@ -96,7 +101,7 @@ wrangle_verify_provenance() {
         --source-tag "$expected_tag"; then
         return 0
     else
-        printf 'wrangle: SLSA provenance verification failed for %s\n' "$artifact_path" >&2
+        printf 'wrangle: SLSA provenance verification FAILED for %s\n' "$artifact_path" >&2
         return 1
     fi
 }
@@ -104,7 +109,10 @@ wrangle_verify_provenance() {
 # Verify Sigstore signature for a downloaded artifact via cosign.
 #
 # Usage: wrangle_verify_signature <artifact_path> <expected_identity> <expected_issuer>
-# Returns: 0 on success, 1 on failure, 2 if cosign not available
+# Returns: 0 on success, 1 on verification failure or tool not available
+#
+# IMPORTANT: This function returns 1 (failure) if cosign is not installed.
+# Callers MUST NOT fall back to a weaker verification method on failure.
 wrangle_verify_signature() {
     if [[ $# -ne 3 ]]; then
         printf 'Usage: wrangle_verify_signature <artifact_path> <expected_identity> <expected_issuer>\n' >&2
@@ -116,8 +124,9 @@ wrangle_verify_signature() {
     local expected_issuer="$3"
 
     if ! command -v cosign >/dev/null 2>&1; then
-        printf 'wrangle: cosign not found, skipping signature verification\n' >&2
-        return 2
+        printf 'wrangle: cosign not found — cannot verify signature\n' >&2
+        printf 'wrangle: install cosign or the signature check will fail\n' >&2
+        return 1
     fi
 
     if cosign verify-blob "$artifact_path" \
@@ -125,7 +134,7 @@ wrangle_verify_signature() {
         --certificate-oidc-issuer "$expected_issuer"; then
         return 0
     else
-        printf 'wrangle: Sigstore signature verification failed for %s\n' "$artifact_path" >&2
+        printf 'wrangle: Sigstore signature verification FAILED for %s\n' "$artifact_path" >&2
         return 1
     fi
 }
