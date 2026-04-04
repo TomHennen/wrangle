@@ -8,6 +8,11 @@ on:
         required: false
         type: string
         default: "osv"
+      project-type:
+        description: "Project type for testing/linting (shell, container, or auto)"
+        required: false
+        type: string
+        default: "auto"
 
 jobs:
   check-change:
@@ -21,10 +26,15 @@ jobs:
         with:
           persist-credentials: false
 
-      # The scan action runs adapter-pattern tools (via run.sh) and
-      # action-pattern tools (zizmor, scorecard) via uses: internally.
+      # Security scanning: vulnerabilities, workflow linting, supply chain
       # TODO(PR 14): Pin to release tag @v0.1.0 — @main is temporary
       - name: Source scan
         uses: tomhennen/wrangle/actions/scan@main
         with:
           tools: ${{ inputs.tools }}
+
+      # Project testing/linting: detect project type and run appropriate checks
+      # TODO(PR 14): Pin to release tag @v0.1.0
+      - name: Shell tests
+        if: always()
+        uses: tomhennen/wrangle/build/actions/shell@main
