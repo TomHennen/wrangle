@@ -48,6 +48,7 @@ runs:
 
     - name: Scorecard
       if: always()
+      continue-on-error: true
       uses: tomhennen/wrangle/tools/scorecard@main
 
     - name: Generate step summary
