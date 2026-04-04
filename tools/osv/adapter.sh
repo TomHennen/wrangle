@@ -1,5 +1,6 @@
 #!/bin/bash
 set -euo pipefail
+set -f  # disable globbing — adapter processes external input paths
 
 # OSV-Scanner adapter for wrangle.
 # Runs OSV-Scanner on source code and produces SARIF output.
