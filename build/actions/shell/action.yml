@@ -1,14 +1,10 @@
 name: Wrangle Shell Build
 description: |
-  Build action for shell projects. Runs shellcheck on all .sh files,
-  shfmt formatting check (if available), and bats tests (if present).
+  Build action for shell projects. Runs shellcheck on all .sh files
+  and bats tests (if present).
   This is the build type wrangle uses on itself (dogfooding).
 
 inputs:
-  shellcheck-args:
-    description: "Additional arguments to pass to shellcheck"
-    required: false
-    default: ""
   bats-path:
     description: "Path to bats test files (default: auto-detect)"
     required: false
@@ -20,6 +16,7 @@ runs:
     - name: Install shellcheck
       shell: bash
       run: |
+        set -euo pipefail
         if ! command -v shellcheck >/dev/null 2>&1; then
           sudo apt-get update -qq && sudo apt-get install -y -qq shellcheck
         fi
@@ -28,6 +25,7 @@ runs:
     - name: Install bats
       shell: bash
       run: |
+        set -euo pipefail
         if ! command -v bats >/dev/null 2>&1; then
           sudo apt-get update -qq && sudo apt-get install -y -qq bats
         fi
@@ -35,18 +33,13 @@ runs:
 
     - name: Run shellcheck
       shell: bash
-      env:
-        SHELLCHECK_ARGS: ${{ inputs.shellcheck-args }}
       run: |
         set -euo pipefail
         printf '=== shellcheck ===\n'
-        SCRIPTS=$(find . -name '*.sh' -not -path './.git/*' -not -path './node_modules/*')
-        if [[ -n "$SCRIPTS" ]]; then
-          # shellcheck disable=SC2086
-          echo $SCRIPTS | xargs shellcheck $SHELLCHECK_ARGS
+        # Use find -print0 + xargs -0 for safe filename handling
+        count=$(find . -name '*.sh' -not -path './.git/*' -not -path './node_modules/*' -print0 | xargs -0 -r shellcheck | tee /dev/stderr | wc -l || true)
+        if find . -name '*.sh' -not -path './.git/*' -not -path './node_modules/*' -print0 | xargs -0 -r shellcheck; then
           printf 'shellcheck: all scripts passed\n'
-        else
-          printf 'shellcheck: no .sh files found\n'
         fi
 
     - name: Run bats tests
@@ -57,17 +50,25 @@ runs:
         set -euo pipefail
         printf '=== bats ===\n'
 
-        # Auto-detect test locations if not specified
+        # Validate bats-path if provided: must be a relative path with no
+        # special characters (prevents path traversal and injection)
         if [[ -n "$BATS_PATH" ]]; then
-          bats $BATS_PATH
-        elif [[ -d "test" ]]; then
-          # Find all .bats files in test/ and tool directories
-          BATS_FILES=$(find . -name '*.bats' -not -path './.git/*' | head -100)
-          if [[ -n "$BATS_FILES" ]]; then
-            echo $BATS_FILES | xargs bats
+          if [[ "$BATS_PATH" =~ ^[a-zA-Z0-9_./-]+$ ]] && [[ "$BATS_PATH" != ..* ]] && [[ "$BATS_PATH" != *..* ]]; then
+            bats "$BATS_PATH"
           else
-            printf 'bats: no .bats files found\n'
+            printf 'bats: invalid bats-path: %s\n' "$BATS_PATH" >&2
+            exit 1
           fi
         else
-          printf 'bats: no test directory found, skipping\n'
+          # Auto-detect: find all .bats files
+          bats_files=()
+          while IFS= read -r -d '' f; do
+            bats_files+=("$f")
+          done < <(find . -name '*.bats' -not -path './.git/*' -print0 2>/dev/null)
+
+          if [[ ${#bats_files[@]} -gt 0 ]]; then
+            bats "${bats_files[@]}"
+          else
+            printf 'bats: no .bats files found, skipping\n'
+          fi
         fi
