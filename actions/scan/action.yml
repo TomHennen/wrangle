@@ -20,6 +20,11 @@ runs:
         echo "WRANGLE_BIN_DIR=$WRANGLE_BIN_DIR" >> "$GITHUB_ENV"
         echo "WRANGLE_METADATA_DIR=$WRANGLE_METADATA_DIR" >> "$GITHUB_ENV"
 
+    # uv is a shared prerequisite for tools installed via pip/PyPI
+    # (e.g., zizmor). Set up once here rather than per-tool.
+    - name: Set up uv
+      uses: astral-sh/setup-uv@37802adc94f370d6bfd71619e3f0bf239e1f3b78 # v7.6.0
+
     - name: Run wrangle scan
       shell: bash
       # tools input passed via env var to prevent expression injection.
