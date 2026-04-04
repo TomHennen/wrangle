@@ -23,9 +23,11 @@ runs:
     - name: Format results
       if: always()
       shell: bash
+      env:
+        SCORECARD_DIR: ${{ github.action_path }}
       run: |
         SARIF_FILE="$RUNNER_TEMP/.wrangle/metadata/scorecard/output.sarif"
         MD_FILE="$RUNNER_TEMP/.wrangle/metadata/scorecard/output.md"
         if [[ -f "$SARIF_FILE" ]]; then
-          "${{ github.action_path }}/sarif_to_markdown.sh" "$SARIF_FILE" > "$MD_FILE"
+          "$SCORECARD_DIR/sarif_to_markdown.sh" "$SARIF_FILE" > "$MD_FILE"
         fi
