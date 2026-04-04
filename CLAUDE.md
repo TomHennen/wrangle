@@ -44,8 +44,9 @@ Dependabot manages GitHub Actions dependency updates. Tool binary versions are m
 
 ## Per-Tool Directory Structure
 
-Each tool lives in `tools/<name>/` with exactly three files:
+Every tool lives in `tools/<name>/`. There are two patterns:
 
+**Adapter pattern** (standalone binaries, e.g., OSV-Scanner):
 ```
 tools/<name>/
 ├── install.sh    # Downloads + verifies the tool binary
@@ -53,9 +54,14 @@ tools/<name>/
 └── test.bats     # Tests for both scripts
 ```
 
-Everything for one tool lives in one directory. To add a new tool, copy an existing `tools/<name>/` directory and adapt it. Then add the tool name to the default list in `actions/scan/action.yml`.
+**Action pattern** (tools with official GitHub Actions, e.g., Zizmor, Scorecard):
+```
+tools/<name>/
+├── action.yml    # Composite action wrapping upstream action
+└── test.bats     # Structural tests
+```
 
-Tools that are GitHub Actions (not standalone binaries) follow the Scorecard pattern instead: a wrapped composite action in `actions/<name>/`.
+Everything for one tool lives in one directory. To add a new tool, copy an existing `tools/<name>/` directory matching the appropriate pattern and adapt it. Then wire it into `actions/scan/action.yml`.
 
 ## Adapter Contract
 
