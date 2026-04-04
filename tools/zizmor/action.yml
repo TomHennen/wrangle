@@ -1,0 +1,47 @@
+name: Wrangle Zizmor
+description: |
+  Run Zizmor workflow security linter within wrangle.
+  Wraps the upstream zizmorcore/zizmor-action, which handles
+  installation and execution. This is the "action pattern" —
+  used for tools that have official GitHub Actions.
+
+inputs:
+  version:
+    description: "Zizmor version to use"
+    required: false
+    default: "v1.23.1"
+
+runs:
+  using: "composite"
+  steps:
+    - name: Create wrangle output directory
+      shell: bash
+      run: mkdir -p "$RUNNER_TEMP/.wrangle/metadata/zizmor"
+
+    - name: Run Zizmor
+      id: zizmor
+      # We disable advanced-security so wrangle controls SARIF upload
+      # with its own per-tool category (wrangle/zizmor).
+      uses: zizmorcore/zizmor-action@71321a20a9ded102f6e9ce5718a2fcec2c4f70d8 # v0.5.2
+      continue-on-error: true
+      with:
+        version: ${{ inputs.version }}
+        advanced-security: false
+
+    - name: Collect SARIF output
+      if: always()
+      shell: bash
+      run: |
+        set -euo pipefail
+        SARIF_SRC="${{ steps.zizmor.outputs.output-file }}"
+        SARIF_DST="$RUNNER_TEMP/.wrangle/metadata/zizmor/output.sarif"
+        if [[ -n "$SARIF_SRC" ]] && [[ -f "$SARIF_SRC" ]]; then
+            cp "$SARIF_SRC" "$SARIF_DST"
+        else
+            # If no SARIF produced, create an empty one
+            jq -n '{
+                "version": "2.1.0",
+                "$schema": "https://raw.githubusercontent.com/oasis-tcs/sarif-spec/main/sarif-2.1/schema/sarif-schema-2.1.0.json",
+                "runs": [{"tool": {"driver": {"name": "zizmor"}}, "results": []}]
+            }' > "$SARIF_DST"
+        fi
