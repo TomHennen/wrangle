@@ -1,5 +1,10 @@
 name: Wrangle Scorecard
-description: Run OSSF Scorecard within wrangle
+description: |
+  Run OSSF Scorecard within wrangle. Scorecard is itself a GitHub Action
+  (not a standalone binary), so it follows the "wrapped composite action"
+  pattern instead of the adapter pattern used by OSV and Zizmor. New tools
+  that are standalone binaries should use the adapter pattern; tools that
+  are GitHub Actions should follow this Scorecard pattern.
 
 runs:
   using: "composite"
