@@ -8,7 +8,10 @@ on:
     branches: [ "**" ]
     paths:
       # only rebuild if something related to our docker images changed
-      - tools/**
+      # Note: tools/cosign/ and tools/osv_sbom/ are legacy Docker-based tools.
+      # New adapter-pattern tools (tools/osv/, tools/zizmor/) do not use Docker.
+      - tools/cosign/**
+      - tools/osv_sbom/**
       - workflows/build-tools.yml
       - source/tools/**
       - publish/actions/container/**
