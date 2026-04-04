@@ -3,11 +3,6 @@ name: Shell Build
 on:
   workflow_call:
     inputs:
-      shellcheck-args:
-        description: "Additional arguments to pass to shellcheck"
-        required: false
-        type: string
-        default: ""
       bats-path:
         description: "Path to bats test files (default: auto-detect)"
         required: false
@@ -25,5 +20,4 @@ jobs:
       - name: Run shell build
         uses: ./build/actions/shell
         with:
-          shellcheck-args: ${{ inputs.shellcheck-args }}
           bats-path: ${{ inputs.bats-path }}
