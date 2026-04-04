@@ -482,17 +482,42 @@ This is the entire file an adopter needs. No secrets, no configuration, no depen
 
 ## Supported Tools (v0.1)
 
-| Tool | Type | What it does |
-|------|------|-------------|
-| [OSV-Scanner](https://github.com/google/osv-scanner) | Vulnerability scanner | Scans dependencies against the OSV database |
-| [Zizmor](https://github.com/woodruffw/zizmor) | Workflow linter | Security-focused linting of GitHub Actions workflows |
-| [OSSF Scorecard](https://scorecard.dev/) | Supply chain scoring | Assesses repo security health across 18+ categories |
+| Tool | Pattern | What it does |
+|------|---------|-------------|
+| [OSV-Scanner](https://github.com/google/osv-scanner) | Adapter | Scans dependencies against the OSV database |
+| [Zizmor](https://github.com/zizmorcore/zizmor) | Action (wraps `zizmorcore/zizmor-action`) | Security-focused linting of GitHub Actions workflows |
+| [OSSF Scorecard](https://scorecard.dev/) | Action (wraps `ossf/scorecard-action`) | Assesses repo security health across 18+ categories |
 
-### Why Scorecard is different
+### Two Tool Patterns
 
-OSV and Zizmor follow the adapter pattern (install script + adapter script + SARIF output). Scorecard does not — it is invoked as a separate composite action (`actions/scorecard/`) that wraps the upstream `ossf/scorecard-action`.
+Every tool lives in `tools/<name>/` regardless of which pattern it uses. There are two patterns:
 
-This is because Scorecard is itself a GitHub Action, not a standalone binary. It requires the GitHub Actions context (repository metadata, API access) to function, which makes it incompatible with the adapter pattern's environment isolation. New tools that are standalone binaries should use the adapter pattern. Tools that are GitHub Actions should follow the Scorecard pattern (wrapped composite action, called separately by the scan action).
+**Adapter pattern** — for tools distributed as standalone binaries (e.g., OSV-Scanner). The orchestrator (`run.sh`) handles installation and execution:
+
+```
+tools/<name>/
+├── install.sh    # Downloads + verifies the tool binary
+├── adapter.sh    # Runs the tool, produces SARIF
+└── test.bats     # Tests for both scripts
+```
+
+**Action pattern** — for tools that have an official GitHub Action or are best installed via their ecosystem's package manager (e.g., Zizmor, Scorecard). A thin composite action wraps the upstream action:
+
+```
+tools/<name>/
+├── action.yml    # Composite action wrapping the upstream action
+└── test.bats     # Structural tests + CI integration tests
+```
+
+Use the action pattern when:
+- The tool has a well-maintained official GitHub Action
+- The tool's recommended installation method requires an ecosystem runtime (cargo, pip, etc.) that wrangle shouldn't depend on
+- The tool requires the GitHub Actions context (repository metadata, API access) that the adapter pattern's environment isolation strips
+
+Use the adapter pattern when:
+- The tool publishes standalone release binaries as its primary distribution
+- The tool can run without GitHub Actions context
+- You want the strongest environment isolation (adapters run with stripped env vars)
 
 ### Supported Platforms (v0.1)
 
@@ -502,13 +527,20 @@ The install scripts include OS/arch detection (`linux/darwin`, `amd64/arm64`) as
 
 ### Adding a New Tool
 
-To add a tool named `foo`:
+**Adapter pattern** (standalone binary):
 
 1. Create `tools/foo/` directory with:
-   - `install.sh` — uses `lib/download_verify.sh` for download and verification. If the tool publishes SLSA provenance, use `wrangle_verify_provenance`; otherwise pin a SHA-256 checksum.
+   - `install.sh` — uses `lib/download_verify.sh` for download and verification
    - `adapter.sh` — follows the adapter contract above
-   - `test.bats` — tests for this tool (mock binaries for local, real tool in CI)
-2. Add `foo` to the default tool list in `actions/scan/action.yml`
+   - `test.bats` — tests using mock binaries (fast, deterministic)
+2. Add `foo` to the orchestrator's default tool list in `actions/scan/action.yml`
+
+**Action pattern** (wraps upstream GitHub Action):
+
+1. Create `tools/foo/` directory with:
+   - `action.yml` — composite action that wraps the upstream action. Must pin the upstream action to a full commit SHA. Should produce SARIF output in `$RUNNER_TEMP/.wrangle/metadata/foo/output.sarif`.
+   - `test.bats` — structural tests (action.yml exists, SHA pinned, etc.)
+2. Add a `uses: ./tools/foo` step in `actions/scan/action.yml`
 
 Everything for one tool lives in one directory. No Docker images, no registry management, no workflow changes for adopters.
 
