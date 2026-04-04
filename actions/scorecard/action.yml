@@ -27,5 +27,5 @@ runs:
         SARIF_FILE="$RUNNER_TEMP/.wrangle/metadata/scorecard/output.sarif"
         MD_FILE="$RUNNER_TEMP/.wrangle/metadata/scorecard/output.md"
         if [[ -f "$SARIF_FILE" ]]; then
-          "${{ github.action_path }}/format_sarif.sh" "$SARIF_FILE" > "$MD_FILE"
+          "${{ github.action_path }}/sarif_to_markdown.sh" "$SARIF_FILE" > "$MD_FILE"
         fi
