@@ -2,28 +2,29 @@ name: Check Change
 
 on:
   workflow_call:
-    secrets:
-      gh_token:
-        # TODO: Is this needed for public repos and if wrangle images are public?
-        description: "GitHub token with permission to read wrangle images, repo data, and write security-events."
-        required: true
+    inputs:
+      tools:
+        description: "Space-separated list of adapter-pattern tools to run"
+        required: false
+        type: string
+        default: "osv"
 
 jobs:
-  # Whenever new source is pushed or a PR is received, scan it for any issues
   check-change:
     permissions:
       actions: read
       contents: read
-      packages: read
-      issues: read
-      pull-requests: read
-      security-events: write # So we can upload sarif
-      statuses: read
+      security-events: write # SARIF upload to Security tab
     runs-on: ubuntu-latest
     steps:
-    - name: "Run Scan"
-      uses: tomhennen/wrangle/source/actions/scan@main
-      # TODO: Remove once images are public?
-      with:
-        registry: 'ghcr.io'
-        github_token: ${{ secrets.gh_token }}
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+
+      # The scan action runs adapter-pattern tools (via run.sh) and
+      # action-pattern tools (zizmor, scorecard) via uses: internally.
+      # TODO(PR 14): Pin to release tag @v0.1.0 — @main is temporary
+      - name: Source scan
+        uses: tomhennen/wrangle/actions/scan@main
+        with:
+          tools: ${{ inputs.tools }}

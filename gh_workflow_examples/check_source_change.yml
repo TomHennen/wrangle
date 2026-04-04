@@ -1,23 +1,18 @@
+# Copy this file to your repo at .github/workflows/check_source_change.yml
+# Adjust the branch name if your default branch isn't "main".
 name: Check Source Change
 on:
   push:
-    branches: [ "main" ]
+    branches: ["main"]
   pull_request:
-    branches: [ "**" ]
+    branches: ["**"]
   workflow_dispatch:
 
 jobs:
-  # Whenever new source is pushed or a PR is received, scan it for any issues
   check-change:
     permissions:
       actions: read
       contents: read
-      packages: read
-      issues: read
-      pull-requests: read
-      security-events: write # So we can upload sarif
-      statuses: read
-    # TODO(v0.1.0): Pin to release tag @v0.1.0 before release
+      security-events: write
+    # TODO(v0.1.0): Update to @v0.1.0 before release
     uses: tomhennen/wrangle/.github/workflows/check_source_change.yml@main
-    secrets:
-      gh_token: ${{ secrets.GITHUB_TOKEN }}
