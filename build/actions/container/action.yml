@@ -44,6 +44,7 @@ runs:
         INPUT_REGISTRY: ${{ inputs.registry }}
       run: |
         set -euo pipefail
+        set -f  # disable globbing — processes external input
         # Validate path: must be relative, no traversal, safe characters only
         if [[ "$INPUT_PATH" == /* ]]; then
             printf 'Error: path must be relative, got: %s\n' "$INPUT_PATH" >&2
@@ -63,7 +64,7 @@ runs:
             exit 1
         fi
         # Validate imagename: lowercase, slashes, dots, dashes, colons
-        if [[ ! "$INPUT_IMAGENAME" =~ ^[a-z0-9./_-]+$ ]]; then
+        if [[ ! "$INPUT_IMAGENAME" =~ ^[a-z0-9./:_-]+$ ]]; then
             printf 'Error: invalid image name: %s\n' "$INPUT_IMAGENAME" >&2
             exit 1
         fi
@@ -130,7 +131,7 @@ runs:
         set -euo pipefail
         SBOM_PATH="metadata/container/${SHORTNAME}/sbom.spdx.json"
         docker buildx imagetools inspect "$IMAGE" --format "{{ json .SBOM.SPDX }}" > "$SBOM_PATH"
-        echo "sbom=${SBOM_PATH}" >> "$GITHUB_OUTPUT"
+        printf 'sbom=%s\n' "$SBOM_PATH" >> "$GITHUB_OUTPUT"
 
     - name: Generate summary
       if: always()
@@ -138,6 +139,7 @@ runs:
       env:
         WRANGLE_ROOT: ${{ github.action_path }}/../../..
       run: |
+        set -euo pipefail
         if [[ -f "$WRANGLE_ROOT/lib/format_sarif_summary.sh" ]]; then
           "$WRANGLE_ROOT/lib/format_sarif_summary.sh" "./metadata" >> "$GITHUB_STEP_SUMMARY"
         fi
