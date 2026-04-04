@@ -1,0 +1,33 @@
+name: Wrangle Scorecard
+description: |
+  Run OSSF Scorecard within wrangle. Scorecard is itself a GitHub Action
+  (not a standalone binary), so it follows the "wrapped composite action"
+  pattern instead of the adapter pattern used by OSV and Zizmor. New tools
+  that are standalone binaries should use the adapter pattern; tools that
+  are GitHub Actions should follow this Scorecard pattern.
+
+runs:
+  using: "composite"
+  steps:
+    - name: Create output directory
+      shell: bash
+      run: mkdir -p "$RUNNER_TEMP/.wrangle/metadata/scorecard"
+
+    - name: Run Scorecard
+      uses: ossf/scorecard-action@4eaacf0543bb3f2c246792bd56e8cdeffafb205a # v2.4.3
+      with:
+        results_file: ${{ runner.temp }}/.wrangle/metadata/scorecard/output.sarif
+        results_format: sarif
+        publish_results: false
+
+    - name: Format results
+      if: always()
+      shell: bash
+      env:
+        SCORECARD_DIR: ${{ github.action_path }}
+      run: |
+        SARIF_FILE="$RUNNER_TEMP/.wrangle/metadata/scorecard/output.sarif"
+        MD_FILE="$RUNNER_TEMP/.wrangle/metadata/scorecard/output.md"
+        if [[ -f "$SARIF_FILE" ]]; then
+          "$SCORECARD_DIR/sarif_to_markdown.sh" "$SARIF_FILE" > "$MD_FILE"
+        fi
