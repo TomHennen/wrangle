@@ -27,7 +27,7 @@ shellcheck:
 	@echo "=== shellcheck ==="
 	@SCRIPTS=$$(find . -name '*.sh' -not -path './.git/*' $(LEGACY_EXCLUDES)); \
 	if [ -n "$$SCRIPTS" ]; then \
-		echo $$SCRIPTS | xargs shellcheck; \
+		echo $$SCRIPTS | xargs shellcheck -x --source-path=SCRIPTDIR; \
 	else \
 		echo "No non-legacy shell scripts to check yet"; \
 	fi
@@ -35,7 +35,7 @@ shellcheck:
 # Run bats tests
 bats:
 	@echo "=== bats ==="
-	@bats test/ test/lib/
+	@bats test/ test/lib/ tools/*/test.bats
 
 # Update a tool version and its checksum
 # Usage: make update-tool TOOL=osv VERSION=1.2.3
