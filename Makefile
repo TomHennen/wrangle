@@ -35,7 +35,7 @@ shellcheck:
 # Run bats tests
 bats:
 	@echo "=== bats ==="
-	@bats test/
+	@bats test/ test/lib/
 
 # Update a tool version and its checksum
 # Usage: make update-tool TOOL=osv VERSION=1.2.3
