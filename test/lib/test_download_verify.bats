@@ -135,12 +135,12 @@ teardown() {
 
 # --- wrangle_verify_provenance tests ---
 
-@test "verify_provenance: fails when slsa-verifier not available" {
-    # Use a restricted PATH that definitely won't have slsa-verifier
+@test "verify_provenance: fails when slsa-verifier not on PATH" {
+    # Restricted PATH with no slsa-verifier
     PATH="/usr/bin:/bin" run wrangle_verify_provenance "$TEST_DIR/test_artifact" "test/repo" "v1.0.0"
 
     [ "$status" -eq 1 ]
-    [[ "$output" == *"cannot verify provenance"* ]]
+    [[ "$output" == *"slsa-verifier not found"* ]]
 }
 
 @test "verify_provenance: requires 3 arguments" {
