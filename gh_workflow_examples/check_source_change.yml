@@ -15,5 +15,4 @@ jobs:
       contents: read
       security-events: write
     # TODO(v0.1.0): Update to @v0.1.0 before release
-    uses: TomHennen/wrangle/.github/workflows/check_source_change.yml@main
-    # No secrets required — tools are downloaded as public binaries
+    uses: tomhennen/wrangle/.github/workflows/check_source_change.yml@main

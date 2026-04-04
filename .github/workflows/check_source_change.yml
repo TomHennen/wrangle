@@ -8,7 +8,6 @@ on:
         required: false
         type: string
         default: "osv zizmor"
-  # No secrets required — tools are downloaded as public binaries
 
 jobs:
   check-change:
