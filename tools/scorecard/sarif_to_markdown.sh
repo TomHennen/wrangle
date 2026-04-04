@@ -9,10 +9,10 @@ set -euo pipefail
 # GitHub Actions context (repository metadata, API access) which makes
 # it incompatible with the adapter's environment isolation.
 #
-# Usage: format_sarif.sh <sarif_file>
+# Usage: sarif_to_markdown.sh <sarif_file>
 
 if [[ $# -ne 1 ]]; then
-    printf 'Usage: format_sarif.sh <sarif_file>\n' >&2
+    printf 'Usage: sarif_to_markdown.sh <sarif_file>\n' >&2
     exit 1
 fi
 
@@ -32,8 +32,9 @@ fi
 printf 'Rule Name | Location | Message\n'
 printf '--------- | -------- | -------\n'
 
-# Extract results and strip HTML tags for output sanitization
-if ! jq -r '[.runs[].results[] | {rule: .ruleId, message: .message.text, locations: .locations[].physicalLocation.artifactLocation.uri}] | .[] | "\(.rule) | \(.locations) | \(.message)"' "$SARIF_FILE" 2>/dev/null | sed 's/<[^>]*>//g'; then
+# Extract results, strip HTML tags, and truncate to prevent summary flooding
+MAX_OUTPUT="${WRANGLE_MAX_SUMMARY:-65536}"
+if ! jq -r '[.runs[].results[] | {rule: .ruleId, message: .message.text, locations: .locations[].physicalLocation.artifactLocation.uri}] | .[] | "\(.rule) | \(.locations) | \(.message)"' "$SARIF_FILE" 2>/dev/null | sed 's/<[^>]*>//g' | head -c "$MAX_OUTPUT"; then
     printf 'Error: failed to parse SARIF results\n' >&2
     exit 2
 fi

@@ -39,14 +39,16 @@ runs:
           -o "$WRANGLE_METADATA_DIR" \
           $WRANGLE_TOOLS
 
-    # Action-pattern tools: invoked directly via uses:
+    # Action-pattern tools: invoked via cross-repo uses: reference.
+    # ./tools/<name> won't work cross-repo (resolves to caller's repo).
+    # TODO(PR 14): Pin to release tag @v0.1.0 — @main is temporary
     - name: Zizmor
       if: always()
-      uses: ./tools/zizmor
+      uses: tomhennen/wrangle/tools/zizmor@main
 
     - name: Scorecard
       if: always()
-      uses: ./tools/scorecard
+      uses: tomhennen/wrangle/tools/scorecard@main
 
     - name: Generate step summary
       if: always()
@@ -59,12 +61,10 @@ runs:
         fi
 
     # SARIF upload: one step per tool for per-tool attribution in the
-    # Security tab (wrangle/osv, wrangle/zizmor). This is intentionally
-    # not generic — adding a new tool requires adding an upload step here.
-    # A dynamic approach (loop over metadata dirs) is not possible in
-    # composite actions since each uses: step must be statically defined.
-    # This is a known limitation accepted for v0.1; a future version could
-    # use a wrapper action or post-run script to enumerate tools.
+    # Security tab. This is intentionally not generic — adding a new
+    # tool requires adding an upload step here. Composite actions
+    # require static uses: steps; dynamic enumeration is not possible.
+    # Known limitation accepted for v0.1.
     - name: Upload OSV SARIF
       if: always()
       uses: github/codeql-action/upload-sarif@5c8a8a642e79153f5d047b10ec1cba1d1cc65699 # v3.35.1
@@ -80,6 +80,14 @@ runs:
       with:
         sarif_file: ${{ runner.temp }}/.wrangle/metadata/zizmor/output.sarif
         category: wrangle/zizmor
+
+    - name: Upload Scorecard SARIF
+      if: always()
+      uses: github/codeql-action/upload-sarif@5c8a8a642e79153f5d047b10ec1cba1d1cc65699 # v3.35.1
+      continue-on-error: true
+      with:
+        sarif_file: ${{ runner.temp }}/.wrangle/metadata/scorecard/output.sarif
+        category: wrangle/scorecard
 
     - name: Upload scan results artifact
       if: always()
