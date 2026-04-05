@@ -163,7 +163,8 @@ wrangle/
 ├── lib/                    # Shared helpers
 │   ├── download_verify.sh  # wrangle_download_verify(), wrangle_verify_provenance()
 │   ├── format_sarif_summary.sh  # SARIF → markdown summary
-│   └── sarif_to_text.sh    # SARIF → human-readable plain text
+│   ├── sarif_to_md.sh      # SARIF → human-readable markdown (per-tool)
+│   └── tool_banner.sh      # Print visual banner for tool log attribution
 ├── actions/                # GitHub Actions entry points
 │   ├── scan/
 │   │   └── action.yml      # Composite action: scan source code
@@ -559,7 +560,7 @@ The install scripts include OS/arch detection (`linux/darwin`, `amd64/arm64`) as
 **Action pattern** (wraps upstream GitHub Action):
 
 1. Create `tools/foo/` directory with:
-   - `action.yml` — composite action that wraps the upstream action. Must pin the upstream action to a full commit SHA. Must write SARIF output to `$WRANGLE_METADATA_DIR/foo/output.sarif` (workspace-relative, set by the scan action via `$GITHUB_ENV`). Must also produce human-readable output as `output.txt` (via `lib/sarif_to_text.sh`) or `output.md` for the step summary details section.
+   - `action.yml` — composite action that wraps the upstream action. Must pin the upstream action to a full commit SHA. Must write SARIF output to `$WRANGLE_METADATA_DIR/foo/output.sarif` (workspace-relative, set by the scan action via `$GITHUB_ENV`). Must also produce human-readable output as `output.md` (via `lib/sarif_to_md.sh` or a tool-specific formatter) for the step summary details section. Must print a log attribution banner (via `lib/tool_banner.sh`) as the first step.
    - `test.bats` — structural tests (action.yml exists, SHA pinned, etc.)
 2. Add a `uses: ./tools/foo` step in `actions/scan/action.yml`
 
@@ -586,7 +587,7 @@ Structure after a scan:
 │   └── output.sarif
 ├── zizmor/
 │   ├── output.sarif
-│   └── output.txt
+│   └── output.md
 └── scorecard/
     ├── output.sarif
     └── output.md
@@ -696,15 +697,16 @@ wrangle_verify_signature() { ... }
 
 All install scripts MUST use `wrangle_download_verify` rather than implementing their own download logic. This ensures consistent integrity verification and makes security fixes apply everywhere.
 
-### SARIF to Human-Readable Text
+### Shared Tool Helpers
 
-`lib/sarif_to_text.sh` converts SARIF 2.1.0 to human-readable plain text. It is used by action-pattern tools to produce `output.txt` for the step summary details section.
+`lib/sarif_to_md.sh` converts SARIF 2.1.0 to a human-readable markdown table. It is the default formatter for action-pattern tools that don't have a tool-specific formatter. Tools with richer output (e.g., Scorecard's `sarif_to_markdown.sh`) may use their own formatter instead.
 
 ```
-# Usage: sarif_to_text.sh <sarif_file>
-# Output format (one block per finding):
-#   [HIGH] rule-id — file.yml:39
-#     Message text
+# Usage: sarif_to_md.sh <sarif_file>
+# Output format (markdown table):
+#   | Severity | Rule | Location | Message |
+#   | -------- | ---- | -------- | ------- |
+#   | HIGH | rule-id | `file.yml:39` | Message text |
 #
 # Exit codes:
 #   0  Success (including no findings)
@@ -712,7 +714,17 @@ All install scripts MUST use `wrangle_download_verify` rather than implementing 
 #   2  Invalid JSON or malformed SARIF
 ```
 
-Action-pattern tools call this script after producing SARIF to generate `output.txt`. The `format_sarif_summary.sh` script picks up `output.txt` (or `output.md`) to populate the expandable details section in the step summary.
+`lib/tool_banner.sh` prints a visual banner for tool log attribution in CI logs. Action-pattern tools call this as their first step to make tool boundaries visible in raw log output.
+
+```
+# Usage: tool_banner.sh <tool_name>
+# Output:
+#   ========================================
+#    wrangle/<tool_name>
+#   ========================================
+```
+
+Action-pattern tools call these helpers from their own `action.yml`. The `format_sarif_summary.sh` script picks up `output.md` (or `output.txt`) to populate the expandable details section in the step summary.
 
 ### Sandboxing and Isolation
 

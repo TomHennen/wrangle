@@ -2,16 +2,16 @@
 set -euo pipefail
 set -f  # disable globbing — processes external file paths
 
-# lib/sarif_to_text.sh — Convert SARIF 2.1.0 to human-readable text.
+# lib/sarif_to_md.sh — Convert SARIF 2.1.0 to human-readable markdown.
 #
-# Usage: sarif_to_text.sh <sarif_file>
-# Output: Plain text findings to stdout
+# Usage: sarif_to_md.sh <sarif_file>
+# Output: Markdown findings table to stdout
 #
 # For each result, extracts ruleId, level, file:line, and message text.
-# Used by action-pattern tools to produce output.txt for the step summary.
+# Used by action-pattern tools to produce output.md for the step summary.
 
 if [[ $# -ne 1 ]]; then
-    printf 'Usage: sarif_to_text.sh <sarif_file>\n' >&2
+    printf 'Usage: sarif_to_md.sh <sarif_file>\n' >&2
     exit 1
 fi
 
@@ -28,7 +28,8 @@ if ! jq empty "$SARIF_FILE" 2>/dev/null; then
     exit 2
 fi
 
-# Extract results; exit cleanly if no findings
+# Extract results; exit cleanly if no findings.
+# Pipe characters in messages are escaped to avoid breaking the markdown table.
 if ! results="$(jq -r '
   [.runs[].results[] |
     {
@@ -36,7 +37,7 @@ if ! results="$(jq -r '
       level: (.level // "warning"),
       uri: (.locations[0].physicalLocation.artifactLocation.uri // "unknown"),
       line: (.locations[0].physicalLocation.region.startLine // "?"),
-      message: (.message.text | gsub("\n"; " "))
+      message: (.message.text | gsub("\n"; " ") | gsub("\\|"; "/"))
     }
   ]' "$SARIF_FILE" 2>/dev/null)"; then
     printf 'Error: failed to parse SARIF results\n' >&2
@@ -59,9 +60,12 @@ level_label() {
     esac
 }
 
-# Output each finding
+# Output markdown table
+printf '| Severity | Rule | Location | Message |\n'
+printf '| -------- | ---- | -------- | ------- |\n'
+
 printf '%s' "$results" | jq -r '.[] | "\(.level)\t\(.ruleId)\t\(.uri):\(.line)\t\(.message)"' | while IFS=$'\t' read -r level rule location message; do
     label="$(level_label "$level")"
-    printf '[%s] %s — %s\n' "$label" "$rule" "$location"
-    printf '  %s\n\n' "$message"
+    # shellcheck disable=SC2016 # backticks are literal markdown code spans, not command substitution
+    printf '| %s | %s | `%s` | %s |\n' "$label" "$rule" "$location" "$message"
 done

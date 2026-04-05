@@ -50,40 +50,11 @@ runs:
     # Action-pattern tools: invoked via local path. Inside a reusable
     # workflow, ./ resolves to this repo at the called ref (the adopter's
     # pinned tag or the PR branch for local CI).
-    # Each tool gets a banner step for log attribution since composite
-    # action steps are not automatically grouped by GitHub Actions.
-    - name: "Banner: wrangle/zizmor"
-      if: always() && contains(inputs.tools, 'zizmor')
-      shell: bash
-      run: |
-        printf '\n========================================\n'
-        printf ' wrangle/%s\n' "zizmor"
-        printf '========================================\n'
-
+    # Each tool action handles its own log banner and human-readable
+    # output generation (output.md) — see tools/<name>/action.yml.
     - name: Zizmor
       if: always() && contains(inputs.tools, 'zizmor')
       uses: ./tools/zizmor
-
-    - name: Generate zizmor human-readable output
-      if: always() && contains(inputs.tools, 'zizmor')
-      shell: bash
-      env:
-        WRANGLE_ROOT: ${{ github.action_path }}/../..
-      run: |
-        set -euo pipefail
-        SARIF="${GITHUB_WORKSPACE}/.wrangle/metadata/zizmor/output.sarif"
-        TXT="${GITHUB_WORKSPACE}/.wrangle/metadata/zizmor/output.txt"
-        if [[ -f "$SARIF" ]]; then
-          "$WRANGLE_ROOT/lib/sarif_to_text.sh" "$SARIF" > "$TXT"
-        fi
-
-    - name: "Banner: wrangle/scorecard"
-      if: always() && contains(inputs.tools, 'scorecard') && github.event_name != 'pull_request'
-      shell: bash
-      run: |
-        printf '\n========================================\n'
-        printf ' wrangle/%s\n' "scorecard"
-        printf '========================================\n'
 
     # Scorecard only runs on push events — it requires GITHUB_TOKEN scopes
     # that aren't available on PRs and uses Docker, which only mounts
