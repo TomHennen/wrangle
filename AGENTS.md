@@ -86,7 +86,7 @@ PR CI tests the actual code in the PR branch, not `main`, because wrangle's own 
 
 **After pushing a PR:**
 1. Check the Actions tab — confirm CI passes (don't rely only on local tests)
-2. For tool changes: inspect the step summary and the `scan-metadata` artifact to verify SARIF output and metadata are correct
+2. For tool changes: inspect the step summary and the `wrangle-scan-results` artifact to verify SARIF output and metadata are correct
 3. If CI fails, investigate before re-pushing — it may reveal a real environment difference
 
 **What CI does not cover:**

@@ -133,7 +133,7 @@ PR CI tests the actual code in the PR branch, not `main`. Wrangle's own actions 
 
 **Before requesting review:**
 - Confirm CI passes on the PR — check the Actions tab, not just local tests
-- For tool changes: inspect the step summary (markdown table) and the `scan-metadata` artifact in the CI logs to verify correct SARIF output and metadata
+- For tool changes: inspect the step summary (markdown table) and the `wrangle-scan-results` artifact in the CI logs to verify correct SARIF output and metadata
 - If CI fails on something local tests don't catch, investigate — it may reveal a real environment difference
 
 **What CI does not cover:**
