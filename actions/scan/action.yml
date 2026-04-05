@@ -16,15 +16,9 @@ runs:
   steps:
     - name: Set up wrangle
       shell: bash
-      run: |
-        WRANGLE_BIN_DIR="${RUNNER_TEMP}/.wrangle/bin"
-        # Metadata dir is workspace-relative so Scorecard's Docker container
-        # can write to it ($GITHUB_WORKSPACE is mounted, $RUNNER_TEMP is not).
-        WRANGLE_METADATA_DIR="${GITHUB_WORKSPACE}/.wrangle/metadata"
-        mkdir -p "$WRANGLE_BIN_DIR" "$WRANGLE_METADATA_DIR"
-        echo "$WRANGLE_BIN_DIR" >> "$GITHUB_PATH"
-        echo "WRANGLE_BIN_DIR=$WRANGLE_BIN_DIR" >> "$GITHUB_ENV"
-        echo "WRANGLE_METADATA_DIR=$WRANGLE_METADATA_DIR" >> "$GITHUB_ENV"
+      env:
+        WRANGLE_ROOT: ${{ github.action_path }}/../..
+      run: "$WRANGLE_ROOT/lib/setup.sh"
 
     # Install slsa-verifier for tools that use SLSA provenance verification
     # (e.g., OSV-Scanner). Required before running adapter-pattern tools.
@@ -43,6 +37,8 @@ runs:
         WRANGLE_TOOLS: ${{ inputs.tools }}
         WRANGLE_ROOT: ${{ github.action_path }}/../..
       run: |
+        # shellcheck source=../../lib/env.sh
+        source "$WRANGLE_ROOT/lib/env.sh"
         # $WRANGLE_TOOLS is intentionally unquoted so it word-splits into
         # multiple arguments. This is safe because the orchestrator validates
         # each token against ^[a-z][a-z0-9_-]*$ and runs set -f.
@@ -71,6 +67,8 @@ runs:
       env:
         WRANGLE_ROOT: ${{ github.action_path }}/../..
       run: |
+        # shellcheck source=../../lib/env.sh
+        source "$WRANGLE_ROOT/lib/env.sh"
         if [[ -d "$WRANGLE_METADATA_DIR" ]]; then
           "$WRANGLE_ROOT/lib/format_sarif_summary.sh" "$WRANGLE_METADATA_DIR" >> "$GITHUB_STEP_SUMMARY"
         fi
@@ -84,6 +82,8 @@ runs:
         WRANGLE_TOOLS: ${{ inputs.tools }}
         WRANGLE_ROOT: ${{ github.action_path }}/../..
       run: |
+        # shellcheck source=../../lib/env.sh
+        source "$WRANGLE_ROOT/lib/env.sh"
         # $WRANGLE_TOOLS is intentionally unquoted for word-splitting.
         "$WRANGLE_ROOT/lib/check_results.sh" "$WRANGLE_METADATA_DIR" $WRANGLE_TOOLS
 
@@ -95,7 +95,7 @@ runs:
       uses: github/codeql-action/upload-sarif@5c8a8a642e79153f5d047b10ec1cba1d1cc65699 # v3.35.1
       continue-on-error: true
       with:
-        sarif_file: ${{ env.WRANGLE_METADATA_DIR }}/osv/output.sarif
+        sarif_file: ${{ github.workspace }}/.wrangle/metadata/osv/output.sarif
         category: wrangle/osv
 
     # Zizmor SARIF upload is handled by the upstream zizmor-action
@@ -106,7 +106,7 @@ runs:
       uses: github/codeql-action/upload-sarif@5c8a8a642e79153f5d047b10ec1cba1d1cc65699 # v3.35.1
       continue-on-error: true
       with:
-        sarif_file: ${{ env.WRANGLE_METADATA_DIR }}/scorecard/output.sarif
+        sarif_file: ${{ github.workspace }}/.wrangle/metadata/scorecard/output.sarif
         category: wrangle/scorecard
 
     - name: Upload scan results artifact
@@ -115,5 +115,5 @@ runs:
       continue-on-error: true
       with:
         name: wrangle-scan-results
-        path: ${{ env.WRANGLE_METADATA_DIR }}/
+        path: ${{ github.workspace }}/.wrangle/metadata/
         if-no-files-found: ignore

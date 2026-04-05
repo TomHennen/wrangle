@@ -39,6 +39,6 @@ setup() {
     grep -q 'advanced-security: true' "$ORIG_DIR/tools/zizmor/action.yml"
 }
 
-@test "zizmor: action.yml uses WRANGLE_METADATA_DIR for output path" {
-    grep -q 'WRANGLE_METADATA_DIR' "$ORIG_DIR/tools/zizmor/action.yml"
+@test "zizmor: action.yml writes to wrangle metadata directory" {
+    grep -q '\.wrangle/metadata/zizmor' "$ORIG_DIR/tools/zizmor/action.yml"
 }

@@ -67,6 +67,8 @@ runs:
         fi
         # Normalize image name to lowercase
         printf 'imagename=%s\n' "${INPUT_IMAGENAME,,}" >> "$GITHUB_OUTPUT"
+        # Output validated path for safe use in subsequent steps
+        printf 'path=%s\n' "$INPUT_PATH" >> "$GITHUB_OUTPUT"
         # Create a safe short name for artifact naming (replace / with _)
         shortname="${INPUT_PATH////_}"
         printf 'shortname=%s\n' "$shortname" >> "$GITHUB_OUTPUT"
@@ -97,11 +99,14 @@ runs:
         username: ${{ github.actor }}
         password: ${{ inputs.github_token }}
 
+    # TODO(#123): Investigate whether docker/build-push-action can accept
+    # context via env, or whether zizmor will support marking validated step
+    # outputs as safe, to eliminate the need for this suppression.
     - name: Build and push Docker image
       id: push
       uses: docker/build-push-action@d08e5c354a6adb9ed34480a06d141179aa583294 # v7.0.0
-      with:
-        context: "{{defaultContext}}:${{ inputs.path }}"
+      with: # zizmor: ignore[template-injection] value is from steps.normalize.outputs.path, validated against ^[a-zA-Z0-9_./-]+$ and not shell-evaluated
+        context: "{{defaultContext}}:${{ steps.normalize.outputs.path }}"
         push: true
         tags: ${{ steps.meta.outputs.tags }}
         labels: ${{ steps.meta.outputs.labels }}
