@@ -4,10 +4,10 @@ on:
   workflow_call:
     inputs:
       tools:
-        description: "Space-separated list of adapter-pattern tools to run"
+        description: "Space-separated list of tools to run (suffix :info for informational)"
         required: false
         type: string
-        default: "osv"
+        default: "osv zizmor scorecard:info"
 
 jobs:
   check-change:

@@ -407,12 +407,18 @@ description: Scan source code with wrangle security tools
 
 inputs:
   tools:
-    description: "Space-separated list of tools to run (default: all)"
+    description: >
+      Space-separated list of tools to run. Suffix with :info for
+      informational-only (default policy: :fail).
     required: false
-    default: "osv zizmor"
+    default: "osv zizmor scorecard:info"
 
 # No secrets required — tools are downloaded as public binaries
 ```
+
+**Tool policy syntax:** Each tool in the `tools` input accepts an optional `:fail` or `:info` suffix. The default is `:fail` — findings from the tool cause a non-zero exit. `:info` means findings are noted in the summary but do not block the check. This is useful for tools like Scorecard that assess repo-level posture rather than per-change vulnerabilities. Adopters can override the default policy (e.g., `scorecard:fail` to enforce Scorecard scores).
+
+The scan action parses the `tools` input to dispatch adapter-pattern tools (those with `tools/<name>/adapter.sh`) to the orchestrator (`run.sh`) and invokes action-pattern tools via their static `uses:` steps. The `lib/check_results.sh` script evaluates all tool SARIF against their policies.
 
 **Behavior:**
 1. Checks out the calling repo
@@ -443,6 +449,8 @@ run: ${{ github.action_path }}/../../run.sh ${{ inputs.tools }}
 
 Note: `$WRANGLE_TOOLS` is intentionally unquoted so it word-splits into multiple arguments. This is safe because the orchestrator validates each token against `^[a-z][a-z0-9_-]*$` before use, and the orchestrator runs `set -f` (disable globbing) before processing arguments. Defense in depth: even if a glob character survived the regex, it would not expand.
 
+The scan action strips `:fail`/`:info` suffixes before passing tool names to the orchestrator. The full `tool:policy` list is passed to `lib/check_results.sh` for result evaluation.
+
 ---
 
 ## Reusable Workflow Interface
@@ -456,10 +464,10 @@ on:
   workflow_call:
     inputs:
       tools:
-        description: "Space-separated list of tools to run"
+        description: "Space-separated list of tools to run (suffix :info for informational)"
         required: false
         type: string
-        default: "osv zizmor"
+        default: "osv zizmor scorecard:info"
 # No secrets required
 ```
 
@@ -552,39 +560,13 @@ Everything for one tool lives in one directory. No Docker images, no registry ma
 
 ### Tool Sub-specifications
 
-#### OSV-Scanner
+Each tool's detailed specification lives in `tools/<name>/SPEC.md` alongside the code it describes. Summary:
 
-| Property | Value |
-|----------|-------|
-| Pattern | Adapter (`tools/osv/install.sh` + `tools/osv/adapter.sh`) |
-| Integrity verification | SLSA provenance via `slsa-verifier` |
-| SARIF output | `$WRANGLE_METADATA_DIR/osv/output.sarif` (written by adapter) |
-| SARIF upload | Wrangle uploads with category `wrangle/osv` |
-| Findings behavior | **Fail** — dependency vulnerabilities block the check |
-| Known limitations | Exit code 128 (no package sources found) produces empty SARIF, not an error |
-
-#### Zizmor
-
-| Property | Value |
-|----------|-------|
-| Pattern | Action (wraps `zizmorcore/zizmor-action`) |
-| Configuration | `advanced-security: true` — upstream action produces SARIF and uploads to Security tab |
-| SARIF output | Upstream action writes SARIF; wrangle copies to `$WRANGLE_METADATA_DIR/zizmor/output.sarif` for the summary collector |
-| SARIF upload | Handled by the upstream action (wrangle does not upload separately) |
-| Findings behavior | **Fail** — workflow security issues block the check |
-| Suppression | `.zizmor.yml` at repo root configures accepted findings. Suppress only documented false positives, not convenience silencing |
-| Known limitations | `continue-on-error: true` on the upstream step is required so the SARIF collection step can access outputs after zizmor finds issues (exit code 14). The "Check results" step in the scan action is the actual pass/fail gate. |
-
-#### OSSF Scorecard
-
-| Property | Value |
-|----------|-------|
-| Pattern | Action (wraps `ossf/scorecard-action`) |
-| SARIF output | `$WRANGLE_METADATA_DIR/scorecard/output.sarif` (workspace-relative path required — Scorecard runs inside Docker, which mounts `$GITHUB_WORKSPACE` but not `$RUNNER_TEMP`) |
-| SARIF upload | Wrangle uploads with category `wrangle/scorecard` (push events only) |
-| Findings behavior | **Informational** — does not fail the check. Scorecard assesses repo-level security posture (branch protection, dependency update practices, etc.), not per-change vulnerabilities. A low score is a maintenance signal, not a reason to block a PR. |
-| Event restriction | Skipped on `pull_request` events. Scorecard requires `GITHUB_TOKEN` scopes only available on default branch pushes. |
-| Known limitations | `publish_results: false` because wrangle controls SARIF upload separately. `continue-on-error: true` on the upstream step because Scorecard may fail for token/permission reasons outside wrangle's control. |
+| Tool | Pattern | Default policy | Details |
+|------|---------|---------------|---------|
+| OSV-Scanner | Adapter | `:fail` | [`tools/osv/SPEC.md`](../tools/osv/SPEC.md) |
+| Zizmor | Action | `:fail` | [`tools/zizmor/SPEC.md`](../tools/zizmor/SPEC.md) |
+| OSSF Scorecard | Action | `:info` | [`tools/scorecard/SPEC.md`](../tools/scorecard/SPEC.md) |
 
 ### Metadata Directory
 

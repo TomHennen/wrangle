@@ -3,9 +3,13 @@ description: Scan source code with wrangle security tools
 
 inputs:
   tools:
-    description: "Space-separated list of adapter-pattern tools to run (default: osv)"
+    description: >
+      Space-separated list of tools to run. Suffix with :info for
+      informational-only (default policy: :fail). Adapter-pattern tools
+      are dispatched to run.sh; action-pattern tools are invoked via
+      their uses: steps.
     required: false
-    default: "osv"
+    default: "osv zizmor scorecard:info"
 
 runs:
   using: "composite"
@@ -27,7 +31,9 @@ runs:
     - name: Install slsa-verifier
       uses: slsa-framework/slsa-verifier/actions/installer@ea584f4502babc6f60d9bc799dbbb13c1caa9ee6 # v2.7.1
 
-    # Adapter-pattern tools: run via the orchestrator (run.sh)
+    # Adapter-pattern tools: filter from the tools input and run via
+    # the orchestrator (run.sh). Tools are identified by having an
+    # adapter.sh in their directory. The :policy suffix is stripped.
     - name: Run adapter-pattern tools
       shell: bash
       # tools input passed via env var to prevent expression injection.
@@ -38,26 +44,38 @@ runs:
         WRANGLE_TOOLS: ${{ inputs.tools }}
         WRANGLE_ROOT: ${{ github.action_path }}/../..
       run: |
+        set -euo pipefail
+        set -f  # disable globbing
+        # Extract adapter-pattern tools (strip :policy suffix)
+        adapter_tools=""
         # $WRANGLE_TOOLS is intentionally unquoted so it word-splits into
         # multiple arguments. This is safe because the orchestrator validates
         # each token against ^[a-z][a-z0-9_-]*$ and runs set -f.
-        "$WRANGLE_ROOT/run.sh" \
-          -s "$GITHUB_WORKSPACE" \
-          -o "$WRANGLE_METADATA_DIR" \
-          $WRANGLE_TOOLS
+        for spec in $WRANGLE_TOOLS; do
+          tool="${spec%%:*}"
+          if [[ -f "$WRANGLE_ROOT/tools/$tool/adapter.sh" ]]; then
+            adapter_tools="$adapter_tools $tool"
+          fi
+        done
+        if [[ -n "$adapter_tools" ]]; then
+          "$WRANGLE_ROOT/run.sh" \
+            -s "$GITHUB_WORKSPACE" \
+            -o "$WRANGLE_METADATA_DIR" \
+            $adapter_tools
+        fi
 
     # Action-pattern tools: invoked via local path. Inside a reusable
     # workflow, ./ resolves to this repo at the called ref (the adopter's
     # pinned tag or the PR branch for local CI).
     - name: Zizmor
-      if: always()
+      if: always() && contains(inputs.tools, 'zizmor')
       uses: ./tools/zizmor
 
     # Scorecard only runs on push events — it requires GITHUB_TOKEN scopes
     # that aren't available on PRs and uses Docker, which only mounts
     # $GITHUB_WORKSPACE. Skipping on PRs avoids guaranteed failures.
     - name: Scorecard
-      if: always() && github.event_name != 'pull_request'
+      if: always() && contains(inputs.tools, 'scorecard') && github.event_name != 'pull_request'
       uses: ./tools/scorecard
 
     - name: Generate step summary
@@ -70,33 +88,17 @@ runs:
           "$WRANGLE_ROOT/lib/format_sarif_summary.sh" "$WRANGLE_METADATA_DIR" >> "$GITHUB_STEP_SUMMARY"
         fi
 
-    # Check results: fail the check if any tool (except informational ones)
-    # found issues. Scorecard is informational — it assesses repo-level
-    # security posture, not per-change vulnerabilities.
+    # Check results: fail the check if any :fail-policy tool reported
+    # findings. Tools with :info policy are noted but don't block.
     - name: Check results
       if: always()
       shell: bash
+      env:
+        WRANGLE_TOOLS: ${{ inputs.tools }}
+        WRANGLE_ROOT: ${{ github.action_path }}/../..
       run: |
-        set -euo pipefail
-        exit_code=0
-        for tool_dir in "$WRANGLE_METADATA_DIR"/*/; do
-          if [[ ! -d "$tool_dir" ]]; then continue; fi
-          tool="$(basename "$tool_dir")"
-          # Scorecard is informational-only — a low score is a maintenance
-          # signal, not a reason to block a PR.
-          if [[ "$tool" == "scorecard" ]]; then continue; fi
-          sarif="${tool_dir}output.sarif"
-          if [[ -f "$sarif" ]]; then
-            if ! count="$(jq '[.runs[].results[]] | length' "$sarif" 2>/dev/null)"; then
-              printf 'wrangle: %s produced invalid SARIF\n' "$tool" >&2
-              exit_code=1
-            elif [[ "$count" -gt 0 ]]; then
-              printf 'wrangle: %s reported %s finding(s)\n' "$tool" "$count"
-              exit_code=1
-            fi
-          fi
-        done
-        exit "$exit_code"
+        # $WRANGLE_TOOLS is intentionally unquoted for word-splitting.
+        "$WRANGLE_ROOT/lib/check_results.sh" "$WRANGLE_METADATA_DIR" $WRANGLE_TOOLS
 
     # SARIF upload: per-tool attribution in the Security tab.
     # continue-on-error is legitimate here — Advanced Security may not
