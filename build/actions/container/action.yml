@@ -99,15 +99,13 @@ runs:
         username: ${{ github.actor }}
         password: ${{ inputs.github_token }}
 
-    # TODO(#123): zizmor may flag steps.normalize.outputs.path here as
-    # template-injection. Step outputs from the same job are not attacker-
-    # controllable — the normalize step validates the input against a strict
-    # regex before writing to $GITHUB_OUTPUT. If zizmor flags this, investigate
-    # whether a suppression or a different pattern is warranted.
+    # TODO(#123): Investigate whether docker/build-push-action can accept
+    # context via env, or whether zizmor will support marking validated step
+    # outputs as safe, to eliminate the need for this suppression.
     - name: Build and push Docker image
       id: push
       uses: docker/build-push-action@d08e5c354a6adb9ed34480a06d141179aa583294 # v7.0.0
-      with:
+      with: # zizmor: ignore[template-injection] value is from steps.normalize.outputs.path, validated against ^[a-zA-Z0-9_./-]+$ and not shell-evaluated
         context: "{{defaultContext}}:${{ steps.normalize.outputs.path }}"
         push: true
         tags: ${{ steps.meta.outputs.tags }}
