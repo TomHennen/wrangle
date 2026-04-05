@@ -65,9 +65,8 @@ runs:
       env:
         WRANGLE_ROOT: ${{ github.action_path }}/../..
       run: |
-        METADATA_DIR="${GITHUB_WORKSPACE}/.wrangle/metadata"
-        if [[ -d "$METADATA_DIR" ]]; then
-          "$WRANGLE_ROOT/lib/format_sarif_summary.sh" "$METADATA_DIR" >> "$GITHUB_STEP_SUMMARY"
+        if [[ -d "${GITHUB_WORKSPACE}/.wrangle/metadata" ]]; then
+          "$WRANGLE_ROOT/lib/format_sarif_summary.sh" "${GITHUB_WORKSPACE}/.wrangle/metadata" >> "$GITHUB_STEP_SUMMARY"
         fi
 
     # Check results: fail the check if any :fail-policy tool reported

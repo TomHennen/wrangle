@@ -99,6 +99,10 @@ runs:
         username: ${{ github.actor }}
         password: ${{ inputs.github_token }}
 
+    # TODO(#123): The cp -a workaround exists because zizmor flags any
+    # expression interpolation in context:, even validated step outputs.
+    # Investigate whether docker/build-push-action supports passing context
+    # via env or whether there's a cleaner pattern.
     - name: Prepare Docker build context
       shell: bash
       env:
