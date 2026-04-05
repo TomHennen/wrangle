@@ -80,6 +80,18 @@ If you cannot determine the project type, add only the source scanning
 workflow above. It is always applicable. Note to the user that build
 and publish workflows can be added once the project type is identified.
 
+## Verifying Your Work (CI Testing)
+
+PR CI tests the actual code in the PR branch, not `main`, because wrangle's own actions use `./` relative paths. This means your changes are exercised in CI before merge.
+
+**After pushing a PR:**
+1. Check the Actions tab — confirm CI passes (don't rely only on local tests)
+2. For tool changes: inspect the step summary and the `wrangle-scan-results` artifact to verify SARIF output and metadata are correct
+3. If CI fails, investigate before re-pushing — it may reveal a real environment difference
+
+**What CI does not cover:**
+- Cross-repo consumption (`uses: tomhennen/wrangle/...@v0.1.0`) is only testable after tagging a release. If your change affects the reusable workflow interface, note this in the PR description.
+
 ## Do NOT
 
 - Do not add secrets to the workflow — wrangle doesn't need them

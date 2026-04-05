@@ -127,6 +127,18 @@ Always run `./test.sh` before pushing. CI runs the same checks.
 
 Write the `test.bats` before (or alongside) the implementation. If a bug is found, add a regression test before fixing it.
 
+### CI testing workflow
+
+PR CI tests the actual code in the PR branch, not `main`. Wrangle's own actions are referenced via `./` relative paths, so the CI run exercises the exact code under review.
+
+**Before requesting review:**
+- Confirm CI passes on the PR — check the Actions tab, not just local tests
+- For tool changes: inspect the step summary (markdown table) and the `wrangle-scan-results` artifact in the CI logs to verify correct SARIF output and metadata
+- If CI fails on something local tests don't catch, investigate — it may reveal a real environment difference
+
+**What CI does not cover:**
+- Cross-repo consumption (e.g., another repo calling `uses: tomhennen/wrangle/.github/workflows/...@v0.1.0`) is only testable after tagging a release. If your change affects the reusable workflow interface, note this in the PR description.
+
 ## SARIF Output
 
 All tools produce SARIF 2.1.0. Each tool uploads its SARIF separately with category `wrangle/<tool>` (not merged into one file). This preserves per-tool attribution in GitHub's Security tab.
