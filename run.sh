@@ -170,8 +170,10 @@ for tool in "${adapter_tools[@]}"; do
     esac
 
     # Generate human-readable output if the adapter didn't produce one.
-    # This ensures all tools have details in the step summary.
-    if [[ -f "${tool_output_dir}/output.sarif" ]] \
+    # Only on successful runs — on error the SARIF may be missing or
+    # incomplete, and showing "No findings" would be misleading.
+    if [[ "$tool_status" != "error" ]] \
+        && [[ -f "${tool_output_dir}/output.sarif" ]] \
         && [[ ! -s "${tool_output_dir}/output.md" ]] \
         && [[ ! -s "${tool_output_dir}/output.txt" ]]; then
         "$SCRIPT_DIR/lib/sarif_to_md.sh" "${tool_output_dir}/output.sarif" \
