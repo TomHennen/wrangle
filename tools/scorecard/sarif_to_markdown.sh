@@ -29,8 +29,8 @@ if ! jq empty "$SARIF_FILE" 2>/dev/null; then
     exit 2
 fi
 
-printf 'Rule Name | Location | Message\n'
-printf '--------- | -------- | -------\n'
+printf '%s\n' 'Rule Name | Location | Message'
+printf '%s\n' '--------- | -------- | -------'
 
 # Extract results, strip HTML tags, and truncate to prevent summary flooding
 MAX_OUTPUT="${WRANGLE_MAX_SUMMARY:-65536}"
