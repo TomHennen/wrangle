@@ -346,16 +346,20 @@ OPTIONS:
   -o output_dir  Output directory for results (default: ./metadata)
 
 ARGUMENTS:
-  tool1, tool2   Adapter names to run (e.g., osv, zizmor)
+  tool1, tool2   Tool specs to run (e.g., osv, zizmor, scorecard:info).
+                 Optional :fail/:info suffix is stripped before processing.
+                 Action-pattern tools (no adapter.sh) are silently skipped.
 
 BEHAVIOR:
   For each tool:
-    1. Validate tool name matches ^[a-z][a-z0-9_-]*$ (reject otherwise)
-    2. Verify tools/<tool>/adapter.sh and tools/<tool>/install.sh exist
-    3. Run tools/<tool>/install.sh (timeout: 5 minutes)
-    4. Create <output_dir>/<tool>/
-    5. Run tools/<tool>/adapter.sh <src_dir> <output_dir>/<tool>/ (timeout: 10 minutes)
-    6. Record pass/fail status
+    1. Strip :policy suffix if present
+    2. Validate tool name matches ^[a-z][a-z0-9_-]*$ (reject otherwise)
+    3. Skip if tools/<tool>/adapter.sh or tools/<tool>/install.sh missing
+       (the tool is action-pattern, handled by uses: steps in the scan action)
+    4. Run tools/<tool>/install.sh (timeout: 5 minutes)
+    5. Create <output_dir>/<tool>/
+    6. Run tools/<tool>/adapter.sh <src_dir> <output_dir>/<tool>/ (timeout: 10 minutes)
+    7. Record pass/fail status
 
   After all tools:
     7. Print summary table to stdout

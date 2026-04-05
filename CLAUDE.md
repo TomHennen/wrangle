@@ -14,6 +14,10 @@ All scripts MUST pass `shellcheck`. No `# shellcheck disable` without a comment 
 
 Use `$(command)` not backticks. Use `[[ ]]` not `[ ]` for conditionals. Use `printf` not `echo` for output that may contain user data.
 
+## Inline Shell in GitHub Actions
+
+Prefer standalone scripts (in `lib/` or `tools/<name>/`) over inline `run:` shell blocks in action YAML files. Inline shell is harder to test, harder to lint, and harder to review. If a `run:` block exceeds ~5 lines or contains logic (conditionals, loops), extract it to a script and call that script from the `run:` block instead.
+
 ## GitHub Actions Expression Injection
 
 NEVER interpolate `${{ inputs.* }}`, `${{ github.event.* }}`, or any attacker-controllable expression directly in a `run:` block. Always pass these through `env:` first:

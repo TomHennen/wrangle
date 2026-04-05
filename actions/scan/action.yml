@@ -31,9 +31,8 @@ runs:
     - name: Install slsa-verifier
       uses: slsa-framework/slsa-verifier/actions/installer@ea584f4502babc6f60d9bc799dbbb13c1caa9ee6 # v2.7.1
 
-    # Adapter-pattern tools: filter from the tools input and run via
-    # the orchestrator (run.sh). Tools are identified by having an
-    # adapter.sh in their directory. The :policy suffix is stripped.
+    # Run adapter-pattern tools via the orchestrator (run.sh).
+    # run.sh strips :policy suffixes and skips action-pattern tools.
     - name: Run adapter-pattern tools
       shell: bash
       # tools input passed via env var to prevent expression injection.
@@ -44,25 +43,13 @@ runs:
         WRANGLE_TOOLS: ${{ inputs.tools }}
         WRANGLE_ROOT: ${{ github.action_path }}/../..
       run: |
-        set -euo pipefail
-        set -f  # disable globbing
-        # Extract adapter-pattern tools (strip :policy suffix)
-        adapter_tools=""
         # $WRANGLE_TOOLS is intentionally unquoted so it word-splits into
         # multiple arguments. This is safe because the orchestrator validates
         # each token against ^[a-z][a-z0-9_-]*$ and runs set -f.
-        for spec in $WRANGLE_TOOLS; do
-          tool="${spec%%:*}"
-          if [[ -f "$WRANGLE_ROOT/tools/$tool/adapter.sh" ]]; then
-            adapter_tools="$adapter_tools $tool"
-          fi
-        done
-        if [[ -n "$adapter_tools" ]]; then
-          "$WRANGLE_ROOT/run.sh" \
-            -s "$GITHUB_WORKSPACE" \
-            -o "$WRANGLE_METADATA_DIR" \
-            $adapter_tools
-        fi
+        "$WRANGLE_ROOT/run.sh" \
+          -s "$GITHUB_WORKSPACE" \
+          -o "$WRANGLE_METADATA_DIR" \
+          $WRANGLE_TOOLS
 
     # Action-pattern tools: invoked via local path. Inside a reusable
     # workflow, ./ resolves to this repo at the called ref (the adopter's

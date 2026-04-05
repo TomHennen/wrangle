@@ -34,18 +34,26 @@ if [[ $# -eq 0 ]]; then
     exit 2
 fi
 
-# Validate all tool names before doing any work
+# Parse tool specs: strip :policy suffixes, collect adapter-pattern tools.
+# Action-pattern tools (no adapter.sh) are silently skipped — they are
+# invoked via uses: steps in the scan action, not by the orchestrator.
 TOOL_NAME_RE='^[a-z][a-z0-9_-]*$'
-for tool in "$@"; do
+declare -a adapter_tools=()
+for spec in "$@"; do
+    tool="${spec%%:*}"
     if [[ ! "$tool" =~ $TOOL_NAME_RE ]]; then
         printf 'wrangle: invalid tool name: %s (must match %s)\n' "$tool" "$TOOL_NAME_RE" >&2
         exit 2
     fi
-    if [[ ! -f "${TOOLS_DIR}/${tool}/adapter.sh" ]] || [[ ! -f "${TOOLS_DIR}/${tool}/install.sh" ]]; then
-        printf 'wrangle: tool not found: %s (expected %s/%s/)\n' "$tool" "$TOOLS_DIR" "$tool" >&2
-        exit 2
+    if [[ -f "${TOOLS_DIR}/${tool}/adapter.sh" ]] && [[ -f "${TOOLS_DIR}/${tool}/install.sh" ]]; then
+        adapter_tools+=("$tool")
     fi
 done
+
+if [[ ${#adapter_tools[@]} -eq 0 ]]; then
+    printf 'wrangle: no adapter-pattern tools to run\n'
+    exit 0
+fi
 
 mkdir -p "$output_dir"
 
@@ -60,7 +68,7 @@ ADAPTER_TIMEOUT="${WRANGLE_ADAPTER_TIMEOUT:-600}"
 declare -a summary_tools=()
 declare -a summary_statuses=()
 
-for tool in "$@"; do
+for tool in "${adapter_tools[@]}"; do
     printf 'wrangle: === %s ===\n' "$tool"
 
     tool_status="pass"

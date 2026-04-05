@@ -211,10 +211,25 @@ run_orchestrator() {
     [ "$status" -eq 0 ]
 }
 
-@test "orchestrator: rejects nonexistent tool" {
+@test "orchestrator: skips nonexistent tool (action-pattern or unknown)" {
     run_orchestrator -s "$TEST_DIR/src" -o "$TEST_DIR/output" "nonexistent"
 
-    [ "$status" -eq 2 ]
+    # Non-adapter tools are silently skipped (they may be action-pattern)
+    [ "$status" -eq 0 ]
+}
+
+@test "orchestrator: strips policy suffix from tool names" {
+    run_orchestrator -s "$TEST_DIR/src" -o "$TEST_DIR/output" "clean-tool:fail"
+
+    [ "$status" -eq 0 ]
+    [ -f "$TEST_DIR/output/clean-tool/output.sarif" ]
+}
+
+@test "orchestrator: skips action-pattern tools in mixed list" {
+    run_orchestrator -s "$TEST_DIR/src" -o "$TEST_DIR/output" "clean-tool" "nonexistent:info"
+
+    [ "$status" -eq 0 ]
+    [ -f "$TEST_DIR/output/clean-tool/output.sarif" ]
 }
 
 # --- Execution tests ---
