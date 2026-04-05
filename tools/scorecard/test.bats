@@ -33,6 +33,6 @@ setup() {
     [ ! -f "$ORIG_DIR/tools/scorecard/adapter.sh" ]
 }
 
-@test "scorecard: action.yml uses WRANGLE_METADATA_DIR for output path" {
-    grep -q 'WRANGLE_METADATA_DIR' "$ORIG_DIR/tools/scorecard/action.yml"
+@test "scorecard: action.yml writes to wrangle metadata directory" {
+    grep -q '\.wrangle/metadata/scorecard' "$ORIG_DIR/tools/scorecard/action.yml"
 }

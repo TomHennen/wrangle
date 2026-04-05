@@ -11,7 +11,7 @@ runs:
   steps:
     - name: Create output directory
       shell: bash
-      run: mkdir -p "$WRANGLE_METADATA_DIR/scorecard"
+      run: mkdir -p "${GITHUB_WORKSPACE}/.wrangle/metadata/scorecard"
 
     - name: Run Scorecard
       # Scorecard commonly fails on PR events — it requires GITHUB_TOKEN
@@ -20,7 +20,7 @@ runs:
       continue-on-error: true
       uses: ossf/scorecard-action@4eaacf0543bb3f2c246792bd56e8cdeffafb205a # v2.4.3
       with:
-        results_file: ${{ env.WRANGLE_METADATA_DIR }}/scorecard/output.sarif
+        results_file: ${{ github.workspace }}/.wrangle/metadata/scorecard/output.sarif
         results_format: sarif
         publish_results: false
 
@@ -29,7 +29,7 @@ runs:
       shell: bash
       run: |
         set -euo pipefail
-        SARIF_FILE="$WRANGLE_METADATA_DIR/scorecard/output.sarif"
+        SARIF_FILE="${GITHUB_WORKSPACE}/.wrangle/metadata/scorecard/output.sarif"
         if [[ ! -f "$SARIF_FILE" ]]; then
           # Scorecard didn't produce output (e.g., failed on PR event).
           # Create empty SARIF so downstream summary steps don't fail.
@@ -47,7 +47,7 @@ runs:
         SCORECARD_DIR: ${{ github.action_path }}
       run: |
         set -euo pipefail
-        SARIF_FILE="$WRANGLE_METADATA_DIR/scorecard/output.sarif"
+        SARIF_FILE="${GITHUB_WORKSPACE}/.wrangle/metadata/scorecard/output.sarif"
         MD_FILE="$WRANGLE_METADATA_DIR/scorecard/output.md"
         if [[ -f "$SARIF_FILE" ]]; then
           "$SCORECARD_DIR/sarif_to_markdown.sh" "$SARIF_FILE" > "$MD_FILE"
