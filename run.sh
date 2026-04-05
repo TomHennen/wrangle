@@ -35,14 +35,18 @@ if [[ $# -eq 0 ]]; then
 fi
 
 # Parse tool specs: strip :policy suffixes, collect adapter-pattern tools.
-# Action-pattern tools (no adapter.sh) are silently skipped — they are
-# invoked via uses: steps in the scan action, not by the orchestrator.
+# Action-pattern tools (have a directory but no adapter.sh) are skipped.
+# Unknown tools (no directory at all) are rejected.
 TOOL_NAME_RE='^[a-z][a-z0-9_-]*$'
 declare -a adapter_tools=()
 for spec in "$@"; do
     tool="${spec%%:*}"
     if [[ ! "$tool" =~ $TOOL_NAME_RE ]]; then
         printf 'wrangle: invalid tool name: %s (must match %s)\n' "$tool" "$TOOL_NAME_RE" >&2
+        exit 2
+    fi
+    if [[ ! -d "${TOOLS_DIR}/${tool}" ]]; then
+        printf 'wrangle: unknown tool: %s (no directory at %s/%s/)\n' "$tool" "$TOOLS_DIR" "$tool" >&2
         exit 2
     fi
     if [[ -f "${TOOLS_DIR}/${tool}/adapter.sh" ]] && [[ -f "${TOOLS_DIR}/${tool}/install.sh" ]]; then

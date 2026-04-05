@@ -211,10 +211,20 @@ run_orchestrator() {
     [ "$status" -eq 0 ]
 }
 
-@test "orchestrator: skips nonexistent tool (action-pattern or unknown)" {
+@test "orchestrator: rejects unknown tool (no directory)" {
     run_orchestrator -s "$TEST_DIR/src" -o "$TEST_DIR/output" "nonexistent"
 
-    # Non-adapter tools are silently skipped (they may be action-pattern)
+    [ "$status" -eq 2 ]
+    [[ "$output" == *"unknown tool"* ]]
+}
+
+@test "orchestrator: skips action-pattern tool (directory exists, no adapter.sh)" {
+    # Create a tool directory with action.yml but no adapter.sh
+    mkdir -p "$MOCK_TOOLS/action-tool"
+    echo "name: test" > "$MOCK_TOOLS/action-tool/action.yml"
+
+    run_orchestrator -s "$TEST_DIR/src" -o "$TEST_DIR/output" "action-tool"
+
     [ "$status" -eq 0 ]
 }
 
@@ -226,7 +236,10 @@ run_orchestrator() {
 }
 
 @test "orchestrator: skips action-pattern tools in mixed list" {
-    run_orchestrator -s "$TEST_DIR/src" -o "$TEST_DIR/output" "clean-tool" "nonexistent:info"
+    mkdir -p "$MOCK_TOOLS/action-tool"
+    echo "name: test" > "$MOCK_TOOLS/action-tool/action.yml"
+
+    run_orchestrator -s "$TEST_DIR/src" -o "$TEST_DIR/output" "clean-tool" "action-tool:info"
 
     [ "$status" -eq 0 ]
     [ -f "$TEST_DIR/output/clean-tool/output.sarif" ]

@@ -352,17 +352,19 @@ ARGUMENTS:
 
 BEHAVIOR:
   For each tool:
-    1. Strip :policy suffix if present
+    1. Strip :policy suffix if present (run.sh does not use the policy —
+       that is handled by lib/check_results.sh in the scan action)
     2. Validate tool name matches ^[a-z][a-z0-9_-]*$ (reject otherwise)
-    3. Skip if tools/<tool>/adapter.sh or tools/<tool>/install.sh missing
+    3. Verify tools/<tool>/ directory exists (reject if not — unknown tool)
+    4. Skip if tools/<tool>/adapter.sh or tools/<tool>/install.sh missing
        (the tool is action-pattern, handled by uses: steps in the scan action)
-    4. Run tools/<tool>/install.sh (timeout: 5 minutes)
-    5. Create <output_dir>/<tool>/
-    6. Run tools/<tool>/adapter.sh <src_dir> <output_dir>/<tool>/ (timeout: 10 minutes)
-    7. Record pass/fail status
+    5. Run tools/<tool>/install.sh (timeout: 5 minutes)
+    6. Create <output_dir>/<tool>/
+    7. Run tools/<tool>/adapter.sh <src_dir> <output_dir>/<tool>/ (timeout: 10 minutes)
+    8. Record pass/fail status
 
   After all tools:
-    7. Print summary table to stdout
+    9. Print summary table to stdout
 
 TIMEOUTS:
   Each adapter invocation is wrapped in `timeout(1)` to prevent a hung tool
