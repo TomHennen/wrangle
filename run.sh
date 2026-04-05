@@ -90,7 +90,9 @@ for tool in "$@"; do
     # Step 3: Snapshot workspace for post-execution filesystem check
     # Records file paths, sizes, and mtimes to detect additions, removals, and modifications
     pre_snapshot="$(mktemp "${TMPDIR:-/tmp}/wrangle-pre-XXXXX")"
-    find "$src_dir" -type f -printf '%p %s %T@\n' 2>/dev/null | sort > "$pre_snapshot" || true
+    # Exclude output_dir from snapshot — when metadata dir is inside src_dir
+    # (workspace-relative), adapter writes there are expected, not rogue.
+    find "$src_dir" -not -path "${output_dir}/*" -type f -printf '%p %s %T@\n' 2>/dev/null | sort > "$pre_snapshot" || true
 
     # Step 4: Run adapter with isolated environment
     printf 'wrangle: running %s...\n' "$tool"
@@ -118,7 +120,7 @@ for tool in "$@"; do
 
     # Step 5: Post-execution filesystem check
     post_snapshot="$(mktemp "${TMPDIR:-/tmp}/wrangle-post-XXXXX")"
-    find "$src_dir" -type f -printf '%p %s %T@\n' 2>/dev/null | sort > "$post_snapshot" || true
+    find "$src_dir" -not -path "${output_dir}/*" -type f -printf '%p %s %T@\n' 2>/dev/null | sort > "$post_snapshot" || true
     if ! diff -q "$pre_snapshot" "$post_snapshot" >/dev/null 2>&1; then
         printf 'wrangle: WARNING: %s modified files outside its output directory\n' "$tool" >&2
     fi

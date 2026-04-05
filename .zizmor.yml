@@ -1,0 +1,12 @@
+# Zizmor configuration for wrangle's own repo.
+#
+# Wrangle follows the safe expression pattern: attacker-controllable inputs
+# (${{ inputs.* }}, ${{ github.event.* }}) are always passed through env:
+# blocks, never interpolated directly in run: blocks. See CLAUDE.md for the
+# full policy.
+#
+# This file suppresses known-accepted findings only. If zizmor reports a
+# new finding, investigate and fix it rather than adding a suppression.
+#
+# Config reference: https://woodruffw.github.io/zizmor/configuration/
+rules: {}

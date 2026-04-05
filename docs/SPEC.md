@@ -416,11 +416,14 @@ inputs:
 
 **Behavior:**
 1. Checks out the calling repo
-2. Runs the orchestrator with specified tools
-3. Runs OSSF Scorecard
-4. Generates a markdown summary in the GitHub Actions step summary
-5. Uploads SARIF to GitHub Code Scanning
-6. Uploads all results as an artifact
+2. Runs the orchestrator with adapter-pattern tools (e.g., OSV)
+3. Runs action-pattern tools (Zizmor, Scorecard)
+4. Generates a markdown summary in the GitHub Actions step summary (primary output)
+5. Checks results — fails the check if any tool (except informational ones) found issues
+6. Uploads SARIF to GitHub Code Scanning (optional bonus — may not be available on private repos)
+7. Uploads all results as an artifact for debugging and future attestation
+
+The **step summary is the primary output**. It works on all repos — private, no Advanced Security, etc. SARIF upload to the Security tab is additive. The **metadata directory** (`$GITHUB_WORKSPACE/.wrangle/metadata/`) is a complete catalog of which tools ran and what they found, enabling future signed attestations.
 
 **Portability:** Shell script paths use `${{ github.action_path }}` for resolution relative to the composite action's own directory. Action-pattern tool steps use `./` paths (e.g., `uses: ./tools/zizmor`), which resolve to the same repo at the called ref — so when an adopter pins `@v0.1.0`, all internal actions resolve at that tag, and when wrangle's own CI runs on a PR branch, they resolve at the PR's code.
 
@@ -541,11 +544,67 @@ The install scripts include OS/arch detection (`linux/darwin`, `amd64/arm64`) as
 **Action pattern** (wraps upstream GitHub Action):
 
 1. Create `tools/foo/` directory with:
-   - `action.yml` — composite action that wraps the upstream action. Must pin the upstream action to a full commit SHA. Should produce SARIF output in `$RUNNER_TEMP/.wrangle/metadata/foo/output.sarif`.
+   - `action.yml` — composite action that wraps the upstream action. Must pin the upstream action to a full commit SHA. Must write SARIF output to `$WRANGLE_METADATA_DIR/foo/output.sarif` (workspace-relative, set by the scan action via `$GITHUB_ENV`).
    - `test.bats` — structural tests (action.yml exists, SHA pinned, etc.)
 2. Add a `uses: ./tools/foo` step in `actions/scan/action.yml`
 
 Everything for one tool lives in one directory. No Docker images, no registry management, no workflow changes for adopters.
+
+### Tool Sub-specifications
+
+#### OSV-Scanner
+
+| Property | Value |
+|----------|-------|
+| Pattern | Adapter (`tools/osv/install.sh` + `tools/osv/adapter.sh`) |
+| Integrity verification | SLSA provenance via `slsa-verifier` |
+| SARIF output | `$WRANGLE_METADATA_DIR/osv/output.sarif` (written by adapter) |
+| SARIF upload | Wrangle uploads with category `wrangle/osv` |
+| Findings behavior | **Fail** — dependency vulnerabilities block the check |
+| Known limitations | Exit code 128 (no package sources found) produces empty SARIF, not an error |
+
+#### Zizmor
+
+| Property | Value |
+|----------|-------|
+| Pattern | Action (wraps `zizmorcore/zizmor-action`) |
+| Configuration | `advanced-security: true` — upstream action produces SARIF and uploads to Security tab |
+| SARIF output | Upstream action writes SARIF; wrangle copies to `$WRANGLE_METADATA_DIR/zizmor/output.sarif` for the summary collector |
+| SARIF upload | Handled by the upstream action (wrangle does not upload separately) |
+| Findings behavior | **Fail** — workflow security issues block the check |
+| Suppression | `.zizmor.yml` at repo root configures accepted findings. Suppress only documented false positives, not convenience silencing |
+| Known limitations | `continue-on-error: true` on the upstream step is required so the SARIF collection step can access outputs after zizmor finds issues (exit code 14). The "Check results" step in the scan action is the actual pass/fail gate. |
+
+#### OSSF Scorecard
+
+| Property | Value |
+|----------|-------|
+| Pattern | Action (wraps `ossf/scorecard-action`) |
+| SARIF output | `$WRANGLE_METADATA_DIR/scorecard/output.sarif` (workspace-relative path required — Scorecard runs inside Docker, which mounts `$GITHUB_WORKSPACE` but not `$RUNNER_TEMP`) |
+| SARIF upload | Wrangle uploads with category `wrangle/scorecard` (push events only) |
+| Findings behavior | **Informational** — does not fail the check. Scorecard assesses repo-level security posture (branch protection, dependency update practices, etc.), not per-change vulnerabilities. A low score is a maintenance signal, not a reason to block a PR. |
+| Event restriction | Skipped on `pull_request` events. Scorecard requires `GITHUB_TOKEN` scopes only available on default branch pushes. |
+| Known limitations | `publish_results: false` because wrangle controls SARIF upload separately. `continue-on-error: true` on the upstream step because Scorecard may fail for token/permission reasons outside wrangle's control. |
+
+### Metadata Directory
+
+The metadata directory (`$GITHUB_WORKSPACE/.wrangle/metadata/`) is workspace-relative. This is required because Scorecard's Docker container only mounts `$GITHUB_WORKSPACE`, not `$RUNNER_TEMP`. The directory is set via `$GITHUB_ENV` as `WRANGLE_METADATA_DIR` and is available to all steps in the job.
+
+Structure after a scan:
+```
+.wrangle/metadata/
+├── osv/
+│   └── output.sarif
+├── zizmor/
+│   └── output.sarif
+└── scorecard/
+    ├── output.sarif
+    └── output.md
+```
+
+The `.wrangle/` directory is in `.gitignore` to prevent accidental commits. The orchestrator's filesystem check (`run.sh`) excludes the metadata directory from its pre/post snapshots.
+
+**Future use:** The metadata directory is designed to become the source for signed attestations: "this commit was scanned by tools X, Y, Z with these results."
 
 ---
 

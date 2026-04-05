@@ -16,19 +16,20 @@ runs:
   steps:
     - name: Create wrangle output directory
       shell: bash
-      run: mkdir -p "$RUNNER_TEMP/.wrangle/metadata/zizmor"
+      run: mkdir -p "$WRANGLE_METADATA_DIR/zizmor"
 
     - name: Run Zizmor
       id: zizmor
-      # We disable advanced-security so wrangle controls SARIF upload
-      # with its own per-tool category (wrangle/zizmor). The action
-      # still produces SARIF regardless — advanced-security only
-      # controls whether it auto-uploads to the Security tab.
+      # advanced-security: true makes the upstream action produce SARIF
+      # (--format sarif) and upload it to the Security tab. We also copy
+      # the SARIF to the metadata dir for the step summary collector.
+      # continue-on-error ensures SARIF collection runs even when zizmor
+      # finds issues (exit code 14).
       uses: zizmorcore/zizmor-action@71321a20a9ded102f6e9ce5718a2fcec2c4f70d8 # v0.5.2
       continue-on-error: true
       with:
         version: ${{ inputs.version }}
-        advanced-security: false
+        advanced-security: true
 
     - name: Collect SARIF output
       if: always()
@@ -38,7 +39,7 @@ runs:
         SARIF_SRC: ${{ steps.zizmor.outputs.output-file }}
       run: |
         set -euo pipefail
-        SARIF_DST="$RUNNER_TEMP/.wrangle/metadata/zizmor/output.sarif"
+        SARIF_DST="$WRANGLE_METADATA_DIR/zizmor/output.sarif"
         if [[ -n "$SARIF_SRC" ]] && [[ -f "$SARIF_SRC" ]]; then
             cp "$SARIF_SRC" "$SARIF_DST"
         else
