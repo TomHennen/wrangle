@@ -12,6 +12,12 @@ set -f  # disable globbing — tool names come from external input
 #   2  At least one tool failed to run (includes invalid tool names)
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+
+# Source env.sh to add WRANGLE_BIN_DIR to PATH so adapters find
+# installed tool binaries.
+# shellcheck source=lib/env.sh
+source "$SCRIPT_DIR/lib/env.sh"
+
 TOOLS_DIR="${WRANGLE_TOOLS_DIR:-${SCRIPT_DIR}/tools}"
 
 # Defaults
