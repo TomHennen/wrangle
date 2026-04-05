@@ -5,6 +5,7 @@
 | Pattern | Action (wraps `zizmorcore/zizmor-action`) |
 | Configuration | `advanced-security: true` — upstream action produces SARIF and uploads to Security tab |
 | SARIF output | Upstream action writes SARIF; wrangle copies to `$WRANGLE_METADATA_DIR/zizmor/output.sarif` for the summary collector |
+| Human-readable output | `output.txt` generated from SARIF via `lib/sarif_to_text.sh` for step summary details |
 | SARIF upload | Handled by the upstream action (wrangle does not upload separately) |
 | Default policy | `:fail` — workflow security issues block the check |
 | Suppression | `.zizmor.yml` at repo root configures accepted findings. Suppress only documented false positives, not convenience silencing |

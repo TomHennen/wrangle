@@ -49,6 +49,8 @@ runs:
         set -euo pipefail
         SARIF_FILE="${GITHUB_WORKSPACE}/.wrangle/metadata/scorecard/output.sarif"
         MD_FILE="${GITHUB_WORKSPACE}/.wrangle/metadata/scorecard/output.md"
+        TXT_FILE="${GITHUB_WORKSPACE}/.wrangle/metadata/scorecard/output.txt"
         if [[ -f "$SARIF_FILE" ]]; then
           "$SCORECARD_DIR/sarif_to_markdown.sh" "$SARIF_FILE" > "$MD_FILE"
+          "$SCORECARD_DIR/../../lib/sarif_to_text.sh" "$SARIF_FILE" > "$TXT_FILE"
         fi

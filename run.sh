@@ -79,6 +79,7 @@ declare -a summary_tools=()
 declare -a summary_statuses=()
 
 for tool in "${adapter_tools[@]}"; do
+    printf '::group::wrangle/%s\n' "$tool"
     printf 'wrangle: === %s ===\n' "$tool"
 
     tool_status="pass"
@@ -169,6 +170,7 @@ for tool in "${adapter_tools[@]}"; do
 
     summary_tools+=("$tool")
     summary_statuses+=("$tool_status")
+    printf '::endgroup::\n'
 done
 
 # Print summary table

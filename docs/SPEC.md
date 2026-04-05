@@ -162,7 +162,8 @@ wrangle/
 │       └── test.bats
 ├── lib/                    # Shared helpers
 │   ├── download_verify.sh  # wrangle_download_verify(), wrangle_verify_provenance()
-│   └── format_sarif_summary.sh  # SARIF → markdown summary
+│   ├── format_sarif_summary.sh  # SARIF → markdown summary
+│   └── sarif_to_text.sh    # SARIF → human-readable plain text
 ├── actions/                # GitHub Actions entry points
 │   ├── scan/
 │   │   └── action.yml      # Composite action: scan source code
@@ -558,7 +559,7 @@ The install scripts include OS/arch detection (`linux/darwin`, `amd64/arm64`) as
 **Action pattern** (wraps upstream GitHub Action):
 
 1. Create `tools/foo/` directory with:
-   - `action.yml` — composite action that wraps the upstream action. Must pin the upstream action to a full commit SHA. Must write SARIF output to `$WRANGLE_METADATA_DIR/foo/output.sarif` (workspace-relative, set by the scan action via `$GITHUB_ENV`).
+   - `action.yml` — composite action that wraps the upstream action. Must pin the upstream action to a full commit SHA. Must write SARIF output to `$WRANGLE_METADATA_DIR/foo/output.sarif` (workspace-relative, set by the scan action via `$GITHUB_ENV`). Must also produce human-readable output as `output.txt` (via `lib/sarif_to_text.sh`) or `output.md` for the step summary details section.
    - `test.bats` — structural tests (action.yml exists, SHA pinned, etc.)
 2. Add a `uses: ./tools/foo` step in `actions/scan/action.yml`
 
@@ -584,10 +585,12 @@ Structure after a scan:
 ├── osv/
 │   └── output.sarif
 ├── zizmor/
-│   └── output.sarif
+│   ├── output.sarif
+│   └── output.txt
 └── scorecard/
     ├── output.sarif
-    └── output.md
+    ├── output.md
+    └── output.txt
 ```
 
 The `.wrangle/` directory is in `.gitignore` to prevent accidental commits. The orchestrator's filesystem check (`run.sh`) excludes the metadata directory from its pre/post snapshots.
@@ -693,6 +696,24 @@ wrangle_verify_signature() { ... }
 ```
 
 All install scripts MUST use `wrangle_download_verify` rather than implementing their own download logic. This ensures consistent integrity verification and makes security fixes apply everywhere.
+
+### SARIF to Human-Readable Text
+
+`lib/sarif_to_text.sh` converts SARIF 2.1.0 to human-readable plain text. It is used by action-pattern tools to produce `output.txt` for the step summary details section.
+
+```
+# Usage: sarif_to_text.sh <sarif_file>
+# Output format (one block per finding):
+#   [HIGH] rule-id — file.yml:39
+#     Message text
+#
+# Exit codes:
+#   0  Success (including no findings)
+#   1  Missing argument or file
+#   2  Invalid JSON or malformed SARIF
+```
+
+Action-pattern tools call this script after producing SARIF to generate `output.txt`. The `format_sarif_summary.sh` script picks up `output.txt` (or `output.md`) to populate the expandable details section in the step summary.
 
 ### Sandboxing and Isolation
 
