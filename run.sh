@@ -99,6 +99,7 @@ for tool in "${adapter_tools[@]}"; do
         overall_status=2
         summary_tools+=("$tool")
         summary_statuses+=("$tool_status")
+        printf '::endgroup::\n'
         continue
     fi
 

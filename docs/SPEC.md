@@ -589,8 +589,7 @@ Structure after a scan:
 │   └── output.txt
 └── scorecard/
     ├── output.sarif
-    ├── output.md
-    └── output.txt
+    └── output.md
 ```
 
 The `.wrangle/` directory is in `.gitignore` to prevent accidental commits. The orchestrator's filesystem check (`run.sh`) excludes the metadata directory from its pre/post snapshots.

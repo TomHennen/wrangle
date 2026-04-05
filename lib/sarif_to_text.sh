@@ -1,5 +1,6 @@
 #!/bin/bash
 set -euo pipefail
+set -f  # disable globbing — processes external file paths
 
 # lib/sarif_to_text.sh — Convert SARIF 2.1.0 to human-readable text.
 #
@@ -35,7 +36,7 @@ if ! results="$(jq -r '
       level: (.level // "warning"),
       uri: (.locations[0].physicalLocation.artifactLocation.uri // "unknown"),
       line: (.locations[0].physicalLocation.region.startLine // "?"),
-      message: .message.text
+      message: (.message.text | gsub("\n"; " "))
     }
   ]' "$SARIF_FILE" 2>/dev/null)"; then
     printf 'Error: failed to parse SARIF results\n' >&2
