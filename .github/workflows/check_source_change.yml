@@ -23,8 +23,9 @@ jobs:
 
       # The scan action runs adapter-pattern tools (via run.sh) and
       # action-pattern tools (zizmor, scorecard) via uses: internally.
-      # TODO(PR 14): Pin to release tag @v0.1.0 — @main is temporary
+      # ./actions/scan resolves to this repo at the called ref (the
+      # adopter's pinned tag or the PR branch for local CI).
       - name: Source scan
-        uses: tomhennen/wrangle/actions/scan@main
+        uses: ./actions/scan
         with:
           tools: ${{ inputs.tools }}

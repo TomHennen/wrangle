@@ -422,7 +422,7 @@ inputs:
 5. Uploads SARIF to GitHub Code Scanning
 6. Uploads all results as an artifact
 
-**Portability:** All internal paths use `${{ github.action_path }}` so the action works when called from any repo.
+**Portability:** Shell script paths use `${{ github.action_path }}` for resolution relative to the composite action's own directory. Action-pattern tool steps use `./` paths (e.g., `uses: ./tools/zizmor`), which resolve to the same repo at the called ref — so when an adopter pins `@v0.1.0`, all internal actions resolve at that tag, and when wrangle's own CI runs on a PR branch, they resolve at the PR's code.
 
 **Path constraint:** The composite action resolves the orchestrator via `${{ github.action_path }}/../../run.sh`, which means the scan action MUST remain at exactly `actions/scan/` (two directories below the repo root). This is a hard structural constraint — moving the action to a different depth breaks the relative path. If the directory layout changes, these paths must be updated in the same commit.
 
@@ -445,6 +445,8 @@ Note: `$WRANGLE_TOOLS` is intentionally unquoted so it word-splits into multiple
 ## Reusable Workflow Interface
 
 The reusable workflow (`.github/workflows/check_source_change.yml`) wraps the composite action for `workflow_call` consumers.
+
+**Internal path resolution:** All `uses:` steps inside the reusable workflow use `./` paths (e.g., `uses: ./actions/scan`). When a caller invokes the workflow at a specific ref (e.g., `@v0.1.0`), GitHub fetches the workflow at that ref, and all `./` references resolve to the same repo at that ref. This means adopters automatically get version-locked internal actions matching their pinned tag, and wrangle's own PR CI tests the PR branch's code (not main).
 
 ```yaml
 on:
@@ -685,9 +687,10 @@ All `uses:` references in wrangle's own workflows and examples MUST be pinned:
 |---------------|---------------------|
 | Third-party actions | Full commit SHA |
 | Wrangle's own actions (in examples) | Release tag (e.g., `@v0.1.0`) |
-| Wrangle's internal cross-references | Relative path (`./`) or full SHA |
+| Wrangle internal refs in reusable workflows | Relative path (`./`) — resolves to the workflow's own repo at the called ref |
+| Wrangle internal refs in composite actions | Relative path (`./`) — resolves to the same repo at the called ref |
 
-Adopters are advised to pin to a release tag. The `@main` ref MUST NOT appear in any example or documentation.
+Adopters are advised to pin to a release tag. The `@main` ref MUST NOT appear in any `uses:` line in the repo, including examples and documentation.
 
 ### Output Sanitization
 

@@ -13,5 +13,6 @@ jobs:
       actions: read
       contents: read
       security-events: write
-    # TODO(PR 14): Pin to release tag @v0.1.0
-    uses: tomhennen/wrangle/.github/workflows/check_source_change.yml@main
+    # ./ resolves to this repo at the PR branch ref, so PR CI tests
+    # the actual code in the PR (not main).
+    uses: ./.github/workflows/check_source_change.yml
