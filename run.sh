@@ -169,6 +169,15 @@ for tool in "${adapter_tools[@]}"; do
             ;;
     esac
 
+    # Generate human-readable output if the adapter didn't produce one.
+    # This ensures all tools have details in the step summary.
+    if [[ -f "${tool_output_dir}/output.sarif" ]] \
+        && [[ ! -s "${tool_output_dir}/output.md" ]] \
+        && [[ ! -s "${tool_output_dir}/output.txt" ]]; then
+        "$SCRIPT_DIR/lib/sarif_to_md.sh" "${tool_output_dir}/output.sarif" \
+            > "${tool_output_dir}/output.md" 2>/dev/null || true
+    fi
+
     summary_tools+=("$tool")
     summary_statuses+=("$tool_status")
     printf '::endgroup::\n'
