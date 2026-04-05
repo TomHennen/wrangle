@@ -18,7 +18,8 @@ runs:
       shell: bash
       env:
         WRANGLE_ROOT: ${{ github.action_path }}/../..
-      run: "$WRANGLE_ROOT/lib/tool_banner.sh" zizmor
+      run: |
+        "$WRANGLE_ROOT/lib/tool_banner.sh" zizmor
 
     - name: Create wrangle output directory
       shell: bash
