@@ -1,0 +1,9 @@
+{
+  "name": "test-vuln-fixture",
+  "version": "0.0.0",
+  "private": true,
+  "description": "DELIBERATELY VULNERABLE — test fixture for OSV findings. DO NOT MERGE.",
+  "dependencies": {
+    "lodash": "4.17.20"
+  }
+}

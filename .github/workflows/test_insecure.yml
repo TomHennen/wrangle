@@ -1,0 +1,20 @@
+# DELIBERATELY INSECURE — test fixture to verify wrangle step summary.
+# DO NOT MERGE. Delete this file after verifying findings display.
+name: Test Insecure Workflow
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  insecure:
+    runs-on: ubuntu-latest
+    steps:
+      # Unpinned action reference — triggers zizmor unpinned-uses
+      - uses: actions/checkout@v4
+
+      # Expression injection — triggers zizmor injection
+      - name: Greet
+        run: echo "Hello ${{ github.event.pull_request.title }}"
