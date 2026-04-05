@@ -44,17 +44,17 @@ runs:
           -o "$WRANGLE_METADATA_DIR" \
           $WRANGLE_TOOLS
 
-    # Action-pattern tools: invoked via cross-repo uses: reference.
-    # ./tools/<name> won't work cross-repo (resolves to caller's repo).
-    # TODO(PR 14): Pin to release tag @v0.1.0 — @main is temporary
+    # Action-pattern tools: invoked via local path. Inside a reusable
+    # workflow, ./ resolves to this repo at the called ref (the adopter's
+    # pinned tag or the PR branch for local CI).
     - name: Zizmor
       if: always()
-      uses: tomhennen/wrangle/tools/zizmor@main
+      uses: ./tools/zizmor
 
     - name: Scorecard
       if: always()
       continue-on-error: true
-      uses: tomhennen/wrangle/tools/scorecard@main
+      uses: ./tools/scorecard
 
     - name: Generate step summary
       if: always()

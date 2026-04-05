@@ -34,8 +34,7 @@ jobs:
       actions: read
       contents: read
       security-events: write
-    # TODO: Pin to release tag (e.g., @v0.1.0) once available
-    uses: tomhennen/wrangle/.github/workflows/check_source_change.yml@main
+    uses: tomhennen/wrangle/.github/workflows/check_source_change.yml@v0.1.0
 ```
 
 Replace `DEFAULT_BRANCH` with the repository's default branch name.
@@ -84,6 +83,6 @@ and publish workflows can be added once the project type is identified.
 ## Do NOT
 
 - Do not add secrets to the workflow — wrangle doesn't need them
-- Do not use `@main` in production — use the latest release tag (e.g., `@v0.1.0`) once available
+- Do not use `@main` in production — always use a release tag (e.g., `@v0.1.0`)
 - Do not add extra permissions beyond the three listed above
 - Do not modify the reusable workflow call — wrangle handles tool selection internally
