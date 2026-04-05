@@ -4,6 +4,7 @@
 |----------|-------|
 | Pattern | Action (wraps `ossf/scorecard-action`) |
 | SARIF output | `$WRANGLE_METADATA_DIR/scorecard/output.sarif` (workspace-relative path required — Scorecard runs inside Docker, which mounts `$GITHUB_WORKSPACE` but not `$RUNNER_TEMP`) |
+| Human-readable output | `output.md` via `sarif_to_markdown.sh` (Scorecard-specific markdown table for step summary details) |
 | SARIF upload | Wrangle uploads with category `wrangle/scorecard` (push events only) |
 | Default policy | `:info` — does not fail the check |
 | Event restriction | Skipped on `pull_request` events. Scorecard requires `GITHUB_TOKEN` scopes only available on default branch pushes. |

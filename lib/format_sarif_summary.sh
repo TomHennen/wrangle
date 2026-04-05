@@ -8,15 +8,10 @@ set -f  # disable globbing — processes external input paths
 # Usage: format_sarif_summary.sh <metadata_dir>
 # Output: Markdown summary to stdout
 
-# Maximum characters for step summary (prevent flooding)
-MAX_SUMMARY_LENGTH="${WRANGLE_MAX_SUMMARY:-65536}"
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
-# Strip HTML tags from input to prevent markdown/HTML injection.
-# Uses printf '%s' for untrusted content per CLAUDE.md.
-wrangle_sanitize_output() {
-    # Remove HTML tags, then truncate
-    sed 's/<[^>]*>//g' | head -c "$MAX_SUMMARY_LENGTH"
-}
+# shellcheck source=sanitize.sh
+source "$SCRIPT_DIR/sanitize.sh"
 
 # Main
 if [[ $# -ne 1 ]]; then

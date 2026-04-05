@@ -9,6 +9,13 @@ description: |
 runs:
   using: "composite"
   steps:
+    - name: Log attribution banner
+      shell: bash
+      env:
+        WRANGLE_ROOT: ${{ github.action_path }}/../..
+      run: |
+        "$WRANGLE_ROOT/lib/tool_banner.sh" scorecard
+
     - name: Create output directory
       shell: bash
       run: mkdir -p "${GITHUB_WORKSPACE}/.wrangle/metadata/scorecard"

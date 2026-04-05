@@ -50,6 +50,8 @@ runs:
     # Action-pattern tools: invoked via local path. Inside a reusable
     # workflow, ./ resolves to this repo at the called ref (the adopter's
     # pinned tag or the PR branch for local CI).
+    # Each tool action handles its own log banner and human-readable
+    # output generation (output.md) — see tools/<name>/action.yml.
     - name: Zizmor
       if: always() && contains(inputs.tools, 'zizmor')
       uses: ./tools/zizmor

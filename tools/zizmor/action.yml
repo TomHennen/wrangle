@@ -14,6 +14,13 @@ inputs:
 runs:
   using: "composite"
   steps:
+    - name: Log attribution banner
+      shell: bash
+      env:
+        WRANGLE_ROOT: ${{ github.action_path }}/../..
+      run: |
+        "$WRANGLE_ROOT/lib/tool_banner.sh" zizmor
+
     - name: Create wrangle output directory
       shell: bash
       run: mkdir -p "${GITHUB_WORKSPACE}/.wrangle/metadata/zizmor"
@@ -49,4 +56,17 @@ runs:
                 "$schema": "https://raw.githubusercontent.com/oasis-tcs/sarif-spec/main/sarif-2.1/schema/sarif-schema-2.1.0.json",
                 "runs": [{"tool": {"driver": {"name": "zizmor"}}, "results": []}]
             }' > "$SARIF_DST"
+        fi
+
+    - name: Generate human-readable output
+      if: always()
+      shell: bash
+      env:
+        WRANGLE_ROOT: ${{ github.action_path }}/../..
+      run: |
+        set -euo pipefail
+        SARIF="${GITHUB_WORKSPACE}/.wrangle/metadata/zizmor/output.sarif"
+        MD="${GITHUB_WORKSPACE}/.wrangle/metadata/zizmor/output.md"
+        if [[ -f "$SARIF" ]]; then
+          "$WRANGLE_ROOT/lib/sarif_to_md.sh" "$SARIF" > "$MD"
         fi
