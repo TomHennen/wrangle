@@ -37,12 +37,14 @@ runs:
         WRANGLE_TOOLS: ${{ inputs.tools }}
         WRANGLE_ROOT: ${{ github.action_path }}/../..
       run: |
+        # shellcheck source=../../lib/env.sh
+        source "$WRANGLE_ROOT/lib/env.sh"
         # $WRANGLE_TOOLS is intentionally unquoted so it word-splits into
         # multiple arguments. This is safe because the orchestrator validates
         # each token against ^[a-z][a-z0-9_-]*$ and runs set -f.
         "$WRANGLE_ROOT/run.sh" \
           -s "$GITHUB_WORKSPACE" \
-          -o "${GITHUB_WORKSPACE}/.wrangle/metadata" \
+          -o "$WRANGLE_METADATA_DIR" \
           $WRANGLE_TOOLS
 
     # Action-pattern tools: invoked via local path. Inside a reusable
@@ -65,8 +67,10 @@ runs:
       env:
         WRANGLE_ROOT: ${{ github.action_path }}/../..
       run: |
-        if [[ -d "${GITHUB_WORKSPACE}/.wrangle/metadata" ]]; then
-          "$WRANGLE_ROOT/lib/format_sarif_summary.sh" "${GITHUB_WORKSPACE}/.wrangle/metadata" >> "$GITHUB_STEP_SUMMARY"
+        # shellcheck source=../../lib/env.sh
+        source "$WRANGLE_ROOT/lib/env.sh"
+        if [[ -d "$WRANGLE_METADATA_DIR" ]]; then
+          "$WRANGLE_ROOT/lib/format_sarif_summary.sh" "$WRANGLE_METADATA_DIR" >> "$GITHUB_STEP_SUMMARY"
         fi
 
     # Check results: fail the check if any :fail-policy tool reported
@@ -78,8 +82,10 @@ runs:
         WRANGLE_TOOLS: ${{ inputs.tools }}
         WRANGLE_ROOT: ${{ github.action_path }}/../..
       run: |
+        # shellcheck source=../../lib/env.sh
+        source "$WRANGLE_ROOT/lib/env.sh"
         # $WRANGLE_TOOLS is intentionally unquoted for word-splitting.
-        "$WRANGLE_ROOT/lib/check_results.sh" "${GITHUB_WORKSPACE}/.wrangle/metadata" $WRANGLE_TOOLS
+        "$WRANGLE_ROOT/lib/check_results.sh" "$WRANGLE_METADATA_DIR" $WRANGLE_TOOLS
 
     # SARIF upload: per-tool attribution in the Security tab.
     # continue-on-error is legitimate here — Advanced Security may not

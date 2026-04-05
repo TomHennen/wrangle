@@ -1,4 +1,6 @@
 #!/bin/bash
+set -euo pipefail
+
 # lib/env.sh — Set up wrangle environment paths.
 #
 # Source this script to get WRANGLE_BIN_DIR, WRANGLE_METADATA_DIR, and PATH
