@@ -163,6 +163,7 @@ wrangle/
 ├── lib/                    # Shared helpers
 │   ├── download_verify.sh  # wrangle_download_verify(), wrangle_verify_provenance()
 │   ├── format_sarif_summary.sh  # SARIF → markdown summary
+│   ├── sanitize.sh         # wrangle_sanitize_output() — shared HTML stripping + truncation
 │   ├── sarif_to_md.sh      # SARIF → human-readable markdown (per-tool)
 │   └── tool_banner.sh      # Print visual banner for tool log attribution
 ├── actions/                # GitHub Actions entry points
@@ -723,6 +724,8 @@ All install scripts MUST use `wrangle_download_verify` rather than implementing 
 #    wrangle/<tool_name>
 #   ========================================
 ```
+
+`lib/sanitize.sh` provides `wrangle_sanitize_output()`, a shared function that strips HTML tags and truncates output to `$WRANGLE_MAX_SUMMARY` (default 65536) characters. Sourced by `format_sarif_summary.sh` and `sarif_to_md.sh`. All tool output written to `$GITHUB_STEP_SUMMARY` MUST be passed through this function to prevent HTML/markdown injection.
 
 Action-pattern tools call these helpers from their own `action.yml`. The `format_sarif_summary.sh` script picks up `output.md` (or `output.txt`) to populate the expandable details section in the step summary.
 
