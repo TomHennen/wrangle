@@ -346,19 +346,25 @@ OPTIONS:
   -o output_dir  Output directory for results (default: ./metadata)
 
 ARGUMENTS:
-  tool1, tool2   Adapter names to run (e.g., osv, zizmor)
+  tool1, tool2   Tool specs to run (e.g., osv, zizmor, scorecard:info).
+                 Optional :fail/:info suffix is stripped before processing.
+                 Action-pattern tools (no adapter.sh) are silently skipped.
 
 BEHAVIOR:
   For each tool:
-    1. Validate tool name matches ^[a-z][a-z0-9_-]*$ (reject otherwise)
-    2. Verify tools/<tool>/adapter.sh and tools/<tool>/install.sh exist
-    3. Run tools/<tool>/install.sh (timeout: 5 minutes)
-    4. Create <output_dir>/<tool>/
-    5. Run tools/<tool>/adapter.sh <src_dir> <output_dir>/<tool>/ (timeout: 10 minutes)
-    6. Record pass/fail status
+    1. Strip :policy suffix if present (run.sh does not use the policy —
+       that is handled by lib/check_results.sh in the scan action)
+    2. Validate tool name matches ^[a-z][a-z0-9_-]*$ (reject otherwise)
+    3. Verify tools/<tool>/ directory exists (reject if not — unknown tool)
+    4. Skip if tools/<tool>/adapter.sh or tools/<tool>/install.sh missing
+       (the tool is action-pattern, handled by uses: steps in the scan action)
+    5. Run tools/<tool>/install.sh (timeout: 5 minutes)
+    6. Create <output_dir>/<tool>/
+    7. Run tools/<tool>/adapter.sh <src_dir> <output_dir>/<tool>/ (timeout: 10 minutes)
+    8. Record pass/fail status
 
   After all tools:
-    7. Print summary table to stdout
+    9. Print summary table to stdout
 
 TIMEOUTS:
   Each adapter invocation is wrapped in `timeout(1)` to prevent a hung tool
@@ -407,20 +413,29 @@ description: Scan source code with wrangle security tools
 
 inputs:
   tools:
-    description: "Space-separated list of tools to run (default: all)"
+    description: >
+      Space-separated list of tools to run. Suffix with :info for
+      informational-only (default policy: :fail).
     required: false
-    default: "osv zizmor"
+    default: "osv zizmor scorecard:info"
 
 # No secrets required — tools are downloaded as public binaries
 ```
 
+**Tool policy syntax:** Each tool in the `tools` input accepts an optional `:fail` or `:info` suffix. The default is `:fail` — findings from the tool cause a non-zero exit. `:info` means findings are noted in the summary but do not block the check. This is useful for tools like Scorecard that assess repo-level posture rather than per-change vulnerabilities. Adopters can override the default policy (e.g., `scorecard:fail` to enforce Scorecard scores).
+
+The scan action parses the `tools` input to dispatch adapter-pattern tools (those with `tools/<name>/adapter.sh`) to the orchestrator (`run.sh`) and invokes action-pattern tools via their static `uses:` steps. The `lib/check_results.sh` script evaluates all tool SARIF against their policies.
+
 **Behavior:**
 1. Checks out the calling repo
-2. Runs the orchestrator with specified tools
-3. Runs OSSF Scorecard
-4. Generates a markdown summary in the GitHub Actions step summary
-5. Uploads SARIF to GitHub Code Scanning
-6. Uploads all results as an artifact
+2. Runs the orchestrator with adapter-pattern tools (e.g., OSV)
+3. Runs action-pattern tools (Zizmor, Scorecard)
+4. Generates a markdown summary in the GitHub Actions step summary (primary output)
+5. Checks results — fails the check if any tool (except informational ones) found issues
+6. Uploads SARIF to GitHub Code Scanning (optional bonus — may not be available on private repos)
+7. Uploads all results as an artifact for debugging and future attestation
+
+The **step summary is the primary output**. It works on all repos — private, no Advanced Security, etc. SARIF upload to the Security tab is additive. The **metadata directory** (`$GITHUB_WORKSPACE/.wrangle/metadata/`) is a complete catalog of which tools ran and what they found, enabling future signed attestations.
 
 **Portability:** Shell script paths use `${{ github.action_path }}` for resolution relative to the composite action's own directory. Action-pattern tool steps use `./` paths (e.g., `uses: ./tools/zizmor`), which resolve to the same repo at the called ref — so when an adopter pins `@v0.1.0`, all internal actions resolve at that tag, and when wrangle's own CI runs on a PR branch, they resolve at the PR's code.
 
@@ -440,6 +455,8 @@ run: ${{ github.action_path }}/../../run.sh ${{ inputs.tools }}
 
 Note: `$WRANGLE_TOOLS` is intentionally unquoted so it word-splits into multiple arguments. This is safe because the orchestrator validates each token against `^[a-z][a-z0-9_-]*$` before use, and the orchestrator runs `set -f` (disable globbing) before processing arguments. Defense in depth: even if a glob character survived the regex, it would not expand.
 
+The scan action strips `:fail`/`:info` suffixes before passing tool names to the orchestrator. The full `tool:policy` list is passed to `lib/check_results.sh` for result evaluation.
+
 ---
 
 ## Reusable Workflow Interface
@@ -453,10 +470,10 @@ on:
   workflow_call:
     inputs:
       tools:
-        description: "Space-separated list of tools to run"
+        description: "Space-separated list of tools to run (suffix :info for informational)"
         required: false
         type: string
-        default: "osv zizmor"
+        default: "osv zizmor scorecard:info"
 # No secrets required
 ```
 
@@ -541,11 +558,41 @@ The install scripts include OS/arch detection (`linux/darwin`, `amd64/arm64`) as
 **Action pattern** (wraps upstream GitHub Action):
 
 1. Create `tools/foo/` directory with:
-   - `action.yml` — composite action that wraps the upstream action. Must pin the upstream action to a full commit SHA. Should produce SARIF output in `$RUNNER_TEMP/.wrangle/metadata/foo/output.sarif`.
+   - `action.yml` — composite action that wraps the upstream action. Must pin the upstream action to a full commit SHA. Must write SARIF output to `$WRANGLE_METADATA_DIR/foo/output.sarif` (workspace-relative, set by the scan action via `$GITHUB_ENV`).
    - `test.bats` — structural tests (action.yml exists, SHA pinned, etc.)
 2. Add a `uses: ./tools/foo` step in `actions/scan/action.yml`
 
 Everything for one tool lives in one directory. No Docker images, no registry management, no workflow changes for adopters.
+
+### Tool Sub-specifications
+
+Each tool's detailed specification lives in `tools/<name>/SPEC.md` alongside the code it describes. Summary:
+
+| Tool | Pattern | Default policy | Details |
+|------|---------|---------------|---------|
+| OSV-Scanner | Adapter | `:fail` | [`tools/osv/SPEC.md`](../tools/osv/SPEC.md) |
+| Zizmor | Action | `:fail` | [`tools/zizmor/SPEC.md`](../tools/zizmor/SPEC.md) |
+| OSSF Scorecard | Action | `:info` | [`tools/scorecard/SPEC.md`](../tools/scorecard/SPEC.md) |
+
+### Metadata Directory
+
+The metadata directory (`$GITHUB_WORKSPACE/.wrangle/metadata/`) is workspace-relative. This is required because Scorecard's Docker container only mounts `$GITHUB_WORKSPACE`, not `$RUNNER_TEMP`. The directory is set via `$GITHUB_ENV` as `WRANGLE_METADATA_DIR` and is available to all steps in the job.
+
+Structure after a scan:
+```
+.wrangle/metadata/
+├── osv/
+│   └── output.sarif
+├── zizmor/
+│   └── output.sarif
+└── scorecard/
+    ├── output.sarif
+    └── output.md
+```
+
+The `.wrangle/` directory is in `.gitignore` to prevent accidental commits. The orchestrator's filesystem check (`run.sh`) excludes the metadata directory from its pre/post snapshots.
+
+**Future use:** The metadata directory is designed to become the source for signed attestations: "this commit was scanned by tools X, Y, Z with these results."
 
 ---
 

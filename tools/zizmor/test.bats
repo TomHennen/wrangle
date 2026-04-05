@@ -32,3 +32,13 @@ setup() {
 @test "zizmor: no adapter.sh exists (action pattern, not adapter)" {
     [ ! -f "$ORIG_DIR/tools/zizmor/adapter.sh" ]
 }
+
+@test "zizmor: action.yml sets advanced-security to true" {
+    # advanced-security: true is required for the upstream action to produce
+    # SARIF output. See issue #109 and #114.
+    grep -q 'advanced-security: true' "$ORIG_DIR/tools/zizmor/action.yml"
+}
+
+@test "zizmor: action.yml uses WRANGLE_METADATA_DIR for output path" {
+    grep -q 'WRANGLE_METADATA_DIR' "$ORIG_DIR/tools/zizmor/action.yml"
+}

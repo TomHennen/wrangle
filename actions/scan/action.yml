@@ -3,9 +3,13 @@ description: Scan source code with wrangle security tools
 
 inputs:
   tools:
-    description: "Space-separated list of adapter-pattern tools to run (default: osv)"
+    description: >
+      Space-separated list of tools to run. Suffix with :info for
+      informational-only (default policy: :fail). Adapter-pattern tools
+      are dispatched to run.sh; action-pattern tools are invoked via
+      their uses: steps.
     required: false
-    default: "osv"
+    default: "osv zizmor scorecard:info"
 
 runs:
   using: "composite"
@@ -14,7 +18,9 @@ runs:
       shell: bash
       run: |
         WRANGLE_BIN_DIR="${RUNNER_TEMP}/.wrangle/bin"
-        WRANGLE_METADATA_DIR="${RUNNER_TEMP}/.wrangle/metadata"
+        # Metadata dir is workspace-relative so Scorecard's Docker container
+        # can write to it ($GITHUB_WORKSPACE is mounted, $RUNNER_TEMP is not).
+        WRANGLE_METADATA_DIR="${GITHUB_WORKSPACE}/.wrangle/metadata"
         mkdir -p "$WRANGLE_BIN_DIR" "$WRANGLE_METADATA_DIR"
         echo "$WRANGLE_BIN_DIR" >> "$GITHUB_PATH"
         echo "WRANGLE_BIN_DIR=$WRANGLE_BIN_DIR" >> "$GITHUB_ENV"
@@ -25,7 +31,8 @@ runs:
     - name: Install slsa-verifier
       uses: slsa-framework/slsa-verifier/actions/installer@ea584f4502babc6f60d9bc799dbbb13c1caa9ee6 # v2.7.1
 
-    # Adapter-pattern tools: run via the orchestrator (run.sh)
+    # Run adapter-pattern tools via the orchestrator (run.sh).
+    # run.sh strips :policy suffixes and skips action-pattern tools.
     - name: Run adapter-pattern tools
       shell: bash
       # tools input passed via env var to prevent expression injection.
@@ -48,12 +55,14 @@ runs:
     # workflow, ./ resolves to this repo at the called ref (the adopter's
     # pinned tag or the PR branch for local CI).
     - name: Zizmor
-      if: always()
+      if: always() && contains(inputs.tools, 'zizmor')
       uses: ./tools/zizmor
 
+    # Scorecard only runs on push events — it requires GITHUB_TOKEN scopes
+    # that aren't available on PRs and uses Docker, which only mounts
+    # $GITHUB_WORKSPACE. Skipping on PRs avoids guaranteed failures.
     - name: Scorecard
-      if: always()
-      continue-on-error: true
+      if: always() && contains(inputs.tools, 'scorecard') && github.event_name != 'pull_request'
       uses: ./tools/scorecard
 
     - name: Generate step summary
@@ -66,38 +75,45 @@ runs:
           "$WRANGLE_ROOT/lib/format_sarif_summary.sh" "$WRANGLE_METADATA_DIR" >> "$GITHUB_STEP_SUMMARY"
         fi
 
-    # SARIF upload: one step per tool for per-tool attribution in the
-    # Security tab. This is intentionally not generic — adding a new
-    # tool requires adding an upload step here. Composite actions
-    # require static uses: steps; dynamic enumeration is not possible.
-    # Known limitation accepted for v0.1.
+    # Check results: fail the check if any :fail-policy tool reported
+    # findings. Tools with :info policy are noted but don't block.
+    - name: Check results
+      if: always()
+      shell: bash
+      env:
+        WRANGLE_TOOLS: ${{ inputs.tools }}
+        WRANGLE_ROOT: ${{ github.action_path }}/../..
+      run: |
+        # $WRANGLE_TOOLS is intentionally unquoted for word-splitting.
+        "$WRANGLE_ROOT/lib/check_results.sh" "$WRANGLE_METADATA_DIR" $WRANGLE_TOOLS
+
+    # SARIF upload: per-tool attribution in the Security tab.
+    # continue-on-error is legitimate here — Advanced Security may not
+    # be available (private repos, no license).
     - name: Upload OSV SARIF
       if: always()
       uses: github/codeql-action/upload-sarif@5c8a8a642e79153f5d047b10ec1cba1d1cc65699 # v3.35.1
       continue-on-error: true
       with:
-        sarif_file: ${{ runner.temp }}/.wrangle/metadata/osv/output.sarif
+        sarif_file: ${{ env.WRANGLE_METADATA_DIR }}/osv/output.sarif
         category: wrangle/osv
 
-    - name: Upload Zizmor SARIF
-      if: always()
-      uses: github/codeql-action/upload-sarif@5c8a8a642e79153f5d047b10ec1cba1d1cc65699 # v3.35.1
-      continue-on-error: true
-      with:
-        sarif_file: ${{ runner.temp }}/.wrangle/metadata/zizmor/output.sarif
-        category: wrangle/zizmor
+    # Zizmor SARIF upload is handled by the upstream zizmor-action
+    # (advanced-security: true). No wrangle upload step needed.
 
     - name: Upload Scorecard SARIF
-      if: always()
+      if: always() && github.event_name != 'pull_request'
       uses: github/codeql-action/upload-sarif@5c8a8a642e79153f5d047b10ec1cba1d1cc65699 # v3.35.1
       continue-on-error: true
       with:
-        sarif_file: ${{ runner.temp }}/.wrangle/metadata/scorecard/output.sarif
+        sarif_file: ${{ env.WRANGLE_METADATA_DIR }}/scorecard/output.sarif
         category: wrangle/scorecard
 
     - name: Upload scan results artifact
       if: always()
       uses: actions/upload-artifact@bbbca2ddaa5d8feaa63e36b76fdaad77386f024f # v7.0.0
+      continue-on-error: true
       with:
         name: wrangle-scan-results
-        path: ${{ runner.temp }}/.wrangle/metadata/
+        path: ${{ env.WRANGLE_METADATA_DIR }}/
+        if-no-files-found: ignore

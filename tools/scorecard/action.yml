@@ -11,16 +11,16 @@ runs:
   steps:
     - name: Create output directory
       shell: bash
-      run: mkdir -p "$RUNNER_TEMP/.wrangle/metadata/scorecard"
+      run: mkdir -p "$WRANGLE_METADATA_DIR/scorecard"
 
     - name: Run Scorecard
       # Scorecard commonly fails on PR events — it requires GITHUB_TOKEN
       # with specific scopes and only fully works on default branch pushes.
-      # continue-on-error prevents this from blocking the entire scan.
+      # continue-on-error prevents this from blocking SARIF collection.
       continue-on-error: true
       uses: ossf/scorecard-action@4eaacf0543bb3f2c246792bd56e8cdeffafb205a # v2.4.3
       with:
-        results_file: ${{ runner.temp }}/.wrangle/metadata/scorecard/output.sarif
+        results_file: ${{ env.WRANGLE_METADATA_DIR }}/scorecard/output.sarif
         results_format: sarif
         publish_results: false
 
@@ -29,10 +29,10 @@ runs:
       shell: bash
       run: |
         set -euo pipefail
-        SARIF_FILE="$RUNNER_TEMP/.wrangle/metadata/scorecard/output.sarif"
+        SARIF_FILE="$WRANGLE_METADATA_DIR/scorecard/output.sarif"
         if [[ ! -f "$SARIF_FILE" ]]; then
           # Scorecard didn't produce output (e.g., failed on PR event).
-          # Create empty SARIF so downstream upload/summary steps don't fail.
+          # Create empty SARIF so downstream summary steps don't fail.
           jq -n '{
             "version": "2.1.0",
             "$schema": "https://raw.githubusercontent.com/oasis-tcs/sarif-spec/main/sarif-2.1/schema/sarif-schema-2.1.0.json",
@@ -47,8 +47,8 @@ runs:
         SCORECARD_DIR: ${{ github.action_path }}
       run: |
         set -euo pipefail
-        SARIF_FILE="$RUNNER_TEMP/.wrangle/metadata/scorecard/output.sarif"
-        MD_FILE="$RUNNER_TEMP/.wrangle/metadata/scorecard/output.md"
+        SARIF_FILE="$WRANGLE_METADATA_DIR/scorecard/output.sarif"
+        MD_FILE="$WRANGLE_METADATA_DIR/scorecard/output.md"
         if [[ -f "$SARIF_FILE" ]]; then
           "$SCORECARD_DIR/sarif_to_markdown.sh" "$SARIF_FILE" > "$MD_FILE"
         fi

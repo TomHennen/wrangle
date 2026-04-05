@@ -34,18 +34,30 @@ if [[ $# -eq 0 ]]; then
     exit 2
 fi
 
-# Validate all tool names before doing any work
+# Parse tool specs: strip :policy suffixes, collect adapter-pattern tools.
+# Action-pattern tools (have a directory but no adapter.sh) are skipped.
+# Unknown tools (no directory at all) are rejected.
 TOOL_NAME_RE='^[a-z][a-z0-9_-]*$'
-for tool in "$@"; do
+declare -a adapter_tools=()
+for spec in "$@"; do
+    tool="${spec%%:*}"
     if [[ ! "$tool" =~ $TOOL_NAME_RE ]]; then
         printf 'wrangle: invalid tool name: %s (must match %s)\n' "$tool" "$TOOL_NAME_RE" >&2
         exit 2
     fi
-    if [[ ! -f "${TOOLS_DIR}/${tool}/adapter.sh" ]] || [[ ! -f "${TOOLS_DIR}/${tool}/install.sh" ]]; then
-        printf 'wrangle: tool not found: %s (expected %s/%s/)\n' "$tool" "$TOOLS_DIR" "$tool" >&2
+    if [[ ! -d "${TOOLS_DIR}/${tool}" ]]; then
+        printf 'wrangle: unknown tool: %s (no directory at %s/%s/)\n' "$tool" "$TOOLS_DIR" "$tool" >&2
         exit 2
     fi
+    if [[ -f "${TOOLS_DIR}/${tool}/adapter.sh" ]] && [[ -f "${TOOLS_DIR}/${tool}/install.sh" ]]; then
+        adapter_tools+=("$tool")
+    fi
 done
+
+if [[ ${#adapter_tools[@]} -eq 0 ]]; then
+    printf 'wrangle: no adapter-pattern tools to run\n'
+    exit 0
+fi
 
 mkdir -p "$output_dir"
 
@@ -60,7 +72,7 @@ ADAPTER_TIMEOUT="${WRANGLE_ADAPTER_TIMEOUT:-600}"
 declare -a summary_tools=()
 declare -a summary_statuses=()
 
-for tool in "$@"; do
+for tool in "${adapter_tools[@]}"; do
     printf 'wrangle: === %s ===\n' "$tool"
 
     tool_status="pass"
@@ -90,7 +102,9 @@ for tool in "$@"; do
     # Step 3: Snapshot workspace for post-execution filesystem check
     # Records file paths, sizes, and mtimes to detect additions, removals, and modifications
     pre_snapshot="$(mktemp "${TMPDIR:-/tmp}/wrangle-pre-XXXXX")"
-    find "$src_dir" -type f -printf '%p %s %T@\n' 2>/dev/null | sort > "$pre_snapshot" || true
+    # Exclude output_dir from snapshot — when metadata dir is inside src_dir
+    # (workspace-relative), adapter writes there are expected, not rogue.
+    find "$src_dir" -not -path "${output_dir}/*" -type f -printf '%p %s %T@\n' 2>/dev/null | sort > "$pre_snapshot" || true
 
     # Step 4: Run adapter with isolated environment
     printf 'wrangle: running %s...\n' "$tool"
@@ -118,7 +132,7 @@ for tool in "$@"; do
 
     # Step 5: Post-execution filesystem check
     post_snapshot="$(mktemp "${TMPDIR:-/tmp}/wrangle-post-XXXXX")"
-    find "$src_dir" -type f -printf '%p %s %T@\n' 2>/dev/null | sort > "$post_snapshot" || true
+    find "$src_dir" -not -path "${output_dir}/*" -type f -printf '%p %s %T@\n' 2>/dev/null | sort > "$post_snapshot" || true
     if ! diff -q "$pre_snapshot" "$post_snapshot" >/dev/null 2>&1; then
         printf 'wrangle: WARNING: %s modified files outside its output directory\n' "$tool" >&2
     fi

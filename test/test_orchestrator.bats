@@ -211,10 +211,38 @@ run_orchestrator() {
     [ "$status" -eq 0 ]
 }
 
-@test "orchestrator: rejects nonexistent tool" {
+@test "orchestrator: rejects unknown tool (no directory)" {
     run_orchestrator -s "$TEST_DIR/src" -o "$TEST_DIR/output" "nonexistent"
 
     [ "$status" -eq 2 ]
+    [[ "$output" == *"unknown tool"* ]]
+}
+
+@test "orchestrator: skips action-pattern tool (directory exists, no adapter.sh)" {
+    # Create a tool directory with action.yml but no adapter.sh
+    mkdir -p "$MOCK_TOOLS/action-tool"
+    echo "name: test" > "$MOCK_TOOLS/action-tool/action.yml"
+
+    run_orchestrator -s "$TEST_DIR/src" -o "$TEST_DIR/output" "action-tool"
+
+    [ "$status" -eq 0 ]
+}
+
+@test "orchestrator: strips policy suffix from tool names" {
+    run_orchestrator -s "$TEST_DIR/src" -o "$TEST_DIR/output" "clean-tool:fail"
+
+    [ "$status" -eq 0 ]
+    [ -f "$TEST_DIR/output/clean-tool/output.sarif" ]
+}
+
+@test "orchestrator: skips action-pattern tools in mixed list" {
+    mkdir -p "$MOCK_TOOLS/action-tool"
+    echo "name: test" > "$MOCK_TOOLS/action-tool/action.yml"
+
+    run_orchestrator -s "$TEST_DIR/src" -o "$TEST_DIR/output" "clean-tool" "action-tool:info"
+
+    [ "$status" -eq 0 ]
+    [ -f "$TEST_DIR/output/clean-tool/output.sarif" ]
 }
 
 # --- Execution tests ---
