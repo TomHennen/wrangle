@@ -213,6 +213,11 @@ OUTPUT FILES (written to output_dir):
   output.md      OPTIONAL  Human-readable markdown summary
   output.txt     OPTIONAL  Human-readable plain text (fallback if no .md)
 
+  If the adapter does not produce output.md or output.txt, the
+  orchestrator generates output.md from output.sarif via
+  lib/sarif_to_md.sh. Adapters that produce richer tool-specific
+  output should write their own output.md to prevent this fallback.
+
 EXIT CODES:
   0  Scan completed, no findings
   1  Scan completed, findings detected
