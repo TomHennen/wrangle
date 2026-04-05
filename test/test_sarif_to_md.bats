@@ -79,3 +79,13 @@ setup() {
     [ "$status" -eq 0 ]
     [[ "$output" == *"INJECT-001"* ]]
 }
+
+@test "sarif_to_md: strips HTML tags from messages" {
+    run "$SCRIPT" "$ORIG_DIR/test/fixtures/injection.sarif"
+
+    [ "$status" -eq 0 ]
+    # HTML tags from message text must be stripped
+    [[ "$output" != *"<img"* ]]
+    [[ "$output" != *"<script>"* ]]
+    [[ "$output" != *"onerror"* ]]
+}
