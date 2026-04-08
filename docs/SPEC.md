@@ -87,6 +87,12 @@ Each build type follows the same pattern:
 
 New build types can be added without changing the source scanning workflow or the adopter's existing setup.
 
+### Shared SBOM vulnerability scanning
+
+Steps 2–3 (generate SBOM, scan for vulnerabilities) apply to every build type that produces an artifact. How the SBOM is *generated* varies by build type (BuildKit for containers, language-specific tooling for Python/npm/Go), but how it is *scanned* does not — all SBOMs are scanned the same way using `osv-scanner`.
+
+SBOM scanning is shared infrastructure, not per-build-type logic. All build types use a common scanning implementation (e.g., `lib/scan_sbom.sh`) rather than reimplementing scanning in each build action. This ensures consistent behavior: same tool, same SARIF output format, same non-blocking policy across all artifact types.
+
 ### Test integration
 
 Wrangle doesn't replace your test framework — it orchestrates it. Tests run in **two places**:
