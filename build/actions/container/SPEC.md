@@ -379,6 +379,35 @@ When wrangle eventually supports pushing to other registries, this section shoul
 
 Re-running the workflow after a signing or provenance failure rebuilds and re-pushes the image (producing a new digest). The signing and provenance steps then operate on the new digest, so the result is fully consistent. Adopters can safely re-run failed workflows without worrying about stale digests or mismatched attestations.
 
+## Documentation requirements
+
+Per `docs/SPEC.md` ("Build action directory structure"), the container build action MUST provide both this `SPEC.md` and a `README.md` in `build/actions/container/`. They serve different audiences:
+
+- **`SPEC.md` (this file)** — contract-level documentation aimed at maintainers, reviewers, and security auditors. Forward-looking; may describe behavior still being implemented.
+- **`README.md`** — user-facing how-to aimed at adopters (humans wiring wrangle into their repo) and agents (LLMs generating wrangle integrations for a project). Must only describe currently-shipped behavior.
+
+### Required contents of `build/actions/container/README.md`
+
+The container README MUST include each of the following sections, in this order. They exist so an adopter (or an agent) can go from "I want to build a signed container with wrangle" to a working, verifiable pipeline without reading this spec:
+
+1. **What this action does** — a one-paragraph plain-English summary: what's produced (image + SBOM + Cosign signature + SLSA L3 provenance), what registries are supported (ghcr.io today), and what assurances the output carries.
+2. **When to use which entry point** — a short decision between the **reusable workflow** (`.github/workflows/build_and_publish_container.yml`, recommended default because it wires up SLSA L3 provenance and the release gate) and the **composite action** (`build/actions/container/action.yml`, for adopters who already have a custom workflow and only want the build+SBOM+sign steps). Explain that only the reusable workflow provides the full SLSA L3 guarantee, and that consumers should depend on the reusable workflow's completion, not individual jobs.
+3. **Quick start** — a copy-pasteable, fully working caller workflow that invokes the reusable workflow, with all required `permissions:`, `secrets:`, and `with:` fields filled in against a placeholder image name. The example MUST:
+   - Pin wrangle's reusable workflow at a **release tag** (not `@main`), matching the `@v0.x.y` rule from `CLAUDE.md`.
+   - Show only `on: push` and `on: release` triggers, not `pull_request`, to reinforce the trigger restriction (see "Trigger restriction" in this spec).
+   - Include the exact `permissions:` block the workflow needs (`contents: read`, `packages: write`, `id-token: write`).
+4. **Inputs, outputs, secrets** — tables that mirror the "Inputs and outputs" section of this spec but scoped to the reusable workflow (the adopter-facing surface). Link to this `SPEC.md` for the composite-action surface.
+5. **Verifying the output** — the `cosign verify` and `slsa-verifier verify-image` example commands from this spec's "Verification examples" section, with a note that the identity regex must be customized to match the caller's repo and workflow filename. Include the "verify by digest, not tag" rule.
+6. **What to do when the workflow fails** — a short runbook: a failed gate means the image is in the registry but not signed/attested; do not tag, promote, or deploy it; re-run the workflow; the new digest will be signed cleanly. Link to the "What happens when the gate fails" section of this spec for the full explanation.
+7. **Current limitations** — the short version of this spec's "Known limitations" (ghcr.io only, no cosign SBOM attestation yet, multi-platform untested, provenance predicate v0.2). Link to this spec for the full list and upstream tracking issues.
+8. **Further reading** — link to this `SPEC.md`, the top-level `docs/SPEC.md` for wrangle's overall model, and the verification tool docs (`cosign`, `slsa-verifier`).
+
+### Constraints on the README
+
+- **Only document shipped behavior.** If a section of this spec describes behavior that isn't implemented yet (e.g., Cosign signing before it lands in `action.yml`, or the cosign SBOM attestation tracked in "Known limitations"), the README MUST NOT present it as available. It may briefly note that the feature is planned and link to this spec, but the quick-start example and verification commands must run against the current `action.yml`.
+- **Keep it agent-friendly.** Use literal copy-pasteable YAML blocks, not narrative descriptions of fields. Agents consuming the README should be able to extract the example workflow verbatim without template substitution beyond the documented placeholders.
+- **Keep it in sync with implementation changes.** Any PR that changes `action.yml` in a way that affects inputs, outputs, required permissions, or observable behavior MUST update the README in the same commit. Spec-only PRs (like the one introducing this section) may leave the README's implementation details ahead of or behind the current implementation as long as the README-on-main still accurately describes shipped behavior.
+
 ## Known limitations
 
 - **ghcr.io only.** Today the container build action is only specified, implemented, and tested against GitHub Container Registry. The permissions model (`packages: write`), registry login path, and SLSA provenance wiring all assume ghcr.io. Multi-registry support is a planned future extension — adding it requires (at minimum) reworking the permissions model for non-GitHub registries, validating the SLSA generator's behavior against each target, and re-evaluating the "The remote registry is in the TCB" section for registries that don't share GitHub's trust root.
