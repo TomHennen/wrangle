@@ -305,20 +305,25 @@ Adopters should communicate their signing/provenance story to their consumers:
 
 Throughout this section, assume the example image is `ghcr.io/acme/svc@sha256:abc123...`, published from `github.com/acme/svc` by the workflow `.github/workflows/release.yml` on refs matching `refs/tags/v*`. Adopters should replace these values with their own repo, workflow filename, and ref pattern, then publish the resulting commands to their consumers.
 
-**Verify the Cosign image signature.** The OIDC issuer is always `https://token.actions.githubusercontent.com` for GitHub Actions keyless signing; the certificate identity regexp is how consumers pin the signature to a specific adopter repo/workflow/ref pattern and reject everything else (including signatures from forks, from PR branches, or from unrelated workflows in the same repo):
+**Verify the Cosign image signature.** For a single, specific release, cosign's GitHub-Actions-aware flags let you pin the verification to an exact workflow, repository, and ref without writing regexes:
 
 ```bash
 cosign verify \
-  --certificate-identity-regexp '^https://github\.com/acme/svc/\.github/workflows/release\.yml@refs/tags/v' \
-  --certificate-oidc-issuer 'https://token.actions.githubusercontent.com' \
+  --certificate-oidc-issuer https://token.actions.githubusercontent.com \
+  --certificate-identity https://github.com/acme/svc/.github/workflows/release.yml@refs/tags/v1.2.3 \
+  --certificate-github-workflow-repository acme/svc \
+  --certificate-github-workflow-ref refs/tags/v1.2.3 \
   ghcr.io/acme/svc@sha256:abc123...
 ```
 
 Notes on the flags:
 
-- `--certificate-identity-regexp` anchors on `^` and terminates at `@refs/tags/v`. Anchoring on `^` prevents `https://github.com/evil/acme-svc/...` from matching as a suffix; terminating on the ref pattern rejects signatures produced from branches or PRs. For stricter production policy, pin the exact ref (`--certificate-identity` with the full `@refs/tags/v1.2.3`), not a regex.
-- `--certificate-oidc-issuer` must be set explicitly; omitting it allows *any* Sigstore-issued certificate, which defeats the identity binding.
-- Verify by digest, never by tag. A tag-based verify races with tag mutation.
+- `--certificate-oidc-issuer` is mandatory for keyless verification and must be exactly `https://token.actions.githubusercontent.com` for GitHub Actions signatures. Omitting it — or letting it default — allows signatures from any Sigstore OIDC issuer, which defeats the identity binding.
+- `--certificate-identity` is also mandatory. The full Fulcio subject encodes the signing workflow file and ref, so this flag alone already rejects signatures from forks, other workflows in the same repo, PR branches, or different refs.
+- `--certificate-github-workflow-repository` and `--certificate-github-workflow-ref` are GitHub-specific additional assertions that cross-check cert extension fields populated by Fulcio from the GitHub OIDC token. They're redundant with a fully pinned `--certificate-identity` in the happy path, but they catch the case where an attacker crafts an identity string that doesn't match the cert's actual workflow claims — defense in depth costs one extra line. The other GitHub-workflow flags (`--certificate-github-workflow-name`, `--certificate-github-workflow-trigger`, `--certificate-github-workflow-sha`) can be added for stricter policies.
+- **Verify by digest, never by tag.** A tag-based verify races with tag mutation and is the first thing an attacker tampering with a registry would exploit.
+
+For policies that accept **multiple** releases under the same workflow (e.g., "any signed build from `.github/workflows/release.yml@refs/tags/v*`"), substitute `--certificate-identity-regexp '^https://github\.com/acme/svc/\.github/workflows/release\.yml@refs/tags/v'` (anchored) and `--certificate-oidc-issuer-regexp` as needed. The regex form is strictly more permissive; prefer the exact-match form whenever the caller knows the specific tag.
 
 **Verify the SLSA L3 provenance attestation.** The cleanest tool for SLSA verification is `slsa-verifier`, which understands the container generator's attestation format directly:
 
@@ -336,11 +341,9 @@ What this checks:
 - The attestation's `invocation.configSource.uri` matches the passed `--source-uri` — i.e., the image came from `acme/svc` and not some other repo that happened to publish to the same registry path.
 - `--source-tag` additionally checks that the commit the builder saw corresponds to the named tag. Omit it if you want to accept any tag/branch from the source repo.
 
-For policy enforcement (rather than a human check), also consider `cosign verify-attestation --type slsaprovenance` against the same image, using the same `--certificate-identity-regexp` pattern as the Cosign verify example above but targeting the SLSA generator's workflow identity (`https://github.com/slsa-framework/slsa-github-generator/.github/workflows/generator_container_slsa3.yml@refs/tags/v2.1.0` for the currently pinned version).
+**Enforce at admission time.** Both checks above run fine from a CLI, but for ongoing enforcement consumers should wire them into admission control so unverified images can't run in the first place. The policy engine should assert the same facts the CLI commands above assert — the same signing identity + issuer + workflow claims for Cosign, and the same source URI and builder identity for SLSA — so that what policy rejects at admission is the same thing a human running `cosign verify` / `slsa-verifier verify-image` would reject at the terminal:
 
-**Enforce at admission time.** Both checks above run fine from a CLI, but for ongoing enforcement consumers should wire them into admission control so unverified images can't run in the first place:
-
-- Kubernetes with Kyverno or Sigstore `policy-controller` can enforce the same `certificate-identity-regexp` and `certificate-oidc-issuer` conditions at admission. Kyverno's `verifyImages` rule and policy-controller's `ClusterImagePolicy` both take these as structured fields.
+- Kubernetes with Kyverno or Sigstore `policy-controller` can assert the same `--certificate-identity` / `--certificate-oidc-issuer` / GitHub workflow claims at admission. Kyverno's `verifyImages` rule and policy-controller's `ClusterImagePolicy` both take these as structured fields.
 - Registry-side policies (e.g., `cosign policy`, Harbor's Cosign integration) can gate pulls on the same identity.
 - For SLSA provenance, `policy-controller` and Kyverno both support `attestations:` blocks that run CUE or Rego against the decoded provenance predicate — consumers can require, for example, a specific `builder.id` or that `invocation.configSource.uri` matches their own allowlist.
 

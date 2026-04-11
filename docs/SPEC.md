@@ -96,7 +96,7 @@ Every build type lives in `build/actions/<type>/` and MUST contain these files. 
 | `action.yml` | The composite action implementation | Runtime |
 | `SPEC.md` | Detailed specification: inputs/outputs, step sequence, failure contract, trust model, limitations | Maintainers, reviewers, security auditors |
 | `README.md` | User-facing how-to: quick start, copy-pasteable workflow example(s), required permissions, how to verify the output, links into `SPEC.md` for the details | Adopters (humans) and agents generating wrangle integrations |
-| `test.bats` (or equivalent) | Structural and behavioral tests | CI |
+| Tests | Structural checks (YAML/schema validity, pinned SHAs, required fields) plus action-level behavioral tests. The specific form depends on the build type: structural checks may use `bats` or a YAML linter; behavioral tests for a composite action are best run via a GitHub Actions runner (e.g., `nektos/act`) rather than `bats`, since the action's behavior is defined by the GitHub Actions runtime. Wrangle's tooling for action-level behavioral tests is tracked separately from this spec. | CI |
 
 The reusable workflow that wraps a build action (e.g., `.github/workflows/build_and_publish_container.yml`) is part of the same unit even though it lives outside the directory due to GitHub Actions' reusable-workflow location rules. The directory's `README.md` MUST document both the composite action and the reusable workflow entry points and make clear which one adopters should call.
 
