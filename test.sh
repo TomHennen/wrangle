@@ -13,8 +13,8 @@ TEST_TARGET="${1:-all}"
 
 # Validate test target
 case "$TEST_TARGET" in
-    all|test|bats|lint|shellcheck) ;;
-    *) echo "Usage: $0 [all|test|bats|lint|shellcheck]" >&2; exit 1 ;;
+    all|test|bats|lint|shellcheck|test-actions) ;;
+    *) echo "Usage: $0 [all|test|bats|lint|shellcheck|test-actions]" >&2; exit 1 ;;
 esac
 
 # Check Docker is available

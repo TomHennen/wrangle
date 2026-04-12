@@ -1,4 +1,4 @@
-.PHONY: all test lint shellcheck bats
+.PHONY: all test lint shellcheck bats test-actions
 
 # Default target
 all: test
@@ -25,6 +25,11 @@ shellcheck:
 bats:
 	@echo "=== bats ==="
 	@bats test/ test/lib/ tools/*/test.bats
+
+# Run act-based action tests
+test-actions:
+	@echo "=== act-based action tests ==="
+	@act --version
 
 # Update a tool version and its checksum
 # Usage: make update-tool TOOL=osv VERSION=1.2.3
