@@ -30,19 +30,34 @@ docker build -t "$IMAGE_NAME" -f "$SCRIPT_DIR/test/Dockerfile" "$SCRIPT_DIR"
 # Run the requested test suite
 echo "=== Running: $TEST_TARGET ==="
 
-if [[ "$TEST_TARGET" == "test-actions" ]]; then
-    # act-based tests run on the host (act needs Docker to spawn runner containers).
-    # Require act to be installed locally — the Docker test container cannot use act
-    # because act bind-mounts the workspace into new containers via the host daemon.
-    if ! command -v act >/dev/null 2>&1; then
-        echo "Error: act is not installed. Install from https://nektosact.com/" >&2
-        exit 1
-    fi
-    make -C "$SCRIPT_DIR" test-actions
-else
+run_container_tests() {
     docker run --rm \
         -v "$SCRIPT_DIR":/wrangle:ro \
         -w /wrangle \
         "$IMAGE_NAME" \
-        make "$TEST_TARGET"
-fi
+        make "$1"
+}
+
+run_act_tests() {
+    # act-based tests run on the host (act needs Docker to spawn runner containers).
+    # Require act to be installed locally — the Docker test container cannot use act
+    # because act bind-mounts the workspace into new containers via the host daemon.
+    if ! command -v act >/dev/null 2>&1; then
+        printf 'Error: act is not installed. Install from https://nektosact.com/\n' >&2
+        exit 1
+    fi
+    make -C "$SCRIPT_DIR" test-actions
+}
+
+case "$TEST_TARGET" in
+    all)
+        run_container_tests test
+        run_act_tests
+        ;;
+    test-actions)
+        run_act_tests
+        ;;
+    *)
+        run_container_tests "$TEST_TARGET"
+        ;;
+esac
