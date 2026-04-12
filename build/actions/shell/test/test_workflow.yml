@@ -1,51 +1,18 @@
-# Act test for the shell build action.
+# Act test for the shell build reusable workflow.
 #
-# Fallback: uses the composite action directly instead of the reusable
-# workflow (.github/workflows/build_shell.yml). The reusable workflow
-# works under act, but its checkout step populates the workspace with
-# the full wrangle repo. The action's shellcheck step (find . -name
-# '*.sh') then scans wrangle's own scripts, which have info/warning
-# findings when run without -x --source-path=SCRIPTDIR. Isolating the
-# fixture workspace requires control over the checkout step, which is
-# only possible when calling the composite action directly.
-#
-# This is permitted by the spec: composite-action tests are allowed
-# when they cover a path the reusable workflow test cannot reach. Here
-# the gap is: testing that the action passes cleanly on a conforming
-# project, which the reusable workflow test cannot do because it always
-# checks out the full repo.
-name: Test shell build action
+# Invokes .github/workflows/build_shell.yml — the actual adopter-facing
+# contract — with scan-path pointed at a tiny fixture project. The shell
+# action's shellcheck and bats steps run only against the fixture, so the
+# test doesn't couple to wrangle's own source tree and doesn't require
+# nuking the workspace.
+name: Test shell build workflow
 on: push
 
 jobs:
   shell-build:
-    runs-on: ubuntu-latest
-    defaults:
-      run:
-        shell: bash
-    steps:
-      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
-        with:
-          persist-credentials: false
-
-      - name: Isolate fixture workspace
-        run: |
-          set -euo pipefail
-          # Preserve the composite action and fixture, remove everything
-          # else so the action's shellcheck only scans fixture files.
-          SAVE="$(mktemp -d)"
-          cp -r build/actions/shell "$SAVE/shell-action"
-          # Clean workspace (keep .git for act internals)
-          find . -maxdepth 1 -not -name '.' -not -name '.git' -exec rm -rf {} +
-          # Restore action at its expected path
-          mkdir -p build/actions/shell
-          cp -r "$SAVE/shell-action"/* build/actions/shell/
-          # Copy fixture files to workspace root (where find . will scan them)
-          cp build/actions/shell/test/fixtures/clean/script.sh .
-          cp build/actions/shell/test/fixtures/clean/test.bats .
-
-      - name: Run shell build action
-        uses: ./build/actions/shell
+    uses: ./.github/workflows/build_shell.yml
+    with:
+      scan-path: build/actions/shell/test/fixtures/clean
 
   verify:
     needs: shell-build
@@ -54,7 +21,7 @@ jobs:
       run:
         shell: bash
     steps:
-      - name: Assert shell-build job passed
+      - name: Assert shell-build succeeded
         run: |
           set -euo pipefail
           printf 'shell-build job succeeded — shellcheck and bats passed on fixture\n'
