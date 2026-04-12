@@ -40,11 +40,15 @@ run_container_tests() {
 
 run_act_tests() {
     # act-based tests run on the host (act needs Docker to spawn runner containers).
-    # Require act to be installed locally — the Docker test container cannot use act
-    # because act bind-mounts the workspace into new containers via the host daemon.
+    # The Docker test container cannot use act because act bind-mounts the workspace
+    # into new containers via the host daemon.
     if ! command -v act >/dev/null 2>&1; then
-        printf 'Error: act is not installed. Install from https://nektosact.com/\n' >&2
-        exit 1
+        if [[ "${ACT_REQUIRED:-}" == "true" ]]; then
+            printf 'Error: act is not installed. Install from https://nektosact.com/\n' >&2
+            exit 1
+        fi
+        printf 'Skipping act-based tests (act not installed)\n'
+        return 0
     fi
     make -C "$SCRIPT_DIR" test-actions
 }
@@ -55,7 +59,7 @@ case "$TEST_TARGET" in
         run_act_tests
         ;;
     test-actions)
-        run_act_tests
+        ACT_REQUIRED=true run_act_tests
         ;;
     *)
         run_container_tests "$TEST_TARGET"
