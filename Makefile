@@ -26,15 +26,21 @@ bats:
 	@echo "=== bats ==="
 	@bats test/ test/lib/ tools/*/test.bats
 
-# Run act-based action tests (requires act + Docker on the host)
+# Run act-based action tests (requires act + Docker on the host).
+# Discovers test workflows by globbing **/test/test_workflow.yml under
+# build/actions/ and actions/. Adding a new action with a test_workflow.yml
+# automatically picks it up.
 test-actions:
 	@echo "=== act-based action tests ==="
-	@echo "--- test: shell action ---"
-	@act push -W test/act/test-shell-action.yml -e test/act/event.json \
-		-P ubuntu-latest=catthehacker/ubuntu:act-latest --bind
-	@echo "--- test: scan orchestrator ---"
-	@act push -W test/act/test-scan-orchestrator.yml -e test/act/event.json \
-		-P ubuntu-latest=catthehacker/ubuntu:act-latest --bind
+	@WORKFLOWS=$$(find build/actions actions -path '*/test/test_workflow.yml' 2>/dev/null); \
+	if [ -z "$$WORKFLOWS" ]; then \
+		echo "No act test workflows found"; exit 1; \
+	fi; \
+	for wf in $$WORKFLOWS; do \
+		echo "--- test: $$wf ---"; \
+		act push -W "$$wf" -e test/act/event.json \
+			-P ubuntu-latest=catthehacker/ubuntu:act-latest || exit $$?; \
+	done
 
 # Update a tool version and its checksum
 # Usage: make update-tool TOOL=osv VERSION=1.2.3
