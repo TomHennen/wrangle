@@ -87,6 +87,32 @@ Each build type follows the same pattern:
 
 New build types can be added without changing the source scanning workflow or the adopter's existing setup.
 
+### Build action directory structure
+
+Every build type lives in `build/actions/<type>/` and MUST contain these files. This is the same "everything for one capability lives in one directory" discipline wrangle applies to tools (`tools/<name>/`), extended to build actions:
+
+| File | Purpose | Audience |
+|------|---------|----------|
+| `action.yml` | The composite action implementation | Runtime |
+| `SPEC.md` | Detailed specification: inputs/outputs, step sequence, failure contract, trust model, limitations | Maintainers, reviewers, security auditors |
+| `README.md` | User-facing how-to: quick start, copy-pasteable workflow example(s), required permissions, how to verify the output, links into `SPEC.md` for the details | Adopters (humans) and agents generating wrangle integrations |
+| Tests | Structural checks (YAML/schema validity, pinned SHAs, required fields) plus action-level behavioral tests. The specific form depends on the build type: structural checks may use `bats` or a YAML linter; behavioral tests for a composite action are best run via a GitHub Actions runner (e.g., `nektos/act`) rather than `bats`, since the action's behavior is defined by the GitHub Actions runtime. Wrangle's tooling for action-level behavioral tests is tracked separately from this spec. | CI |
+
+The reusable workflow that wraps a build action (e.g., `.github/workflows/build_and_publish_container.yml`) is part of the same unit even though it lives outside the directory due to GitHub Actions' reusable-workflow location rules. The directory's `README.md` MUST document both the composite action and the reusable workflow entry points and make clear which one adopters should call.
+
+**Why both SPEC.md *and* README.md?** They serve different audiences and should not be collapsed:
+
+- `SPEC.md` is the contract. It's forward-looking, describes guarantees and failure modes, and exists so maintainers and reviewers can reason about whether the action is correct and whether a change preserves its invariants. It may describe behavior that is still being implemented.
+- `README.md` is the how-to. It only describes currently-implemented, stable usage, and is structured so that an adopter (human or agent) can copy a workflow example, wire it into their repo, and verify the output without reading the spec. Agent-generated integrations in particular depend on a canonical, machine-readable usage doc — the README is that doc.
+
+If `SPEC.md` describes behavior that hasn't shipped yet, `README.md` MUST NOT present it as available. Keeping the two in sync during implementation is part of landing a feature, not a follow-up.
+
+### Shared SBOM vulnerability scanning
+
+Steps 2–3 (generate SBOM, scan for vulnerabilities) apply to every build type that produces an artifact. How the SBOM is *generated* varies by build type (BuildKit for containers, language-specific tooling for Python/npm/Go), but how it is *scanned* does not — all SBOMs are scanned the same way using `osv-scanner`.
+
+SBOM scanning is shared infrastructure, not per-build-type logic. All build types use a common scanning implementation (e.g., `lib/scan_sbom.sh`) rather than reimplementing scanning in each build action. This ensures consistent behavior: same tool, same SARIF output format, same non-blocking policy across all artifact types.
+
 ### Test integration
 
 Wrangle doesn't replace your test framework — it orchestrates it. Tests run in **two places**:
