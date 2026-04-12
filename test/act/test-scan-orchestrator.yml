@@ -1,0 +1,103 @@
+name: Test scan orchestrator via act
+on: push
+
+jobs:
+  test-scan-orchestrator:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - name: Set up mock tool
+        run: |
+          set -euo pipefail
+
+          # Create a mock adapter-pattern tool that produces valid SARIF
+          MOCK_TOOLS="${RUNNER_TEMP}/wrangle-tools"
+          mkdir -p "$MOCK_TOOLS/mock-tool"
+
+          cat > "$MOCK_TOOLS/mock-tool/install.sh" << 'INST'
+          #!/bin/bash
+          set -euo pipefail
+          printf 'wrangle: installed mock-tool\n'
+          exit 0
+          INST
+          chmod +x "$MOCK_TOOLS/mock-tool/install.sh"
+
+          cat > "$MOCK_TOOLS/mock-tool/adapter.sh" << 'ADAPT'
+          #!/bin/bash
+          set -euo pipefail
+          cat > "$2/output.sarif" << 'SARIF'
+          {
+            "version": "2.1.0",
+            "$schema": "https://raw.githubusercontent.com/oasis-tcs/sarif-spec/main/sarif-2.1/schema/sarif-schema-2.1.0.json",
+            "runs": [{
+              "tool": {"driver": {"name": "mock-tool", "version": "1.0.0"}},
+              "results": []
+            }]
+          }
+          SARIF
+          exit 0
+          ADAPT
+          chmod +x "$MOCK_TOOLS/mock-tool/adapter.sh"
+
+          printf 'MOCK_TOOLS=%s\n' "$MOCK_TOOLS" >> "$GITHUB_ENV"
+
+      - name: Set up wrangle environment
+        run: |
+          set -euo pipefail
+          source ./lib/env.sh
+          mkdir -p "$WRANGLE_BIN_DIR" "$WRANGLE_METADATA_DIR"
+          printf 'WRANGLE_BIN_DIR=%s\n' "$WRANGLE_BIN_DIR" >> "$GITHUB_ENV"
+          printf 'WRANGLE_METADATA_DIR=%s\n' "$WRANGLE_METADATA_DIR" >> "$GITHUB_ENV"
+
+      - name: Run orchestrator with mock tool
+        env:
+          WRANGLE_TOOLS_DIR: ${{ env.MOCK_TOOLS }}
+        run: |
+          set -euo pipefail
+          printf '=== Running orchestrator ===\n'
+          ./run.sh \
+            -s "$GITHUB_WORKSPACE" \
+            -o "$WRANGLE_METADATA_DIR" \
+            mock-tool
+          printf 'Orchestrator exited successfully\n'
+
+      - name: Verify SARIF output
+        run: |
+          set -euo pipefail
+
+          # Check SARIF file exists and is valid JSON
+          SARIF_FILE="${WRANGLE_METADATA_DIR}/mock-tool/output.sarif"
+          [[ -f "$SARIF_FILE" ]]
+          printf 'SARIF file exists at: %s\n' "$SARIF_FILE"
+
+          jq -e '.version == "2.1.0"' "$SARIF_FILE" > /dev/null
+          printf 'SARIF version is 2.1.0\n'
+
+          jq -e '.runs | length > 0' "$SARIF_FILE" > /dev/null
+          printf 'SARIF has runs array\n'
+
+          printf 'All SARIF checks passed\n'
+
+      - name: Verify metadata directory structure
+        run: |
+          set -euo pipefail
+
+          # Metadata dir should contain the tool output directory
+          [[ -d "${WRANGLE_METADATA_DIR}/mock-tool" ]]
+          printf 'Tool output directory exists\n'
+
+          # Human-readable output should have been generated
+          [[ -f "${WRANGLE_METADATA_DIR}/mock-tool/output.md" ]]
+          printf 'Human-readable output generated\n'
+
+          printf 'Metadata structure checks passed\n'
+
+      - name: Generate step summary
+        run: |
+          set -euo pipefail
+          if [[ -d "$WRANGLE_METADATA_DIR" ]]; then
+            ./lib/format_sarif_summary.sh "$WRANGLE_METADATA_DIR" >> "$GITHUB_STEP_SUMMARY"
+            printf 'Step summary generated\n'
+          fi

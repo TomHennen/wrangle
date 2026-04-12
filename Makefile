@@ -32,6 +32,9 @@ test-actions:
 	@echo "--- test: shell action ---"
 	@act push -W test/act/test-shell-action.yml -e test/act/event.json \
 		-P ubuntu-latest=catthehacker/ubuntu:act-latest --bind
+	@echo "--- test: scan orchestrator ---"
+	@act push -W test/act/test-scan-orchestrator.yml -e test/act/event.json \
+		-P ubuntu-latest=catthehacker/ubuntu:act-latest --bind
 
 # Update a tool version and its checksum
 # Usage: make update-tool TOOL=osv VERSION=1.2.3
