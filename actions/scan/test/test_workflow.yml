@@ -1,0 +1,54 @@
+# Act test for the source scan action / check_source_change workflow.
+#
+# Fallback: uses the composite action directly instead of the reusable
+# workflow (.github/workflows/check_source_change.yml). The reusable
+# workflow does checkout + scan in a single job, leaving no opportunity
+# to set WRANGLE_TOOLS_DIR to a mock tool directory before the scan
+# runs. Calling the composite directly lets us inject mock-osv before
+# the scan, testing the orchestrator end-to-end without network deps.
+#
+# This is permitted by the spec: composite-action tests are allowed
+# when they cover a path the reusable workflow cannot reach. Here the
+# gap is: testing with mock tools requires env setup before the action.
+name: Test scan orchestrator
+on: push
+
+jobs:
+  scan:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+
+      - name: Set up mock-osv tool
+        run: |
+          set -euo pipefail
+          # Point WRANGLE_TOOLS_DIR at a directory containing only our
+          # mock-osv adapter (mimicking the real osv tool directory).
+          MOCK_TOOLS="${RUNNER_TEMP}/wrangle-tools"
+          mkdir -p "$MOCK_TOOLS/osv"
+          cp actions/scan/test/fixtures/mock-osv/install.sh "$MOCK_TOOLS/osv/"
+          cp actions/scan/test/fixtures/mock-osv/adapter.sh "$MOCK_TOOLS/osv/"
+          chmod +x "$MOCK_TOOLS/osv/install.sh" "$MOCK_TOOLS/osv/adapter.sh"
+          printf 'WRANGLE_TOOLS_DIR=%s\n' "$MOCK_TOOLS" >> "$GITHUB_ENV"
+
+      - name: Run scan action with mock-osv
+        uses: ./actions/scan
+        with:
+          tools: "osv"
+
+  verify:
+    needs: scan
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - name: Assert scan job passed
+        run: |
+          set -euo pipefail
+          printf 'Scan job succeeded — orchestrator ran mock-osv and produced SARIF\n'
