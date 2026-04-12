@@ -14,7 +14,7 @@ This spec describes **what** should be tested via act, **how**, and — critical
 
 Adopters call the reusable workflow (`.github/workflows/check_source_change.yml`, `.github/workflows/build_shell.yml`). That's the contract wrangle ships. Testing through the reusable workflow is strictly stronger coverage than testing the composite action directly: it exercises workflow-level inputs, permissions, secrets forwarding, and the `workflow_call` interface that adopters actually use.
 
-The default test target is therefore the **reusable workflow**, invoked from a minimal caller workflow. The composite action is exercised transitively.
+The default test target is therefore the **reusable workflow**, invoked from a minimal test workflow (`test_workflow.yml`, see "Co-locate tests and fixtures" below). The composite action is exercised transitively.
 
 **Composite-action tests are allowed** when they cover a path the reusable workflow test cannot reach. Legitimate reasons:
 
@@ -48,7 +48,7 @@ build/actions/shell/
 ├── README.md
 ├── test.bats                   # structural/unit tests (existing pattern)
 └── test/
-    ├── caller.yml              # act caller workflow invoking build_shell.yml
+    ├── test_workflow.yml       # act test workflow invoking build_shell.yml
     └── fixtures/
         ├── clean/              # happy-path fixture: passes shellcheck + bats
         │   ├── script.sh
@@ -66,7 +66,7 @@ build/actions/container/
 ├── README.md
 ├── test.bats
 └── test/
-    ├── caller.yml              # (may be structural-only if act can't run it end-to-end)
+    ├── test_workflow.yml              # (may be structural-only if act can't run it end-to-end)
     └── fixtures/
         └── minimal/
             ├── Dockerfile
@@ -79,7 +79,7 @@ The `actions/scan/` directory follows the same pattern for the source-scanning r
 actions/scan/
 ├── action.yml
 └── test/
-    ├── caller.yml              # invokes check_source_change.yml with tools: "osv"
+    ├── test_workflow.yml              # invokes check_source_change.yml with tools: "osv"
     └── fixtures/
         ├── mock-osv/           # mock adapter-pattern tool
         │   ├── install.sh
@@ -90,7 +90,7 @@ actions/scan/
 Rules:
 
 - **Fixtures live with their action, not in a central directory.** A shell-project fixture in `build/actions/shell/test/fixtures/` is for shell-action tests only; reusing it for a different action means duplicating (or creating a genuinely cross-cutting fixture under `test/act/fixtures/` — permitted but require a reason).
-- **Caller workflows live with their action.** `build/actions/shell/test/caller.yml` invokes `.github/workflows/build_shell.yml`. `actions/scan/test/caller.yml` invokes `.github/workflows/check_source_change.yml`. The Makefile discovers them (see "Discovery" below) rather than hardcoding a central list.
+- **Test workflows live with their action.** `build/actions/shell/test/test_workflow.yml` invokes `.github/workflows/build_shell.yml`. `actions/scan/test/test_workflow.yml` invokes `.github/workflows/check_source_change.yml`. The Makefile discovers them (see "Discovery" below) rather than hardcoding a central list.
 - **Central `test/act/`** keeps only:
   - This `SPEC.md`.
   - `event.json` (shared push event payload — truly cross-cutting).
@@ -111,9 +111,31 @@ Each build action needs fixtures appropriate to the artifacts it produces. At mi
 
 These are minimums. Actions that have interesting conditional behavior (e.g., the shell action's `bats-path` input validation) need additional fixtures to cover each branch.
 
+### Fixture exclusion from wrangle's own scans
+
+Failure-path fixtures deliberately contain problems — shellcheck violations, expression-injection patterns in workflow YAML, pinned known-vulnerable dependencies, and so on. These are essential for testing that wrangle's actions correctly detect and report failures.
+
+But wrangle dogfoods its own `check_source_change.yml` on every PR, and wrangle's Makefile runs `shellcheck` across the whole repo. Without a mechanism to exclude fixtures, these intentional problems would show up as real findings in wrangle's own CI — failing the very pipeline that's supposed to validate wrangle against wrangle.
+
+**Rule:** every scanner in wrangle's source-scan pipeline, and every linter in wrangle's Makefile, MUST exclude paths matching the glob `**/test/fixtures/**`.
+
+Specific implementation requirements (per scanner):
+
+| Scanner | Where the exclusion lives |
+|---------|--------------------------|
+| `shellcheck` (via `Makefile`) | The `find … \| xargs shellcheck` pipeline excludes `./*/test/fixtures/*` |
+| `actionlint` (via `Makefile`) | The workflow-YAML glob excludes `**/test/fixtures/**` (including any fixture workflow YAML that intentionally triggers linter findings) |
+| `osv-scanner` (via `tools/osv/`) | An `.osv-scanner.toml` (or equivalent config file) at the repo root excludes fixture paths via `[[IgnoredVulns]]` or the scanner's native path-ignore mechanism |
+| `zizmor` (via `tools/zizmor/`) | A `.zizmor.yml` at the repo root excludes fixture paths via its `rules:` block or path-exclusion mechanism |
+| `scorecard` (via `tools/scorecard/`) | Not applicable — scorecard runs repo-level checks, not path-level file scans |
+
+This is a **wrangle-self-scan concern only.** Adopters of wrangle don't have wrangle's test fixtures in their source tree — they're scanning their own code with wrangle's actions. The exclusions live in wrangle's own scanner configs and Makefile, not in the action contract adopters consume.
+
+The `**/test/fixtures/**` convention also serves as an unambiguous signal to anyone reading the tree: if a file lives under a `test/fixtures/` directory, it's a test artifact, not production code. Fixtures must not be placed outside this path (e.g., in a sibling `testdata/` directory) — that would bypass the exclusion and require every scanner's config to be updated piecemeal.
+
 ### Discovery
 
-`make test-actions` discovers act caller workflows by globbing `**/test/caller.yml` under `build/actions/`, `actions/`, and anywhere else wrangle adds actions later. No central registry of test workflows — adding a new build action with its own `test/caller.yml` automatically picks it up.
+`make test-actions` discovers act test workflows by globbing `**/test/test_workflow.yml` under `build/actions/`, `actions/`, and anywhere else wrangle adds actions later. No central registry of test workflows — adding a new build action with its own `test/test_workflow.yml` automatically picks it up.
 
 ### Tests must exercise the action, not bypass it
 
@@ -131,7 +153,7 @@ Act runs what act can run. Everything else gets a structural bats test.
 
 | What | How tested | Where |
 |------|-----------|-------|
-| Reusable workflow invocation, input validation, step sequence, local composite resolution, shell steps, `GITHUB_OUTPUT`, `GITHUB_STEP_SUMMARY`, adapter-pattern tool execution under `run.sh` | Act, end-to-end against a fixture | `<action-dir>/test/caller.yml` + `<action-dir>/test/fixtures/` (co-located per the rules above) |
+| Reusable workflow invocation, input validation, step sequence, local composite resolution, shell steps, `GITHUB_OUTPUT`, `GITHUB_STEP_SUMMARY`, adapter-pattern tool execution under `run.sh` | Act, end-to-end against a fixture | `<action-dir>/test/test_workflow.yml` + `<action-dir>/test/fixtures/` (co-located per the rules above) |
 | Composite actions that need Docker, elevated tokens, or real GitHub API (scorecard, container builder, codeql SARIF upload, upload-artifact) | Structural bats tests that verify `action.yml` shape — SHA-pinned references, expected inputs, expected env vars, expected step names — without executing them | `<action-dir>/test.bats` (alongside existing structural tests) |
 
 The two tracks are not substitutes. Act catches step-wiring and env-propagation regressions. Structural tests catch "someone removed the SARIF upload step" or "someone unpinned a SHA." Both are cheap and both fail-fast.
@@ -286,8 +308,8 @@ Act testing is specifically the layer for exercising composite actions and reusa
 
 The first cut of act testing MUST cover:
 
-1. **`actions/scan/test/caller.yml`** — invokes `check_source_change.yml` with `tools: "osv"` and the `mock-osv` fixture, asserting that SARIF appears at the expected path and the step summary contains expected content. This is the primary adopter entry point for source scanning.
-2. **`build/actions/shell/test/caller.yml`** — invokes `build_shell.yml` against the `clean` fixture, asserting the action exits 0. (Optional second test invoking against `shellcheck-fail` asserting a non-zero exit — deferred if it complicates the runner setup.)
+1. **`actions/scan/test/test_workflow.yml`** — invokes `check_source_change.yml` with `tools: "osv"` and the `mock-osv` fixture, asserting that SARIF appears at the expected path and the step summary contains expected content. This is the primary adopter entry point for source scanning.
+2. **`build/actions/shell/test/test_workflow.yml`** — invokes `build_shell.yml` against the `clean` fixture, asserting the action exits 0. (Optional second test invoking against `shellcheck-fail` asserting a non-zero exit — deferred if it complicates the runner setup.)
 3. **Structural bats tests** covering `actions/scan/action.yml`, `tools/scorecard/action.yml`, `tools/zizmor/action.yml`, `build/actions/shell/action.yml`, `build/actions/container/action.yml`, and the reusable workflows that wrap them. Each test asserts SHA pinning, expected step names, expected inputs, and (where applicable) the presence of the `env.ACT` gates described above. Structural tests live in each action's existing `test.bats` (or a new `test.bats` if the directory doesn't have one yet) — not in a central file.
 
 `build_and_publish_container.yml` is deferred until its composite action is implemented (per `build/actions/container/SPEC.md`, the action is still partial). When the implementation lands, act still cannot run it end-to-end — not just because of Docker-in-Docker, but because of GHA cache, registry push, Cosign OIDC, and the SLSA provenance generator (see "Docker-in-Docker and the container builder" above). It gets structural bats tests only. Real end-to-end coverage for the container builder is real CI against a staging image repository, which is out of scope for this spec.
