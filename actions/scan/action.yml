@@ -22,10 +22,7 @@ runs:
 
     # Install slsa-verifier for tools that use SLSA provenance verification
     # (e.g., OSV-Scanner). Required before running adapter-pattern tools.
-    # Skipped under act: downloads platform-specific binary that may not
-    # match the act container architecture; mock adapters don't need it.
     - name: Install slsa-verifier
-      if: ${{ !env.ACT }}
       uses: slsa-framework/slsa-verifier/actions/installer@ea584f4502babc6f60d9bc799dbbb13c1caa9ee6 # v2.7.1
 
     # Run adapter-pattern tools via the orchestrator (run.sh).
@@ -95,9 +92,8 @@ runs:
     # SARIF upload: per-tool attribution in the Security tab.
     # continue-on-error is legitimate here — Advanced Security may not
     # be available (private repos, no license).
-    # Skipped under act: codeql-action/upload-sarif needs real GHAS API
     - name: Upload OSV SARIF
-      if: always() && !env.ACT
+      if: always()
       uses: github/codeql-action/upload-sarif@5c8a8a642e79153f5d047b10ec1cba1d1cc65699 # v3.35.1
       continue-on-error: true
       with:
@@ -107,18 +103,16 @@ runs:
     # Zizmor SARIF upload is handled by the upstream zizmor-action
     # (advanced-security: true). No wrangle upload step needed.
 
-    # Skipped under act: codeql-action/upload-sarif needs real GHAS API
     - name: Upload Scorecard SARIF
-      if: always() && !env.ACT && github.event_name != 'pull_request'
+      if: always() && github.event_name != 'pull_request'
       uses: github/codeql-action/upload-sarif@5c8a8a642e79153f5d047b10ec1cba1d1cc65699 # v3.35.1
       continue-on-error: true
       with:
         sarif_file: ${{ github.workspace }}/.wrangle/metadata/scorecard/output.sarif
         category: wrangle/scorecard
 
-    # Skipped under act: upload-artifact v7 fails with auth errors (nektos/act#6021)
     - name: Upload scan results artifact
-      if: always() && !env.ACT
+      if: always()
       uses: actions/upload-artifact@bbbca2ddaa5d8feaa63e36b76fdaad77386f024f # v7.0.0
       continue-on-error: true
       with:

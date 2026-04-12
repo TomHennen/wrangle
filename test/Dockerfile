@@ -30,22 +30,4 @@ RUN set -euo pipefail && \
     tar -xzf "/tmp/$TARBALL" -C /usr/local/bin actionlint && \
     rm "/tmp/$TARBALL"
 
-# Install act — pinned version with checksum verification
-ARG ACT_VERSION=0.2.87
-ARG ACT_CHECKSUM_ARM64=c17a9fe2428a4824f61248ceb8e93db8de95d9163b0f2651ec5ccea0e6f4edc8
-ARG ACT_CHECKSUM_AMD64=9bbfca7d779f71746233ec65e47fdcb12c4c976c1c97ec085956976fcabee866
-RUN set -euo pipefail && \
-    ARCH="$(uname -m)" && \
-    case "$ARCH" in \
-        aarch64) GOARCH=arm64; EXPECTED_CHECKSUM="$ACT_CHECKSUM_ARM64" ;; \
-        x86_64)  GOARCH=x86_64; EXPECTED_CHECKSUM="$ACT_CHECKSUM_AMD64" ;; \
-        *) echo "Unsupported arch: $ARCH" >&2; exit 1 ;; \
-    esac && \
-    TARBALL="act_Linux_${GOARCH}.tar.gz" && \
-    curl -sSL -o "/tmp/$TARBALL" \
-        "https://github.com/nektos/act/releases/download/v${ACT_VERSION}/${TARBALL}" && \
-    echo "$EXPECTED_CHECKSUM  /tmp/$TARBALL" | sha256sum -c - && \
-    tar -xzf "/tmp/$TARBALL" -C /usr/local/bin act && \
-    rm "/tmp/$TARBALL"
-
 WORKDIR /wrangle
