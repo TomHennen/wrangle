@@ -26,10 +26,12 @@ bats:
 	@echo "=== bats ==="
 	@bats test/ test/lib/ tools/*/test.bats
 
-# Run act-based action tests
+# Run act-based action tests (requires act + Docker on the host)
 test-actions:
 	@echo "=== act-based action tests ==="
-	@act --version
+	@echo "--- test: shell action ---"
+	@act push -W test/act/test-shell-action.yml -e test/act/event.json \
+		-P ubuntu-latest=catthehacker/ubuntu:act-latest --bind
 
 # Update a tool version and its checksum
 # Usage: make update-tool TOOL=osv VERSION=1.2.3

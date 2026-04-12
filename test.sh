@@ -29,8 +29,20 @@ docker build -t "$IMAGE_NAME" -f "$SCRIPT_DIR/test/Dockerfile" "$SCRIPT_DIR"
 
 # Run the requested test suite
 echo "=== Running: $TEST_TARGET ==="
-docker run --rm \
-    -v "$SCRIPT_DIR":/wrangle:ro \
-    -w /wrangle \
-    "$IMAGE_NAME" \
-    make "$TEST_TARGET"
+
+if [[ "$TEST_TARGET" == "test-actions" ]]; then
+    # act-based tests run on the host (act needs Docker to spawn runner containers).
+    # Require act to be installed locally — the Docker test container cannot use act
+    # because act bind-mounts the workspace into new containers via the host daemon.
+    if ! command -v act >/dev/null 2>&1; then
+        echo "Error: act is not installed. Install from https://nektosact.com/" >&2
+        exit 1
+    fi
+    make -C "$SCRIPT_DIR" test-actions
+else
+    docker run --rm \
+        -v "$SCRIPT_DIR":/wrangle:ro \
+        -w /wrangle \
+        "$IMAGE_NAME" \
+        make "$TEST_TARGET"
+fi
