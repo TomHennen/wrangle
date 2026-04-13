@@ -29,6 +29,7 @@ docker build -t "$IMAGE_NAME" -f "$SCRIPT_DIR/test/Dockerfile" "$SCRIPT_DIR"
 
 # Run the requested test suite
 echo "=== Running: $TEST_TARGET ==="
+
 docker run --rm \
     -v "$SCRIPT_DIR":/wrangle:ro \
     -w /wrangle \

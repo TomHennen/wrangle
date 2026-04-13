@@ -3,8 +3,17 @@ name: Shell Build
 on:
   workflow_call:
     inputs:
+      scan-path:
+        description: >
+          Relative path to the subdirectory to scan with shellcheck and
+          auto-detect bats tests within. Defaults to the workspace root.
+          Useful for monorepos that only want wrangle's shell checks to run
+          on a specific subtree.
+        required: false
+        type: string
+        default: "."
       bats-path:
-        description: "Path to bats test files (default: auto-detect)"
+        description: "Path to bats test files (default: auto-detect under scan-path)"
         required: false
         type: string
         default: ""
@@ -22,4 +31,5 @@ jobs:
       - name: Run shell build
         uses: ./build/actions/shell
         with:
+          scan-path: ${{ inputs.scan-path }}
           bats-path: ${{ inputs.bats-path }}

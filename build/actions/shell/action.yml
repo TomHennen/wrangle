@@ -5,8 +5,19 @@ description: |
   This is the build type wrangle uses on itself (dogfooding).
 
 inputs:
+  scan-path:
+    description: >
+      Relative path to the subdirectory to scan (shellcheck) and auto-detect
+      bats tests within. Defaults to the workspace root. Useful for monorepos
+      that only want wrangle's shell checks to run on a specific subtree, and
+      for constraining test-fixture scans to the fixture directory.
+    required: false
+    default: "."
   bats-path:
-    description: "Path to bats test files (default: auto-detect)"
+    description: >
+      Path to bats test files. If set, overrides auto-detection and runs bats
+      against exactly this path. If empty (default), bats auto-detects .bats
+      files under scan-path.
     required: false
     default: ""
 
@@ -37,21 +48,44 @@ runs:
 
     - name: Run shellcheck
       shell: bash
+      env:
+        SCAN_PATH: ${{ inputs.scan-path }}
       run: |
         set -euo pipefail
         printf '=== shellcheck ===\n'
+
+        # Validate scan-path: must be a relative path with only safe
+        # characters. Reject absolute paths and path traversal.
+        if [[ "$SCAN_PATH" == /* ]]; then
+          printf 'shellcheck: absolute paths not allowed in scan-path: %s\n' "$SCAN_PATH" >&2
+          exit 1
+        fi
+        if [[ "$SCAN_PATH" == *..* ]]; then
+          printf 'shellcheck: path traversal not allowed in scan-path: %s\n' "$SCAN_PATH" >&2
+          exit 1
+        fi
+        if [[ ! "$SCAN_PATH" =~ ^[a-zA-Z0-9_./-]+$ ]]; then
+          printf 'shellcheck: invalid characters in scan-path: %s\n' "$SCAN_PATH" >&2
+          exit 1
+        fi
+        if [[ ! -d "$SCAN_PATH" ]]; then
+          printf 'shellcheck: scan-path does not exist: %s\n' "$SCAN_PATH" >&2
+          exit 1
+        fi
+
         # Use find -print0 + xargs -0 for safe filename handling.
         # shellcheck also supports .bats files (bash syntax).
-        find . \( -name '*.sh' -o -name '*.bats' \) \
-          -not -path './.git/*' \
-          -not -path './node_modules/*' \
+        find "$SCAN_PATH" \( -name '*.sh' -o -name '*.bats' \) \
+          -not -path '*/.git/*' \
+          -not -path '*/node_modules/*' \
           -print0 | xargs -0 -r shellcheck
-        printf 'shellcheck: all scripts passed\n'
+        printf 'shellcheck: all scripts under %s passed\n' "$SCAN_PATH"
 
     - name: Run bats tests
       shell: bash
       env:
         BATS_PATH: ${{ inputs.bats-path }}
+        SCAN_PATH: ${{ inputs.scan-path }}
       run: |
         set -euo pipefail
         printf '=== bats ===\n'
@@ -73,15 +107,16 @@ runs:
           fi
           bats "$BATS_PATH"
         else
-          # Auto-detect: find all .bats files
+          # Auto-detect: find all .bats files under scan-path.
+          # scan-path was validated by the shellcheck step above.
           bats_files=()
           while IFS= read -r -d '' f; do
             bats_files+=("$f")
-          done < <(find . -name '*.bats' -not -path './.git/*' -print0 2>/dev/null)
+          done < <(find "$SCAN_PATH" -name '*.bats' -not -path '*/.git/*' -print0 2>/dev/null)
 
           if [[ ${#bats_files[@]} -gt 0 ]]; then
             bats "${bats_files[@]}"
           else
-            printf 'bats: no .bats files found, skipping\n'
+            printf 'bats: no .bats files found under %s, skipping\n' "$SCAN_PATH"
           fi
         fi
