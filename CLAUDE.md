@@ -193,6 +193,7 @@ The orchestrator validates tool names against `^[a-z][a-z0-9_-]*$`. This prevent
 - If a tool needs an authenticated API, use the `WRANGLE_EXTRA_` prefix mechanism (see SPEC.md adapter environment section).
 - Never log secrets. Never write secrets to SARIF, step summaries, or artifacts.
 - `GITHUB_TOKEN` is only used where strictly necessary (e.g., Scorecard, container registry login) and is never passed to adapter scripts.
+- The integration-test companion repo (see `test/integration/SPEC.md`) MUST NOT hold release signing keys, Cosign credentials, cross-repo tokens, GitHub App credentials, or SSH keys. Its only permitted secrets are `GITHUB_TOKEN` (scoped to the companion repo) and whatever each wrangle reusable workflow requires at dispatch time.
 
 ## Contributing Process
 
