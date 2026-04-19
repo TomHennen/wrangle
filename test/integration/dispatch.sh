@@ -21,7 +21,7 @@ WRANGLE_REF="${1:?Usage: dispatch.sh <wrangle_ref> <correlation_id>}"
 CORRELATION_ID="${2:?Usage: dispatch.sh <wrangle_ref> <correlation_id>}"
 
 COMPANION_REPO="${COMPANION_REPO:-tomhennen/wrangle-test}"
-WORKFLOW_FILE="${WORKFLOW_FILE:-test-wrangle.yml}"
+WORKFLOW_FILE="${WORKFLOW_FILE:-dispatch.yml}"
 POLL_INTERVAL="${POLL_INTERVAL:-10}"
 LOCATE_TIMEOUT="${LOCATE_TIMEOUT:-120}"
 
