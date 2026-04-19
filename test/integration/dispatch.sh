@@ -6,11 +6,16 @@ set -euo pipefail
 # Usage: dispatch.sh <wrangle_ref> <correlation_id>
 #
 # Environment:
-#   GH_TOKEN          PAT with actions:write on the companion repo
+#   GH_TOKEN          PAT with actions:write and variables:write on the companion repo
 #   COMPANION_REPO    Owner/repo of the companion (default: tomhennen/wrangle-test)
 #   WORKFLOW_FILE     Workflow filename to dispatch (default: test-wrangle.yml)
 #   POLL_INTERVAL     Seconds between polls when locating the run (default: 10)
 #   LOCATE_TIMEOUT    Seconds to wait for the run to appear (default: 120)
+#
+# The companion repo's uses: refs are resolved via ${{ vars.WRANGLE_REF }}
+# (GitHub forbids ${{ inputs.* }} in uses: refs). We update that variable
+# before dispatching. A concurrency group in the companion workflow
+# serializes runs so variable mutation doesn't race.
 #
 # Exit codes:
 #   0  Companion run succeeded
@@ -21,9 +26,23 @@ WRANGLE_REF="${1:?Usage: dispatch.sh <wrangle_ref> <correlation_id>}"
 CORRELATION_ID="${2:?Usage: dispatch.sh <wrangle_ref> <correlation_id>}"
 
 COMPANION_REPO="${COMPANION_REPO:-tomhennen/wrangle-test}"
-WORKFLOW_FILE="${WORKFLOW_FILE:-dispatch.yml}"
+WORKFLOW_FILE="${WORKFLOW_FILE:-test-wrangle.yml}"
 POLL_INTERVAL="${POLL_INTERVAL:-10}"
 LOCATE_TIMEOUT="${LOCATE_TIMEOUT:-120}"
+
+# --- Update WRANGLE_REF variable ---
+# The companion workflow resolves uses: refs via ${{ vars.WRANGLE_REF }}.
+# We set it to the dispatched SHA before triggering the run.
+
+printf 'Setting WRANGLE_REF variable on %s to %s\n' "$COMPANION_REPO" "$WRANGLE_REF"
+
+if ! gh api "repos/${COMPANION_REPO}/actions/variables/WRANGLE_REF" \
+    --method PATCH \
+    -f "name=WRANGLE_REF" \
+    -f "value=${WRANGLE_REF}" >/dev/null; then
+  printf 'ERROR: Failed to update WRANGLE_REF variable\n' >&2
+  exit 2
+fi
 
 # --- Dispatch ---
 
