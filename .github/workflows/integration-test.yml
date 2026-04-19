@@ -1,0 +1,30 @@
+name: Integration Test
+
+on:
+  pull_request:
+    branches: ["**"]
+
+concurrency:
+  group: integration-test-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+jobs:
+  dispatch:
+    # Only run for internal PRs — fork PRs do not get secrets, so the
+    # dispatch would fail. This is the security model's fork-PR guard.
+    # See test/integration/SPEC.md for the full rationale.
+    if: github.event.pull_request.head.repo.full_name == github.repository
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+
+      - name: Dispatch companion repo and wait
+        env:
+          GH_TOKEN: ${{ secrets.TEST_REPO_PAT }}
+          WRANGLE_REF: ${{ github.event.pull_request.head.sha }}
+          CORRELATION_ID: ${{ github.run_id }}
+        run: ./test/integration/dispatch.sh "$WRANGLE_REF" "$CORRELATION_ID"
