@@ -147,7 +147,7 @@ Any change to the dispatch workflow that could plausibly affect the security mod
 tomhennen/wrangle-test/
 ├── .github/
 │   └── workflows/
-│       ├── test-wrangle.template.yml  # template copied + SHA-substituted onto integration/* branches
+│       ├── test-wrangle.yml.template  # template copied + SHA-substituted onto integration/* branches
 │       └── cleanup-integration.yml    # janitor: delete stale integration branches
 ├── shell/
 │   ├── script.sh
@@ -160,11 +160,11 @@ tomhennen/wrangle-test/
 └── README.md                          # explains what this repo is, points back at wrangle
 ```
 
-The `main` branch of the companion repo intentionally does **not** carry an active `test-wrangle.yml` — GitHub Actions does not permit expressions in `uses: @ref`, so the file must be generated fresh per wrangle PR with a literal SHA baked in. The template file lives at `.github/workflows/test-wrangle.template.yml` and is copied onto each ephemeral `integration/*` branch by the wrangle-side dispatch script after a single substitution of an `__WRANGLE_SHA__` placeholder. The template has a `.template.yml` suffix so GitHub Actions does not try to execute it from `main`.
+The `main` branch of the companion repo intentionally does **not** carry an active `test-wrangle.yml` — GitHub Actions does not permit expressions in `uses: @ref`, so the file must be generated fresh per wrangle PR with a literal SHA baked in. The template file lives at `.github/workflows/test-wrangle.yml.template` and is copied onto each ephemeral `integration/*` branch by the wrangle-side dispatch script after a single substitution of an `__WRANGLE_SHA__` placeholder. The `.template` suffix (rather than `.yml`) ensures GitHub Actions does not discover or list the file — Actions only processes files ending in `.yml` or `.yaml`.
 
 The `README.md` **must** lead with a "Do not depend on this repo" banner — a short, visually prominent notice at the top of the file stating that the repo is a disposable test surface, that image tags under `ghcr.io/tomhennen/wrangle-test-staging` are rotated or deleted without notice, and that no external consumer may depend on either. This is a contract item, not a nicety: it is the human-visible counterpart of the "blast radius is bounded to staging" argument in the security model.
 
-### `test-wrangle.template.yml`
+### `test-wrangle.yml.template`
 
 The template triggers on `push` against the ephemeral branch namespace, with wrangle pinned via an `__WRANGLE_SHA__` placeholder that the dispatch script substitutes with the PR's head SHA before pushing:
 
@@ -197,7 +197,11 @@ jobs:
     uses: TomHennen/wrangle/.github/workflows/check_source_change.yml@__WRANGLE_SHA__
 ```
 
-New build types (npm, python, go, etc.) are added as additional jobs alongside these. The `__WRANGLE_SHA__` delimiter is chosen for low collision risk with anything else the template might legitimately contain. The dispatch script must assert the token appears in the template before substitution (a missing token means a refactor silently broke the pattern) and also assert no `__WRANGLE_SHA__` literals remain after substitution (a stray token means something was missed).
+New build types (npm, python, go, etc.) are added as additional jobs alongside these. The `__WRANGLE_SHA__` delimiter is chosen for low collision risk with anything else the template might legitimately contain. The dispatch script must perform three assertions on the template:
+
+1. **Token presence before substitution.** At least one `__WRANGLE_SHA__` literal exists in the template. A missing token means a refactor silently broke the pattern.
+2. **Token absence after substitution.** No `__WRANGLE_SHA__` literals remain in the generated file. A stray token means something was missed.
+3. **Workflow coverage check.** Every `workflow_call`-triggered `.yml` file under `.github/workflows/` in the wrangle repo at the PR's head SHA has a corresponding `uses:` line in the generated workflow file. This catches the common drift scenario where wrangle adds a new reusable workflow but nobody updates the companion template. The check is a simple set comparison (wrangle's `workflow_call` workflows vs. workflows referenced in the template); a mismatch aborts the dispatch with a message naming the missing workflow(s).
 
 ### `cleanup-integration.yml`
 
@@ -226,12 +230,12 @@ On every wrangle PR:
 
 1. **GitHub fires `pull_request` event.** The wrangle dispatch workflow (`.github/workflows/integration-test.yml`) starts.
 2. **Fork-PR guard.** The job's `if:` checks that the PR head repo matches the base repo (`github.event.pull_request.head.repo.full_name == github.repository`). Fork PRs skip straight past the dispatch job; the check appears as "skipped" on the PR, with a link to this spec for context.
-3. **Generate the companion workflow file.** For internal PRs, the dispatch script clones the companion repo (shallow, single-branch — `git clone --depth 1 --single-branch`) via `TEST_REPO_PAT`, reads `.github/workflows/test-wrangle.template.yml` from `main`, substitutes the `__WRANGLE_SHA__` token with the wrangle PR's head SHA, and writes the result to `.github/workflows/test-wrangle.yml` on a fresh branch named `integration/pr-<wrangle-pr-number>-<short-sha>`. The script asserts the token appears in the template before substitution and asserts no `__WRANGLE_SHA__` literals remain after — either failure means the template is malformed and the dispatch aborts without pushing.
+3. **Generate the companion workflow file.** For internal PRs, the dispatch script clones the companion repo (shallow, single-branch — `git clone --depth 1 --single-branch`) via `TEST_REPO_PAT`, reads `.github/workflows/test-wrangle.yml.template` from `main`, substitutes the `__WRANGLE_SHA__` token with the wrangle PR's head SHA, and writes the result to `.github/workflows/test-wrangle.yml` on a fresh branch named `integration/pr-<wrangle-pr-number>-<short-sha>`. The script runs the three template assertions described in §"`test-wrangle.yml.template`" (token presence, token absence after substitution, workflow coverage) — any failure means the template is malformed or stale and the dispatch aborts without pushing.
 4. **Push the ephemeral branch.** The script pushes the branch to the companion repo. This fires a `push` event matching the `integration/**` filter — the generated workflow runs with `github.event_name == 'push'`, exercising event-name-gated logic on the non-`pull_` branch (in particular, the container builder's SLSA provenance job).
 5. **Locate the dispatched run.** The script polls `GET /repos/tomhennen/wrangle-test/actions/runs?head_sha=<pushed-sha>&event=push` until the run appears. This endpoint is keyed on HEAD SHA and event type, so there is no "most recent run" race even across concurrent wrangle PRs.
 6. **Wait for completion.** `gh run watch --exit-status <run-id>` (or an equivalent polling loop on the runs endpoint) blocks until the run concludes. The script exits success iff the run concluded `success`.
 7. **Surface result on the wrangle PR.** The dispatch script's exit code propagates to the wrangle workflow step, which GitHub's check API surfaces as pass/fail on the wrangle PR.
-8. **Cleanup (runs in `if: always()`).** On completion, success or failure (but not hard-cancel — `if: always()` does not run when the job is terminated without shutdown), the script deletes the ephemeral branch. Any leaked branches are reaped later by `cleanup-integration.yml` (see §"Companion repo layout"), which is the authoritative cleanup path.
+8. **Cleanup (runs in `if: always()`).** On completion, success or failure (but not hard-cancel or runner-level failures — `if: always()` does not run when the job is terminated without shutdown or when the runner crashes), the script deletes the ephemeral branch. Any leaked branches are reaped later by `cleanup-integration.yml` (see §"Companion repo layout"), which is the authoritative cleanup path.
 
 Each wrangle PR gets its own ephemeral branch, so concurrent wrangle PRs do not contend. A per-PR concurrency group on the dispatch workflow (`integration-${{ github.event.pull_request.number }}`, `cancel-in-progress: true`) prevents the same wrangle PR's duplicate runs (from force-push, etc.) from stepping on each other. **Important nuance**: `cancel-in-progress` cancels the wrangle-side dispatch job, but it does NOT reach into the companion repo to cancel a run it already triggered. That companion-side run will keep executing against the old SHA; the janitor reaps its branch. Implementations may additionally call `POST /repos/tomhennen/wrangle-test/actions/runs/<run-id>/cancel` during the canceled dispatch's cleanup step to stop the companion run early, but this is a cost optimization, not a correctness requirement.
 
@@ -287,7 +291,7 @@ Any new `github.event_name`-based conditional added to a reusable workflow, comp
 An integration test fails (and blocks the wrangle PR check) under these conditions:
 
 - The companion repo's `push`-triggered workflow run concludes as anything other than `success` — a job fails, a setup step fails, the workflow times out, or the workflow cannot parse at all.
-- The dispatch step in wrangle's workflow cannot generate or push the ephemeral branch (network failures, API errors, malformed template that fails token-assertion checks).
+- The dispatch step in wrangle's workflow cannot generate or push the ephemeral branch (network failures, API errors, malformed template that fails token-assertion checks, or the workflow coverage check detecting a missing reusable workflow).
 - The wait-loop locating or watching the run times out (upper bound on how long the companion repo is allowed to run).
 
 An integration test is **not** expected to fail under these conditions (if it does, the test has a real problem):
@@ -316,7 +320,7 @@ GitHub's "Require approval for outside collaborators" gate is deliberately **not
 
 - **Latency.** Integration tests add 3–8 minutes to a PR's check cycle, versus seconds for bats. Development workflows must tolerate that cost; quick iteration on non-action code still uses `./test.sh` locally.
 - **Runner cost.** Every internal PR runs the full integration suite on shared runners. For high-PR-volume periods this could be a GitHub Actions budget concern; partial dispatch (only run the integration job for the affected build type based on the PR's diff) is a future optimization.
-- **Companion repo drift.** The companion repo's fixtures and template can silently drift out of sync with wrangle's expectations (e.g., wrangle adds a required input and the companion repo isn't updated). Mitigation: a `dependabot`-like process or a recurring check that validates the companion repo against wrangle's current state.
+- **Companion repo drift.** The companion repo's fixtures and template can drift out of sync with wrangle's expectations. The workflow coverage check (see §"`test-wrangle.yml.template`") catches the most dangerous form — wrangle adds a reusable workflow and the template doesn't reference it — by failing the dispatch. Other forms of drift (e.g., wrangle adds a required input to an existing workflow and the template doesn't pass it) are caught when the companion run itself fails. Fixture drift (stale dependencies, changed build contexts) is not caught automatically; mitigation is periodic manual refresh on the same cadence as tool upgrades.
 - **PAT rotation.** `TEST_REPO_PAT` is a long-lived credential. It must be rotated periodically; the rotation process is out of scope for this spec but should be documented in wrangle's operational runbook when that exists.
 - **Cross-repo observability.** A failing integration test on a wrangle PR points at a workflow run in the companion repo. Contributors need to follow that link to see what broke. This is an ergonomics cost of the companion-repo model compared to same-repo CI.
 - **Ephemeral branch accumulation.** Each wrangle PR creates one branch in the companion repo. The dispatch script deletes it on completion, but canceled wrangle runs, GitHub Actions-side crashes, or bugs in the cleanup step can leak state. The `cleanup-integration.yml` janitor (see §"Companion repo layout") deletes stale branches on a schedule; without it, the companion repo's branch list would grow unbounded.
