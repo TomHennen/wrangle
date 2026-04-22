@@ -128,11 +128,14 @@ runs:
       shell: bash
       env:
         IMAGE: ${{ steps.normalize.outputs.imagename }}
+        DIGEST: ${{ steps.push.outputs.digest }}
         SHORTNAME: ${{ steps.normalize.outputs.shortname }}
       run: |
         set -euo pipefail
         SBOM_PATH="metadata/container/${SHORTNAME}/sbom.spdx.json"
-        docker buildx imagetools inspect "$IMAGE" --format "{{ json .SBOM.SPDX }}" > "$SBOM_PATH"
+        # Reference by digest, not tag — the :latest tag only exists on
+        # main-branch builds, so bare image name fails on other branches.
+        docker buildx imagetools inspect "${IMAGE}@${DIGEST}" --format "{{ json .SBOM.SPDX }}" > "$SBOM_PATH"
         printf 'sbom=%s\n' "$SBOM_PATH" >> "$GITHUB_OUTPUT"
 
     - name: Generate summary
