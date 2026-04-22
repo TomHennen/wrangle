@@ -40,7 +40,10 @@ This applies to all workflow files, composite actions, and example workflows in 
 |---------|----------------|
 | Third-party actions in wrangle workflows | Full commit SHA with version comment: `uses: actions/checkout@<sha> # v4.2.2` |
 | Wrangle's own actions in examples | Release tag: `@v0.1.0` |
-| Wrangle internal cross-references | Relative path: `./actions/scan` |
+| Wrangle internal cross-references (in reusable workflows) | Full SHA: `TomHennen/wrangle/actions/scan@<sha>` (temporary — see #136) |
+| Wrangle internal cross-references (elsewhere) | Relative path: `./actions/scan` |
+
+**Temporary: hardcoded self-references in reusable workflows.** GitHub resolves `uses: ./` relative to the caller's workspace, not the reusable workflow's repo. This means `uses: ./actions/scan` breaks for any external caller. Until GitHub ships the `$/` syntax (#136), reusable workflows use fully-qualified SHA-pinned refs (`TomHennen/wrangle/actions/scan@<sha>`). When composite actions change, update the SHA in the reusable workflow in the same commit. Non-reusable-workflow contexts (composite actions referencing other local actions) can still use `./` paths.
 
 The `@main` ref MUST NOT appear in any `uses:` line in the repo, including examples and docs.
 
