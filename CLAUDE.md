@@ -83,13 +83,13 @@ Adapters take exactly two positional arguments: `<src_dir>` (read-only) and `<ou
 
 Install scripts MUST:
 - Use `lib/download_verify.sh` for all downloads (never raw `curl | sh`)
-- Verify integrity using the strongest method the upstream tool supports: SLSA provenance > Sigstore signature > hardcoded SHA-256 checksum
-- **NEVER fall back to a weaker verification method if a stronger one fails.** If a tool is configured for SLSA provenance verification and it fails, the install MUST abort — do not silently continue with only checksum verification. A verification failure may be a supply chain attack.
+- Verify integrity using the strongest method the upstream tool supports: SLSA provenance > Sigstore signature > hardcoded SHA-256 checksum. Provenance or signature verification is sufficient on its own — tools with SLSA/Sigstore do not need additional checksums.
+- **NEVER fall back to a weaker verification method if a stronger one fails.** If a tool is configured for SLSA provenance verification and it fails, the install MUST abort. A verification failure may be a supply chain attack.
 - Install to `$WRANGLE_BIN_DIR` (default: `$RUNNER_TEMP/.wrangle/bin`), never `/usr/local/bin`
 - Be idempotent (skip if correct version already installed)
 - Use atomic `mv` (not `cp`) to prevent TOCTOU races
 
-Checksums are hardcoded in the install script, not downloaded alongside the binary. A version bump and its checksum update MUST be in the same commit.
+For tools without SLSA provenance or Sigstore signatures, checksums are hardcoded in the install script (not downloaded alongside the binary). A version bump and its checksum update MUST be in the same commit.
 
 ## Path Resolution
 
@@ -160,8 +160,7 @@ Before writing tool output to `$GITHUB_STEP_SUMMARY`:
 
 - **No auto-merge of dependency updates.** New upstream tool versions are adopted after a delay (aim for 7 days) to let the community discover supply chain attacks before wrangle amplifies them.
 - **No `curl | sh` anywhere.** All binary downloads go through `lib/download_verify.sh`.
-- **No downloading checksums from the same source as binaries.** Checksums are hardcoded.
-- Tool version + checksum updates are always a single atomic commit.
+- **No downloading checksums from the same source as binaries.** When checksums are used (tools without provenance/signatures), they are hardcoded. Tool version + checksum updates are always a single atomic commit.
 
 ## Dogfooding
 

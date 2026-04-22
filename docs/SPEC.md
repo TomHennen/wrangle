@@ -326,9 +326,10 @@ INTEGRITY VERIFICATION (mandatory):
     1. SLSA provenance verification — if the tool publishes SLSA
        attestations, the install script verifies them via slsa-verifier.
        This proves the binary was built from specific source by a specific
-       builder. Provenance verification is sufficient on its own — no
-       additional checksum is needed because the provenance attestation
-       covers the artifact's identity and integrity.
+       builder. Provenance verification is sufficient on its own — the
+       provenance attestation covers the artifact's identity and integrity,
+       so an additional checksum is not required. This simplifies wrangle
+       integration for tools with SLSA support.
     2. Sigstore signature verification — if the tool signs releases with
        Cosign/Sigstore but does not publish full SLSA attestations, the
        install script verifies the signature. If signature verification
@@ -692,11 +693,11 @@ All downloaded binaries are verified before execution:
 | Layer | Mechanism | Status |
 |-------|-----------|--------|
 | Transport | HTTPS only | Always required |
-| Content | SHA-256 checksum (pinned in install script) | Always required (baseline integrity) |
-| Provenance | SLSA attestation via slsa-verifier | Required for tools that publish it; failure = hard stop |
-| Signature | Sigstore/Cosign signature verification | Required for tools that publish it; failure = hard stop |
+| Content | SHA-256 checksum (pinned in install script) | Required for tools without provenance or signatures |
+| Provenance | SLSA attestation via slsa-verifier | Required for tools that publish it; sufficient on its own; failure = hard stop |
+| Signature | Sigstore/Cosign signature verification | Required for tools that publish it; sufficient on its own; failure = hard stop |
 
-Checksums are hardcoded in each install script, not downloaded from the same source as the binary. Updating a tool version requires updating the checksum in the same commit.
+For tools verified via SLSA provenance or Sigstore signatures, hardcoded checksums are not required — the cryptographic verification already covers artifact integrity. Checksums are only needed for tools that lack both provenance and signatures, in which case they are hardcoded in each install script (not downloaded alongside the binary) and updated in the same commit as a version bump.
 
 **No fallback between verification methods.** Each tool's verification method is chosen at development time. If provenance verification fails for a tool configured to use it, the install MUST fail — even if the checksum passed. A verification failure may indicate a supply chain attack; silently downgrading to a weaker method would mask the attack.
 
