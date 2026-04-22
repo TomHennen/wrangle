@@ -84,13 +84,13 @@ setup() {
 @test "dispatch.sh performs __WRANGLE_SHA__ token assertion before substitution" {
     run grep '__WRANGLE_SHA__' "$DISPATCH"
     [[ "$status" -eq 0 ]]
-    # Must check token count before substitution
-    run grep 'TOKEN_COUNT_BEFORE\|token.*before\|before.*substitution' "$DISPATCH"
+    # Must check token count before substitution — match the variable assignment, not comments
+    run grep 'TOKEN_COUNT_BEFORE=' "$DISPATCH"
     [[ "$status" -eq 0 ]]
 }
 
 @test "dispatch.sh performs __WRANGLE_SHA__ token assertion after substitution" {
-    run grep 'TOKEN_COUNT_AFTER\|token.*after\|after.*substitution' "$DISPATCH"
+    run grep 'TOKEN_COUNT_AFTER=' "$DISPATCH"
     [[ "$status" -eq 0 ]]
 }
 
@@ -105,7 +105,7 @@ setup() {
 }
 
 @test "dispatch.sh cleans up ephemeral branch on exit" {
-    run grep 'trap.*cleanup\|trap.*EXIT' "$DISPATCH"
+    run grep 'trap cleanup EXIT' "$DISPATCH"
     [[ "$status" -eq 0 ]]
 }
 

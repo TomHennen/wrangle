@@ -43,6 +43,13 @@ cleanup() {
 }
 trap cleanup EXIT
 
+# --- Pre-flight checks ---
+
+if [[ -z "${GH_TOKEN:-}" ]]; then
+    printf 'ERROR: GH_TOKEN not set (need contents:write on companion repo)\n' >&2
+    exit 2
+fi
+
 # --- Clone companion repo (shallow, single-branch) ---
 
 WORK_DIR="$(mktemp -d)"
