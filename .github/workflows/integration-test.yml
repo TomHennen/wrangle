@@ -15,6 +15,7 @@ jobs:
     # See test/integration/SPEC.md for the full rationale.
     if: github.event.pull_request.head.repo.full_name == github.repository
     runs-on: ubuntu-latest
+    environment: integration-test
     permissions:
       contents: read
     steps:
