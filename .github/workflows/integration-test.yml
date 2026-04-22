@@ -1,0 +1,43 @@
+name: Integration Test
+
+on:
+  pull_request:
+    branches: ["**"]
+
+concurrency:
+  group: integration-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+jobs:
+  dispatch:
+    # Only run for internal PRs — fork PRs do not get secrets, so the
+    # dispatch would fail. This is the security model's fork-PR guard.
+    # See test/integration/SPEC.md for the full rationale.
+    if: github.event.pull_request.head.repo.full_name == github.repository
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+
+      - name: Dispatch companion repo and wait
+        env:
+          GH_TOKEN: ${{ secrets.TEST_REPO_PAT }}
+          WRANGLE_SHA: ${{ github.event.pull_request.head.sha }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+        run: ./test/integration/dispatch.sh "$WRANGLE_SHA" "$PR_NUMBER"
+
+      - name: Cleanup ephemeral branch
+        if: always()
+        env:
+          GH_TOKEN: ${{ secrets.TEST_REPO_PAT }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+          WRANGLE_SHA: ${{ github.event.pull_request.head.sha }}
+        run: |
+          SHORT_SHA="${WRANGLE_SHA:0:7}"
+          BRANCH="integration/pr-${PR_NUMBER}-${SHORT_SHA}"
+          REPO="${COMPANION_REPO:-tomhennen/wrangle-test}"
+          printf 'Best-effort cleanup of branch %s\n' "$BRANCH"
+          gh api "repos/${REPO}/git/refs/heads/${BRANCH}" --method DELETE 2>/dev/null || true
