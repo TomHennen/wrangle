@@ -55,10 +55,10 @@ fi
 WORK_DIR="$(mktemp -d)"
 printf 'Cloning %s into %s\n' "$COMPANION_REPO" "$WORK_DIR"
 
-# Use GH_TOKEN for HTTPS auth
+# Use GH_TOKEN for HTTPS auth — mask the token from logs
 git clone --depth 1 --single-branch \
     "https://x-access-token:${GH_TOKEN}@github.com/${COMPANION_REPO}.git" \
-    "$WORK_DIR" 2>/dev/null
+    "$WORK_DIR" 2>&1 | grep -v 'x-access-token' || true
 
 # --- Read and validate template ---
 
@@ -141,7 +141,10 @@ git -c user.name="wrangle-integration" -c user.email="wrangle-integration@norepl
     commit -m "Integration test for wrangle PR #${PR_NUMBER} at ${SHORT_SHA}" --quiet
 
 # Push and record branch for cleanup
-git push origin "$BRANCH_NAME" --quiet 2>/dev/null
+if ! git push origin "$BRANCH_NAME" 2>&1; then
+    printf 'ERROR: Failed to push branch %s to %s\n' "$BRANCH_NAME" "$COMPANION_REPO" >&2
+    exit 2
+fi
 CLEANUP_BRANCH="$BRANCH_NAME"
 
 PUSHED_SHA="$(git rev-parse HEAD)"
