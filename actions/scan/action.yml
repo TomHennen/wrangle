@@ -55,7 +55,7 @@ runs:
     # TODO: replace with $/tools/zizmor when $/ syntax ships (#136, #137)
     - name: Zizmor
       if: always() && contains(inputs.tools, 'zizmor')
-      uses: TomHennen/wrangle/tools/zizmor@5a04723f477f9f7d507e8f684b3b3127b4be9611 # main 2026-04-21
+      uses: TomHennen/wrangle/tools/zizmor@e858013837afec2c18c61d0d67249dca39efd225 # main 2026-04-22
 
     # Scorecard only runs on push events — it requires GITHUB_TOKEN scopes
     # that aren't available on PRs and uses Docker, which only mounts
@@ -63,7 +63,7 @@ runs:
     # TODO: replace with $/tools/scorecard when $/ syntax ships (#136, #137)
     - name: Scorecard
       if: always() && contains(inputs.tools, 'scorecard') && github.event_name != 'pull_request'
-      uses: TomHennen/wrangle/tools/scorecard@5a04723f477f9f7d507e8f684b3b3127b4be9611 # main 2026-04-21
+      uses: TomHennen/wrangle/tools/scorecard@e858013837afec2c18c61d0d67249dca39efd225 # main 2026-04-22
 
     - name: Generate step summary
       if: always()

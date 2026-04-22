@@ -30,7 +30,7 @@ jobs:
 
       - name: Run shell build
         # TODO: replace with $/build/actions/shell when GitHub ships $/ syntax (#136)
-        uses: TomHennen/wrangle/build/actions/shell@5a04723f477f9f7d507e8f684b3b3127b4be9611 # main 2026-04-21
+        uses: TomHennen/wrangle/build/actions/shell@e858013837afec2c18c61d0d67249dca39efd225 # main 2026-04-22
         with:
           scan-path: ${{ inputs.scan-path }}
           bats-path: ${{ inputs.bats-path }}
