@@ -117,19 +117,12 @@ Every adapter and install script gets a `test.bats`. Write tests before or along
 
 ### CI testing workflow
 
-PR CI tests the actual code in the PR branch, not `main`. Wrangle's own actions are referenced via `./` relative paths, so the CI run exercises the exact code under review.
+PR CI runs four checks: unit tests (`test.yml`), source scanning (`check_source_change.yml`), integration tests (`integration-test.yml`, which exercises reusable workflows cross-repo via the companion repo), and the Kusari Inspector.
 
 **Before requesting review:**
 - Confirm CI passes on the PR — check the Actions tab, not just local tests
 - For tool changes: inspect the step summary (markdown table) and the `wrangle-scan-results` artifact in the CI logs to verify correct SARIF output and metadata
 - If CI fails on something local tests don't catch, investigate — it may reveal a real environment difference
-
-**What CI does not cover:**
-- Cross-repo consumption (e.g., another repo calling `uses: tomhennen/wrangle/.github/workflows/...@v0.1.0`) is only testable after tagging a release. If your change affects the reusable workflow interface, note this in the PR description.
-
-## SARIF and Output
-
-All tools produce SARIF 2.1.0, uploaded separately with category `wrangle/<tool>`. Before writing tool output to `$GITHUB_STEP_SUMMARY`: strip HTML tags, truncate to prevent flooding, use `printf '%s'` not `echo` for untrusted content. See `docs/SPEC.md` §SARIF and §Output Sanitization for details.
 
 ## Supply Chain Discipline
 
