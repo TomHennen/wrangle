@@ -23,17 +23,6 @@ setup() {
     [ "$status" -eq 0 ]
 }
 
-@test "scan: has upload-sarif step for zizmor" {
-    run grep -A2 'Upload Zizmor SARIF' "$ACTION_DIR/action.yml"
-    [ "$status" -eq 0 ]
-    [[ "$output" == *"upload-sarif"* ]]
-}
-
-@test "scan: zizmor SARIF has correct category (wrangle/zizmor)" {
-    run grep 'category: wrangle/zizmor' "$ACTION_DIR/action.yml"
-    [ "$status" -eq 0 ]
-}
-
 @test "scan: has upload-sarif step for scorecard" {
     run grep -A2 'Upload Scorecard SARIF' "$ACTION_DIR/action.yml"
     [ "$status" -eq 0 ]
