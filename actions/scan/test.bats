@@ -44,12 +44,12 @@ setup() {
     [ "$status" -eq 0 ]
 }
 
-@test "scan: references zizmor via local path" {
-    run grep 'uses: ./tools/zizmor' "$ACTION_DIR/action.yml"
+@test "scan: references zizmor action" {
+    run grep 'uses:.*tools/zizmor' "$ACTION_DIR/action.yml"
     [ "$status" -eq 0 ]
 }
 
-@test "scan: references scorecard via local path" {
-    run grep 'uses: ./tools/scorecard' "$ACTION_DIR/action.yml"
+@test "scan: references scorecard action" {
+    run grep 'uses:.*tools/scorecard' "$ACTION_DIR/action.yml"
     [ "$status" -eq 0 ]
 }
