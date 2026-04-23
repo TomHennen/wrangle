@@ -1,0 +1,19 @@
+# Copy this file to your repo at .github/workflows/build_shell.yml
+# Adjust the branch name if your default branch isn't "main".
+name: Shell Build
+
+on:
+  push:
+    branches: ["main"]
+  pull_request:
+    branches: ["**"]
+  workflow_dispatch:
+
+jobs:
+  shell-build:
+    permissions:
+      contents: read
+    uses: TomHennen/wrangle/.github/workflows/build_shell.yml@v0.1.0
+    # with:
+    #   scan-path: "."       # optional: subdirectory to scan (default: repo root)
+    #   bats-path: ""        # optional: path to bats tests (default: auto-detect)
