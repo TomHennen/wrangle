@@ -39,6 +39,7 @@ This applies to all workflow files, composite actions, and example workflows in 
 | Context | Required format |
 |---------|----------------|
 | Third-party actions in wrangle workflows | Full commit SHA with version comment: `uses: actions/checkout@<sha> # v4.2.2` |
+| SLSA generator (exception) | Release tag only: `@v2.1.0` — the generator requires tag invocation for OIDC provenance verification ([slsa-verifier#12](https://github.com/slsa-framework/slsa-verifier/issues/12)) |
 | Wrangle's own actions in examples | Release tag: `@v0.1.0` |
 | Wrangle internal cross-references (in reusable workflows) | Full SHA: `TomHennen/wrangle/actions/scan@<sha>` (temporary — see #136) |
 | Wrangle internal cross-references (elsewhere) | Relative path: `./actions/scan` |

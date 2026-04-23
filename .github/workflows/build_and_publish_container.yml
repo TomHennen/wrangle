@@ -53,7 +53,11 @@ jobs:
       actions: read # for detecting the Github Actions environment.
       id-token: write # for creating OIDC tokens for signing.
       packages: write # for uploading attestations.
-    uses: slsa-framework/slsa-github-generator/.github/workflows/generator_container_slsa3.yml@f7dd8c54c2067bafc12ca7a55595d5ee9b75204a # v2.1.0
+    # MUST use tag, not SHA — the SLSA generator validates its own invocation
+    # ref and rejects bare SHAs. GitHub's OIDC token only reports the tag/branch
+    # ref, so slsa-verifier cannot verify provenance from SHA-pinned calls.
+    # See: https://github.com/slsa-framework/slsa-verifier/issues/12
+    uses: slsa-framework/slsa-github-generator/.github/workflows/generator_container_slsa3.yml@v2.1.0
     with:
       image: ${{ needs.build.outputs.imagename }}
       digest: ${{ needs.build.outputs.digest }}
