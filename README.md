@@ -7,6 +7,31 @@ users without them needing to know all the details.
 NOTE: I've never really used GitHub for professional development
 before, so this is a bit of a learning process too.
 
+## Quick Start
+
+Add source scanning to any GitHub repo — create `.github/workflows/check_source_change.yml`:
+
+```yaml
+name: Check Source Change
+on:
+  push:
+    branches: ["main"]
+  pull_request:
+    branches: ["**"]
+
+jobs:
+  check-change:
+    permissions:
+      actions: read
+      contents: read
+      security-events: write
+    uses: TomHennen/wrangle/.github/workflows/check_source_change.yml@v0.1.0
+```
+
+This runs OSV-Scanner, Zizmor, and OSSF Scorecard on every PR. Results appear in the Actions step summary and the Security tab.
+
+For shell and container build types, see the [workflow examples](gh_workflow_examples/README.md).
+
 ## Goals
 
 ### Project Owners
@@ -29,12 +54,8 @@ next version of Wrangle.
 Wrangle is composed of a few pieces:
 
 
-- [GitHub Workflow Examples](gh_workflow_examples/README.md)
-  - GitHub workflow examples that GitHub users can copy, paste, and tweak in their own repos to adopt wrangle.
-- [build](build/README.md)
-  - Integrations for managing building artifacts and any metadata related to those artifacts.
-- [source](source/README.md)
-  - Integrations for managing source code.  Currently limited to 'scans' which look for problems.
-    Could be expanded to linting, formatting, etc in the future.
-- [worfkflows](.github/workflows/README.md)
-  - Reusable workflows that allow project owners to easily adopt best practices for managing their project.
+- [Workflow examples](gh_workflow_examples/README.md) — starter workflows for adopting wrangle
+- [Reusable workflows](.github/workflows/README.md) — the workflows adopters call via `uses:`
+- [Composite actions](actions/) — scan orchestration and tool wrappers
+- [Build actions](build/) — build types (shell, container)
+- [Spec](docs/SPEC.md) — architecture, contracts, and security model
