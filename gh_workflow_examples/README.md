@@ -1,6 +1,6 @@
 # Wrangle Workflow Examples
 
-Copy these files to `.github/workflows/` in your repo to adopt wrangle.
+Starting points for adopting wrangle. Copy to `.github/workflows/` in your repo and customize the inputs (paths, image names, etc.) for your project.
 
 ## check_source_change.yml
 
