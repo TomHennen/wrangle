@@ -39,6 +39,7 @@ This applies to all workflow files, composite actions, and example workflows in 
 | Context | Required format |
 |---------|----------------|
 | Third-party actions in wrangle workflows | Full commit SHA with version comment: `uses: actions/checkout@<sha> # v4.2.2` |
+| SLSA generator (exception) | Release tag only: `@v2.1.0` — the generator requires tag invocation for OIDC provenance verification ([slsa-verifier#12](https://github.com/slsa-framework/slsa-verifier/issues/12)) |
 | Wrangle's own actions in examples | Release tag: `@v0.1.0` |
 | Wrangle internal cross-references (in reusable workflows) | Full SHA: `TomHennen/wrangle/actions/scan@<sha>` (temporary — see #136) |
 | Wrangle internal cross-references (elsewhere) | Relative path: `./actions/scan` |
@@ -111,50 +112,18 @@ make test          # Run locally if you have actionlint, shellcheck, bats instal
 
 Always run `./test.sh` before pushing. CI runs the same checks.
 
-### What must be tested
+### Test expectations
 
-- Every adapter and install script gets a `test.bats` in its `tools/<name>/` directory
-- Adapter tests use mock tool binaries that produce fixture SARIF (fast, deterministic)
-- SARIF fixtures in `test/fixtures/` are validated against the 2.1.0 schema
-- Integration tests in `test/` exercise the orchestrator end-to-end
-- New SARIF fixtures MUST include both clean (no findings) and dirty (with findings) cases
-
-### Test layers
-
-1. **actionlint** — all workflow and action YAML must be valid
-2. **shellcheck** — all shell scripts must pass
-3. **bats-core** — unit and integration tests
-4. **SARIF validation** — fixture and output SARIF must be structurally valid
-
-### TDD expectation
-
-Write the `test.bats` before (or alongside) the implementation. If a bug is found, add a regression test before fixing it.
+Every adapter and install script gets a `test.bats`. Write tests before or alongside the implementation. See `docs/SPEC.md` §Testing for the full test layer breakdown (actionlint, shellcheck, bats, SARIF validation) and fixture requirements.
 
 ### CI testing workflow
 
-PR CI tests the actual code in the PR branch, not `main`. Wrangle's own actions are referenced via `./` relative paths, so the CI run exercises the exact code under review.
+PR CI runs four checks: unit tests (`test.yml`), source scanning (`check_source_change.yml`), integration tests (`integration-test.yml`, which exercises reusable workflows cross-repo via the companion repo), and the Kusari Inspector.
 
 **Before requesting review:**
 - Confirm CI passes on the PR — check the Actions tab, not just local tests
 - For tool changes: inspect the step summary (markdown table) and the `wrangle-scan-results` artifact in the CI logs to verify correct SARIF output and metadata
 - If CI fails on something local tests don't catch, investigate — it may reveal a real environment difference
-
-**What CI does not cover:**
-- Cross-repo consumption (e.g., another repo calling `uses: tomhennen/wrangle/.github/workflows/...@v0.1.0`) is only testable after tagging a release. If your change affects the reusable workflow interface, note this in the PR description.
-
-## SARIF Output
-
-All tools produce SARIF 2.1.0. Each tool uploads its SARIF separately with category `wrangle/<tool>` (not merged into one file). This preserves per-tool attribution in GitHub's Security tab.
-
-Human-readable output (`output.md` or `output.txt`) is optional and only used for step summaries.
-
-## Output Sanitization
-
-Before writing tool output to `$GITHUB_STEP_SUMMARY`:
-- Strip HTML tags
-- Truncate to prevent summary flooding
-- No raw HTML or JavaScript links in markdown
-- Use `printf '%s'` not `echo` for untrusted content
 
 ## Supply Chain Discipline
 
@@ -164,13 +133,7 @@ Before writing tool output to `$GITHUB_STEP_SUMMARY`:
 
 ## Dogfooding
 
-Wrangle uses its own workflows. The wrangle repo MUST:
-- Run `check_source_change.yml` on its own PRs (source scanning with OSV + Zizmor + Scorecard)
-- Use the shell build type for its own test/lint pipeline
-- Pin all its own action references per the rules above
-- Adopt SLSA source track via `slsa-framework/source-tool`
-
-If a wrangle feature does not work on the wrangle repo itself, it is broken.
+Wrangle uses its own workflows. If a wrangle feature does not work on the wrangle repo itself, it is broken. See `docs/SPEC.md` §Dogfooding for the full list of requirements.
 
 ## Permissions
 
