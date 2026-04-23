@@ -57,7 +57,7 @@ jobs:
     # ref and rejects bare SHAs. GitHub's OIDC token only reports the tag/branch
     # ref, so slsa-verifier cannot verify provenance from SHA-pinned calls.
     # See: https://github.com/slsa-framework/slsa-verifier/issues/12
-    uses: slsa-framework/slsa-github-generator/.github/workflows/generator_container_slsa3.yml@v2.1.0
+    uses: slsa-framework/slsa-github-generator/.github/workflows/generator_container_slsa3.yml@v2.1.0 # zizmor: ignore[unpinned-uses] tag required by SLSA generator's OIDC verification
     with:
       image: ${{ needs.build.outputs.imagename }}
       digest: ${{ needs.build.outputs.digest }}
