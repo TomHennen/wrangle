@@ -852,19 +852,19 @@ Layers:
 2. Adjust the branch name if your default branch isn't `main`
 3. Push. Done.
 
-### For AI agents
+### For AI agents and new adopters
 
-`AGENTS.md` in the repo root provides adoption instructions for AI coding agents. It MUST contain:
+The README's quick-start section and the workflow examples in `gh_workflow_examples/` provide adoption instructions. Together they MUST cover:
 
 1. A single-command adoption instruction (e.g., "create this file at this path")
-2. The exact workflow YAML to generate, parameterized by default branch name
+2. The exact workflow YAML to use, parameterized by project type
 3. The required GitHub permissions
 4. How to detect project type (check for Dockerfile, language files, etc.)
 5. Expected output after adoption (what the user should see on their next PR)
 
-If the agent cannot determine the project type (no Dockerfile, no recognized language files), it should add only the source scanning workflow — this is always applicable regardless of project type. The agent should note to the user that build/publish workflows can be added once the project type is identified.
+If the project type is unknown (no Dockerfile, no recognized language files), adopt only the source scanning workflow — this is always applicable regardless of project type.
 
-The goal: any AI agent that reads `AGENTS.md` can adopt wrangle on a new repo without additional context or web searches.
+`AGENTS.md` in the repo root may additionally provide AI-agent-specific instructions. It is not required; the README and examples are the primary adoption surface.
 
 ### Long-term: OpenSSF contribution
 
