@@ -37,7 +37,7 @@ jobs:
     # TODO: replace with $/build/actions/container when GitHub ships $/ syntax (#136)
     - name: "build and publish"
       id: build
-      uses: TomHennen/wrangle/build/actions/container@e858013837afec2c18c61d0d67249dca39efd225 # main 2026-04-22
+      uses: TomHennen/wrangle/build/actions/container@6cbd393e779e98c40459ef8032dbac62b7805e16 # main 2026-04-22
       with:
         path: ${{ inputs.path }}
         imagename: ${{ inputs.imagename }}
