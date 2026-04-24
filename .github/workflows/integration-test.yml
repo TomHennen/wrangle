@@ -10,10 +10,13 @@ concurrency:
 
 jobs:
   dispatch:
-    # Only run for internal PRs — fork PRs do not get secrets, so the
-    # dispatch would fail. This is the security model's fork-PR guard.
+    # Only run for internal PRs from human contributors. Skip for:
+    # - Fork PRs: no secret access (GitHub's baseline security model)
+    # - Dependabot PRs: GitHub strips secrets from the dependabot actor
     # See test/integration/SPEC.md for the full rationale.
-    if: github.event.pull_request.head.repo.full_name == github.repository
+    if: >-
+      github.event.pull_request.head.repo.full_name == github.repository
+      && github.actor != 'dependabot[bot]'
     runs-on: ubuntu-latest
     environment: integration-test
     permissions:
