@@ -92,6 +92,8 @@ Run `pytest` (or `uv run pytest` for uv projects). If no `tests/` directory and 
 
 Both delegate to whatever build backend `pyproject.toml` declares (setuptools, hatchling, flit, maturin, etc.).
 
+After building, compute SHA-256 hashes of all artifacts in `dist/` and output them as a base64-encoded `sha256:HASH FILENAME` string (the format `slsa-github-generator`'s `base64-subjects` input expects). This is the `hashes` output consumed by the provenance job.
+
 ### 6. Generate SBOM
 
 Generate an SPDX SBOM from the project's dependencies using `syft`. Write to `metadata/python/<shortname>/sbom.spdx.json`. SPDX is used for consistency with the container build type (which uses BuildKit-native SPDX). OSV-Scanner supports scanning both SPDX and CycloneDX SBOMs.
