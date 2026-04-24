@@ -117,6 +117,8 @@ Trusted Publishing handles authentication via OIDC. No secrets needed. The build
 
 Uses `slsa-framework/slsa-github-generator/.github/workflows/generator_generic_slsa3.yml` to generate SLSA Build L3 provenance for the built wheel and sdist. The generator runs in an isolated environment and produces non-falsifiable provenance. Referenced by tag (`@vX.Y.Z`) per the generator's OIDC verification requirement (#147).
 
+The provenance is uploaded as a GitHub Actions workflow artifact (always) and as a GitHub Release asset (on tag pushes, requires `contents: write`). Release assets are permanent and discoverable; workflow artifacts expire after 90 days. The `contents: write` permission on this job is scoped to non-PR events only.
+
 Both publish and provenance are gated on non-PR events (`if: ! startsWith(github.event_name, 'pull_')`). On PR builds, only the build + test + SBOM steps run.
 
 ### 10. Generate summary and upload metadata
