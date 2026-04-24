@@ -2,9 +2,9 @@
 
 ## Overview
 
-The Python build type builds, tests, and publishes Python packages to PyPI with two layers of attestation: PEP 740 Sigstore attestations (publisher identity, verified by PyPI) and SLSA Build L2 provenance (build metadata, stored in GitHub's attestation store).
+The Python build type builds, tests, and produces Python packages with SBOM generation and artifact hashes for SLSA provenance. It supports two layers of attestation: PEP 740 Sigstore attestations (publisher identity, verified by PyPI) and SLSA Build L3 provenance.
 
-It follows PyPI's Trusted Publishing model (OIDC, no API tokens) and uses the ecosystem's standard tooling.
+Wrangle's reusable workflow handles build, test, and SBOM. **Publishing is handled by the adopter's own workflow** because PyPI Trusted Publishing does not support reusable workflows ([pypi/warehouse#11096](https://github.com/pypi/warehouse/issues/11096)). The adopter copies the publish + provenance jobs from `gh_workflow_examples/build_python.yml`. When PyPI adds reusable workflow support (#157), these will collapse back into the reusable workflow.
 
 ## Design principles
 
