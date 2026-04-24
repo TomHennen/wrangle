@@ -51,7 +51,7 @@ Before the first publish, the adopter must:
 | `repository-url` | No | `https://upload.pypi.org/legacy/` | PyPI upload URL. The `/legacy/` path is a historical artifact, not deprecated — it is the current and only supported upload endpoint. Override for TestPyPI (`https://test.pypi.org/legacy/`) or private registries. |
 | `run-tests` | No | `true` | Whether to run pytest before publishing |
 
-Note: there is no `publish` input. Publishing is controlled by event context: the build action publishes on `push` to a tag or the default branch, and skips publishing on `pull_request` events. This prevents accidental publishes from PR builds without requiring adopters to configure it correctly. The guard follows the same pattern as the container builder's provenance gate (`if: ! startsWith(github.event_name, 'pull_')`).
+Publishing is controlled by event context with a safety gate: the publish and provenance jobs only run on non-`pull_request` events (`if: ! startsWith(github.event_name, 'pull_')`), preventing accidental publishes from PR builds. Adopters control WHEN to publish via their calling workflow's trigger configuration — e.g., `on: push: tags: ['v*']` for tag-only publishing, or `on: push: branches: ['main']` for every-merge publishing. Wrangle does not decide the publish cadence; it only prevents publishing from PRs.
 
 ## Outputs
 
@@ -96,28 +96,32 @@ After building, compute SHA-256 hashes of all artifacts in `dist/` and output th
 
 ### 6. Generate SBOM
 
-Generate an SPDX SBOM from the project's dependencies using `syft`. Write to `metadata/python/<shortname>/sbom.spdx.json`. SPDX is used for consistency with the container build type (which uses BuildKit-native SPDX). OSV-Scanner supports scanning both SPDX and CycloneDX SBOMs.
+Generate an SPDX SBOM from the project's resolved dependencies. Python has no built-in SBOM generator (unlike Docker BuildKit), so an external tool is used: `syft` (preferred, produces SPDX natively) or `cyclonedx-python` (converts to SPDX). The SBOM should be generated from the installed/resolved environment (not just the lockfile) to capture the exact versions used at build time — build-time SBOMs are more accurate than scan-time inference. Write to `metadata/python/<shortname>/sbom.spdx.json`. SPDX is used for consistency with the container build type.
 
-### 7. Generate SLSA provenance
+### 7. Upload build artifacts
 
-Handled by a separate `provenance` job in the reusable workflow (not the composite action). Uses `slsa-framework/slsa-github-generator/.github/workflows/generator_generic_slsa3.yml` to generate SLSA Build L3 provenance for the built wheel and sdist. The generator runs in an isolated environment and produces non-falsifiable provenance. Referenced by tag (`@vX.Y.Z`) per the generator's OIDC verification requirement (#147).
+Upload `dist/` (wheel + sdist) as a GitHub Actions artifact. This decouples the build from publishing — the publish and provenance jobs download the artifact and operate on it independently.
 
-The provenance job is gated on non-PR events (`if: ! startsWith(github.event_name, 'pull_')`), matching the publish gate.
+Steps 8 and 9 run as separate jobs in the reusable workflow, not as steps in the composite action. This keeps the build job at minimal permissions (`contents: read` only).
 
-### 8. Publish (if event context allows)
+### 8. Publish (separate job, gated on non-PR events)
 
-Gated on event context: only runs on `push` events (tags or default branch), not on `pull_request`. This prevents accidental publishes from PR builds.
-
-Use `pypa/gh-action-pypi-publish` with:
+A separate `publish` job with `id-token: write` downloads the build artifact and publishes to PyPI using `pypa/gh-action-pypi-publish` with:
 - `attestations: true` — generates PEP 740 Sigstore attestations
 - `packages-dir: dist/` — the built artifacts
 - `repository-url: <from input>` — PyPI or TestPyPI
 
-Trusted Publishing handles authentication via OIDC. No secrets needed. SLSA provenance is generated before publish (step 7) so the attestation covers the exact artifacts being uploaded.
+Trusted Publishing handles authentication via OIDC. No secrets needed. The build job never touches PyPI or OIDC tokens.
 
-### 9. Generate summary and upload metadata
+### 9. Generate SLSA provenance (separate job, gated on non-PR events)
 
-Write a step summary (package name, version, PyPI URL, attestation status). Upload SBOM, SLSA provenance reference, and build metadata as a workflow artifact. See #150 for the vision of unified build results.
+Uses `slsa-framework/slsa-github-generator/.github/workflows/generator_generic_slsa3.yml` to generate SLSA Build L3 provenance for the built wheel and sdist. The generator runs in an isolated environment and produces non-falsifiable provenance. Referenced by tag (`@vX.Y.Z`) per the generator's OIDC verification requirement (#147).
+
+Both publish and provenance are gated on non-PR events (`if: ! startsWith(github.event_name, 'pull_')`). On PR builds, only the build + test + SBOM steps run.
+
+### 10. Generate summary and upload metadata
+
+Write a step summary (package name, version, PyPI URL, attestation status). Upload SBOM and build metadata as a workflow artifact. See #150 for the vision of unified build results. See #155 for whether wrangle should also write attestations to GitHub's attestation store.
 
 ## Permissions
 
@@ -161,8 +165,7 @@ jobs:
   build:
     runs-on: ubuntu-latest
     permissions:
-      contents: read
-      id-token: write
+      contents: read    # minimal — no OIDC, no publish
     outputs:
       hashes: ${{ steps.build.outputs.hashes }}
     steps:
@@ -173,8 +176,28 @@ jobs:
         with:
           path: ${{ inputs.path }}
           python-version: ${{ inputs.python-version }}
-          repository-url: ${{ inputs.repository-url }}
           run-tests: ${{ inputs.run-tests }}
+      - uses: actions/upload-artifact@<sha>
+        with:
+          name: dist
+          path: dist/
+
+  publish:
+    if: ${{ ! startsWith(github.event_name, 'pull_') }}
+    needs: [build]
+    runs-on: ubuntu-latest
+    permissions:
+      id-token: write   # OIDC for Trusted Publishing + PEP 740 attestations
+    steps:
+      - uses: actions/download-artifact@<sha>
+        with:
+          name: dist
+          path: dist/
+      - uses: pypa/gh-action-pypi-publish@<sha>
+        with:
+          attestations: true
+          packages-dir: dist/
+          repository-url: ${{ inputs.repository-url }}
 
   provenance:
     if: ${{ ! startsWith(github.event_name, 'pull_') }}
@@ -182,7 +205,7 @@ jobs:
     permissions:
       actions: read
       id-token: write
-      contents: write  # for uploading provenance to release assets
+      contents: write   # for uploading provenance to release assets
     # MUST use tag, not SHA — see #147
     uses: slsa-framework/slsa-github-generator/.github/workflows/generator_generic_slsa3.yml@v2.1.0 # zizmor: ignore[unpinned-uses]
     with:
