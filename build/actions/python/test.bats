@@ -74,33 +74,20 @@ setup() {
     [[ "$status" -eq 1 ]]  # no id-token in build job
 }
 
-@test "python: workflow has separate publish job" {
-    run grep 'publish:' "$WORKFLOW"
+@test "python: workflow is build-only (no publish job)" {
+    # Publish must be in the adopter's workflow, not wrangle's reusable workflow,
+    # because PyPI Trusted Publishing doesn't support reusable workflows.
+    run grep '^  publish:' "$WORKFLOW"
+    [[ "$status" -eq 1 ]]  # no publish job
+}
+
+@test "python: workflow exports hashes output for SLSA provenance" {
+    run grep 'hashes:' "$WORKFLOW"
     [[ "$status" -eq 0 ]]
 }
 
-@test "python: publish job gated on non-PR events" {
-    run grep "startsWith(github.event_name, 'pull_')" "$WORKFLOW"
-    [[ "$status" -eq 0 ]]
-}
-
-@test "python: publish job uses pypi-publish action" {
-    run grep 'pypa/gh-action-pypi-publish' "$WORKFLOW"
-    [[ "$status" -eq 0 ]]
-}
-
-@test "python: publish enables PEP 740 attestations" {
-    run grep 'attestations: true' "$WORKFLOW"
-    [[ "$status" -eq 0 ]]
-}
-
-@test "python: workflow has provenance job" {
-    run grep 'provenance:' "$WORKFLOW"
-    [[ "$status" -eq 0 ]]
-}
-
-@test "python: provenance uses SLSA generator by tag" {
-    run grep 'generator_generic_slsa3.yml@v' "$WORKFLOW"
+@test "python: workflow documents PyPI reusable workflow limitation" {
+    run grep 'warehouse/issues/11096\|Trusted Publishing.*reusable' "$WORKFLOW"
     [[ "$status" -eq 0 ]]
 }
 

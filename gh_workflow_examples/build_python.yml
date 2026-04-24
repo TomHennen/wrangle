@@ -1,7 +1,17 @@
 # Copy this file to your repo at .github/workflows/build_python.yml
-# Before first use: configure a Trusted Publisher on PyPI
-# (project settings → Publishing → Add GitHub). Then disable legacy
-# API token uploads to prevent the ultralytics-style attack vector.
+#
+# Before first use:
+# 1. Configure a Trusted Publisher on PyPI (project settings → Publishing)
+#    - Owner: <your-github-org-or-user>
+#    - Repository: <your-repo>
+#    - Workflow name: build_python.yml
+# 2. Disable legacy API token uploads on PyPI to prevent token-theft attacks
+# 3. (Optional) Repeat on test.pypi.org for pre-release testing
+#
+# Publishing runs directly in this workflow (not inside wrangle's reusable
+# workflow) because PyPI Trusted Publishing requires the OIDC token to come
+# from your workflow, not a reusable workflow. See:
+# https://github.com/pypi/warehouse/issues/11096
 name: Python Build
 
 on:
@@ -12,13 +22,43 @@ on:
   workflow_dispatch:
 
 jobs:
-  build-and-publish:
+  build:
     permissions:
       contents: read
-      id-token: write
-      actions: read
-    uses: TomHennen/wrangle/.github/workflows/build_and_publish_python.yml@v0.1.0
+    uses: TomHennen/wrangle/.github/workflows/build_and_publish_python.yml@v0.2.0
     with:
       path: "."
       # python-version: ""    # optional: auto-detected from pyproject.toml
-      # repository-url: "https://test.pypi.org/legacy/"  # for TestPyPI
+      # run-tests: true       # optional: skip with false
+
+  publish:
+    # Only publish on non-PR events.
+    if: ${{ ! startsWith(github.event_name, 'pull_') }}
+    needs: [build]
+    runs-on: ubuntu-latest
+    permissions:
+      id-token: write   # OIDC for Trusted Publishing + PEP 740 attestations
+    steps:
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        with:
+          name: python-dist
+          path: dist/
+
+      - uses: pypa/gh-action-pypi-publish@cef221092ed1bacb1cc03d23a2d87d1d172e277b # v1.14.0
+        with:
+          attestations: true
+          packages-dir: dist/
+          # repository-url: "https://test.pypi.org/legacy/"  # for TestPyPI
+
+  provenance:
+    # Generate SLSA L3 provenance for the built artifacts.
+    if: ${{ ! startsWith(github.event_name, 'pull_') }}
+    needs: [build]
+    permissions:
+      actions: read
+      id-token: write
+      contents: write   # for uploading provenance to release assets
+    # MUST use tag, not SHA — see https://github.com/TomHennen/wrangle/issues/147
+    uses: slsa-framework/slsa-github-generator/.github/workflows/generator_generic_slsa3.yml@v2.1.0
+    with:
+      base64-subjects: ${{ needs.build.outputs.hashes }}

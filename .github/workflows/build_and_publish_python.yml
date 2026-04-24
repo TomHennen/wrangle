@@ -1,4 +1,12 @@
-name: "Build and publish a Python package with best practices."
+name: "Build and test a Python package with best practices."
+
+# Build-only reusable workflow. Publishing is NOT included because
+# PyPI Trusted Publishing does not support reusable workflows — the
+# OIDC token's workflow_ref must point to the adopter's own workflow.
+# See: https://github.com/pypi/warehouse/issues/11096
+#
+# Adopters add a publish job in their own calling workflow. See
+# gh_workflow_examples/build_python.yml for the complete pattern.
 
 on:
   workflow_call:
@@ -13,16 +21,18 @@ on:
         required: false
         type: string
         default: ""
-      repository-url:
-        description: "PyPI upload URL (default: production PyPI)"
-        required: false
-        type: string
-        default: "https://upload.pypi.org/legacy/"
       run-tests:
         description: "Whether to run pytest before building"
         required: false
         type: boolean
         default: true
+    outputs:
+      hashes:
+        description: "Base64-encoded SHA-256 hashes of built artifacts (for SLSA provenance)"
+        value: ${{ jobs.build.outputs.hashes }}
+      version:
+        description: "The package version that was built"
+        value: ${{ jobs.build.outputs.version }}
 
 jobs:
   build:
@@ -49,37 +59,3 @@ jobs:
         with:
           name: python-dist
           path: ${{ inputs.path }}/dist/
-
-  publish:
-    # Only publish on non-PR events (tags, pushes to default branch).
-    # Adopters control WHEN to publish via their calling workflow triggers.
-    if: ${{ ! startsWith(github.event_name, 'pull_') }}
-    needs: [build]
-    runs-on: ubuntu-latest
-    permissions:
-      id-token: write   # OIDC for Trusted Publishing + PEP 740 attestations
-    steps:
-      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
-        with:
-          name: python-dist
-          path: dist/
-
-      - uses: pypa/gh-action-pypi-publish@cef221092ed1bacb1cc03d23a2d87d1d172e277b # v1.14.0
-        with:
-          attestations: true
-          packages-dir: dist/
-          repository-url: ${{ inputs.repository-url }}
-
-  provenance:
-    # Generate SLSA L3 provenance for the built artifacts.
-    if: ${{ ! startsWith(github.event_name, 'pull_') }}
-    needs: [build]
-    permissions:
-      actions: read
-      id-token: write
-      contents: write   # for uploading provenance to release assets
-    # MUST use tag, not SHA — the SLSA generator validates its own invocation
-    # ref and rejects bare SHAs. See #147.
-    uses: slsa-framework/slsa-github-generator/.github/workflows/generator_generic_slsa3.yml@v2.1.0 # zizmor: ignore[unpinned-uses] tag required by SLSA generator's OIDC verification
-    with:
-      base64-subjects: ${{ needs.build.outputs.hashes }}
