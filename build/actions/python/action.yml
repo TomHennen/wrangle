@@ -1,0 +1,243 @@
+name: Wrangle Python Build
+description: |
+  Build a Python package (wheel + sdist), run tests, generate SBOM,
+  and compute artifact hashes for SLSA provenance. Publishing and
+  provenance generation are handled by separate jobs in the reusable
+  workflow — this action only covers build + test + SBOM.
+
+inputs:
+  path:
+    description: "Relative path to the directory containing pyproject.toml"
+    required: false
+    default: "."
+  python-version:
+    description: "Python version override. If empty, detected from pyproject.toml."
+    required: false
+    default: ""
+  run-tests:
+    description: "Whether to run pytest before building"
+    required: false
+    default: "true"
+
+outputs:
+  version:
+    description: "The package version that was built"
+    value: ${{ steps.metadata.outputs.version }}
+  hashes:
+    description: "Base64-encoded SHA-256 hashes of built artifacts (for SLSA generator)"
+    value: ${{ steps.hash.outputs.hashes }}
+
+runs:
+  using: "composite"
+  steps:
+    - name: Validate inputs
+      shell: bash
+      env:
+        INPUT_PATH: ${{ inputs.path }}
+      run: |
+        set -euo pipefail
+        set -f  # disable globbing — processes external input
+
+        # Validate path: must be relative, no traversal, safe characters only
+        if [[ "$INPUT_PATH" == /* ]]; then
+            printf 'Error: path must be relative, got: %s\n' "$INPUT_PATH" >&2
+            exit 1
+        fi
+        if [[ "$INPUT_PATH" == *..* ]]; then
+            printf 'Error: path traversal not allowed: %s\n' "$INPUT_PATH" >&2
+            exit 1
+        fi
+        if [[ ! "$INPUT_PATH" =~ ^[a-zA-Z0-9_./-]+$ ]]; then
+            printf 'Error: invalid characters in path: %s\n' "$INPUT_PATH" >&2
+            exit 1
+        fi
+
+        # Verify pyproject.toml exists
+        if [[ ! -f "$INPUT_PATH/pyproject.toml" ]]; then
+            if [[ -f "$INPUT_PATH/setup.py" ]]; then
+                printf 'Warning: using legacy setup.py (pyproject.toml preferred)\n'
+            else
+                printf 'Error: no pyproject.toml or setup.py found in %s\n' "$INPUT_PATH" >&2
+                exit 1
+            fi
+        fi
+
+    - name: Setup Python
+      uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5.6.0
+      with:
+        python-version: ${{ inputs.python-version || '' }}
+        python-version-file: ${{ inputs.python-version == '' && format('{0}/pyproject.toml', inputs.path) || '' }}
+
+    - name: Detect and setup uv
+      id: tooling
+      shell: bash
+      env:
+        INPUT_PATH: ${{ inputs.path }}
+      run: |
+        set -euo pipefail
+        if [[ -f "$INPUT_PATH/uv.lock" ]]; then
+            printf 'use_uv=true\n' >> "$GITHUB_OUTPUT"
+            printf 'Detected uv.lock — using uv for build\n'
+        else
+            printf 'use_uv=false\n' >> "$GITHUB_OUTPUT"
+            printf 'No uv.lock — using standard PEP 517 tooling\n'
+        fi
+
+    - name: Install uv
+      if: steps.tooling.outputs.use_uv == 'true'
+      uses: astral-sh/setup-uv@08807647e7069bb48b6ef5acd8ec9567f424441b # v8.1.0
+
+    - name: Install dependencies (uv)
+      if: steps.tooling.outputs.use_uv == 'true'
+      shell: bash
+      env:
+        INPUT_PATH: ${{ inputs.path }}
+      run: |
+        set -euo pipefail
+        cd "$INPUT_PATH"
+        uv sync
+
+    - name: Install dependencies (pip)
+      if: steps.tooling.outputs.use_uv != 'true'
+      shell: bash
+      env:
+        INPUT_PATH: ${{ inputs.path }}
+      run: |
+        set -euo pipefail
+        cd "$INPUT_PATH"
+        python -m pip install --upgrade pip
+        # Try [test] extra first, fall back to [dev], then bare install
+        if python -m pip install -e ".[test]" 2>/dev/null; then
+            printf 'Installed with [test] extra\n'
+        elif python -m pip install -e ".[dev]" 2>/dev/null; then
+            printf 'Installed with [dev] extra\n'
+        else
+            python -m pip install -e .
+            printf 'Installed without test extras\n'
+        fi
+
+    - name: Run tests
+      if: inputs.run-tests == 'true'
+      shell: bash
+      env:
+        INPUT_PATH: ${{ inputs.path }}
+        USE_UV: ${{ steps.tooling.outputs.use_uv }}
+      run: |
+        set -euo pipefail
+        cd "$INPUT_PATH"
+
+        # Check if tests exist
+        HAS_TESTS=false
+        if [[ -d "tests" ]] || [[ -d "test" ]]; then
+            HAS_TESTS=true
+        elif grep -q '\[tool.pytest' pyproject.toml 2>/dev/null; then
+            HAS_TESTS=true
+        fi
+
+        if [[ "$HAS_TESTS" == "true" ]]; then
+            if [[ "$USE_UV" == "true" ]]; then
+                uv run pytest
+            else
+                python -m pytest
+            fi
+        else
+            printf 'No tests directory or [tool.pytest] config found, skipping tests\n'
+        fi
+
+    - name: Build package
+      shell: bash
+      env:
+        INPUT_PATH: ${{ inputs.path }}
+        USE_UV: ${{ steps.tooling.outputs.use_uv }}
+      run: |
+        set -euo pipefail
+        cd "$INPUT_PATH"
+        if [[ "$USE_UV" == "true" ]]; then
+            uv build
+        else
+            python -m pip install --upgrade build
+            python -m build
+        fi
+        printf 'Built artifacts:\n'
+        ls -la dist/
+
+    - name: Extract package metadata
+      id: metadata
+      shell: bash
+      env:
+        INPUT_PATH: ${{ inputs.path }}
+      run: |
+        set -euo pipefail
+        cd "$INPUT_PATH"
+        # Extract version from the built wheel filename
+        WHEEL="$(ls dist/*.whl 2>/dev/null | head -1)"
+        if [[ -n "$WHEEL" ]]; then
+            # Wheel filename format: {name}-{version}-{tags}.whl
+            VERSION="$(basename "$WHEEL" | sed 's/^[^-]*-\([^-]*\)-.*/\1/')"
+            printf 'version=%s\n' "$VERSION" >> "$GITHUB_OUTPUT"
+            printf 'Package version: %s\n' "$VERSION"
+        else
+            printf 'Warning: no wheel found in dist/\n'
+            printf 'version=unknown\n' >> "$GITHUB_OUTPUT"
+        fi
+
+    - name: Compute artifact hashes
+      id: hash
+      shell: bash
+      env:
+        INPUT_PATH: ${{ inputs.path }}
+      run: |
+        set -euo pipefail
+        cd "$INPUT_PATH/dist"
+        # Generate base64-encoded hashes in the format slsa-github-generator expects
+        HASHES="$(sha256sum ./* | base64 -w0)"
+        printf 'hashes=%s\n' "$HASHES" >> "$GITHUB_OUTPUT"
+
+    - name: Prepare metadata directory
+      shell: bash
+      env:
+        INPUT_PATH: ${{ inputs.path }}
+      run: |
+        set -euo pipefail
+        SHORTNAME="${INPUT_PATH////_}"
+        mkdir -p "metadata/python/${SHORTNAME}"
+
+    - name: Generate SBOM
+      shell: bash
+      env:
+        INPUT_PATH: ${{ inputs.path }}
+      run: |
+        set -euo pipefail
+        SHORTNAME="${INPUT_PATH////_}"
+        SBOM_PATH="metadata/python/${SHORTNAME}/sbom.spdx.json"
+
+        # Use syft if available, otherwise try cyclonedx-python
+        if command -v syft >/dev/null 2>&1; then
+            syft dir:"$INPUT_PATH" -o spdx-json > "$SBOM_PATH"
+        else
+            # Install and run syft
+            curl -sSfL https://raw.githubusercontent.com/anchore/syft/main/install.sh | sh -s -- -b /usr/local/bin
+            syft dir:"$INPUT_PATH" -o spdx-json > "$SBOM_PATH"
+        fi
+        printf 'SBOM written to %s\n' "$SBOM_PATH"
+
+    - name: Generate summary
+      if: always()
+      shell: bash
+      env:
+        INPUT_PATH: ${{ inputs.path }}
+        VERSION: ${{ steps.metadata.outputs.version }}
+      run: |
+        set -euo pipefail
+        {
+            printf '## Python Build Results\n\n'
+            printf '| | |\n|---|---|\n'
+            printf '| **Package** | %s |\n' "$INPUT_PATH"
+            printf '| **Version** | %s |\n' "$VERSION"
+            printf '| **Artifacts** | |\n'
+            for f in "$INPUT_PATH"/dist/*; do
+                if [[ -f "$f" ]]; then
+                    printf '| | `%s` |\n' "$(basename "$f")"
+                fi
+            done
+        } >> "$GITHUB_STEP_SUMMARY"

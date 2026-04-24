@@ -1,0 +1,85 @@
+name: "Build and publish a Python package with best practices."
+
+on:
+  workflow_call:
+    inputs:
+      path:
+        description: "Relative path to the directory containing pyproject.toml"
+        required: false
+        type: string
+        default: "."
+      python-version:
+        description: "Python version override. If empty, detected from pyproject.toml."
+        required: false
+        type: string
+        default: ""
+      repository-url:
+        description: "PyPI upload URL (default: production PyPI)"
+        required: false
+        type: string
+        default: "https://upload.pypi.org/legacy/"
+      run-tests:
+        description: "Whether to run pytest before building"
+        required: false
+        type: boolean
+        default: true
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read    # minimal — no OIDC, no publish
+    outputs:
+      hashes: ${{ steps.build.outputs.hashes }}
+      version: ${{ steps.build.outputs.version }}
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+
+      # TODO: replace with $/build/actions/python when GitHub ships $/ syntax (#136)
+      - uses: TomHennen/wrangle/build/actions/python@400f6c4d59cb3a8417526ca1030dcf4e383deb94 # main 2026-04-23
+        id: build
+        with:
+          path: ${{ inputs.path }}
+          python-version: ${{ inputs.python-version }}
+          run-tests: ${{ inputs.run-tests }}
+
+      - uses: actions/upload-artifact@bbbca2ddaa5d8feaa63e36b76fdaad77386f024f # v7.0.0
+        with:
+          name: python-dist
+          path: ${{ inputs.path }}/dist/
+
+  publish:
+    # Only publish on non-PR events (tags, pushes to default branch).
+    # Adopters control WHEN to publish via their calling workflow triggers.
+    if: ${{ ! startsWith(github.event_name, 'pull_') }}
+    needs: [build]
+    runs-on: ubuntu-latest
+    permissions:
+      id-token: write   # OIDC for Trusted Publishing + PEP 740 attestations
+    steps:
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        with:
+          name: python-dist
+          path: dist/
+
+      - uses: pypa/gh-action-pypi-publish@cef221092ed1bacb1cc03d23a2d87d1d172e277b # v1.14.0
+        with:
+          attestations: true
+          packages-dir: dist/
+          repository-url: ${{ inputs.repository-url }}
+
+  provenance:
+    # Generate SLSA L3 provenance for the built artifacts.
+    if: ${{ ! startsWith(github.event_name, 'pull_') }}
+    needs: [build]
+    permissions:
+      actions: read
+      id-token: write
+      contents: write   # for uploading provenance to release assets
+    # MUST use tag, not SHA — the SLSA generator validates its own invocation
+    # ref and rejects bare SHAs. See #147.
+    uses: slsa-framework/slsa-github-generator/.github/workflows/generator_generic_slsa3.yml@v2.1.0 # zizmor: ignore[unpinned-uses] tag required by SLSA generator's OIDC verification
+    with:
+      base64-subjects: ${{ needs.build.outputs.hashes }}

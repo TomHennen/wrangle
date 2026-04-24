@@ -1,0 +1,24 @@
+# Copy this file to your repo at .github/workflows/build_python.yml
+# Before first use: configure a Trusted Publisher on PyPI
+# (project settings → Publishing → Add GitHub). Then disable legacy
+# API token uploads to prevent the ultralytics-style attack vector.
+name: Python Build
+
+on:
+  push:
+    tags: ["v*"]       # publish on version tags
+  pull_request:
+    branches: ["**"]   # build + test on PRs (no publish)
+  workflow_dispatch:
+
+jobs:
+  build-and-publish:
+    permissions:
+      contents: read
+      id-token: write
+      actions: read
+    uses: TomHennen/wrangle/.github/workflows/build_and_publish_python.yml@v0.1.0
+    with:
+      path: "."
+      # python-version: ""    # optional: auto-detected from pyproject.toml
+      # repository-url: "https://test.pypi.org/legacy/"  # for TestPyPI
