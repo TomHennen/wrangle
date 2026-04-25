@@ -156,6 +156,7 @@ The reusable workflow's `provenance` job requires:
 permissions:
   actions: read       # detect the GitHub Actions environment
   id-token: write     # OIDC for Sigstore signing
+  contents: read      # generator_generic_slsa3.yml declares contents: read at workflow level
 ```
 
 `contents: write` is intentionally not declared here so callers don't have to grant repository-write to wrangle's reusable workflow. Release-asset upload (provenance + dist as release assets on tag pushes) is handled in the adopter's publish job, which already needs `contents: write` for tag-driven releases. OIDC for Trusted Publishing also lives in the adopter's own workflow (see step 9).
@@ -229,6 +230,7 @@ jobs:
     permissions:
       actions: read
       id-token: write
+      contents: read
     uses: slsa-framework/slsa-github-generator/.github/workflows/generator_generic_slsa3.yml@v2.1.0
     with:
       base64-subjects: ${{ needs.build.outputs.hashes }}

@@ -102,6 +102,7 @@ jobs:
     permissions:
       actions: read    # detect the GitHub Actions environment
       id-token: write  # OIDC for Sigstore signing
+      contents: read   # required by generator_generic_slsa3.yml's top-level permissions block
     # MUST use tag, not SHA — the SLSA generator validates its own invocation
     # ref. See https://github.com/TomHennen/wrangle/issues/147
     uses: slsa-framework/slsa-github-generator/.github/workflows/generator_generic_slsa3.yml@v2.1.0 # zizmor: ignore[unpinned-uses] tag required by SLSA generator's OIDC verification
