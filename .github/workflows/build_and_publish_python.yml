@@ -52,7 +52,7 @@ jobs:
           persist-credentials: false
 
       # TODO: replace with $/build/actions/python when GitHub ships $/ syntax (#136)
-      - uses: TomHennen/wrangle/build/actions/python@93cfefa138ae04570dbbab48199dc794aff60556 # implement-python-build 2026-04-25
+      - uses: TomHennen/wrangle/build/actions/python@ba6dfa615275e30350393cf037b707e412f18546 # implement-python-build 2026-04-25
         id: build
         with:
           path: ${{ inputs.path }}
