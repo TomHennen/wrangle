@@ -96,3 +96,38 @@ setup() {
     run bash -c "grep 'uses:.*@' \"$WORKFLOW\" | grep -v 'slsa-github-generator' | grep -v -P '@[0-9a-f]{40}'"
     [[ "$status" -eq 1 ]]  # no matches = all pinned
 }
+
+@test "python: workflow uploads SBOM/metadata, not just dist" {
+    # The composite action writes metadata/python/<shortname>/sbom.spdx.json;
+    # the reusable workflow MUST upload that directory or the SBOM is lost.
+    run grep 'metadata-dir\|python-metadata' "$WORKFLOW"
+    [[ "$status" -eq 0 ]]
+}
+
+@test "python: workflow namespaces artifacts by shortname" {
+    # Multiple python builds in one workflow must not collide on artifact names.
+    run grep 'python-dist-' "$WORKFLOW"
+    [[ "$status" -eq 0 ]]
+}
+
+@test "python: action installs syft via tools/syft (not curl | sh)" {
+    # The supply-chain rule: no curl|sh anywhere, no /usr/local/bin.
+    run grep -E 'curl[^|]*\| *sh|/usr/local/bin' "$ACTION"
+    [[ "$status" -ne 0 ]]
+    run grep 'tools/syft/install.sh' "$ACTION"
+    [[ "$status" -eq 0 ]]
+}
+
+@test "python: action installs cosign before syft (signature verification)" {
+    # syft install.sh requires cosign on PATH. Ensure cosign-installer
+    # appears before the syft install step.
+    run bash -c "awk '/sigstore\\/cosign-installer/{c=NR} /tools\\/syft\\/install.sh/{s=NR} END{exit !(c && s && c<s)}' \"$ACTION\""
+    [[ "$status" -eq 0 ]]
+}
+
+@test "python: hashes step strips ./ prefix for slsa-verifier" {
+    # sha256sum ./* yields ./<file>; sha256sum -- * (after cd) yields <file>.
+    # The latter is what slsa-verifier matches at verify time.
+    run grep -E 'cd .*dist.* && sha256sum' "$ACTION"
+    [[ "$status" -eq 0 ]]
+}

@@ -48,19 +48,21 @@ Before the first publish, the adopter must:
 |-------|----------|---------|-------------|
 | `path` | No | `.` | Relative path to the directory containing `pyproject.toml` |
 | `python-version` | No | (auto-detect) | Python version override. If empty, detected from `pyproject.toml` via `actions/setup-python`'s `python-version-file` feature. |
-| `repository-url` | No | `https://upload.pypi.org/legacy/` | PyPI upload URL. The `/legacy/` path is a historical artifact, not deprecated — it is the current and only supported upload endpoint. Override for TestPyPI (`https://test.pypi.org/legacy/`) or private registries. |
-| `run-tests` | No | `true` | Whether to run pytest before publishing |
+| `run-tests` | No | `true` | Whether to run pytest before building |
 
-Publishing is controlled by event context with a safety gate: the publish and provenance jobs only run on non-`pull_request` events (`if: ! startsWith(github.event_name, 'pull_')`), preventing accidental publishes from PR builds. Adopters control WHEN to publish via their calling workflow's trigger configuration — e.g., `on: push: tags: ['v*']` for tag-only publishing, or `on: push: branches: ['main']` for every-merge publishing. Wrangle does not decide the publish cadence; it only prevents publishing from PRs.
+Wrangle's reusable workflow has no `repository-url` input — publishing lives in the adopter's own workflow because PyPI Trusted Publishing requires the OIDC token's `workflow_ref` to point at the adopter, not at a reusable workflow ([pypi/warehouse#11096](https://github.com/pypi/warehouse/issues/11096)). The adopter's publish job sets `repository-url` directly on `pypa/gh-action-pypi-publish`.
+
+The publish-on-non-PR safety gate (`if: ! startsWith(github.event_name, 'pull_')`) lives on the adopter side too. Adopters control WHEN to publish via their calling workflow's trigger configuration — e.g., `on: push: tags: ['v*']` for tag-only publishing, or `on: push: branches: ['main']` for every-merge publishing. The example workflow in `gh_workflow_examples/build_python.yml` shows the canonical wiring.
 
 ## Outputs
 
-| Output | Description |
-|--------|-------------|
-| `version` | The package version (read from the built wheel/sdist filename; wrangle does not set the version — the build backend reads it from `pyproject.toml`'s `[project].version` or a dynamic version plugin like `hatch-vcs` / `setuptools-scm`) |
-| `sdist` | Path to the built sdist (`.tar.gz`) |
-| `wheel` | Path to the built wheel (`.whl`) |
-| `sbom` | Path to the generated SBOM |
+| Output | Source | Description |
+|--------|--------|-------------|
+| `version` | reusable workflow + composite | The package version (read from the built wheel filename; the build backend reads it from `pyproject.toml`'s `[project].version` or a dynamic version plugin like `hatch-vcs` / `setuptools-scm`). |
+| `hashes` | reusable workflow + composite | Base64-encoded SHA-256 hashes in the format `slsa-github-generator`'s `base64-subjects` input expects. Pass directly to the provenance job. |
+| `dist-artifact-name` | reusable workflow only | Name of the uploaded `dist/` artifact, namespaced by path-derived shortname so multiple python builds in one workflow don't collide. The publish job downloads using this name. |
+| `shortname` | composite only | Path-derived short name (e.g., `.` becomes `_`, `pkg/foo` becomes `pkg_foo`). Used for artifact namespacing when the composite is invoked directly. |
+| `metadata-dir` | composite only | Path to the metadata directory (`metadata/python/<shortname>/`) containing the SBOM. |
 
 ## Step sequence
 
@@ -92,55 +94,62 @@ Run `pytest` (or `uv run pytest` for uv projects). If no `tests/` directory and 
 
 Both delegate to whatever build backend `pyproject.toml` declares (setuptools, hatchling, flit, maturin, etc.).
 
-After building, compute SHA-256 hashes of all artifacts in `dist/` and output them as a base64-encoded `sha256:HASH FILENAME` string (the format `slsa-github-generator`'s `base64-subjects` input expects). This is the `hashes` output consumed by the provenance job.
+After building, compute SHA-256 hashes of all artifacts in `dist/` and output them as a base64-encoded `sha256:HASH FILENAME` string (the format `slsa-github-generator`'s `base64-subjects` input expects). The hashing step `cd`s into `dist/` and uses bare `*` (not `./*`) so subject names in the resulting provenance are bare filenames — `slsa-verifier` matches subjects against downloaded artifact filenames, and a leading `./` would break that match. This is the `hashes` output consumed by the provenance job.
 
 ### 6. Generate SBOM
 
-Generate an SPDX SBOM from the project's resolved dependencies. Python has no built-in SBOM generator (unlike Docker BuildKit), so an external tool is used: `syft` (preferred, produces SPDX natively) or `cyclonedx-python` (converts to SPDX). The SBOM should be generated from the installed/resolved environment (not just the lockfile) to capture the exact versions used at build time — build-time SBOMs are more accurate than scan-time inference. Write to `metadata/python/<shortname>/sbom.spdx.json`. SPDX is used for consistency with the container build type.
+Generate an SPDX SBOM from the project's resolved dependencies. Python has no built-in SBOM generator (unlike Docker BuildKit), so an external tool is used: `syft` (Anchore's SBOM tool, produces SPDX natively).
+
+Wrangle installs `syft` via `tools/syft/install.sh`, which performs Cosign keyless verification of `checksums.txt` (root of trust = Fulcio CA + Rekor transparency log) and then SHA-256 verifies the binary against the now-trusted checksums. No `curl | sh`, no installs to `/usr/local/bin` — `syft` lands in `$WRANGLE_BIN_DIR` per the install script contract. The python action installs Cosign first via `sigstore/cosign-installer` so the verification step has the tool it needs.
+
+The SBOM is generated from the installed/resolved environment (not just the lockfile) to capture the exact versions used at build time — build-time SBOMs are more accurate than scan-time inference. Write to `metadata/python/<shortname>/sbom.spdx.json`. SPDX is used for consistency with the container build type.
 
 ### 7. Upload build artifacts
 
-Upload `dist/` (wheel + sdist) as a GitHub Actions artifact. This decouples the build from publishing — the publish and provenance jobs download the artifact and operate on it independently.
+The reusable workflow uploads two artifacts after the composite action completes:
 
-Steps 8 and 9 run as separate jobs in the reusable workflow, not as steps in the composite action. This keeps the build job at minimal permissions (`contents: read` only).
+- `python-dist-<shortname>` — the contents of `dist/` (wheel + sdist), consumed by the adopter's publish job.
+- `python-metadata-<shortname>` — the contents of `metadata/python/<shortname>/`, including the SPDX SBOM.
 
-### 8. Publish (separate job, gated on non-PR events)
+Both names are namespaced by the path-derived `shortname` so that multiple python builds in one workflow do not collide. The reusable workflow exports `dist-artifact-name` so adopters can `download-artifact` without hardcoding the namespacing scheme.
 
-A separate `publish` job with `id-token: write` downloads the build artifact and publishes to PyPI using `pypa/gh-action-pypi-publish` with:
+The publish and provenance jobs do **not** live in the reusable workflow — they live in the adopter's own workflow because PyPI Trusted Publishing's OIDC `workflow_ref` claim must point at the caller, not at a reusable workflow ([pypi/warehouse#11096](https://github.com/pypi/warehouse/issues/11096)). This keeps wrangle's reusable workflow at minimal permissions (`contents: read` only — no OIDC, no publish credentials).
+
+### 8. Publish (adopter workflow, gated on non-PR events)
+
+The adopter's calling workflow runs a `publish` job with `id-token: write`, downloads the `python-dist-<shortname>` artifact, and publishes via `pypa/gh-action-pypi-publish` with:
 - `attestations: true` — generates PEP 740 Sigstore attestations
 - `packages-dir: dist/` — the built artifacts
-- `repository-url: <from input>` — PyPI or TestPyPI
+- `repository-url:` — defaults to PyPI; override to `https://test.pypi.org/legacy/` for TestPyPI
 
-Trusted Publishing handles authentication via OIDC. No secrets needed. The build job never touches PyPI or OIDC tokens.
+Trusted Publishing handles authentication via OIDC. No secrets needed.
 
-### 9. Generate SLSA provenance (separate job, gated on non-PR events)
+### 9. Generate SLSA provenance (adopter workflow, gated on non-PR events)
 
-Uses `slsa-framework/slsa-github-generator/.github/workflows/generator_generic_slsa3.yml` to generate SLSA Build L3 provenance for the built wheel and sdist. The generator runs in an isolated environment and produces non-falsifiable provenance. Referenced by tag (`@vX.Y.Z`) per the generator's OIDC verification requirement (#147).
+The adopter's calling workflow invokes `slsa-framework/slsa-github-generator/.github/workflows/generator_generic_slsa3.yml` with the `hashes` output from wrangle's reusable workflow. The generator runs in an isolated environment and produces non-falsifiable provenance. Referenced by tag (`@vX.Y.Z`) per the generator's OIDC verification requirement (#147).
 
-The provenance is uploaded as a GitHub Actions workflow artifact (always) and as a GitHub Release asset (on tag pushes, requires `contents: write`). Release assets are permanent and discoverable; workflow artifacts expire after 90 days. The `contents: write` permission on this job is scoped to non-PR events only.
+To upload provenance + dist as release assets on tag pushes, set `upload-assets: ${{ startsWith(github.ref, 'refs/tags/') }}` and grant `contents: write` on that job. Without `upload-assets: true`, the `contents: write` permission is unused; pick one stance and keep them in sync. Release assets are permanent and discoverable; workflow artifacts expire after 90 days.
 
 Both publish and provenance are gated on non-PR events (`if: ! startsWith(github.event_name, 'pull_')`). On PR builds, only the build + test + SBOM steps run.
 
 ### 10. Generate summary and upload metadata
 
-Write a step summary (package name, version, PyPI URL, attestation status). Upload SBOM and build metadata as a workflow artifact. See #150 for the vision of unified build results. See #155 for whether wrangle should also write attestations to GitHub's attestation store.
+The composite action writes a step summary (package name, version, list of artifacts). The reusable workflow uploads the SBOM/metadata directory as the `python-metadata-<shortname>` artifact (see step 7). See #150 for the vision of unified build results. See #155 for whether wrangle should also write attestations to GitHub's attestation store.
 
 ## Permissions
 
-The reusable workflow requires:
+Wrangle's reusable workflow requires only:
 
 ```yaml
 permissions:
   contents: read      # checkout
-  id-token: write     # OIDC for PyPI Trusted Publishing, Sigstore attestations, and SLSA provenance
-  actions: read       # SLSA provenance generator
 ```
 
-No `packages: write` (that's for GHCR). No secrets.
+No `id-token`, no `packages`, no secrets. OIDC and publish-side permissions live in the adopter's own workflow (see step 8 / 9).
 
 ## Reusable workflow
 
-`.github/workflows/build_and_publish_python.yml`:
+`.github/workflows/build_and_publish_python.yml` (build-only — see step 7 for why):
 
 ```yaml
 on:
@@ -154,14 +163,17 @@ on:
         required: false
         type: string
         default: ""
-      repository-url:
-        required: false
-        type: string
-        default: "https://upload.pypi.org/legacy/"
       run-tests:
         required: false
         type: boolean
         default: true
+    outputs:
+      hashes:
+        value: ${{ jobs.build.outputs.hashes }}
+      version:
+        value: ${{ jobs.build.outputs.version }}
+      dist-artifact-name:
+        value: ${{ jobs.build.outputs.dist-artifact-name }}
 
 jobs:
   build:
@@ -170,6 +182,8 @@ jobs:
       contents: read    # minimal — no OIDC, no publish
     outputs:
       hashes: ${{ steps.build.outputs.hashes }}
+      version: ${{ steps.build.outputs.version }}
+      dist-artifact-name: ${{ steps.names.outputs.dist }}
     steps:
       - uses: actions/checkout@<sha>
       # TODO: replace with $/ when GitHub ships $/ syntax (#136)
@@ -179,40 +193,23 @@ jobs:
           path: ${{ inputs.path }}
           python-version: ${{ inputs.python-version }}
           run-tests: ${{ inputs.run-tests }}
+      - id: names
+        env:
+          SHORTNAME: ${{ steps.build.outputs.shortname }}
+        run: |
+          printf 'dist=python-dist-%s\n' "$SHORTNAME" >> "$GITHUB_OUTPUT"
+          printf 'metadata=python-metadata-%s\n' "$SHORTNAME" >> "$GITHUB_OUTPUT"
       - uses: actions/upload-artifact@<sha>
         with:
-          name: dist
-          path: dist/
-
-  publish:
-    if: ${{ ! startsWith(github.event_name, 'pull_') }}
-    needs: [build]
-    runs-on: ubuntu-latest
-    permissions:
-      id-token: write   # OIDC for Trusted Publishing + PEP 740 attestations
-    steps:
-      - uses: actions/download-artifact@<sha>
+          name: ${{ steps.names.outputs.dist }}
+          path: ${{ inputs.path }}/dist/
+      - uses: actions/upload-artifact@<sha>
         with:
-          name: dist
-          path: dist/
-      - uses: pypa/gh-action-pypi-publish@<sha>
-        with:
-          attestations: true
-          packages-dir: dist/
-          repository-url: ${{ inputs.repository-url }}
-
-  provenance:
-    if: ${{ ! startsWith(github.event_name, 'pull_') }}
-    needs: [build]
-    permissions:
-      actions: read
-      id-token: write
-      contents: write   # for uploading provenance to release assets
-    # MUST use tag, not SHA — see #147
-    uses: slsa-framework/slsa-github-generator/.github/workflows/generator_generic_slsa3.yml@v2.1.0 # zizmor: ignore[unpinned-uses]
-    with:
-      base64-subjects: ${{ needs.build.outputs.hashes }}
+          name: ${{ steps.names.outputs.metadata }}
+          path: ${{ steps.build.outputs.metadata-dir }}/
 ```
+
+The publish + provenance jobs live in the adopter's calling workflow (see `gh_workflow_examples/build_python.yml`), which depends on this reusable workflow's `dist-artifact-name` and `hashes` outputs.
 
 ## Security model
 
@@ -283,3 +280,7 @@ python/
 ```
 
 The integration test publishes to **TestPyPI** (`https://test.pypi.org/legacy/`) rather than skipping publish entirely. This exercises the full publish path including Trusted Publishing OIDC exchange and PEP 740 attestation generation. The package name should be disposable (e.g., `wrangle-test-fixture`). A separate Trusted Publisher must be configured on test.pypi.org for the companion repo's workflow.
+
+Because TestPyPI rejects re-uploads of the same version, the fixture must produce a fresh version per integration run — typically by substituting a `__WRANGLE_SHA__`-shaped placeholder in `pyproject.toml`'s version, or by using a dynamic version backend like `hatch-vcs` against the ephemeral `integration/*` branch ref.
+
+A `verify` job follows publish: it downloads the just-published artifact from TestPyPI and runs `slsa-verifier verify-artifact` against the SLSA L3 provenance + `sigstore verify identity` against the PEP 740 attestation. Verify failure fails the integration check. This is what makes "publish" coverage actually exercise the trust chain — without it, a misformed `base64-subjects` or wrong-shape OIDC claim would not surface. The container builder has the same gap tracked in #159.

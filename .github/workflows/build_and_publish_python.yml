@@ -33,6 +33,9 @@ on:
       version:
         description: "The package version that was built"
         value: ${{ jobs.build.outputs.version }}
+      dist-artifact-name:
+        description: "Name of the uploaded dist/ artifact (download with this name to publish)"
+        value: ${{ jobs.build.outputs.dist-artifact-name }}
 
 jobs:
   build:
@@ -42,6 +45,7 @@ jobs:
     outputs:
       hashes: ${{ steps.build.outputs.hashes }}
       version: ${{ steps.build.outputs.version }}
+      dist-artifact-name: ${{ steps.names.outputs.dist }}
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
@@ -55,7 +59,24 @@ jobs:
           python-version: ${{ inputs.python-version }}
           run-tests: ${{ inputs.run-tests }}
 
+      # Namespace artifact names by the path-derived shortname so multiple
+      # python builds in one workflow don't collide.
+      - id: names
+        shell: bash
+        env:
+          SHORTNAME: ${{ steps.build.outputs.shortname }}
+        run: |
+          set -euo pipefail
+          printf 'dist=python-dist-%s\n' "$SHORTNAME" >> "$GITHUB_OUTPUT"
+          printf 'metadata=python-metadata-%s\n' "$SHORTNAME" >> "$GITHUB_OUTPUT"
+
       - uses: actions/upload-artifact@bbbca2ddaa5d8feaa63e36b76fdaad77386f024f # v7.0.0
         with:
-          name: python-dist
+          name: ${{ steps.names.outputs.dist }}
           path: ${{ inputs.path }}/dist/
+
+      - uses: actions/upload-artifact@bbbca2ddaa5d8feaa63e36b76fdaad77386f024f # v7.0.0
+        with:
+          name: ${{ steps.names.outputs.metadata }}
+          path: ${{ steps.build.outputs.metadata-dir }}/
+          if-no-files-found: error

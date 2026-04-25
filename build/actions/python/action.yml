@@ -26,6 +26,12 @@ outputs:
   hashes:
     description: "Base64-encoded SHA-256 hashes of built artifacts (for SLSA generator)"
     value: ${{ steps.hash.outputs.hashes }}
+  shortname:
+    description: "Path-derived short name for artifact namespacing (e.g., '.' becomes '_')"
+    value: ${{ steps.metadata.outputs.shortname }}
+  metadata-dir:
+    description: "Path to the metadata directory (relative to the workspace) containing the SBOM"
+    value: ${{ steps.metadata.outputs.metadata-dir }}
 
 runs:
   using: "composite"
@@ -130,7 +136,7 @@ runs:
         HAS_TESTS=false
         if [[ -d "tests" ]] || [[ -d "test" ]]; then
             HAS_TESTS=true
-        elif grep -q '\[tool.pytest' pyproject.toml 2>/dev/null; then
+        elif grep -qF '[tool.pytest' pyproject.toml 2>/dev/null; then
             HAS_TESTS=true
         fi
 
@@ -168,12 +174,21 @@ runs:
         INPUT_PATH: ${{ inputs.path }}
       run: |
         set -euo pipefail
+        SHORTNAME="${INPUT_PATH////_}"
+        METADATA_DIR="metadata/python/${SHORTNAME}"
+        mkdir -p "$METADATA_DIR"
+        printf 'shortname=%s\n' "$SHORTNAME" >> "$GITHUB_OUTPUT"
+        printf 'metadata-dir=%s\n' "$METADATA_DIR" >> "$GITHUB_OUTPUT"
+
+        # Extract version from the built wheel filename. nullglob avoids
+        # the pipefail abort that `ls dist/*.whl | head` triggers when no
+        # wheel exists — we want to surface a friendly message instead.
         cd "$INPUT_PATH"
-        # Extract version from the built wheel filename
-        WHEEL="$(ls dist/*.whl 2>/dev/null | head -1)"
-        if [[ -n "$WHEEL" ]]; then
+        shopt -s nullglob
+        wheels=(dist/*.whl)
+        if (( ${#wheels[@]} > 0 )); then
             # Wheel filename format: {name}-{version}-{tags}.whl
-            VERSION="$(basename "$WHEEL" | sed 's/^[^-]*-\([^-]*\)-.*/\1/')"
+            VERSION="$(basename "${wheels[0]}" | sed 's/^[^-]*-\([^-]*\)-.*/\1/')"
             printf 'version=%s\n' "$VERSION" >> "$GITHUB_OUTPUT"
             printf 'Package version: %s\n' "$VERSION"
         else
@@ -188,37 +203,33 @@ runs:
         INPUT_PATH: ${{ inputs.path }}
       run: |
         set -euo pipefail
-        cd "$INPUT_PATH/dist"
-        # Generate base64-encoded hashes in the format slsa-github-generator expects
-        HASHES="$(sha256sum ./* | base64 -w0)"
+        # Subshell + bare * (not ./*) so subject names in the resulting
+        # provenance are filenames without a leading ./, which is what
+        # slsa-verifier matches against downloaded artifacts.
+        HASHES="$(cd "$INPUT_PATH/dist" && sha256sum -- * | base64 -w0)"
         printf 'hashes=%s\n' "$HASHES" >> "$GITHUB_OUTPUT"
 
-    - name: Prepare metadata directory
+    - name: Install Cosign (for syft signature verification)
+      uses: sigstore/cosign-installer@cad07c2e89fa2edd6e2d7bab4c1aa38e53f76003 # v4.1.1
+
+    - name: Install syft
       shell: bash
       env:
-        INPUT_PATH: ${{ inputs.path }}
+        WRANGLE_ROOT: ${{ github.action_path }}/../../..
       run: |
         set -euo pipefail
-        SHORTNAME="${INPUT_PATH////_}"
-        mkdir -p "metadata/python/${SHORTNAME}"
+        "$WRANGLE_ROOT/tools/syft/install.sh"
 
     - name: Generate SBOM
       shell: bash
       env:
         INPUT_PATH: ${{ inputs.path }}
+        METADATA_DIR: ${{ steps.metadata.outputs.metadata-dir }}
       run: |
         set -euo pipefail
-        SHORTNAME="${INPUT_PATH////_}"
-        SBOM_PATH="metadata/python/${SHORTNAME}/sbom.spdx.json"
-
-        # Use syft if available, otherwise try cyclonedx-python
-        if command -v syft >/dev/null 2>&1; then
-            syft dir:"$INPUT_PATH" -o spdx-json > "$SBOM_PATH"
-        else
-            # Install and run syft
-            curl -sSfL https://raw.githubusercontent.com/anchore/syft/main/install.sh | sh -s -- -b /usr/local/bin
-            syft dir:"$INPUT_PATH" -o spdx-json > "$SBOM_PATH"
-        fi
+        SBOM_PATH="${METADATA_DIR}/sbom.spdx.json"
+        BIN_DIR="${WRANGLE_BIN_DIR:-${RUNNER_TEMP:-.}/.wrangle/bin}"
+        "$BIN_DIR/syft" dir:"$INPUT_PATH" -o spdx-json > "$SBOM_PATH"
         printf 'SBOM written to %s\n' "$SBOM_PATH"
 
     - name: Generate summary

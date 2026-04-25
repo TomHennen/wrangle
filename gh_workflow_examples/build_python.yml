@@ -12,6 +12,12 @@
 # workflow) because PyPI Trusted Publishing requires the OIDC token to come
 # from your workflow, not a reusable workflow. See:
 # https://github.com/pypi/warehouse/issues/11096
+#
+# Trigger note: this workflow publishes whenever `github.event_name` is not
+# `pull_*`. With the default triggers below, only tag pushes (`push: tags:
+# ["v*"]`) and manual `workflow_dispatch` runs publish; PRs do not.
+# `workflow_dispatch` from any branch will publish, so tighten the trigger
+# (or add a branch/ref guard) if that is undesirable.
 name: Python Build
 
 on:
@@ -41,7 +47,7 @@ jobs:
     steps:
       - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
         with:
-          name: python-dist
+          name: ${{ needs.build.outputs.dist-artifact-name }}
           path: dist/
 
       - uses: pypa/gh-action-pypi-publish@cef221092ed1bacb1cc03d23a2d87d1d172e277b # v1.14.0
@@ -51,14 +57,17 @@ jobs:
           # repository-url: "https://test.pypi.org/legacy/"  # for TestPyPI
 
   provenance:
-    # Generate SLSA L3 provenance for the built artifacts.
+    # Generate SLSA L3 provenance for the built artifacts and upload them
+    # as release assets on tag pushes (upload-assets: true). Without
+    # upload-assets, the contents: write permission below is unused.
     if: ${{ ! startsWith(github.event_name, 'pull_') }}
     needs: [build]
     permissions:
       actions: read
       id-token: write
-      contents: write   # for uploading provenance to release assets
+      contents: write   # for uploading provenance + dist as release assets
     # MUST use tag, not SHA — see https://github.com/TomHennen/wrangle/issues/147
     uses: slsa-framework/slsa-github-generator/.github/workflows/generator_generic_slsa3.yml@v2.1.0
     with:
       base64-subjects: ${{ needs.build.outputs.hashes }}
+      upload-assets: ${{ startsWith(github.ref, 'refs/tags/') }}
