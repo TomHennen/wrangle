@@ -1,0 +1,110 @@
+name: "Build and test a Python package with best practices."
+
+# Build + SLSA provenance reusable workflow. Publishing is NOT included
+# because PyPI Trusted Publishing does not support reusable workflows —
+# the OIDC token's workflow_ref must point to the adopter's own workflow.
+# See: https://github.com/pypi/warehouse/issues/11096
+#
+# Adopters add a publish job in their own calling workflow. Verifying
+# SLSA provenance before publish is recommended (and is the pattern
+# shown in gh_workflow_examples/build_python.yml) but optional.
+
+on:
+  workflow_call:
+    inputs:
+      path:
+        description: "Relative path to the directory containing pyproject.toml"
+        required: false
+        type: string
+        default: "."
+      python-version:
+        description: "Python version override. If empty, detected from pyproject.toml."
+        required: false
+        type: string
+        default: ""
+      run-tests:
+        description: "Whether to run pytest before building"
+        required: false
+        type: boolean
+        default: true
+    outputs:
+      hashes:
+        description: "Base64-encoded SHA-256 hashes of built artifacts (for SLSA provenance)"
+        value: ${{ jobs.build.outputs.hashes }}
+      version:
+        description: "The package version that was built"
+        value: ${{ jobs.build.outputs.version }}
+      dist-artifact-name:
+        description: "Name of the uploaded dist/ artifact (download with this name to publish)"
+        value: ${{ jobs.build.outputs.dist-artifact-name }}
+      provenance-artifact-name:
+        description: "Name of the SLSA provenance workflow artifact (= the provenance filename). Empty on PR builds (provenance is gated on non-PR events)."
+        value: ${{ jobs.provenance.outputs.provenance-name }}
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read    # minimal — no OIDC, no publish
+    outputs:
+      hashes: ${{ steps.build.outputs.hashes }}
+      version: ${{ steps.build.outputs.version }}
+      dist-artifact-name: ${{ steps.names.outputs.dist }}
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+
+      # TODO: replace with $/build/actions/python when GitHub ships $/ syntax (#136)
+      - uses: TomHennen/wrangle/build/actions/python@c65a939677cbe9e1622933f6c16729677ce16c90 # implement-python-build 2026-04-25
+        id: build
+        with:
+          path: ${{ inputs.path }}
+          python-version: ${{ inputs.python-version }}
+          run-tests: ${{ inputs.run-tests }}
+
+      # Namespace artifact names by the path-derived shortname so multiple
+      # python builds in one workflow don't collide.
+      - id: names
+        shell: bash
+        env:
+          SHORTNAME: ${{ steps.build.outputs.shortname }}
+        run: |
+          set -euo pipefail
+          printf 'dist=python-dist-%s\n' "$SHORTNAME" >> "$GITHUB_OUTPUT"
+          printf 'metadata=python-metadata-%s\n' "$SHORTNAME" >> "$GITHUB_OUTPUT"
+
+      - uses: actions/upload-artifact@bbbca2ddaa5d8feaa63e36b76fdaad77386f024f # v7.0.0
+        with:
+          name: ${{ steps.names.outputs.dist }}
+          path: ${{ inputs.path }}/dist/
+
+      - uses: actions/upload-artifact@bbbca2ddaa5d8feaa63e36b76fdaad77386f024f # v7.0.0
+        with:
+          name: ${{ steps.names.outputs.metadata }}
+          path: ${{ steps.build.outputs.metadata-dir }}/
+          if-no-files-found: error
+
+  # Generate SLSA L3 provenance for the built artifacts. The generator
+  # runs in an isolated reusable workflow that the caller cannot tamper
+  # with — this is what makes the provenance non-falsifiable. Skipped
+  # on PRs because publishing is also skipped, so provenance there
+  # would be wasted compute.
+  #
+  # Provenance is uploaded as a workflow artifact only (no release-asset
+  # upload) so the caller does not have to grant `contents: write`.
+  # Adopters who want release-asset upload on tag pushes can attach the
+  # provenance themselves in their publish job — see
+  # gh_workflow_examples/build_python.yml for the recipe.
+  provenance:
+    if: ${{ ! startsWith(github.event_name, 'pull_') }}
+    needs: [build]
+    permissions:
+      actions: read    # detect the GitHub Actions environment
+      id-token: write  # OIDC for Sigstore signing
+      contents: read   # required by generator_generic_slsa3.yml's top-level permissions block
+    # MUST use tag, not SHA — the SLSA generator validates its own invocation
+    # ref. See https://github.com/TomHennen/wrangle/issues/147
+    uses: slsa-framework/slsa-github-generator/.github/workflows/generator_generic_slsa3.yml@v2.1.0 # zizmor: ignore[unpinned-uses] tag required by SLSA generator's OIDC verification
+    with:
+      base64-subjects: ${{ needs.build.outputs.hashes }}

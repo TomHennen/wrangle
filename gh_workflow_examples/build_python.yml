@@ -1,0 +1,82 @@
+# Copy this file to your repo at .github/workflows/build_python.yml
+#
+# Before first use:
+# 1. Configure a Trusted Publisher on PyPI (project settings → Publishing)
+#    - Owner: <your-github-org-or-user>
+#    - Repository: <your-repo>
+#    - Workflow name: build_python.yml
+# 2. Disable legacy API token uploads on PyPI to prevent token-theft attacks
+# 3. (Optional) Repeat on test.pypi.org for pre-release testing
+#
+# Publishing runs directly in this workflow (not inside wrangle's reusable
+# workflow) because PyPI Trusted Publishing requires the OIDC token to come
+# from your workflow, not a reusable workflow. See:
+# https://github.com/pypi/warehouse/issues/11096
+#
+# Wrangle's reusable workflow generates SLSA L3 provenance. This example
+# verifies that provenance with `slsa-verifier` before publishing — the
+# recommended pattern, but you may remove the verify step if you don't
+# need it. See build/actions/python/README.md for details.
+#
+# Trigger note: this workflow publishes whenever `github.event_name` is not
+# `pull_*`. With the default triggers below, only tag pushes (`push: tags:
+# ["v*"]`) and manual `workflow_dispatch` runs publish; PRs do not.
+# `workflow_dispatch` from any branch will publish, so tighten the trigger
+# (or add a branch/ref guard) if that is undesirable.
+name: Python Build
+
+on:
+  push:
+    tags: ["v*"]       # publish on version tags
+  pull_request:
+    branches: ["**"]   # build + test on PRs (no publish)
+  workflow_dispatch:
+
+jobs:
+  build:
+    permissions:
+      contents: read
+    uses: TomHennen/wrangle/.github/workflows/build_and_publish_python.yml@v0.2.0
+    with:
+      path: "."
+      # python-version: ""    # optional: auto-detected from pyproject.toml
+      # run-tests: true       # optional: skip with false
+
+  publish:
+    # Only publish on non-PR events.
+    if: ${{ ! startsWith(github.event_name, 'pull_') }}
+    needs: [build]
+    runs-on: ubuntu-latest
+    permissions:
+      id-token: write   # OIDC for Trusted Publishing + PEP 740 attestations
+    steps:
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        with:
+          name: ${{ needs.build.outputs.dist-artifact-name }}
+          path: dist/
+
+      # Verify SLSA provenance before publishing. This step is optional —
+      # remove it (and the download-artifact + installer steps above it)
+      # if you don't want to verify in the workflow.
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        with:
+          name: ${{ needs.build.outputs.provenance-artifact-name }}
+          path: provenance/
+      - uses: slsa-framework/slsa-verifier/actions/installer@ea584f4502babc6f60d9bc799dbbb13c1caa9ee6 # v2.7.1
+      - name: Verify SLSA provenance
+        env:
+          SOURCE_URI: github.com/${{ github.repository }}
+          # The SLSA generator's artifact name equals the provenance filename.
+          PROVENANCE_NAME: ${{ needs.build.outputs.provenance-artifact-name }}
+        run: |
+          set -euo pipefail
+          slsa-verifier verify-artifact \
+              --provenance-path "provenance/${PROVENANCE_NAME}" \
+              --source-uri "$SOURCE_URI" \
+              dist/*
+
+      - uses: pypa/gh-action-pypi-publish@cef221092ed1bacb1cc03d23a2d87d1d172e277b # v1.14.0
+        with:
+          attestations: true
+          packages-dir: dist/
+          # repository-url: "https://test.pypi.org/legacy/"  # for TestPyPI
