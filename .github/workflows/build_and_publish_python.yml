@@ -91,20 +91,24 @@ jobs:
   # on PRs because publishing is also skipped, so provenance there
   # would be wasted compute.
   #
-  # Provenance is uploaded as a workflow artifact only (no release-asset
-  # upload) so the caller does not have to grant `contents: write`.
-  # Adopters who want release-asset upload on tag pushes can attach the
-  # provenance themselves in their publish job — see
-  # gh_workflow_examples/build_python.yml for the recipe.
+  # contents: write is required because the generator's upload-assets
+  # job declares it. GitHub validates every called job's permissions
+  # at startup regardless of the job's `if:` condition, so granting
+  # write is mandatory even when upload-assets is false. Since the
+  # write permission is unavoidable, we use it: upload-assets is
+  # enabled on tag pushes so provenance and dist are attached as
+  # release assets (permanent, discoverable). Off-tag the generator
+  # only uploads provenance as a workflow artifact (90-day retention).
   provenance:
     if: ${{ ! startsWith(github.event_name, 'pull_') }}
     needs: [build]
     permissions:
       actions: read    # detect the GitHub Actions environment
       id-token: write  # OIDC for Sigstore signing
-      contents: read   # required by generator_generic_slsa3.yml's top-level permissions block
+      contents: write  # required by generator's upload-assets job at startup
     # MUST use tag, not SHA — the SLSA generator validates its own invocation
     # ref. See https://github.com/TomHennen/wrangle/issues/147
     uses: slsa-framework/slsa-github-generator/.github/workflows/generator_generic_slsa3.yml@v2.1.0 # zizmor: ignore[unpinned-uses] tag required by SLSA generator's OIDC verification
     with:
       base64-subjects: ${{ needs.build.outputs.hashes }}
+      upload-assets: ${{ startsWith(github.ref, 'refs/tags/') }}
