@@ -76,10 +76,15 @@ if ! command -v cosign >/dev/null 2>&1; then
     exit 1
 fi
 
+# Anchore's release.yaml runs on pushes to anchore/syft's main branch
+# (their release process is "push tag, GoReleaser+release.yaml on main signs
+# and publishes"), so the OIDC certificate's workflow_ref claim is
+# `@refs/heads/main`, not `@refs/tags/v...`. Locking to release.yaml on main
+# is the strongest claim available given how Anchore releases.
 if ! cosign verify-blob "$CHECKSUMS_PATH" \
     --certificate "$PEM_PATH" \
     --signature "$SIG_PATH" \
-    --certificate-identity-regexp '^https://github\.com/anchore/syft/\.github/workflows/release\.yaml@refs/tags/v[0-9]+\.[0-9]+\.[0-9]+$' \
+    --certificate-identity 'https://github.com/anchore/syft/.github/workflows/release.yaml@refs/heads/main' \
     --certificate-oidc-issuer 'https://token.actions.githubusercontent.com' \
     >/dev/null 2>&1; then
     printf 'wrangle: FATAL: Cosign signature verification failed for syft %s\n' "$VERSION" >&2

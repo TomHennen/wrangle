@@ -126,10 +126,12 @@ MOCK
     [ ! -f "$WRANGLE_BIN_DIR/syft" ]
 }
 
-@test "syft install: pins to anchore/syft release.yaml in cosign identity" {
-    # Structural check: the install script anchors trust to anchore/syft's
-    # release workflow. Loosening this regex requires a deliberate change.
-    run grep -F 'anchore/syft/\.github/workflows/release\.yaml' "$ORIG_DIR/tools/syft/install.sh"
+@test "syft install: pins to anchore/syft release.yaml on main in cosign identity" {
+    # Structural check: trust is locked to anchore/syft's release.yaml
+    # workflow on its main branch (Anchore's release process is "push tag,
+    # release.yaml signs from main"). Changing this requires a deliberate
+    # decision — it widens or narrows what cosign will accept.
+    run grep -F 'anchore/syft/.github/workflows/release.yaml@refs/heads/main' "$ORIG_DIR/tools/syft/install.sh"
     [ "$status" -eq 0 ]
 }
 
