@@ -1,9 +1,10 @@
 name: Wrangle Python Build
 description: |
   Build a Python package (wheel + sdist), run tests, generate SBOM,
-  and compute artifact hashes for SLSA provenance. Publishing and
-  provenance generation are handled by separate jobs in the reusable
-  workflow — this action only covers build + test + SBOM.
+  and compute artifact hashes for SLSA provenance. SLSA provenance
+  generation is handled by a separate job in the reusable workflow;
+  publishing lives in the adopter's own workflow because PyPI
+  Trusted Publishing does not support reusable workflows.
 
 inputs:
   path:
@@ -42,31 +43,7 @@ runs:
         INPUT_PATH: ${{ inputs.path }}
       run: |
         set -euo pipefail
-        set -f  # disable globbing — processes external input
-
-        # Validate path: must be relative, no traversal, safe characters only
-        if [[ "$INPUT_PATH" == /* ]]; then
-            printf 'Error: path must be relative, got: %s\n' "$INPUT_PATH" >&2
-            exit 1
-        fi
-        if [[ "$INPUT_PATH" == *..* ]]; then
-            printf 'Error: path traversal not allowed: %s\n' "$INPUT_PATH" >&2
-            exit 1
-        fi
-        if [[ ! "$INPUT_PATH" =~ ^[a-zA-Z0-9_./-]+$ ]]; then
-            printf 'Error: invalid characters in path: %s\n' "$INPUT_PATH" >&2
-            exit 1
-        fi
-
-        # Verify pyproject.toml exists
-        if [[ ! -f "$INPUT_PATH/pyproject.toml" ]]; then
-            if [[ -f "$INPUT_PATH/setup.py" ]]; then
-                printf 'Warning: using legacy setup.py (pyproject.toml preferred)\n'
-            else
-                printf 'Error: no pyproject.toml or setup.py found in %s\n' "$INPUT_PATH" >&2
-                exit 1
-            fi
-        fi
+        "${{ github.action_path }}/validate_inputs.sh" "$INPUT_PATH"
 
     - name: Setup Python
       uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5.6.0
@@ -93,34 +70,14 @@ runs:
       if: steps.tooling.outputs.use_uv == 'true'
       uses: astral-sh/setup-uv@08807647e7069bb48b6ef5acd8ec9567f424441b # v8.1.0
 
-    - name: Install dependencies (uv)
-      if: steps.tooling.outputs.use_uv == 'true'
+    - name: Install dependencies
       shell: bash
       env:
         INPUT_PATH: ${{ inputs.path }}
+        USE_UV: ${{ steps.tooling.outputs.use_uv }}
       run: |
         set -euo pipefail
-        cd "$INPUT_PATH"
-        uv sync
-
-    - name: Install dependencies (pip)
-      if: steps.tooling.outputs.use_uv != 'true'
-      shell: bash
-      env:
-        INPUT_PATH: ${{ inputs.path }}
-      run: |
-        set -euo pipefail
-        cd "$INPUT_PATH"
-        python -m pip install --upgrade pip
-        # Try [test] extra first, fall back to [dev], then bare install
-        if python -m pip install -e ".[test]" 2>/dev/null; then
-            printf 'Installed with [test] extra\n'
-        elif python -m pip install -e ".[dev]" 2>/dev/null; then
-            printf 'Installed with [dev] extra\n'
-        else
-            python -m pip install -e .
-            printf 'Installed without test extras\n'
-        fi
+        "${{ github.action_path }}/install_deps.sh" "$INPUT_PATH" "$USE_UV"
 
     - name: Run tests
       if: inputs.run-tests == 'true'
@@ -130,25 +87,7 @@ runs:
         USE_UV: ${{ steps.tooling.outputs.use_uv }}
       run: |
         set -euo pipefail
-        cd "$INPUT_PATH"
-
-        # Check if tests exist
-        HAS_TESTS=false
-        if [[ -d "tests" ]] || [[ -d "test" ]]; then
-            HAS_TESTS=true
-        elif grep -qF '[tool.pytest' pyproject.toml 2>/dev/null; then
-            HAS_TESTS=true
-        fi
-
-        if [[ "$HAS_TESTS" == "true" ]]; then
-            if [[ "$USE_UV" == "true" ]]; then
-                uv run pytest
-            else
-                python -m pytest
-            fi
-        else
-            printf 'No tests directory or [tool.pytest] config found, skipping tests\n'
-        fi
+        "${{ github.action_path }}/run_tests.sh" "$INPUT_PATH" "$USE_UV"
 
     - name: Build package
       shell: bash

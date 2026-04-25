@@ -13,6 +13,11 @@
 # from your workflow, not a reusable workflow. See:
 # https://github.com/pypi/warehouse/issues/11096
 #
+# Wrangle's reusable workflow generates SLSA L3 provenance. This example
+# verifies that provenance with `slsa-verifier` before publishing — the
+# recommended pattern, but you may remove the verify step if you don't
+# need it. See build/actions/python/README.md for details.
+#
 # Trigger note: this workflow publishes whenever `github.event_name` is not
 # `pull_*`. With the default triggers below, only tag pushes (`push: tags:
 # ["v*"]`) and manual `workflow_dispatch` runs publish; PRs do not.
@@ -50,24 +55,28 @@ jobs:
           name: ${{ needs.build.outputs.dist-artifact-name }}
           path: dist/
 
+      # Verify SLSA provenance before publishing. This step is optional —
+      # remove it (and the download-artifact + installer steps above it)
+      # if you don't want to verify in the workflow.
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        with:
+          name: ${{ needs.build.outputs.provenance-artifact-name }}
+          path: provenance/
+      - uses: slsa-framework/slsa-verifier/actions/installer@ea584f4502babc6f60d9bc799dbbb13c1caa9ee6 # v2.7.1
+      - name: Verify SLSA provenance
+        env:
+          SOURCE_URI: github.com/${{ github.repository }}
+          # The SLSA generator's artifact name equals the provenance filename.
+          PROVENANCE_NAME: ${{ needs.build.outputs.provenance-artifact-name }}
+        run: |
+          set -euo pipefail
+          slsa-verifier verify-artifact \
+              --provenance-path "provenance/${PROVENANCE_NAME}" \
+              --source-uri "$SOURCE_URI" \
+              dist/*
+
       - uses: pypa/gh-action-pypi-publish@cef221092ed1bacb1cc03d23a2d87d1d172e277b # v1.14.0
         with:
           attestations: true
           packages-dir: dist/
           # repository-url: "https://test.pypi.org/legacy/"  # for TestPyPI
-
-  provenance:
-    # Generate SLSA L3 provenance for the built artifacts and upload them
-    # as release assets on tag pushes (upload-assets: true). Without
-    # upload-assets, the contents: write permission below is unused.
-    if: ${{ ! startsWith(github.event_name, 'pull_') }}
-    needs: [build]
-    permissions:
-      actions: read
-      id-token: write
-      contents: write   # for uploading provenance + dist as release assets
-    # MUST use tag, not SHA — see https://github.com/TomHennen/wrangle/issues/147
-    uses: slsa-framework/slsa-github-generator/.github/workflows/generator_generic_slsa3.yml@v2.1.0
-    with:
-      base64-subjects: ${{ needs.build.outputs.hashes }}
-      upload-assets: ${{ startsWith(github.ref, 'refs/tags/') }}
