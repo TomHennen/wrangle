@@ -37,9 +37,6 @@ on:
       dist-artifact-name:
         description: "Name of the uploaded dist/ artifact (download with this name to publish)"
         value: ${{ jobs.build.outputs.dist-artifact-name }}
-      provenance-artifact-name:
-        description: "Name of the SLSA provenance workflow artifact (= the provenance filename). Empty on PR builds (provenance is gated on non-PR events)."
-        value: ${{ jobs.provenance.outputs.provenance-name }}
 
 jobs:
   build:
