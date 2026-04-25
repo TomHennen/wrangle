@@ -37,6 +37,9 @@ on:
       dist-artifact-name:
         description: "Name of the uploaded dist/ artifact (download with this name to publish)"
         value: ${{ jobs.build.outputs.dist-artifact-name }}
+      provenance-artifact-name:
+        description: "Name of the SLSA provenance workflow artifact (= the provenance filename). Empty on PR builds (provenance is gated on non-PR events)."
+        value: ${{ jobs.provenance.outputs.provenance-name }}
 
 jobs:
   build:
@@ -87,16 +90,20 @@ jobs:
   # with — this is what makes the provenance non-falsifiable. Skipped
   # on PRs because publishing is also skipped, so provenance there
   # would be wasted compute.
+  #
+  # Provenance is uploaded as a workflow artifact only (no release-asset
+  # upload) so the caller does not have to grant `contents: write`.
+  # Adopters who want release-asset upload on tag pushes can attach the
+  # provenance themselves in their publish job — see
+  # gh_workflow_examples/build_python.yml for the recipe.
   provenance:
     if: ${{ ! startsWith(github.event_name, 'pull_') }}
     needs: [build]
     permissions:
       actions: read    # detect the GitHub Actions environment
       id-token: write  # OIDC for Sigstore signing
-      contents: write  # upload provenance + dist as release assets on tag pushes
     # MUST use tag, not SHA — the SLSA generator validates its own invocation
     # ref. See https://github.com/TomHennen/wrangle/issues/147
     uses: slsa-framework/slsa-github-generator/.github/workflows/generator_generic_slsa3.yml@v2.1.0 # zizmor: ignore[unpinned-uses] tag required by SLSA generator's OIDC verification
     with:
       base64-subjects: ${{ needs.build.outputs.hashes }}
-      upload-assets: ${{ startsWith(github.ref, 'refs/tags/') }}

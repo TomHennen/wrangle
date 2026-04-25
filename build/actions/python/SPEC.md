@@ -118,7 +118,7 @@ Both names are namespaced by the path-derived `shortname` so that multiple pytho
 
 The reusable workflow invokes `slsa-framework/slsa-github-generator/.github/workflows/generator_generic_slsa3.yml` with the `hashes` output from the build job. The generator runs in an isolated environment and produces non-falsifiable provenance. Referenced by tag (`@vX.Y.Z`) per the generator's OIDC verification requirement (#147). The generator uploads the provenance file as a workflow artifact; the reusable workflow re-exports its `provenance-name` as `provenance-artifact-name` so the adopter can locate it.
 
-To upload provenance + dist as release assets on tag pushes, the provenance job sets `upload-assets: ${{ startsWith(github.ref, 'refs/tags/') }}` and holds `contents: write`. On non-tag pushes (e.g., `workflow_dispatch` from a branch), `upload-assets` is false and the permission is unused. Release assets are permanent and discoverable; workflow artifacts expire after 90 days.
+The provenance job only declares `actions: read` and `id-token: write` — deliberately not `contents: write`. Skipping `contents: write` keeps the caller's required permissions minimal: callers grant only what's needed for OIDC and environment detection, not for repository writes. The trade-off is that wrangle's reusable workflow does not call `upload-assets` itself — provenance lives as a workflow artifact (90-day retention). Adopters who want provenance attached to a GitHub release (permanent, discoverable) re-upload from their own publish job, where they already hold `contents: write` for the release; see the example workflow.
 
 Provenance is gated on non-PR events (`if: ! startsWith(github.event_name, 'pull_')`). On PR builds, only the build + test + SBOM steps run.
 
@@ -150,16 +150,15 @@ permissions:
   contents: read      # checkout
 ```
 
-The reusable workflow's `provenance` job requires the SLSA generator's standard set:
+The reusable workflow's `provenance` job requires:
 
 ```yaml
 permissions:
   actions: read       # detect the GitHub Actions environment
   id-token: write     # OIDC for Sigstore signing
-  contents: write     # release-asset upload on tag pushes
 ```
 
-No publish-side permissions live in the reusable workflow. OIDC for Trusted Publishing and the publish step live in the adopter's own workflow (see step 9).
+`contents: write` is intentionally not declared here so callers don't have to grant repository-write to wrangle's reusable workflow. Release-asset upload (provenance + dist as release assets on tag pushes) is handled in the adopter's publish job, which already needs `contents: write` for tag-driven releases. OIDC for Trusted Publishing also lives in the adopter's own workflow (see step 9).
 
 ## Reusable workflow
 
@@ -230,11 +229,9 @@ jobs:
     permissions:
       actions: read
       id-token: write
-      contents: write   # for upload-assets on tag pushes
     uses: slsa-framework/slsa-github-generator/.github/workflows/generator_generic_slsa3.yml@v2.1.0
     with:
       base64-subjects: ${{ needs.build.outputs.hashes }}
-      upload-assets: ${{ startsWith(github.ref, 'refs/tags/') }}
 ```
 
 The publish job lives in the adopter's calling workflow (see `gh_workflow_examples/build_python.yml`), which depends on this reusable workflow's `dist-artifact-name`, `provenance-artifact-name`, and `hashes` outputs.
