@@ -23,7 +23,7 @@ A GitHub composite action that builds and publishes a container image to GitHub 
 
 The action generates an SBOM for the container it builds. Today the SBOM is available two ways:
 
-- As a workflow artifact (`container-build-results-<shortname>`), downloadable from the Actions run page or via `actions/download-artifact` in a downstream job
+- As a workflow artifact named `container-metadata-<shortname>`, downloadable from the Actions run page or via `actions/download-artifact` in a downstream job. The reusable workflow also exposes the artifact name as the `metadata-artifact-name` output so callers don't have to hardcode it.
 - Embedded in the OCI image manifest as a BuildKit attestation, retrievable from the image itself with `docker buildx imagetools inspect --format '{{ json .SBOM.SPDX }}' <image>@<digest>`
 
 See [`SPEC.md` §"Where to find the SBOM"](./SPEC.md#where-to-find-the-sbom) for the full publication story (including the planned cosign SBOM attestation).

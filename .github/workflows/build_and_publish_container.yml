@@ -23,6 +23,16 @@ on:
       gh_token:
         description: "GitHub token with write access"
         required: true
+    outputs:
+      digest:
+        description: "Image digest pushed to the registry."
+        value: ${{ jobs.build.outputs.digest }}
+      imagename:
+        description: "Normalized (lowercased) image name."
+        value: ${{ jobs.build.outputs.imagename }}
+      metadata-artifact-name:
+        description: "Name of the workflow artifact containing the SBOM and any scan output (`container-metadata-<shortname>`)."
+        value: ${{ jobs.build.outputs.metadata-artifact-name }}
 
 jobs:
   build:
@@ -32,6 +42,7 @@ jobs:
     outputs:
       digest: ${{ steps.build.outputs.digest }}
       imagename: ${{ steps.build.outputs.imagename }}
+      metadata-artifact-name: container-metadata-${{ steps.build.outputs.shortname }}
     runs-on: ubuntu-latest
     steps:
     # TODO: replace with $/build/actions/container when GitHub ships $/ syntax (#136)

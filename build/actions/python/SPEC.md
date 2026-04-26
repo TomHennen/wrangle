@@ -62,6 +62,7 @@ The publish-on-non-PR safety gate (`if: ! startsWith(github.event_name, 'pull_')
 | `hashes` | reusable workflow + composite | Base64-encoded SHA-256 hashes in the format `slsa-github-generator`'s `base64-subjects` input expects. Pass directly to the provenance job. |
 | `dist-artifact-name` | reusable workflow only | Name of the uploaded `dist/` artifact, namespaced by path-derived shortname so multiple python builds in one workflow don't collide. The publish job downloads using this name. |
 | `provenance-artifact-name` | reusable workflow only | Name of the uploaded SLSA provenance artifact (re-exported from `slsa-github-generator`'s `provenance-name`). Empty on PR builds because the provenance job is gated on non-PR events. |
+| `metadata-artifact-name` | reusable workflow only | Name of the uploaded metadata workflow artifact (`python-metadata-<shortname>`). Naming and contents follow the unified-metadata convention shared across all build types; see [`docs/SPEC.md`](../../../docs/SPEC.md) "Unified metadata layout." |
 | `shortname` | composite only | Path-derived short name (e.g., `.` becomes `_`, `pkg/foo` becomes `pkg_foo`). Used for artifact namespacing when the composite is invoked directly. |
 | `metadata-dir` | composite only | Path to the metadata directory (`metadata/python/<shortname>/`) containing the SBOM. |
 

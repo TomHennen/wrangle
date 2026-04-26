@@ -61,7 +61,7 @@ The reusable workflow surfaces the identifiers a downstream release job needs to
 |--------|-------------|
 | `digest` | The image digest of the published image (`sha256:...`), forwarded from the composite action's build-and-push step. Identifies the exact image that was signed and attested. |
 | `imagename` | Validated, lowercased image name (e.g., `ghcr.io/owner/repo/image`), forwarded from the composite action. |
-| `sbom_artifact` | Name of the uploaded workflow artifact containing the SPDX SBOM and SARIF scan output (e.g., `container-build-results-<shortname>`). Downstream jobs can fetch it via `actions/download-artifact`. |
+| `metadata-artifact-name` | Name of the uploaded workflow artifact containing the SBOM and any scan output (e.g., `container-metadata-<shortname>`). Downstream jobs can fetch it via `actions/download-artifact`. Naming and contents follow the unified-metadata convention; see [`docs/SPEC.md`](../../../docs/SPEC.md) "Unified metadata layout." |
 
 ## Step sequence
 
@@ -284,7 +284,7 @@ These enable consumers to enforce verification policies on their side, but wrang
 
 Today the SPDX SBOM is published in two places, and a third is planned:
 
-1. **Workflow artifact (available now).** The composite action uploads the `./metadata/` directory as the workflow artifact `container-build-results-<shortname>`, which contains the SBOM at `metadata/container/<shortname>/sbom.spdx.json` alongside SARIF scan output. Downstream jobs can fetch it with `actions/download-artifact`; humans can download it from the Actions run page. The reusable workflow exposes the artifact name as the `sbom_artifact` output so callers don't have to hardcode the naming convention.
+1. **Workflow artifact (available now).** The composite action writes to `metadata/container/<shortname>/sbom.spdx.json` and uploads that directory as the workflow artifact `container-metadata-<shortname>`. Downstream jobs can fetch it with `actions/download-artifact`; humans can download it from the Actions run page. The reusable workflow exposes the artifact name as the `metadata-artifact-name` output so callers don't have to hardcode the naming convention. The directory layout follows the unified-metadata convention shared across all build types — see [`docs/SPEC.md`](../../../docs/SPEC.md) "Unified metadata layout."
 2. **Embedded in the BuildKit image attestation (available now).** Because the build step is invoked with `sbom: true`, BuildKit attaches the SBOM to the OCI image manifest as an in-toto attestation. Consumers can retrieve it from the image itself, without access to the original workflow run, via:
    ```bash
    docker buildx imagetools inspect --format '{{ json .SBOM.SPDX }}' \
