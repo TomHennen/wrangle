@@ -51,6 +51,12 @@ with:
   verify-image: false   # skip wrangle's verification; you handle it
 ```
 
+### Private-repo limitation
+
+`cosign verify-attestation` against ghcr.io public images works without registry authentication. For **private** images (or registries with anonymous-pull disabled), the manifest and attestation pulls require auth that wrangle's verify job doesn't currently provide — so private-repo adopters must set `verify-image: false` and verify in their own job today. If this affects you, please comment or thumbs-up [#182](https://github.com/TomHennen/wrangle/issues/182) so we can prioritize.
+
+### Future: image-signature verification
+
 When `cosign sign` of the image digest lands in the composite action, this verify job will additionally check the image signature with the adopter's `workflow_ref` as the cert identity.
 
 ## SBOM

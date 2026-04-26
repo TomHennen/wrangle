@@ -47,7 +47,7 @@ Two ways to adopt:
 ## Outputs from the reusable workflow
 
 - `dist-artifact-name` — workflow-artifact name to download with `actions/download-artifact` to retrieve the built wheel + sdist.
-- `provenance-artifact-name` — workflow-artifact name for the SLSA provenance (empty when `should-release` is false). Format: `python-<shortname>.intoto.jsonl` so multiple python builds in one workflow don't collide on the same artifact name.
+- `provenance-artifact-name` — workflow-artifact name for the SLSA provenance (empty when `should-release` is false). Format: `python-<shortname>.intoto.jsonl` so multiple python builds in one workflow don't collide on the same artifact name. (When [#181](https://github.com/TomHennen/wrangle/issues/181) ships, consumers will see a single bundled `multiple.intoto.jsonl` on the release; the per-build namespaced files will become workflow-internal intermediates.)
 - `metadata-artifact-name` — workflow-artifact name for the SBOM and any scan output (`python-metadata-<shortname>`). See [`docs/SPEC.md`](../../../docs/SPEC.md) "Unified metadata layout."
 - `should-release` — `"true"` if the current event matches `release-events`. Your publish job MUST gate on this (see below).
 - `hashes`, `version`.
@@ -102,7 +102,7 @@ PyPI stores Sigstore-based PEP 740 attestations alongside every wheel published 
 
 ### SLSA L3 provenance (against your repo's release)
 
-SLSA provenance proves **how the artifact was built** — inputs, builder, materials — and is non-falsifiable because the generator runs in an isolated reusable workflow. Wrangle uploads the provenance to your GitHub release on tag pushes (because the reusable workflow sets `upload-assets: ${{ startsWith(github.ref, 'refs/tags/') }}`). The filename is `python-<shortname>.intoto.jsonl` (e.g., `python-_.intoto.jsonl` for a top-level project, where `_` is the shortname for `.`). Verify with `slsa-verifier`:
+SLSA provenance proves **how the artifact was built** — inputs, builder, materials — and is non-falsifiable because the generator runs in an isolated reusable workflow. Wrangle uploads the provenance to your GitHub release on tag pushes (because the reusable workflow sets `upload-assets: ${{ startsWith(github.ref, 'refs/tags/') }}`). The filename today is `python-<shortname>.intoto.jsonl` (e.g., `python-_.intoto.jsonl` for a top-level project, where `_` is the shortname for `.`). [#181](https://github.com/TomHennen/wrangle/issues/181) tracks moving to a single `multiple.intoto.jsonl` bundle (in-toto convention) at the release/consumer layer; until that ships, use the per-build filename. Verify with `slsa-verifier`:
 
 ```bash
 # Download wheel + provenance from your GitHub release
