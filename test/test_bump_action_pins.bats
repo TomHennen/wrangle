@@ -271,6 +271,75 @@ EOF
     grep -qF "@${NEW_SHA} # back\\slash" .github/workflows/a.yml
 }
 
+# --- Default branch-label detection (issue #173) ---
+
+@test "bump_action_pins: labels as 'main' when target SHA is on main, even from a feature branch" {
+    # Setup: a real main branch with a real commit (so target_sha is reachable
+    # from main), then a feature branch we run the script from.
+    git checkout -q -b main 2>/dev/null || git checkout -q main
+    target_sha="$(git rev-parse HEAD)"
+    git checkout -q -b cleanup-branch
+    cat > .github/workflows/a.yml <<EOF
+jobs:
+  build:
+    uses: TomHennen/wrangle/build/actions/python@aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
+EOF
+    # Don't pass WRANGLE_PINS_BRANCH — exercise default detection.
+    unset WRANGLE_PINS_BRANCH
+    run "$SCRIPT" "$target_sha"
+    [[ "$status" -eq 0 ]]
+    grep -qF "# main 2099-12-31" .github/workflows/a.yml
+}
+
+@test "bump_action_pins: labels as current branch when target SHA is NOT on main" {
+    # Setup: main with one commit, feature branch with an additional commit.
+    # Run the script targeting the feature-branch-only commit.
+    git checkout -q -b main 2>/dev/null || git checkout -q main
+    git checkout -q -b feature
+    git commit --allow-empty -q -m "feature work"
+    target_sha="$(git rev-parse HEAD)"
+    cat > .github/workflows/a.yml <<EOF
+jobs:
+  build:
+    uses: TomHennen/wrangle/build/actions/python@aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
+EOF
+    unset WRANGLE_PINS_BRANCH
+    run "$SCRIPT" "$target_sha"
+    [[ "$status" -eq 0 ]]
+    grep -qF "# feature 2099-12-31" .github/workflows/a.yml
+}
+
+@test "bump_action_pins: WRANGLE_PINS_BRANCH overrides auto-detection" {
+    # Even when target IS on main, an explicit override wins.
+    git checkout -q -b main 2>/dev/null || git checkout -q main
+    target_sha="$(git rev-parse HEAD)"
+    cat > .github/workflows/a.yml <<EOF
+jobs:
+  build:
+    uses: TomHennen/wrangle/build/actions/python@aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
+EOF
+    WRANGLE_PINS_BRANCH="explicit-label" run "$SCRIPT" "$target_sha"
+    [[ "$status" -eq 0 ]]
+    grep -qF "# explicit-label 2099-12-31" .github/workflows/a.yml
+}
+
+@test "bump_action_pins: WRANGLE_PINS_DEFAULT_BRANCH redirects ancestry check" {
+    # If the operator's repo uses `master`, point the merge-base check there.
+    # Rename whatever the initial branch is (depends on init.defaultBranch).
+    git branch -m master
+    target_sha="$(git rev-parse HEAD)"
+    git checkout -q -b cleanup-branch
+    cat > .github/workflows/a.yml <<EOF
+jobs:
+  build:
+    uses: TomHennen/wrangle/build/actions/python@aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
+EOF
+    unset WRANGLE_PINS_BRANCH
+    WRANGLE_PINS_DEFAULT_BRANCH="master" run "$SCRIPT" "$target_sha"
+    [[ "$status" -eq 0 ]]
+    grep -qF "# master 2099-12-31" .github/workflows/a.yml
+}
+
 @test "bump_action_pins: only mixed-SHA files are rewritten when some pins already match target" {
     # File with a mix of SHAs — must be rewritten so all pins reach target.
     cat > .github/workflows/mixed.yml <<EOF
