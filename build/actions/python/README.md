@@ -71,10 +71,18 @@ This step is **recommended but not required**. It catches the case where the pro
 
 ## Verifying after install (downstream consumers)
 
-Your package's *consumers* — anyone who installs your wheel — can verify provenance independently of your workflow:
+Your package's consumers — anyone who installs your wheel — can verify it two complementary ways. Each answers a different question, and they trust different roots.
+
+### PEP 740 attestations (against PyPI)
+
+PyPI stores Sigstore-based PEP 740 attestations alongside every wheel published with `attestations: true` (which `pypa/gh-action-pypi-publish` does in the example workflow). These prove **who published the package** — the GitHub workflow identity, recorded in Sigstore's transparency log. `pip` verifies them natively (experimental as of pip 24.x); `sigstore-python` verifies them on the command line. The wheel's PyPI page also displays the verification status. No download from your repo needed — PyPI is the source of truth.
+
+### SLSA L3 provenance (against your repo's release)
+
+SLSA provenance proves **how the artifact was built** — inputs, builder, materials — and is non-falsifiable because the generator runs in an isolated reusable workflow. Wrangle uploads the provenance to your GitHub release on tag pushes (because the reusable workflow sets `upload-assets: ${{ startsWith(github.ref, 'refs/tags/') }}`). The default filename is `multiple.intoto.jsonl` (the SLSA generic generator's default for multi-artifact builds). Verify with `slsa-verifier`:
 
 ```bash
-# Download the wheel and the provenance from your GitHub release
+# Download wheel + provenance from your GitHub release
 curl -LO "https://github.com/<owner>/<repo>/releases/download/<tag>/<package>-<version>-py3-none-any.whl"
 curl -LO "https://github.com/<owner>/<repo>/releases/download/<tag>/multiple.intoto.jsonl"
 
@@ -87,7 +95,9 @@ slsa-verifier verify-artifact \
   <package>-<version>-py3-none-any.whl
 ```
 
-For this to work, the example workflow's provenance job must be configured with `upload-assets: ${{ startsWith(github.ref, 'refs/tags/') }}` (it is, by default) and the publish must be on a tag push. The PEP 740 attestations published to PyPI alongside the wheel are a separate, complementary trust signal — verified by `pip` natively.
+Provenance is **only** in the GitHub release on tag pushes. On non-tag publishes (e.g., `workflow_dispatch` from a branch) the provenance lives only as a 90-day workflow artifact and is not retrievable by external consumers. Adopters whose workflows don't push tags should publicize how to obtain provenance — wrangle's convention is "tag pushes attach provenance to the release; non-tag publishes don't have consumer-retrievable provenance."
+
+The same `slsa-verifier verify-artifact` invocation is exercised by wrangle's integration test against TestPyPI in [`gh_workflow_examples/build_python.yml`](../../../gh_workflow_examples/build_python.yml)'s publish job (which downloads provenance from a workflow artifact instead of a release asset, but the verify call is identical). Consumer-side verification against a real GitHub release is not yet integration-tested; see [#163](https://github.com/TomHennen/wrangle/issues/163).
 
 ## SBOM
 
