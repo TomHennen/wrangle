@@ -204,23 +204,67 @@ setup() {
 
 # --- Example workflow tests ---
 
-@test "python: example workflow downloads provenance artifact" {
-    run grep 'provenance-artifact-name' "$EXAMPLE"
-    [[ "$status" -eq 0 ]]
-}
-
-@test "python: example workflow installs and runs slsa-verifier before publish" {
+@test "python: example workflow does NOT install slsa-verifier (moved to reusable, #176)" {
+    # Verification is now wrangle's responsibility; the example workflow's
+    # publish job is just download-dist + pypi-publish. If the example
+    # regrew per-adopter slsa-verifier wiring, that would be wasted work
+    # AND would mask wrangle's verify-job failures by re-verifying.
     run grep 'slsa-verifier/actions/installer' "$EXAMPLE"
-    [[ "$status" -eq 0 ]]
-    # verify-artifact must appear before pypi-publish
-    run bash -c "awk '/slsa-verifier verify-artifact/{v=NR} /pypa\\/gh-action-pypi-publish/{p=NR} END{exit !(v && p && v<p)}' \"$EXAMPLE\""
-    [[ "$status" -eq 0 ]]
+    [[ "$status" -ne 0 ]]
+    run grep 'slsa-verifier verify-artifact' "$EXAMPLE"
+    [[ "$status" -ne 0 ]]
 }
 
 @test "python: example workflow does NOT call SLSA generator (moved to reusable)" {
-    # Provenance generation now lives in wrangle's reusable workflow, not the example.
+    # Provenance generation lives in wrangle's reusable workflow, not the example.
     run grep 'slsa-github-generator' "$EXAMPLE"
     [[ "$status" -ne 0 ]]
+}
+
+@test "python: reusable workflow has verify job calling slsa-verifier" {
+    run grep -E '^  verify:' "$WORKFLOW"
+    [[ "$status" -eq 0 ]]
+    run grep 'slsa-verifier/actions/installer' "$WORKFLOW"
+    [[ "$status" -eq 0 ]]
+    run grep 'slsa-verifier verify-artifact' "$WORKFLOW"
+    [[ "$status" -eq 0 ]]
+}
+
+@test "python: verify job is gated on should-release AND verify-provenance" {
+    run bash -c "sed -n '/^  verify:/,/^[a-z]/p' \"$WORKFLOW\" | grep -E \"if:.*should-release.*verify-provenance\""
+    [[ "$status" -eq 0 ]]
+}
+
+@test "python: workflow exposes verify-provenance input (default true)" {
+    run grep -E '^      verify-provenance:' "$WORKFLOW"
+    [[ "$status" -eq 0 ]]
+    # Find the boolean default — must be true.
+    run bash -c "sed -n '/^      verify-provenance:/,/^      [a-z]/p' \"$WORKFLOW\" | grep -E 'default:[[:space:]]*true'"
+    [[ "$status" -eq 0 ]]
+}
+
+@test "python: provenance job passes namespaced provenance-name to SLSA generator" {
+    # actions/download-artifact picks non-deterministically when two artifacts
+    # share a name in the same run. Multiple python builds in one workflow
+    # would both produce 'multiple.intoto.jsonl' under the SLSA generator's
+    # default. We pass provenance-name to namespace by shortname.
+    run bash -c "sed -n '/^  provenance:/,/^[a-z]/p' \"$WORKFLOW\" | grep -E 'provenance-name:.*shortname'"
+    [[ "$status" -eq 0 ]]
+}
+
+@test "python: build job exposes shortname output" {
+    run bash -c "sed -n '/^  build:/,/^  [a-z]/p' \"$WORKFLOW\" | grep -E '^[[:space:]]*shortname:'"
+    [[ "$status" -eq 0 ]]
+}
+
+@test "python: verify job depends on provenance and downloads its artifact" {
+    # needs: must include 'provenance' so verify runs after the SLSA generator,
+    # and the verify job must download the provenance artifact via its name
+    # output (not hardcode the filename).
+    run bash -c "sed -n '/^  verify:/,/^[a-z]/p' \"$WORKFLOW\" | grep -E 'needs:.*provenance'"
+    [[ "$status" -eq 0 ]]
+    run bash -c "sed -n '/^  verify:/,/^[a-z]/p' \"$WORKFLOW\" | grep 'needs.provenance.outputs.provenance-name'"
+    [[ "$status" -eq 0 ]]
 }
 
 @test "python: example workflow grants contents: write to build job" {

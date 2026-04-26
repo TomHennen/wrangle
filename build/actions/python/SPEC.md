@@ -4,7 +4,7 @@
 
 The Python build type builds, tests, and produces Python packages with SBOM generation and artifact hashes for SLSA provenance. It supports two layers of attestation: PEP 740 Sigstore attestations (publisher identity, verified by PyPI) and SLSA Build L3 provenance.
 
-Wrangle's reusable workflow handles build, test, SBOM generation, and SLSA L3 provenance generation. **Publishing is handled by the adopter's own workflow** because PyPI Trusted Publishing does not support reusable workflows ([pypi/warehouse#11096](https://github.com/pypi/warehouse/issues/11096)) — the OIDC `workflow_ref` claim must point at the caller, not at a reusable workflow. The adopter's publish job downloads both the dist artifact and the provenance artifact from wrangle's reusable workflow, optionally verifies the provenance with `slsa-verifier verify-artifact` before publishing, and then runs `pypa/gh-action-pypi-publish`. The example workflow at `gh_workflow_examples/build_python.yml` shows the full verify-then-publish wiring. When PyPI adds reusable workflow support (#157), publishing will collapse back into the reusable workflow.
+Wrangle's reusable workflow handles build, test, SBOM generation, SLSA L3 provenance generation, and provenance verification. **Publishing is handled by the adopter's own workflow** because PyPI Trusted Publishing does not support reusable workflows ([pypi/warehouse#11096](https://github.com/pypi/warehouse/issues/11096)) — the OIDC `workflow_ref` claim must point at the caller, not at a reusable workflow. Wrangle verifies the dist against its provenance before declaring success; if verification fails the workflow fails and the caller's publish is blocked via `needs:` propagation. The adopter's publish job is just `download-artifact` + `pypa/gh-action-pypi-publish` — no boilerplate verify step. Adopters with a custom verification flow opt out via `verify-provenance: false`. The example workflow at `gh_workflow_examples/build_python.yml` shows the full wiring. When PyPI adds reusable workflow support (#157), publishing will collapse back into the reusable workflow.
 
 ## Design principles
 
@@ -49,7 +49,8 @@ Before the first publish, the adopter must:
 | `path` | No | `.` | Relative path to the directory containing `pyproject.toml` |
 | `python-version` | No | (auto-detect) | Python version override. If empty, detected from `pyproject.toml` via `actions/setup-python`'s `python-version-file` feature. |
 | `run-tests` | No | `true` | Whether to run pytest before building |
-| `release-events` | No | `non-pull-request` | Which events trigger release-time actions (provenance, publish). See [`docs/SPEC.md`](../../../docs/SPEC.md) "Release-events gating" for the full vocabulary. |
+| `release-events` | No | `non-pull-request` | Which events trigger release-time actions (provenance, verification, publish). See [`docs/SPEC.md`](../../../docs/SPEC.md) "Release-events gating" for the full vocabulary. |
+| `verify-provenance` | No | `true` | Run `slsa-verifier verify-artifact` against the just-built dist before declaring the workflow successful. Verify failure fails the workflow; the caller's publish is then blocked via `needs:` propagation. Set to `false` to skip wrangle's verification. |
 
 Wrangle's reusable workflow has no `repository-url` input — publishing lives in the adopter's own workflow because PyPI Trusted Publishing requires the OIDC token's `workflow_ref` to point at the adopter, not at a reusable workflow ([pypi/warehouse#11096](https://github.com/pypi/warehouse/issues/11096)). The adopter's publish job sets `repository-url` directly on `pypa/gh-action-pypi-publish`.
 
@@ -127,22 +128,33 @@ Callers of this reusable workflow must therefore grant `contents: write` themsel
 
 Provenance is gated on the `release-events` input (default `non-pull-request`). The reusable workflow runs a small `gate` job that calls `actions/release_gate` and exposes a `should-release` output; the provenance job runs only when `should-release == 'true'`. On gated-out runs (e.g., PRs, or non-tag events when `release-events: tag-only`), only the build + test + SBOM steps run. See [`docs/SPEC.md`](../../../docs/SPEC.md) "Release-events gating" for the full predicate vocabulary.
 
-### 9. Verify provenance and publish (adopter workflow, gated on should-release)
+### 9. Verify provenance (reusable workflow, gated on should-release && verify-provenance)
+
+After the SLSA generator emits provenance, wrangle's reusable workflow runs a `verify` job that:
+
+1. Downloads the dist artifact (`python-dist-<shortname>`) and the provenance artifact (the SLSA generator's `provenance-name` output).
+2. Installs `slsa-verifier` (via `slsa-framework/slsa-verifier/actions/installer`, SHA-pinned).
+3. Runs `slsa-verifier verify-artifact --provenance-path … --source-uri github.com/<owner>/<repo> dist/*`.
+
+If verification fails, the verify job fails — and via standard `needs:` propagation the reusable workflow fails. The caller's publish job, gated on `should-release == 'true'` AND `needs: [build]` of the reusable workflow, is therefore blocked. This catches the "dist tampered with between wrangle's build and the caller's publish" case as a wrangle-owned guarantee rather than per-adopter boilerplate.
+
+The verify job is gated on `needs.gate.outputs.should-release == 'true' && inputs.verify-provenance` (boolean, default `true`). Adopters who run a custom verification flow set `verify-provenance: false`; in that mode the dist's integrity between wrangle and the caller's publish becomes an adopter-managed concern and the caller's publish job assumes responsibility for verification.
+
+### 10. Publish (adopter workflow, gated on should-release)
 
 The adopter's calling workflow runs a `publish` job with `id-token: write`. The job:
 
 1. Downloads the `python-dist-<shortname>` artifact via `dist-artifact-name`.
-2. **Recommended:** downloads the SLSA provenance artifact via `provenance-artifact-name`, installs `slsa-verifier` (via `slsa-framework/slsa-verifier/actions/installer`), and runs `slsa-verifier verify-artifact --provenance-path … --source-uri github.com/<owner>/<repo> dist/*`. Verifying before publish makes a tampered build (provenance does not match the artifact) abort before reaching PyPI. Adopters who do not need this verification can drop the download + verify steps.
-3. Publishes via `pypa/gh-action-pypi-publish` with:
+2. Publishes via `pypa/gh-action-pypi-publish` with:
    - `attestations: true` — generates PEP 740 Sigstore attestations
    - `packages-dir: dist/` — the built artifacts
    - `repository-url:` — defaults to PyPI; override to `https://test.pypi.org/legacy/` for TestPyPI
 
 Trusted Publishing handles authentication via OIDC. No secrets needed.
 
-The publish job does **not** live in the reusable workflow because PyPI Trusted Publishing's OIDC `workflow_ref` claim must point at the caller, not at a reusable workflow ([pypi/warehouse#11096](https://github.com/pypi/warehouse/issues/11096)). The provenance generator does not have this constraint, which is why provenance moved into the reusable workflow while publish stayed out.
+The publish job does **not** live in the reusable workflow because PyPI Trusted Publishing's OIDC `workflow_ref` claim must point at the caller, not at a reusable workflow ([pypi/warehouse#11096](https://github.com/pypi/warehouse/issues/11096)). Provenance generation and verification do not have this constraint, which is why both moved into the reusable workflow while publish stayed out.
 
-### 10. Generate summary and upload metadata
+### 11. Generate summary and upload metadata
 
 The composite action writes a step summary (package name, version, list of artifacts). The reusable workflow zips the contents of the SBOM/metadata directory (`metadata/python/<shortname>/`) and uploads them as the `python-metadata-<shortname>` workflow artifact (see step 7). See #150 for the vision of unified build results. See #155 for whether wrangle should also write attestations to GitHub's attestation store.
 

@@ -32,7 +32,32 @@ with:
   release-events: tag-only   # only tag pushes mint provenance
 ```
 
-Note: `release-events` currently scopes only the SLSA provenance job. The docker push happens mid-composite and is gated by your workflow's own trigger configuration (see [`SPEC.md` §"Trigger restriction"](./SPEC.md#trigger-restriction)).
+Note: `release-events` currently scopes the SLSA provenance and verify jobs. The docker push happens mid-composite and is gated by your workflow's own trigger configuration (see [`SPEC.md` §"Trigger restriction"](./SPEC.md#trigger-restriction)).
+
+## SLSA attestation verification (default-on, opt-out)
+
+After the SLSA generator emits the provenance attestation, wrangle's reusable workflow runs `cosign verify-attestation --type slsaprovenance` against the just-pushed image digest before declaring the workflow successful. This catches the "registry served bytes that don't match what wrangle pushed" attack window. If verification fails, the workflow fails — and any downstream release-time job that depends on it via `needs:` is blocked.
+
+Wrangle pins the cert identity to the SLSA generator's tag (`v2.1.0` today) so verification only succeeds against attestations signed by *that* generator workflow. The `--certificate-github-workflow-repository` claim is additionally pinned to your repository, so attestations minted from another repo using the same generator version do not pass.
+
+To opt out (e.g., you maintain a custom verification flow), pass `verify-image: false`:
+
+```yaml
+uses: TomHennen/wrangle/.github/workflows/build_and_publish_container.yml@v0.2.0
+with:
+  path: .
+  imagename: ghcr.io/<owner>/<repo>
+  registry: ghcr.io
+  verify-image: false   # skip wrangle's verification; you handle it
+```
+
+### Private-repo limitation
+
+`cosign verify-attestation` against ghcr.io public images works without registry authentication. For **private** images (or registries with anonymous-pull disabled), the manifest and attestation pulls require auth that wrangle's verify job doesn't currently provide — so private-repo adopters must set `verify-image: false` and verify in their own job today. If this affects you, please comment or thumbs-up [#182](https://github.com/TomHennen/wrangle/issues/182) so we can prioritize.
+
+### Future: image-signature verification
+
+When `cosign sign` of the image digest lands in the composite action, this verify job will additionally check the image signature with the adopter's `workflow_ref` as the cert identity.
 
 ## SBOM
 

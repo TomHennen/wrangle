@@ -30,7 +30,8 @@ on:
       release-events:
         description: |
           Which events should trigger release-time actions (SLSA provenance,
-          and — in the caller's publish job — package publish). One of:
+          verification, and — in the caller's publish job — package publish).
+          One of:
             - non-pull-request (default): every event except pull_request*.
             - tag-only: push to refs/tags/* only.
             - main-and-tags: push to refs/heads/main or refs/tags/*.
@@ -39,6 +40,20 @@ on:
         required: false
         type: string
         default: non-pull-request
+      verify-provenance:
+        description: |
+          When true (default), wrangle runs `slsa-verifier verify-artifact`
+          against the just-built dist before declaring the workflow
+          successful. If verification fails, the workflow fails — and the
+          caller's publish job is blocked via standard `needs:` propagation,
+          so a tampered dist between build and publish cannot be released.
+          Set to false to skip wrangle's verification (e.g., adopters with
+          a custom verification flow). Skipping makes the dist's integrity
+          between wrangle's build and the caller's publish an
+          adopter-managed concern.
+        required: false
+        type: boolean
+        default: true
     outputs:
       hashes:
         description: "Base64-encoded SHA-256 hashes of built artifacts (for SLSA provenance)"
@@ -76,7 +91,7 @@ jobs:
     steps:
       # No checkout: release_gate resolves via ${{ github.action_path }}.
       # TODO: replace with $/actions/release_gate when GitHub ships $/ syntax (#136)
-      - uses: TomHennen/wrangle/actions/release_gate@391c46e2dc5d3bc17ce183ad2094380b04c041c1 # add-release-gate 2026-04-26
+      - uses: TomHennen/wrangle/actions/release_gate@367a4a446a24307a11844b710c40770cd4f4f6a7 # add-release-verify 2026-04-26
         id: gate
         with:
           events: ${{ inputs.release-events }}
@@ -88,6 +103,7 @@ jobs:
     outputs:
       hashes: ${{ steps.build.outputs.hashes }}
       version: ${{ steps.build.outputs.version }}
+      shortname: ${{ steps.build.outputs.shortname }}
       dist-artifact-name: ${{ steps.names.outputs.dist }}
       metadata-artifact-name: ${{ steps.names.outputs.metadata }}
     steps:
@@ -96,7 +112,7 @@ jobs:
           persist-credentials: false
 
       # TODO: replace with $/build/actions/python when GitHub ships $/ syntax (#136)
-      - uses: TomHennen/wrangle/build/actions/python@391c46e2dc5d3bc17ce183ad2094380b04c041c1 # add-release-gate 2026-04-26
+      - uses: TomHennen/wrangle/build/actions/python@367a4a446a24307a11844b710c40770cd4f4f6a7 # add-release-verify 2026-04-26
         id: build
         with:
           path: ${{ inputs.path }}
@@ -151,4 +167,48 @@ jobs:
     uses: slsa-framework/slsa-github-generator/.github/workflows/generator_generic_slsa3.yml@v2.1.0 # zizmor: ignore[unpinned-uses] tag required by SLSA generator's OIDC verification
     with:
       base64-subjects: ${{ needs.build.outputs.hashes }}
+      # Namespace the provenance filename by shortname so multiple python
+      # builds in one workflow don't collide on the default `multiple.intoto.jsonl`.
+      # actions/download-artifact picks non-deterministically when two artifacts
+      # share a name in the same run, and the verify job below would download
+      # the wrong build's provenance. The README documents that the actual
+      # filename is exposed via `provenance-artifact-name` so adopters don't
+      # need to reconstruct the convention themselves.
+      provenance-name: python-${{ needs.build.outputs.shortname }}.intoto.jsonl
       upload-assets: ${{ startsWith(github.ref, 'refs/tags/') }}
+
+  # Verify the just-built dist matches the just-generated provenance.
+  # Catches "dist tampered with after build, before publish" — the same
+  # guarantee the example workflow used to provide via per-adopter
+  # boilerplate, now owned by wrangle. Failing here fails the workflow,
+  # which (via standard `needs:` propagation) blocks the caller's
+  # publish job. Adopters with custom verification flows pass
+  # `verify-provenance: false` and wire their own.
+  verify:
+    if: ${{ needs.gate.outputs.should-release == 'true' && inputs.verify-provenance }}
+    needs: [gate, build, provenance]
+    runs-on: ubuntu-latest
+    permissions: {}    # default token; download-artifact reads same-run artifacts
+    steps:
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        with:
+          name: ${{ needs.build.outputs.dist-artifact-name }}
+          path: dist/
+
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        with:
+          name: ${{ needs.provenance.outputs.provenance-name }}
+          path: provenance/
+
+      - uses: slsa-framework/slsa-verifier/actions/installer@ea584f4502babc6f60d9bc799dbbb13c1caa9ee6 # v2.7.1
+
+      - name: Verify SLSA provenance
+        env:
+          SOURCE_URI: github.com/${{ github.repository }}
+          PROVENANCE_NAME: ${{ needs.provenance.outputs.provenance-name }}
+        run: |
+          set -euo pipefail
+          slsa-verifier verify-artifact \
+              --provenance-path "provenance/${PROVENANCE_NAME}" \
+              --source-uri "$SOURCE_URI" \
+              dist/*
