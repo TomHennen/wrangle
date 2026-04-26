@@ -62,6 +62,7 @@ The publish-on-non-PR safety gate (`if: ! startsWith(github.event_name, 'pull_')
 | `hashes` | reusable workflow + composite | Base64-encoded SHA-256 hashes in the format `slsa-github-generator`'s `base64-subjects` input expects. Pass directly to the provenance job. |
 | `dist-artifact-name` | reusable workflow only | Name of the uploaded `dist/` artifact, namespaced by path-derived shortname so multiple python builds in one workflow don't collide. The publish job downloads using this name. |
 | `provenance-artifact-name` | reusable workflow only | Name of the uploaded SLSA provenance artifact (re-exported from `slsa-github-generator`'s `provenance-name`). Empty on PR builds because the provenance job is gated on non-PR events. |
+| `metadata-artifact-name` | reusable workflow only | Name of the uploaded metadata workflow artifact (`python-metadata-<shortname>`). Naming and contents follow the unified-metadata convention shared across all build types; see [`docs/SPEC.md`](../../../docs/SPEC.md) "Unified metadata layout." |
 | `shortname` | composite only | Path-derived short name (e.g., `.` becomes `_`, `pkg/foo` becomes `pkg_foo`). Used for artifact namespacing when the composite is invoked directly. |
 | `metadata-dir` | composite only | Path to the metadata directory (`metadata/python/<shortname>/`) containing the SBOM. |
 
@@ -107,7 +108,7 @@ The SBOM is generated from the installed/resolved environment (not just the lock
 
 ### 7. Upload build artifacts
 
-The reusable workflow uploads two artifacts after the composite action completes:
+The reusable workflow uploads two artifacts after the composite action completes. (GitHub artifacts are zip files; "uploads X as artifact Y" means the contents of X are zipped and stored as artifact Y. See [`docs/SPEC.md`](../../../docs/SPEC.md) "Unified metadata layout — How the artifact maps to a directory" for the mechanics.)
 
 - `python-dist-<shortname>` — the contents of `dist/` (wheel + sdist), consumed by the adopter's publish job.
 - `python-metadata-<shortname>` — the contents of `metadata/python/<shortname>/`, including the SPDX SBOM.
@@ -141,7 +142,7 @@ The publish job does **not** live in the reusable workflow because PyPI Trusted 
 
 ### 10. Generate summary and upload metadata
 
-The composite action writes a step summary (package name, version, list of artifacts). The reusable workflow uploads the SBOM/metadata directory as the `python-metadata-<shortname>` artifact (see step 7). See #150 for the vision of unified build results. See #155 for whether wrangle should also write attestations to GitHub's attestation store.
+The composite action writes a step summary (package name, version, list of artifacts). The reusable workflow zips the contents of the SBOM/metadata directory (`metadata/python/<shortname>/`) and uploads them as the `python-metadata-<shortname>` workflow artifact (see step 7). See #150 for the vision of unified build results. See #155 for whether wrangle should also write attestations to GitHub's attestation store.
 
 ## Permissions
 

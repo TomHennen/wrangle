@@ -28,6 +28,12 @@ outputs:
   sbom:
     description: 'Path to an SBOM that describes the container'
     value: ${{ steps.get_sbom.outputs.sbom }}
+  metadata-dir:
+    description: "Workspace-relative path of the unified metadata directory (`metadata/container/<shortname>/`) containing the SBOM and any scan output."
+    value: ${{ steps.meta_dir.outputs.metadata-dir }}
+  shortname:
+    description: "Path-derived short name (`/` becomes `_`) used for artifact namespacing."
+    value: ${{ steps.normalize.outputs.shortname }}
 
 runs:
   using: "composite"
@@ -85,13 +91,22 @@ runs:
         sbom: true
         provenance: mode=max
 
+    # Create the metadata directory and emit its path BEFORE SBOM extraction.
+    # If a later step fails (build, push, SBOM extract), the `if: always()`
+    # artifact upload still has a valid (possibly empty) directory to upload —
+    # useful for debug. Folding this into the SBOM-extract step would leave
+    # `path:` resolving to an empty value when the SBOM step is skipped due
+    # to an earlier failure.
     - name: Prepare metadata directory
+      id: meta_dir
       shell: bash
       env:
         SHORTNAME: ${{ steps.normalize.outputs.shortname }}
       run: |
         set -euo pipefail
-        mkdir -p "./metadata/container/${SHORTNAME}"
+        METADATA_DIR="metadata/container/${SHORTNAME}"
+        mkdir -p "$METADATA_DIR"
+        printf 'metadata-dir=%s\n' "$METADATA_DIR" >> "$GITHUB_OUTPUT"
 
     - name: Extract SBOM from built image
       id: get_sbom
@@ -99,10 +114,10 @@ runs:
       env:
         IMAGE: ${{ steps.normalize.outputs.imagename }}
         DIGEST: ${{ steps.push.outputs.digest }}
-        SHORTNAME: ${{ steps.normalize.outputs.shortname }}
+        METADATA_DIR: ${{ steps.meta_dir.outputs.metadata-dir }}
       run: |
         set -euo pipefail
-        SBOM_PATH="metadata/container/${SHORTNAME}/sbom.spdx.json"
+        SBOM_PATH="${METADATA_DIR}/sbom.spdx.json"
         # Reference by digest, not tag — the :latest tag only exists on
         # main-branch builds, so bare image name fails on other branches.
         docker buildx imagetools inspect "${IMAGE}@${DIGEST}" --format "{{ json .SBOM.SPDX }}" > "$SBOM_PATH"
@@ -122,5 +137,13 @@ runs:
     - uses: actions/upload-artifact@bbbca2ddaa5d8feaa63e36b76fdaad77386f024f # v7.0.0
       if: always()
       with:
-        name: container-build-results-${{ steps.normalize.outputs.shortname }}
-        path: ./metadata/
+        # Convention shared with other build types: <type>-metadata-<shortname>,
+        # path = the leaf metadata dir (so the artifact zip's contents are the
+        # metadata files at the top level, not nested under metadata/<type>/...).
+        # See docs/SPEC.md "Unified metadata layout."
+        name: container-metadata-${{ steps.normalize.outputs.shortname }}
+        # Reference the prepared dir from `meta_dir` (always runs), not from
+        # `get_sbom` — if SBOM extraction is skipped due to an earlier failure,
+        # `get_sbom.outputs.metadata-dir` is empty and the `if: always()`
+        # upload would resolve to an unintended path.
+        path: ${{ steps.meta_dir.outputs.metadata-dir }}/

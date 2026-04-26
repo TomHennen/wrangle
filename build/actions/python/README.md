@@ -48,6 +48,7 @@ Two ways to adopt:
 
 - `dist-artifact-name` — workflow-artifact name to download with `actions/download-artifact` to retrieve the built wheel + sdist.
 - `provenance-artifact-name` — workflow-artifact name for the SLSA provenance (empty on PR builds).
+- `metadata-artifact-name` — workflow-artifact name for the SBOM and any scan output (`python-metadata-<shortname>`). See [`docs/SPEC.md`](../../../docs/SPEC.md) "Unified metadata layout."
 - `hashes`, `version`.
 
 ## Verifying SLSA provenance before publish (recommended, optional)
@@ -106,13 +107,15 @@ The same `slsa-verifier verify-artifact` invocation is exercised by wrangle's in
 
 ## SBOM
 
-The action writes an SPDX JSON SBOM to `metadata/python/<shortname>/sbom.spdx.json`. The reusable workflow uploads it as `python-metadata-<shortname>`. Download with:
+The action writes an SPDX JSON SBOM to `metadata/python/<shortname>/sbom.spdx.json`. The reusable workflow zips the contents of `metadata/python/<shortname>/` and uploads them as the workflow artifact `python-metadata-<shortname>`, exposed as the `metadata-artifact-name` output. Downloading the artifact (e.g., via `actions/download-artifact`) extracts the metadata files at the top level of whatever `path:` the adopter chooses — the `metadata/python/<shortname>/` prefix is a workspace convention, not part of the artifact's interior layout.
+
+Naming and layout follow the unified-metadata convention shared across every build type — see [`docs/SPEC.md`](../../../docs/SPEC.md) "Unified metadata layout" for how the directory maps to the artifact zip.
 
 ```yaml
 - uses: actions/download-artifact@<sha>
   with:
-    name: python-metadata-<shortname>
-    path: metadata/
+    name: ${{ needs.build.outputs.metadata-artifact-name }}
+    path: metadata/  # `sbom.spdx.json` lands directly here, not under metadata/python/<shortname>/
 ```
 
 `<shortname>` is the path-derived short name — `.` becomes `_`, `pkg/foo` becomes `pkg_foo`. This namespacing lets you run multiple python builds in one workflow without artifact-name collisions.

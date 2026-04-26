@@ -23,6 +23,16 @@ on:
       gh_token:
         description: "GitHub token with write access"
         required: true
+    outputs:
+      digest:
+        description: "Image digest pushed to the registry."
+        value: ${{ jobs.build.outputs.digest }}
+      imagename:
+        description: "Normalized (lowercased) image name."
+        value: ${{ jobs.build.outputs.imagename }}
+      metadata-artifact-name:
+        description: "Name of the workflow artifact (a zip of `metadata/container/<shortname>/`'s contents) containing the SBOM and any scan output. Format: `container-metadata-<shortname>`. Adopters fetch via `actions/download-artifact` — the metadata files land at the top level of the configured `path:`, not under `metadata/container/<shortname>/`."
+        value: ${{ jobs.build.outputs.metadata-artifact-name }}
 
 jobs:
   build:
@@ -32,12 +42,13 @@ jobs:
     outputs:
       digest: ${{ steps.build.outputs.digest }}
       imagename: ${{ steps.build.outputs.imagename }}
+      metadata-artifact-name: container-metadata-${{ steps.build.outputs.shortname }}
     runs-on: ubuntu-latest
     steps:
     # TODO: replace with $/build/actions/container when GitHub ships $/ syntax (#136)
     - name: "build and publish"
       id: build
-      uses: TomHennen/wrangle/build/actions/container@6cbd393e779e98c40459ef8032dbac62b7805e16 # main 2026-04-22
+      uses: TomHennen/wrangle/build/actions/container@4f802f220bb888203ae6c3a722bae892ed85a910 # unify-container-metadata-layout 2026-04-26
       with:
         path: ${{ inputs.path }}
         imagename: ${{ inputs.imagename }}

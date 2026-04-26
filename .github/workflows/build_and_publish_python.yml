@@ -40,6 +40,9 @@ on:
       provenance-artifact-name:
         description: "Name of the SLSA provenance workflow artifact (= the provenance filename). Empty on PR builds (provenance is gated on non-PR events)."
         value: ${{ jobs.provenance.outputs.provenance-name }}
+      metadata-artifact-name:
+        description: "Name of the workflow artifact (a zip of `metadata/python/<shortname>/`'s contents) containing the SBOM and metadata. Format: `python-metadata-<shortname>`. Adopters fetch via `actions/download-artifact` — the metadata files land at the top level of the configured `path:`, not under `metadata/python/<shortname>/`. See docs/SPEC.md \"Unified metadata layout\"."
+        value: ${{ jobs.build.outputs.metadata-artifact-name }}
 
 jobs:
   build:
@@ -50,6 +53,7 @@ jobs:
       hashes: ${{ steps.build.outputs.hashes }}
       version: ${{ steps.build.outputs.version }}
       dist-artifact-name: ${{ steps.names.outputs.dist }}
+      metadata-artifact-name: ${{ steps.names.outputs.metadata }}
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
