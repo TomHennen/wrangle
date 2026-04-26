@@ -4,6 +4,7 @@ RUN apt-get update -q && \
     apt-get install -y -q --no-install-recommends \
         bats \
         curl \
+        git \
         jq \
         shellcheck \
         ca-certificates \
