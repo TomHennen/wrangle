@@ -108,7 +108,7 @@ The SBOM is generated from the installed/resolved environment (not just the lock
 
 ### 7. Upload build artifacts
 
-The reusable workflow uploads two artifacts after the composite action completes:
+The reusable workflow uploads two artifacts after the composite action completes. (GitHub artifacts are zip files; "uploads X as artifact Y" means the contents of X are zipped and stored as artifact Y. See [`docs/SPEC.md`](../../../docs/SPEC.md) "Unified metadata layout — How the artifact maps to a directory" for the mechanics.)
 
 - `python-dist-<shortname>` — the contents of `dist/` (wheel + sdist), consumed by the adopter's publish job.
 - `python-metadata-<shortname>` — the contents of `metadata/python/<shortname>/`, including the SPDX SBOM.
@@ -142,7 +142,7 @@ The publish job does **not** live in the reusable workflow because PyPI Trusted 
 
 ### 10. Generate summary and upload metadata
 
-The composite action writes a step summary (package name, version, list of artifacts). The reusable workflow uploads the SBOM/metadata directory as the `python-metadata-<shortname>` artifact (see step 7). See #150 for the vision of unified build results. See #155 for whether wrangle should also write attestations to GitHub's attestation store.
+The composite action writes a step summary (package name, version, list of artifacts). The reusable workflow zips the contents of the SBOM/metadata directory (`metadata/python/<shortname>/`) and uploads them as the `python-metadata-<shortname>` workflow artifact (see step 7). See #150 for the vision of unified build results. See #155 for whether wrangle should also write attestations to GitHub's attestation store.
 
 ## Permissions
 

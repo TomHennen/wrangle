@@ -113,15 +113,17 @@ If `SPEC.md` describes behavior that hasn't shipped yet, `README.md` MUST NOT pr
 
 Every build type publishes its build outputs to **two complementary places**:
 
-1. **The ecosystem-native location** consumers expect for that build type — PyPI release attestations for python, GHCR image attestations for container, GitHub release assets for Go, etc. This is the wrangle value prop: ecosystem-native consumers use the tools they already know without learning anything wrangle-specific.
-2. **A consistent unified wrangle location** for cross-ecosystem tooling, policy, and audit. The unified location uses the same directory layout, artifact-naming convention, and adopter-facing output across every build type, so a tool spanning multiple ecosystems sees one schema instead of N.
+1. **The ecosystem-native location** consumers expect for that build type — PyPI release attestations for python, GHCR image attestations for container, GitHub release assets for Go, etc. This is the wrangle value prop: ecosystem-native consumers use the tools they already know without learning anything wrangle-specific. The ecosystem-native location is a **partial** view: it carries whatever the ecosystem has standardized, which is rarely the full set wrangle generates (e.g., PyPI carries PEP 740 attestations but not SLSA provenance; GHCR carries image attestations but not SBOM scan output).
+2. **A consistent unified wrangle location** for cross-ecosystem tooling, policy, and audit. This is the **complete** view: every wrangle build produces the same set of metadata fields here, regardless of build type. A tool spanning multiple ecosystems can read this one schema instead of N. Adopters who need the full picture (compliance audits, policy engines, internal supply-chain dashboards) read the unified location.
+
+Both layers always exist for every build type. They aren't either-or.
 
 The unified location for a build is:
 
 ```
 metadata/<type>/<shortname>/
 ├── sbom.spdx.json           # SPDX SBOM (every build type that has dependencies)
-├── provenance.intoto.jsonl  # SLSA provenance (when present; copied alongside the artifact for offline retrieval)
+├── multiple.intoto.jsonl    # SLSA provenance (when present; same filename the SLSA generator emits)
 ├── summary.md               # human-readable build summary
 ├── scan/
 │   ├── osv.sarif            # SBOM vuln scan
@@ -132,7 +134,17 @@ metadata/<type>/<shortname>/
 
 `<type>` is the build type (`container`, `python`, ...) and `<shortname>` is the path-derived name (`/` becomes `_`) so multiple builds in one workflow don't collide.
 
-The reusable workflow uploads this directory as the workflow artifact `<type>-metadata-<shortname>`, and exposes the artifact name as the `metadata-artifact-name` output so adopters can `download-artifact` without hardcoding the naming convention. The composite action exposes the workspace-relative path as the `metadata-dir` output for callers that invoke it directly.
+The provenance file uses the SLSA generator's native filename (`multiple.intoto.jsonl` for `generator_generic_slsa3.yml` with multiple subjects; `<filename>.intoto.jsonl` for single-subject builds). Wrangle does not rename it — keeping the upstream filename means downstream consumers can use the same `slsa-verifier verify-artifact --provenance-path` invocation regardless of where they obtained the provenance.
+
+#### How the artifact maps to a directory
+
+GitHub Actions artifacts are zip files. `actions/upload-artifact` zips the configured `path:` and `actions/download-artifact` extracts it back. So when this spec says "the reusable workflow uploads `metadata/<type>/<shortname>/` as the workflow artifact `<type>-metadata-<shortname>`," it means:
+
+- The composite action writes the metadata files into `metadata/<type>/<shortname>/` in the runner's workspace.
+- `actions/upload-artifact` zips the contents of that directory and stores the zip on the run as `<type>-metadata-<shortname>`.
+- A downstream job calling `actions/download-artifact` with `name: <type>-metadata-<shortname>` and `path: metadata/` extracts the zip back into `metadata/`, recovering the original files at the top level (the type/shortname levels are not preserved inside the zip — the upload's `path:` is the leaf directory by convention).
+
+The reusable workflow exposes the artifact name as the `metadata-artifact-name` output so adopters can `download-artifact` without hardcoding the naming convention. The composite action exposes the workspace-relative path as the `metadata-dir` output for callers that invoke it directly.
 
 Build types use the layout components that apply to them — not every type produces every file. The point is that any tool walking `metadata/<type>/<shortname>/` knows where to look. See #150 for the full rationale and #162 for the directory-layout discussion.
 

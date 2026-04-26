@@ -31,7 +31,7 @@ on:
         description: "Normalized (lowercased) image name."
         value: ${{ jobs.build.outputs.imagename }}
       metadata-artifact-name:
-        description: "Name of the workflow artifact containing the SBOM and any scan output (`container-metadata-<shortname>`)."
+        description: "Name of the workflow artifact (a zip of `metadata/container/<shortname>/`'s contents) containing the SBOM and any scan output. Format: `container-metadata-<shortname>`. Adopters fetch via `actions/download-artifact` — the metadata files land at the top level of the configured `path:`, not under `metadata/container/<shortname>/`."
         value: ${{ jobs.build.outputs.metadata-artifact-name }}
 
 jobs:
