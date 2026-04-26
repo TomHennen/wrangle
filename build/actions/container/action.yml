@@ -41,37 +41,7 @@ runs:
         INPUT_REGISTRY: ${{ inputs.registry }}
       run: |
         set -euo pipefail
-        set -f  # disable globbing — processes external input
-        # Validate path: must be relative, no traversal, safe characters only
-        if [[ "$INPUT_PATH" == /* ]]; then
-            printf 'Error: path must be relative, got: %s\n' "$INPUT_PATH" >&2
-            exit 1
-        fi
-        if [[ "$INPUT_PATH" == *..* ]]; then
-            printf 'Error: path traversal not allowed: %s\n' "$INPUT_PATH" >&2
-            exit 1
-        fi
-        if [[ ! "$INPUT_PATH" =~ ^[a-zA-Z0-9_./-]+$ ]]; then
-            printf 'Error: invalid characters in path: %s\n' "$INPUT_PATH" >&2
-            exit 1
-        fi
-        # Validate registry: hostname characters only
-        if [[ ! "$INPUT_REGISTRY" =~ ^[a-z0-9.-]+$ ]]; then
-            printf 'Error: invalid registry: %s\n' "$INPUT_REGISTRY" >&2
-            exit 1
-        fi
-        # Validate imagename: lowercase, slashes, dots, dashes, colons
-        if [[ ! "$INPUT_IMAGENAME" =~ ^[a-z0-9./:_-]+$ ]]; then
-            printf 'Error: invalid image name: %s\n' "$INPUT_IMAGENAME" >&2
-            exit 1
-        fi
-        # Normalize image name to lowercase
-        printf 'imagename=%s\n' "${INPUT_IMAGENAME,,}" >> "$GITHUB_OUTPUT"
-        # Output validated path for safe use in subsequent steps
-        printf 'path=%s\n' "$INPUT_PATH" >> "$GITHUB_OUTPUT"
-        # Create a safe short name for artifact naming (replace / with _)
-        shortname="${INPUT_PATH////_}"
-        printf 'shortname=%s\n' "$shortname" >> "$GITHUB_OUTPUT"
+        "${{ github.action_path }}/validate_inputs.sh" "$INPUT_PATH" "$INPUT_REGISTRY" "$INPUT_IMAGENAME"
 
     - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
       with:

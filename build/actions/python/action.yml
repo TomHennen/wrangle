@@ -1,0 +1,193 @@
+name: Wrangle Python Build
+description: |
+  Build a Python package (wheel + sdist), run tests, generate SBOM,
+  and compute artifact hashes for SLSA provenance. SLSA provenance
+  generation is handled by a separate job in the reusable workflow;
+  publishing lives in the adopter's own workflow because PyPI
+  Trusted Publishing does not support reusable workflows.
+
+inputs:
+  path:
+    description: "Relative path to the directory containing pyproject.toml"
+    required: false
+    default: "."
+  python-version:
+    description: "Python version override. If empty, detected from pyproject.toml."
+    required: false
+    default: ""
+  run-tests:
+    description: "Whether to run pytest before building"
+    required: false
+    default: "true"
+
+outputs:
+  version:
+    description: "The package version that was built"
+    value: ${{ steps.metadata.outputs.version }}
+  hashes:
+    description: "Base64-encoded SHA-256 hashes of built artifacts (for SLSA generator)"
+    value: ${{ steps.hash.outputs.hashes }}
+  shortname:
+    description: "Path-derived short name for artifact namespacing (e.g., '.' becomes '_')"
+    value: ${{ steps.metadata.outputs.shortname }}
+  metadata-dir:
+    description: "Path to the metadata directory (relative to the workspace) containing the SBOM"
+    value: ${{ steps.metadata.outputs.metadata-dir }}
+
+runs:
+  using: "composite"
+  steps:
+    - name: Validate inputs
+      shell: bash
+      env:
+        INPUT_PATH: ${{ inputs.path }}
+      run: |
+        set -euo pipefail
+        "${{ github.action_path }}/validate_inputs.sh" "$INPUT_PATH"
+
+    - name: Setup Python
+      uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5.6.0
+      with:
+        python-version: ${{ inputs.python-version || '' }}
+        python-version-file: ${{ inputs.python-version == '' && format('{0}/pyproject.toml', inputs.path) || '' }}
+
+    - name: Detect and setup uv
+      id: tooling
+      shell: bash
+      env:
+        INPUT_PATH: ${{ inputs.path }}
+      run: |
+        set -euo pipefail
+        if [[ -f "$INPUT_PATH/uv.lock" ]]; then
+            printf 'use_uv=true\n' >> "$GITHUB_OUTPUT"
+            printf 'Detected uv.lock — using uv for build\n'
+        else
+            printf 'use_uv=false\n' >> "$GITHUB_OUTPUT"
+            printf 'No uv.lock — using standard PEP 517 tooling\n'
+        fi
+
+    - name: Install uv
+      if: steps.tooling.outputs.use_uv == 'true'
+      uses: astral-sh/setup-uv@08807647e7069bb48b6ef5acd8ec9567f424441b # v8.1.0
+
+    - name: Install dependencies
+      shell: bash
+      env:
+        INPUT_PATH: ${{ inputs.path }}
+        USE_UV: ${{ steps.tooling.outputs.use_uv }}
+      run: |
+        set -euo pipefail
+        "${{ github.action_path }}/install_deps.sh" "$INPUT_PATH" "$USE_UV"
+
+    - name: Run tests
+      if: inputs.run-tests == 'true'
+      shell: bash
+      env:
+        INPUT_PATH: ${{ inputs.path }}
+        USE_UV: ${{ steps.tooling.outputs.use_uv }}
+      run: |
+        set -euo pipefail
+        "${{ github.action_path }}/run_tests.sh" "$INPUT_PATH" "$USE_UV"
+
+    - name: Build package
+      shell: bash
+      env:
+        INPUT_PATH: ${{ inputs.path }}
+        USE_UV: ${{ steps.tooling.outputs.use_uv }}
+      run: |
+        set -euo pipefail
+        cd "$INPUT_PATH"
+        if [[ "$USE_UV" == "true" ]]; then
+            uv build
+        else
+            python -m pip install --upgrade build
+            python -m build
+        fi
+        printf 'Built artifacts:\n'
+        ls -la dist/
+
+    - name: Extract package metadata
+      id: metadata
+      shell: bash
+      env:
+        INPUT_PATH: ${{ inputs.path }}
+      run: |
+        set -euo pipefail
+        SHORTNAME="${INPUT_PATH////_}"
+        METADATA_DIR="metadata/python/${SHORTNAME}"
+        mkdir -p "$METADATA_DIR"
+        printf 'shortname=%s\n' "$SHORTNAME" >> "$GITHUB_OUTPUT"
+        printf 'metadata-dir=%s\n' "$METADATA_DIR" >> "$GITHUB_OUTPUT"
+
+        # Extract version from the built wheel filename. nullglob avoids
+        # the pipefail abort that `ls dist/*.whl | head` triggers when no
+        # wheel exists — we want to surface a friendly message instead.
+        cd "$INPUT_PATH"
+        shopt -s nullglob
+        wheels=(dist/*.whl)
+        if (( ${#wheels[@]} > 0 )); then
+            # Wheel filename format: {name}-{version}-{tags}.whl
+            VERSION="$(basename "${wheels[0]}" | sed 's/^[^-]*-\([^-]*\)-.*/\1/')"
+            printf 'version=%s\n' "$VERSION" >> "$GITHUB_OUTPUT"
+            printf 'Package version: %s\n' "$VERSION"
+        else
+            printf 'Warning: no wheel found in dist/\n'
+            printf 'version=unknown\n' >> "$GITHUB_OUTPUT"
+        fi
+
+    - name: Compute artifact hashes
+      id: hash
+      shell: bash
+      env:
+        INPUT_PATH: ${{ inputs.path }}
+      run: |
+        set -euo pipefail
+        # Subshell + bare * (not ./*) so subject names in the resulting
+        # provenance are filenames without a leading ./, which is what
+        # slsa-verifier matches against downloaded artifacts.
+        HASHES="$(cd "$INPUT_PATH/dist" && sha256sum -- * | base64 -w0)"
+        printf 'hashes=%s\n' "$HASHES" >> "$GITHUB_OUTPUT"
+
+    - name: Install Cosign (for syft signature verification)
+      uses: sigstore/cosign-installer@cad07c2e89fa2edd6e2d7bab4c1aa38e53f76003 # v4.1.1
+
+    - name: Install syft
+      shell: bash
+      env:
+        WRANGLE_ROOT: ${{ github.action_path }}/../../..
+      run: |
+        set -euo pipefail
+        "$WRANGLE_ROOT/tools/syft/install.sh"
+
+    - name: Generate SBOM
+      shell: bash
+      env:
+        INPUT_PATH: ${{ inputs.path }}
+        METADATA_DIR: ${{ steps.metadata.outputs.metadata-dir }}
+      run: |
+        set -euo pipefail
+        SBOM_PATH="${METADATA_DIR}/sbom.spdx.json"
+        BIN_DIR="${WRANGLE_BIN_DIR:-${RUNNER_TEMP:-.}/.wrangle/bin}"
+        "$BIN_DIR/syft" dir:"$INPUT_PATH" -o spdx-json > "$SBOM_PATH"
+        printf 'SBOM written to %s\n' "$SBOM_PATH"
+
+    - name: Generate summary
+      if: always()
+      shell: bash
+      env:
+        INPUT_PATH: ${{ inputs.path }}
+        VERSION: ${{ steps.metadata.outputs.version }}
+      run: |
+        set -euo pipefail
+        {
+            printf '## Python Build Results\n\n'
+            printf '| | |\n|---|---|\n'
+            printf '| **Package** | %s |\n' "$INPUT_PATH"
+            printf '| **Version** | %s |\n' "$VERSION"
+            printf '| **Artifacts** | |\n'
+            for f in "$INPUT_PATH"/dist/*; do
+                if [[ -f "$f" ]]; then
+                    printf '| | `%s` |\n' "$(basename "$f")"
+                fi
+            done
+        } >> "$GITHUB_STEP_SUMMARY"
