@@ -69,7 +69,7 @@ The publish-on-non-PR safety gate (`if: ! startsWith(github.event_name, 'pull_')
 
 ### 1. Validate and normalize inputs
 
-Same pattern as the container build type: reject absolute paths, path traversal, and invalid characters in `path`. Verify `pyproject.toml` (or `setup.py` as legacy fallback) exists at the specified path.
+Same pattern as the container build type: reject absolute paths, path traversal, and invalid characters in `path`. Verify `pyproject.toml` exists at the specified path. Setup.py-only projects are not supported — `actions/setup-python` reads the Python version from `pyproject.toml`'s `requires-python`, and modern PEP 517 builds expect `[build-system]` and `[project]` tables there. Adopters with legacy `setup.py`-only projects need to add a minimal `pyproject.toml` (`[build-system]` + `[project]`) before adoption.
 
 ### 2. Detect tooling
 
