@@ -76,7 +76,7 @@ jobs:
     steps:
       # No checkout: release_gate resolves via ${{ github.action_path }}.
       # TODO: replace with $/actions/release_gate when GitHub ships $/ syntax (#136)
-      - uses: TomHennen/wrangle/actions/release_gate@2395271ddf17e4cf17741bacfe30e0450ad05f51 # add-release-verify 2026-04-26
+      - uses: TomHennen/wrangle/actions/release_gate@367a4a446a24307a11844b710c40770cd4f4f6a7 # add-release-verify 2026-04-26
         id: gate
         with:
           events: ${{ inputs.release-events }}
@@ -94,7 +94,7 @@ jobs:
     # TODO: replace with $/build/actions/container when GitHub ships $/ syntax (#136)
     - name: "build and publish"
       id: build
-      uses: TomHennen/wrangle/build/actions/container@2395271ddf17e4cf17741bacfe30e0450ad05f51 # add-release-verify 2026-04-26
+      uses: TomHennen/wrangle/build/actions/container@367a4a446a24307a11844b710c40770cd4f4f6a7 # add-release-verify 2026-04-26
       with:
         path: ${{ inputs.path }}
         imagename: ${{ inputs.imagename }}
@@ -140,20 +140,15 @@ jobs:
     if: ${{ needs.gate.outputs.should-release == 'true' && inputs.verify-image }}
     needs: [gate, build, provenance]
     runs-on: ubuntu-latest
-    permissions:
-      packages: read    # pull image manifest + attestation from ghcr.io
+    # No registry credentials needed: cosign verify-attestation against
+    # ghcr.io public images works anonymously, and the SLSA attestation
+    # signature is verified against Sigstore's transparency log (Rekor)
+    # which is also public. Adopters with private images that require
+    # auth-gated pulls should set `verify-image: false` and verify in
+    # their own job — see README.
+    permissions: {}
     steps:
       - uses: sigstore/cosign-installer@cad07c2e89fa2edd6e2d7bab4c1aa38e53f76003 # v4.1.1
-
-      - name: Log in to ghcr.io
-        # Needed when the image (or its repo) is private; harmless for public.
-        env:
-          REGISTRY: ${{ inputs.registry }}
-          ACTOR: ${{ github.actor }}
-          GH_TOKEN: ${{ secrets.gh_token }}
-        run: |
-          set -euo pipefail
-          echo "$GH_TOKEN" | cosign login "$REGISTRY" --username "$ACTOR" --password-stdin
 
       - name: Verify SLSA provenance attestation
         env:

@@ -123,7 +123,7 @@ The unified location for a build is:
 ```
 metadata/<type>/<shortname>/
 ├── sbom.spdx.json           # SPDX SBOM (every build type that has dependencies)
-├── multiple.intoto.jsonl    # SLSA provenance (when present; same filename the SLSA generator emits)
+├── <type>-<shortname>.intoto.jsonl  # SLSA provenance (filename is namespaced so multiple builds in one workflow don't collide)
 ├── summary.md               # human-readable build summary
 ├── scan/
 │   ├── osv.sarif            # SBOM vuln scan
@@ -134,7 +134,7 @@ metadata/<type>/<shortname>/
 
 `<type>` is the build type (`container`, `python`, ...) and `<shortname>` is the path-derived name (`/` becomes `_`) so multiple builds in one workflow don't collide.
 
-The provenance file uses the SLSA generator's native filename (`multiple.intoto.jsonl` for `generator_generic_slsa3.yml` with multiple subjects; `<filename>.intoto.jsonl` for single-subject builds). Wrangle does not rename it — keeping the upstream filename means downstream consumers can use the same `slsa-verifier verify-artifact --provenance-path` invocation regardless of where they obtained the provenance.
+The provenance file is namespaced by build type and shortname (e.g., `python-_.intoto.jsonl`, `python-pkg_foo.intoto.jsonl`). Wrangle passes `provenance-name` to the SLSA generator so multiple builds in the same workflow don't collide on the default filename — `actions/download-artifact` picks non-deterministically when two artifacts share a name in the same run, and a verify job downloading the wrong build's provenance would fail with a confusing hash mismatch. The actual filename is exposed via the workflow's `provenance-artifact-name` output so adopters and downstream consumers don't need to reconstruct the convention themselves.
 
 #### How the artifact maps to a directory
 

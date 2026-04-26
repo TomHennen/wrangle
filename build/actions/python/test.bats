@@ -243,6 +243,20 @@ setup() {
     [[ "$status" -eq 0 ]]
 }
 
+@test "python: provenance job passes namespaced provenance-name to SLSA generator" {
+    # actions/download-artifact picks non-deterministically when two artifacts
+    # share a name in the same run. Multiple python builds in one workflow
+    # would both produce 'multiple.intoto.jsonl' under the SLSA generator's
+    # default. We pass provenance-name to namespace by shortname.
+    run bash -c "sed -n '/^  provenance:/,/^[a-z]/p' \"$WORKFLOW\" | grep -E 'provenance-name:.*shortname'"
+    [[ "$status" -eq 0 ]]
+}
+
+@test "python: build job exposes shortname output" {
+    run bash -c "sed -n '/^  build:/,/^  [a-z]/p' \"$WORKFLOW\" | grep -E '^[[:space:]]*shortname:'"
+    [[ "$status" -eq 0 ]]
+}
+
 @test "python: verify job depends on provenance and downloads its artifact" {
     # needs: must include 'provenance' so verify runs after the SLSA generator,
     # and the verify job must download the provenance artifact via its name
