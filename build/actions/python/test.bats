@@ -202,3 +202,20 @@ setup() {
     run grep 'slsa-github-generator' "$EXAMPLE"
     [[ "$status" -ne 0 ]]
 }
+
+@test "python: example workflow grants contents: write to build job" {
+    # The SLSA generator's upload-assets job declares contents: write; GitHub
+    # validates that the caller of wrangle's reusable workflow grants the same
+    # at workflow startup, regardless of upload-assets being true or false.
+    # Without this, adopters who copy the example hit startup_failure on the
+    # first run. See PR #156's debugging history.
+    run grep -E 'contents: write' "$EXAMPLE"
+    [[ "$status" -eq 0 ]]
+}
+
+@test "python: README quick-start grants contents: write to build job" {
+    # Same bug surface as the example workflow; if a user copies from the
+    # README they should also see the correct permission set.
+    run grep -E 'contents: write' "$REPO_ROOT/build/actions/python/README.md"
+    [[ "$status" -eq 0 ]]
+}

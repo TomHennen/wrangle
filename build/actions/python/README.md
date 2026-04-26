@@ -14,7 +14,12 @@ Two ways to adopt:
    jobs:
      build:
        permissions:
-         contents: read
+         # Required because wrangle's reusable workflow has a nested
+         # provenance job that calls slsa-github-generator. GitHub
+         # validates these permissions at workflow startup.
+         contents: write   # SLSA generator's upload-assets job (write required even when upload-assets is false)
+         id-token: write   # OIDC for Sigstore signing
+         actions: read     # SLSA generator detects the GitHub Actions environment
        uses: TomHennen/wrangle/.github/workflows/build_and_publish_python.yml@v0.2.0
        with:
          path: "."

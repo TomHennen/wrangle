@@ -35,7 +35,10 @@ on:
 jobs:
   build:
     permissions:
-      contents: read
+      # Required by wrangle's reusable workflow's nested provenance job:
+      contents: write   # SLSA generator's upload-assets job declares this; GitHub validates at startup even when upload-assets is false
+      id-token: write   # OIDC for Sigstore signing
+      actions: read     # SLSA generator detects the GitHub Actions environment
     uses: TomHennen/wrangle/.github/workflows/build_and_publish_python.yml@v0.2.0
     with:
       path: "."
