@@ -76,7 +76,7 @@ jobs:
     steps:
       # No checkout: release_gate resolves via ${{ github.action_path }}.
       # TODO: replace with $/actions/release_gate when GitHub ships $/ syntax (#136)
-      - uses: TomHennen/wrangle/actions/release_gate@606728787cbc5b1672f0944277c988ab66cd8cf6 # add-release-gate 2026-04-26
+      - uses: TomHennen/wrangle/actions/release_gate@391c46e2dc5d3bc17ce183ad2094380b04c041c1 # add-release-gate 2026-04-26
         id: gate
         with:
           events: ${{ inputs.release-events }}
@@ -96,7 +96,7 @@ jobs:
           persist-credentials: false
 
       # TODO: replace with $/build/actions/python when GitHub ships $/ syntax (#136)
-      - uses: TomHennen/wrangle/build/actions/python@606728787cbc5b1672f0944277c988ab66cd8cf6 # add-release-gate 2026-04-26
+      - uses: TomHennen/wrangle/build/actions/python@391c46e2dc5d3bc17ce183ad2094380b04c041c1 # add-release-gate 2026-04-26
         id: build
         with:
           path: ${{ inputs.path }}
