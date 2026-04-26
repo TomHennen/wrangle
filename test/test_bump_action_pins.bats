@@ -242,6 +242,35 @@ EOF
     [[ "$leftover_count" -eq 0 ]]
 }
 
+@test "bump_action_pins: handles branch names with sed-special characters" {
+    # Branch names can legally contain `|`, `&`, and `\` per
+    # git-check-ref-format(1). They flow into the sed REPLACEMENT string
+    # for the trailing comment, where each has special meaning. The
+    # script must escape them so the rewrite produces a literal label.
+    cat > .github/workflows/a.yml <<EOF
+jobs:
+  build:
+    uses: TomHennen/wrangle/build/actions/python@aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
+EOF
+
+    # `|` (the sed delimiter) — must not break the rewrite.
+    WRANGLE_PINS_BRANCH='feat|x' run "$SCRIPT" "$NEW_SHA"
+    [[ "$status" -eq 0 ]]
+    grep -qF "@${NEW_SHA} # feat|x" .github/workflows/a.yml
+
+    # `&` (sed's matched-text backreference) — must not be expanded.
+    "$SCRIPT" "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa" >/dev/null  # reset to unique pre-state
+    WRANGLE_PINS_BRANCH='foo&bar' run "$SCRIPT" "$NEW_SHA"
+    [[ "$status" -eq 0 ]]
+    grep -qF "@${NEW_SHA} # foo&bar" .github/workflows/a.yml
+
+    # `\` (sed's escape character) — must round-trip as a literal backslash.
+    "$SCRIPT" "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa" >/dev/null  # reset
+    WRANGLE_PINS_BRANCH='back\slash' run "$SCRIPT" "$NEW_SHA"
+    [[ "$status" -eq 0 ]]
+    grep -qF "@${NEW_SHA} # back\\slash" .github/workflows/a.yml
+}
+
 @test "bump_action_pins: only mixed-SHA files are rewritten when some pins already match target" {
     # File with a mix of SHAs — must be rewritten so all pins reach target.
     cat > .github/workflows/mixed.yml <<EOF

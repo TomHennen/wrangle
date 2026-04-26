@@ -77,8 +77,25 @@ date_label="${WRANGLE_PINS_DATE:-$(date -u +%Y-%m-%d)}"
 # YAML list-item dash. Without the anchor, comment lines like
 # `# uses: ...@<sha>` would match — wrong, since the comment is supposed
 # to neutralize the line.
+#
+# The branch and date labels flow into the sed REPLACEMENT string. Three
+# characters need escaping there: `\` (sed escape), `&` (matched-text
+# backreference), and `|` (our chosen delimiter — legal in git refs per
+# git-check-ref-format(1)). Order matters: backslash first so the others
+# don't double-escape. The SHA is `[0-9a-f]{40}` and PINS_REPO is operator-
+# supplied (already vetted), so they don't need this treatment.
+escape_for_sed_replace() {
+    local s="$1"
+    s="${s//\\/\\\\}"
+    s="${s//&/\\&}"
+    s="${s//|/\\|}"
+    printf '%s' "$s"
+}
+escaped_branch="$(escape_for_sed_replace "$branch_label")"
+escaped_date="$(escape_for_sed_replace "$date_label")"
+
 escaped_repo="${PINS_REPO//\//\\/}"
-new_suffix="@${target_sha} # ${branch_label} ${date_label}"
+new_suffix="@${target_sha} # ${escaped_branch} ${escaped_date}"
 
 match='\(^[[:space:]]*-\{0,1\}[[:space:]]*uses:[[:space:]]*'"$escaped_repo"'/[^@[:space:]]*\)@[0-9a-f]\{40\}\([[:space:]]*#[^\r\n]*\)\{0,1\}'
 replace='\1'"$new_suffix"
