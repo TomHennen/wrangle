@@ -18,11 +18,12 @@
 # recommended pattern, but you may remove the verify step if you don't
 # need it. See build/actions/python/README.md for details.
 #
-# Trigger note: this workflow publishes whenever `github.event_name` is not
-# `pull_*`. With the default triggers below, only tag pushes (`push: tags:
+# Trigger note: this workflow publishes when `should-release` is true. By
+# default, the wrangle reusable workflow's `release-events` input is
+# `non-pull-request`, so with the triggers below tag pushes (`push: tags:
 # ["v*"]`) and manual `workflow_dispatch` runs publish; PRs do not.
-# `workflow_dispatch` from any branch will publish, so tighten the trigger
-# (or add a branch/ref guard) if that is undesirable.
+# `workflow_dispatch` from any branch will publish under the default —
+# pass `release-events: tag-only` (or `main-and-tags`) to tighten that.
 name: Python Build
 
 on:
@@ -42,12 +43,14 @@ jobs:
     uses: TomHennen/wrangle/.github/workflows/build_and_publish_python.yml@v0.2.0
     with:
       path: "."
-      # python-version: ""    # optional: auto-detected from pyproject.toml
-      # run-tests: true       # optional: skip with false
+      # python-version: ""              # optional: auto-detected from pyproject.toml
+      # run-tests: true                 # optional: skip with false
+      # release-events: non-pull-request  # optional: tag-only | main-and-tags | <event_name list>
 
   publish:
-    # Only publish on non-PR events.
-    if: ${{ ! startsWith(github.event_name, 'pull_') }}
+    # Gate on the should-release output so wrangle's reusable workflow
+    # and this publish job agree on which events trigger a release.
+    if: ${{ needs.build.outputs.should-release == 'true' }}
     needs: [build]
     runs-on: ubuntu-latest
     permissions:

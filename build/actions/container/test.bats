@@ -117,3 +117,25 @@ teardown() {
     run grep 'metadata-artifact-name:' "$REPO_ROOT/.github/workflows/build_and_publish_container.yml"
     [[ "$status" -eq 0 ]]
 }
+
+@test "container: reusable workflow has gate job calling release_gate" {
+    local wf="$REPO_ROOT/.github/workflows/build_and_publish_container.yml"
+    run grep -E '^  gate:' "$wf"
+    [[ "$status" -eq 0 ]]
+    run grep -E 'TomHennen/wrangle/actions/release_gate' "$wf"
+    [[ "$status" -eq 0 ]]
+}
+
+@test "container: provenance job is gated on release-gate output" {
+    local wf="$REPO_ROOT/.github/workflows/build_and_publish_container.yml"
+    run bash -c "sed -n '/^  provenance:/,/^[a-z]/p' \"$wf\" | grep -E \"if:.*should-release\""
+    [[ "$status" -eq 0 ]]
+}
+
+@test "container: reusable workflow exposes release-events input and should-release output" {
+    local wf="$REPO_ROOT/.github/workflows/build_and_publish_container.yml"
+    run grep -E '^      release-events:' "$wf"
+    [[ "$status" -eq 0 ]]
+    run grep -E '^      should-release:' "$wf"
+    [[ "$status" -eq 0 ]]
+}

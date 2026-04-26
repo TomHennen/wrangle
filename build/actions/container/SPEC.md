@@ -199,13 +199,15 @@ The SLSA generator is a reusable workflow, not an action. It must run as a separ
 
 ### Trigger restriction
 
-Neither Cosign signing nor SLSA provenance runs on `pull_request` triggers. Both are gated on `if: ${{ ! startsWith(github.event_name, 'pull_') }}`. This is a deliberate design rule, not just a workaround for an upstream limitation:
+Neither Cosign signing nor SLSA provenance runs on `pull_request` triggers. SLSA provenance is gated on the `release-events` input (default `non-pull-request`); see [`docs/SPEC.md`](../../../docs/SPEC.md) "Release-events gating" for the full vocabulary. The trigger restriction is a deliberate design rule, not just a workaround for an upstream limitation:
 
 - **PRs must not produce artifacts that look production-ready.** A Cosign-signed image from a PR branch is binary-indistinguishable from a signed release image at the consumer's verification step, and its signing identity would be tied to the PR branch (or worse, a fork) rather than the release branch. Consumers whose verification policy accepts "any signature from this repo" would treat a PR-built image as a release — exactly the shape of a release-confusion supply chain attack. The safe default is that PR builds *cannot* produce a signed or attested image, period.
 - **SBOM generation and vulnerability scanning do run on PRs.** Those steps surface actionable information to the PR author (new CVEs, new dependencies pulled in by the change) without producing anything a consumer could mistake for a release. SBOM scan findings are uploaded as SARIF so they appear on the PR's Security tab.
 - **SLSA provenance is additionally blocked by upstream.** `slsa-github-generator`'s container reusable workflow does not support `pull_request` events, so even if wrangle wanted to produce provenance on PRs, it couldn't. But wrangle would skip it on PRs regardless, for the same reason signing is skipped.
 
 In practice a PR-triggered run executes: validate → build → push → SBOM extract → SBOM scan, and then exits without invoking signing, provenance, or the release gate. The gate job's success condition encodes the full release contract (build + SBOM + sign + provenance), which is only achievable on non-PR events — so PR runs never produce a successful gate, and adopters should not configure release tagging or deployment workflows to react to PR-triggered container builds.
+
+`release-events` currently scopes only the SLSA provenance job in the container reusable workflow. The docker push happens mid-composite inside `build/actions/container` and is gated by the workflow's own trigger configuration; tightening `release-events` (e.g., to `tag-only`) prevents provenance from being produced on non-tag events but does not stop the push itself. This asymmetry is documented in [`docs/SPEC.md`](../../../docs/SPEC.md) "Release-events gating" and is expected to be resolved when the container build is restructured to separate build from push (or when an explicit publish gate is added).
 
 ### Private repos
 

@@ -47,9 +47,21 @@ Two ways to adopt:
 ## Outputs from the reusable workflow
 
 - `dist-artifact-name` — workflow-artifact name to download with `actions/download-artifact` to retrieve the built wheel + sdist.
-- `provenance-artifact-name` — workflow-artifact name for the SLSA provenance (empty on PR builds).
+- `provenance-artifact-name` — workflow-artifact name for the SLSA provenance (empty when `should-release` is false).
 - `metadata-artifact-name` — workflow-artifact name for the SBOM and any scan output (`python-metadata-<shortname>`). See [`docs/SPEC.md`](../../../docs/SPEC.md) "Unified metadata layout."
+- `should-release` — `"true"` if the current event matches `release-events`. Use this to gate your publish job so wrangle's internal provenance gating and your publish gating stay in lockstep.
 - `hashes`, `version`.
+
+## Controlling when releases happen
+
+The `release-events` input controls which events produce SLSA provenance and (in your publish job, if you gate on `should-release`) trigger publish. Default: `non-pull-request`. Other shorthands: `tag-only`, `main-and-tags`. A comma-separated `github.event_name` list (e.g., `push,workflow_dispatch`) is also accepted. See [`docs/SPEC.md`](../../../docs/SPEC.md) "Release-events gating" for the full vocabulary.
+
+```yaml
+uses: TomHennen/wrangle/.github/workflows/build_and_publish_python.yml@v0.2.0
+with:
+  path: "."
+  release-events: tag-only   # only tag pushes mint provenance and publish
+```
 
 ## Verifying SLSA provenance before publish (recommended, optional)
 

@@ -130,9 +130,27 @@ setup() {
     [[ "$status" -eq 0 ]]
 }
 
-@test "python: provenance job is gated on non-PR events" {
-    # On PRs, publish doesn't run, so provenance is wasted compute.
-    run bash -c "sed -n '/^  provenance:/,/^[a-z]/p' \"$WORKFLOW\" | grep -E \"if:.*startsWith.*pull_\""
+@test "python: provenance job is gated on release-gate output" {
+    # Provenance gates on the gate job's should-release output so adopters
+    # can tighten the predicate via release-events without forking the workflow.
+    run bash -c "sed -n '/^  provenance:/,/^[a-z]/p' \"$WORKFLOW\" | grep -E \"if:.*should-release\""
+    [[ "$status" -eq 0 ]]
+}
+
+@test "python: workflow has gate job calling release_gate" {
+    run grep -E '^  gate:' "$WORKFLOW"
+    [[ "$status" -eq 0 ]]
+    run grep -E 'TomHennen/wrangle/actions/release_gate' "$WORKFLOW"
+    [[ "$status" -eq 0 ]]
+}
+
+@test "python: workflow exposes release-events input" {
+    run grep -E '^      release-events:' "$WORKFLOW"
+    [[ "$status" -eq 0 ]]
+}
+
+@test "python: workflow exposes should-release output" {
+    run grep -E '^      should-release:' "$WORKFLOW"
     [[ "$status" -eq 0 ]]
 }
 

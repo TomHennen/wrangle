@@ -19,6 +19,21 @@ A GitHub composite action that builds and publishes a container image to GitHub 
 - SBOM vulnerability scanning with `osv-scanner` (non-blocking)
 - The release gate job that enforces "image is signed AND attested before any downstream release job runs"
 
+## Controlling when provenance is generated
+
+The reusable workflow's `release-events` input controls which events trigger SLSA provenance generation. Default: `non-pull-request`. Other shorthands: `tag-only`, `main-and-tags`. A comma-separated `github.event_name` list is also accepted. See [`docs/SPEC.md`](../../../docs/SPEC.md) "Release-events gating" for the full vocabulary.
+
+```yaml
+uses: TomHennen/wrangle/.github/workflows/build_and_publish_container.yml@v0.2.0
+with:
+  path: .
+  imagename: ghcr.io/<owner>/<repo>
+  registry: ghcr.io
+  release-events: tag-only   # only tag pushes mint provenance
+```
+
+Note: `release-events` currently scopes only the SLSA provenance job. The docker push happens mid-composite and is gated by your workflow's own trigger configuration (see [`SPEC.md` §"Trigger restriction"](./SPEC.md#trigger-restriction)).
+
 ## SBOM
 
 The action generates an SBOM for the container it builds. Today the SBOM is available two ways:
