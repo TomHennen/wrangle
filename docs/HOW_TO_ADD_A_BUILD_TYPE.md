@@ -10,7 +10,7 @@ Before writing any code, document the community's standard practices for the eco
 
 Questions to answer:
 
-- **Canonical build tool.** What does the community use? `docker buildx` for containers; `python -m build` (or `uv build`) for python; `npm pack` for npm; `go build` for Go. Pick one; document why.
+- **Canonical build tool(s).** What does the community use? Sometimes one is enough (`docker buildx` for containers); sometimes multiple are first-class (python supports both `python -m build` for the standard PEP 517 path and `uv build` for the uv path; the action picks based on `uv.lock` presence). When multiple tools are first-class, document the detection rule and ship a fixture for each variant. When one is dominant, document why you chose it. Some types fit awkwardly — e.g., a lot of Go projects skip a binary build entirely and let consumers `go install` from a tag, so "build tool" may not be the right framing for that type at all; that's worth surfacing in Phase 1 research before committing to the full template.
 - **Canonical SBOM tool.** Is there an in-build SBOM (BuildKit attestation, npm's `--provenance`)? An external generator (syft, cdxgen)? What output format does the ecosystem expect? Wrangle uses SPDX consistently — see "Decisions to inherit" below.
 - **Canonical publish target.** Where do projects publish? GHCR, PyPI, npm registry, GitHub Releases, Maven Central, etc.
 - **Canonical attestation pattern.** PEP 740 for python, OCI attestations for container, npm provenance, etc. Each ecosystem has its own; wrangle integrates with the ecosystem-native pattern *and* layers SLSA L3 provenance on top.
@@ -23,8 +23,10 @@ Outputs of this phase: a section in `build/actions/<type>/SPEC.md` titled "Desig
 
 Two flavors of build type, with different shapes:
 
-- **Artifact-producing types** (container, python, npm, Go, …) — produce something publishable, with SBOM, provenance, signing. Full template applies.
+- **Artifact-producing types** (container, python, npm, …) — produce something publishable, with SBOM, provenance, signing. Full template applies.
 - **Validation-only types** (shell — wrangle's own dogfooding) — run linters and tests, no artifact, no provenance. Reduced surface; details below.
+
+(Go is intentionally absent from the artifact-producing list. Many Go projects don't build a binary at all in CI — they tag a release and let consumers run `go install <repo>@<tag>`. Whether Go fits the artifact-producing template, the validation-only template, or warrants a dedicated "tag-and-attest" shape is a Phase 1 question for whoever picks up #116.)
 
 Copy from `build/actions/python/` for an artifact-producing type, `build/actions/shell/` for a validation-only type.
 
@@ -135,7 +137,7 @@ Two patterns the existing types need that aren't visible from the minimal exampl
 
 **Python:** `prep-python` runs first to patch `pyproject.toml`'s version per run (TestPyPI rejects re-uploads of the same version). A separate `publish-python` job runs after `test-python` to publish to TestPyPI — publish has to live in the calling workflow because PyPI Trusted Publishing's OIDC token must come from the caller, not a reusable workflow ([pypi/warehouse#11096](https://github.com/pypi/warehouse/issues/11096)). Multiple variants (`python/` for pip, `python-uv/` for uv) exist as separate fixtures with parallel `test-python` / `test-python-uv` jobs.
 
-**Container:** the `test-container` job passes `secrets: { gh_token: ${{ secrets.GITHUB_TOKEN }} }` because the container reusable workflow forwards a token to the SLSA generator for GHCR attestations. It also sets `publish_provenance_for_private_repo: true` to work around the SLSA generator misdetecting public repos as private when workflows run on PAT-pushed branches.
+**Container:** the `test-container` job passes `secrets: { gh_token: ${{ secrets.GITHUB_TOKEN }} }` because the container reusable workflow forwards a token to the SLSA generator for GHCR attestations. It also currently sets `publish_provenance_for_private_repo: true` to work around the SLSA generator misdetecting public repos as private when workflows run on PAT-pushed branches — that workaround is suspicious and tracked for investigation in [#170](https://github.com/TomHennen/wrangle/issues/170); future build types should NOT cargo-cult it without checking whether their integration setup actually needs it.
 
 If your build type has analogous needs (per-run version uniqueness, separate publish path, secrets forwarding, ecosystem-specific workarounds), build them into your fixture from the start. Don't try to make a minimal fixture work and then graft these on later — that's a multi-PR coordination cycle each time.
 
@@ -198,7 +200,7 @@ Plan for the latency. PR #156 needed three wrangle-test PRs (fixture, permission
 
 ## Decisions to inherit (cross-references)
 
-These are wrangle-wide decisions a new build type should follow without rethinking:
+These are wrangle-wide decisions a new build type should follow without rethinking. **Caveat:** wrangle is GitHub-Actions-native today. Whether the contract should change for portability to non-GitHub CI/CD systems (Jenkins, GitLab, CircleCI, etc.) is an open architectural question tracked in [#171](https://github.com/TomHennen/wrangle/issues/171). Until that lands, follow the GHA-shaped patterns below; if portability becomes the design, the runbook updates with it.
 
 - **Unified metadata layout** — every build type writes to `metadata/<type>/<shortname>/` and uploads as `<type>-metadata-<shortname>`. See [`docs/SPEC.md`](./SPEC.md) "Unified metadata layout" and [#150](https://github.com/TomHennen/wrangle/issues/150). *Convention is canonical once #167 merges; container's existing `container-build-results-<shortname>` upload is being renamed there.*
 - **Provenance gating** — `if: ${{ ! startsWith(github.event_name, 'pull_') }}` is the default and what every build type uses today. A configurable input (`provenance-events` or similar) is *proposed* in [#161](https://github.com/TomHennen/wrangle/issues/161); until it lands, override by editing the `if:` directly in your reusable workflow if you need different gating.
