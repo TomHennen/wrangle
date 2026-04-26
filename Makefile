@@ -1,4 +1,4 @@
-.PHONY: all test lint shellcheck bats
+.PHONY: all test lint shellcheck bats bump-action-pins
 
 # Default target
 all: test
@@ -25,6 +25,13 @@ shellcheck:
 bats:
 	@echo "=== bats ==="
 	@bats test/ test/lib/ test/integration/ tools/*/test.bats actions/*/test.bats build/actions/*/test.bats
+
+# Bump every TomHennen/wrangle/...@<sha> ref in .github/workflows/ to current HEAD.
+# Idempotent. See tools/bump_action_pins.sh and #165.
+# Usage: make bump-action-pins             # bump to HEAD
+#        make bump-action-pins SHA=<sha>   # bump to a specific SHA
+bump-action-pins:
+	@./tools/bump_action_pins.sh $(SHA)
 
 # Update a tool version and its checksum
 # Usage: make update-tool TOOL=osv VERSION=1.2.3
