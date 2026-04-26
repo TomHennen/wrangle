@@ -27,6 +27,18 @@ on:
         required: false
         type: boolean
         default: true
+      release-events:
+        description: |
+          Which events should trigger release-time actions (SLSA provenance,
+          and — in the caller's publish job — package publish). One of:
+            - non-pull-request (default): every event except pull_request*.
+            - tag-only: push to refs/tags/* only.
+            - main-and-tags: push to refs/heads/main or refs/tags/*.
+            - <comma-separated event_name list>: matches if github.event_name
+              is in the list. See actions/release_gate for full vocabulary.
+        required: false
+        type: string
+        default: non-pull-request
     outputs:
       hashes:
         description: "Base64-encoded SHA-256 hashes of built artifacts (for SLSA provenance)"
@@ -38,13 +50,37 @@ on:
         description: "Name of the uploaded dist/ artifact (download with this name to publish)"
         value: ${{ jobs.build.outputs.dist-artifact-name }}
       provenance-artifact-name:
-        description: "Name of the SLSA provenance workflow artifact (= the provenance filename). Empty on PR builds (provenance is gated on non-PR events)."
+        description: "Name of the SLSA provenance workflow artifact (= the provenance filename). Empty when should-release is false."
         value: ${{ jobs.provenance.outputs.provenance-name }}
       metadata-artifact-name:
         description: "Name of the workflow artifact (a zip of `metadata/python/<shortname>/`'s contents) containing the SBOM and metadata. Format: `python-metadata-<shortname>`. Adopters fetch via `actions/download-artifact` — the metadata files land at the top level of the configured `path:`, not under `metadata/python/<shortname>/`. See docs/SPEC.md \"Unified metadata layout\"."
         value: ${{ jobs.build.outputs.metadata-artifact-name }}
+      should-release:
+        description: |
+          "true" if the current event matches release-events and the caller
+          should perform release-time actions (publish, attestation upload,
+          etc.); "false" otherwise. Wrangle gates the provenance job on
+          this internally; the caller's publish job should gate on it too.
+        value: ${{ jobs.gate.outputs.should-release }}
 
 jobs:
+  # Decide whether release-time actions (provenance, publish) should run
+  # for this event. Cheap separate job so the result is available to
+  # both the provenance job below and the caller's publish job via
+  # outputs.should-release.
+  gate:
+    runs-on: ubuntu-latest
+    permissions: {}    # release_gate reads only env; no workspace, no API
+    outputs:
+      should-release: ${{ steps.gate.outputs.should-release }}
+    steps:
+      # No checkout: release_gate resolves via ${{ github.action_path }}.
+      # TODO: replace with $/actions/release_gate when GitHub ships $/ syntax (#136)
+      - uses: TomHennen/wrangle/actions/release_gate@391c46e2dc5d3bc17ce183ad2094380b04c041c1 # add-release-gate 2026-04-26
+        id: gate
+        with:
+          events: ${{ inputs.release-events }}
+
   build:
     runs-on: ubuntu-latest
     permissions:
@@ -60,7 +96,7 @@ jobs:
           persist-credentials: false
 
       # TODO: replace with $/build/actions/python when GitHub ships $/ syntax (#136)
-      - uses: TomHennen/wrangle/build/actions/python@80bb7cbd8ff4f346a237ea0d4b5aaf4a78c9d546 # main 2026-04-26
+      - uses: TomHennen/wrangle/build/actions/python@391c46e2dc5d3bc17ce183ad2094380b04c041c1 # add-release-gate 2026-04-26
         id: build
         with:
           path: ${{ inputs.path }}
@@ -91,9 +127,9 @@ jobs:
 
   # Generate SLSA L3 provenance for the built artifacts. The generator
   # runs in an isolated reusable workflow that the caller cannot tamper
-  # with — this is what makes the provenance non-falsifiable. Skipped
-  # on PRs because publishing is also skipped, so provenance there
-  # would be wasted compute.
+  # with — this is what makes the provenance non-falsifiable. Gated on
+  # the release-events input so adopters can tighten when provenance is
+  # produced (e.g., tag-only) without forking the workflow.
   #
   # contents: write is required because the generator's upload-assets
   # job declares it. GitHub validates every called job's permissions
@@ -104,8 +140,8 @@ jobs:
   # release assets (permanent, discoverable). Off-tag the generator
   # only uploads provenance as a workflow artifact (90-day retention).
   provenance:
-    if: ${{ ! startsWith(github.event_name, 'pull_') }}
-    needs: [build]
+    if: ${{ needs.gate.outputs.should-release == 'true' }}
+    needs: [gate, build]
     permissions:
       actions: read    # detect the GitHub Actions environment
       id-token: write  # OIDC for Sigstore signing

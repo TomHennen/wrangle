@@ -49,10 +49,11 @@ Before the first publish, the adopter must:
 | `path` | No | `.` | Relative path to the directory containing `pyproject.toml` |
 | `python-version` | No | (auto-detect) | Python version override. If empty, detected from `pyproject.toml` via `actions/setup-python`'s `python-version-file` feature. |
 | `run-tests` | No | `true` | Whether to run pytest before building |
+| `release-events` | No | `non-pull-request` | Which events trigger release-time actions (provenance, publish). See [`docs/SPEC.md`](../../../docs/SPEC.md) "Release-events gating" for the full vocabulary. |
 
 Wrangle's reusable workflow has no `repository-url` input — publishing lives in the adopter's own workflow because PyPI Trusted Publishing requires the OIDC token's `workflow_ref` to point at the adopter, not at a reusable workflow ([pypi/warehouse#11096](https://github.com/pypi/warehouse/issues/11096)). The adopter's publish job sets `repository-url` directly on `pypa/gh-action-pypi-publish`.
 
-The publish-on-non-PR safety gate (`if: ! startsWith(github.event_name, 'pull_')`) lives on the adopter side too. Adopters control WHEN to publish via their calling workflow's trigger configuration — e.g., `on: push: tags: ['v*']` for tag-only publishing, or `on: push: branches: ['main']` for every-merge publishing. The example workflow in `gh_workflow_examples/build_python.yml` shows the canonical wiring.
+Adopters' publish jobs MUST gate on `needs.build.outputs.should-release == 'true'` — that mirrors the gate the reusable workflow applies internally to provenance, so a single `release-events` value controls both sides. The example workflow in `gh_workflow_examples/build_python.yml` shows the canonical wiring.
 
 ## Outputs
 
@@ -61,8 +62,9 @@ The publish-on-non-PR safety gate (`if: ! startsWith(github.event_name, 'pull_')
 | `version` | reusable workflow + composite | The package version (read from the built wheel filename; the build backend reads it from `pyproject.toml`'s `[project].version` or a dynamic version plugin like `hatch-vcs` / `setuptools-scm`). |
 | `hashes` | reusable workflow + composite | Base64-encoded SHA-256 hashes in the format `slsa-github-generator`'s `base64-subjects` input expects. Pass directly to the provenance job. |
 | `dist-artifact-name` | reusable workflow only | Name of the uploaded `dist/` artifact, namespaced by path-derived shortname so multiple python builds in one workflow don't collide. The publish job downloads using this name. |
-| `provenance-artifact-name` | reusable workflow only | Name of the uploaded SLSA provenance artifact (re-exported from `slsa-github-generator`'s `provenance-name`). Empty on PR builds because the provenance job is gated on non-PR events. |
+| `provenance-artifact-name` | reusable workflow only | Name of the uploaded SLSA provenance artifact (re-exported from `slsa-github-generator`'s `provenance-name`). Empty when `should-release` is false. |
 | `metadata-artifact-name` | reusable workflow only | Name of the uploaded metadata workflow artifact (`python-metadata-<shortname>`). Naming and contents follow the unified-metadata convention shared across all build types; see [`docs/SPEC.md`](../../../docs/SPEC.md) "Unified metadata layout." |
+| `should-release` | reusable workflow only | `"true"` if the current event matches `release-events`. The caller's publish job MUST gate on this; the reusable workflow gates its provenance job on it internally. |
 | `shortname` | composite only | Path-derived short name (e.g., `.` becomes `_`, `pkg/foo` becomes `pkg_foo`). Used for artifact namespacing when the composite is invoked directly. |
 | `metadata-dir` | composite only | Path to the metadata directory (`metadata/python/<shortname>/`) containing the SBOM. |
 
@@ -115,7 +117,7 @@ The reusable workflow uploads two artifacts after the composite action completes
 
 Both names are namespaced by the path-derived `shortname` so that multiple python builds in one workflow do not collide. The reusable workflow exports `dist-artifact-name` so adopters can `download-artifact` without hardcoding the namespacing scheme.
 
-### 8. Generate SLSA provenance (reusable workflow, gated on non-PR events)
+### 8. Generate SLSA provenance (reusable workflow, gated on release-events)
 
 The reusable workflow invokes `slsa-framework/slsa-github-generator/.github/workflows/generator_generic_slsa3.yml` with the `hashes` output from the build job. The generator runs in an isolated environment and produces non-falsifiable provenance. Referenced by tag (`@vX.Y.Z`) per the generator's OIDC verification requirement (#147). The generator uploads the provenance file as a workflow artifact; the reusable workflow re-exports its `provenance-name` as `provenance-artifact-name` so the adopter can locate it.
 
@@ -123,9 +125,9 @@ The provenance job declares `contents: write` because the SLSA generator's `uplo
 
 Callers of this reusable workflow must therefore grant `contents: write` themselves. This matches the SLSA generic generator's [reference example](https://github.com/slsa-framework/slsa-github-generator/blob/v2.1.0/internal/builders/generic/README.md).
 
-Provenance is gated on non-PR events (`if: ! startsWith(github.event_name, 'pull_')`). On PR builds, only the build + test + SBOM steps run.
+Provenance is gated on the `release-events` input (default `non-pull-request`). The reusable workflow runs a small `gate` job that calls `actions/release_gate` and exposes a `should-release` output; the provenance job runs only when `should-release == 'true'`. On gated-out runs (e.g., PRs, or non-tag events when `release-events: tag-only`), only the build + test + SBOM steps run. See [`docs/SPEC.md`](../../../docs/SPEC.md) "Release-events gating" for the full predicate vocabulary.
 
-### 9. Verify provenance and publish (adopter workflow, gated on non-PR events)
+### 9. Verify provenance and publish (adopter workflow, gated on should-release)
 
 The adopter's calling workflow runs a `publish` job with `id-token: write`. The job:
 
@@ -227,9 +229,20 @@ jobs:
           name: ${{ steps.names.outputs.metadata }}
           path: ${{ steps.build.outputs.metadata-dir }}/
 
+  gate:
+    runs-on: ubuntu-latest
+    outputs: { should-release: ${{ steps.gate.outputs.should-release }} }
+    steps:
+      - uses: actions/checkout@<sha>
+        with: { persist-credentials: false }
+      - uses: TomHennen/wrangle/actions/release_gate@<sha>
+        id: gate
+        with:
+          events: ${{ inputs.release-events }}
+
   provenance:
-    if: ${{ ! startsWith(github.event_name, 'pull_') }}
-    needs: [build]
+    if: ${{ needs.gate.outputs.should-release == 'true' }}
+    needs: [gate, build]
     permissions:
       actions: read
       id-token: write
@@ -240,7 +253,7 @@ jobs:
       upload-assets: ${{ startsWith(github.ref, 'refs/tags/') }}
 ```
 
-The publish job lives in the adopter's calling workflow (see `gh_workflow_examples/build_python.yml`), which depends on this reusable workflow's `dist-artifact-name`, `provenance-artifact-name`, and `hashes` outputs.
+The publish job lives in the adopter's calling workflow (see `gh_workflow_examples/build_python.yml`), which depends on this reusable workflow's `dist-artifact-name`, `provenance-artifact-name`, `hashes`, and `should-release` outputs.
 
 ## Security model
 

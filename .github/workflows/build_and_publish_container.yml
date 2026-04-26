@@ -19,6 +19,21 @@ on:
         required: false
         default: false
         type: boolean
+      release-events:
+        description: |
+          Which events should trigger SLSA provenance generation. One of:
+            - non-pull-request (default): every event except pull_request*.
+            - tag-only: push to refs/tags/* only.
+            - main-and-tags: push to refs/heads/main or refs/tags/*.
+            - <comma-separated event_name list>: matches if github.event_name
+              is in the list. See actions/release_gate for full vocabulary.
+          Note: this gate currently controls only provenance generation, not
+          the docker push (which happens mid-composite in build/actions/container
+          and is gated by the workflow's own trigger conditions). See
+          docs/SPEC.md for the asymmetry rationale.
+        required: false
+        type: string
+        default: non-pull-request
     secrets:
       gh_token:
         description: "GitHub token with write access"
@@ -33,8 +48,27 @@ on:
       metadata-artifact-name:
         description: "Name of the workflow artifact (a zip of `metadata/container/<shortname>/`'s contents) containing the SBOM and any scan output. Format: `container-metadata-<shortname>`. Adopters fetch via `actions/download-artifact` — the metadata files land at the top level of the configured `path:`, not under `metadata/container/<shortname>/`."
         value: ${{ jobs.build.outputs.metadata-artifact-name }}
+      should-release:
+        description: |
+          "true" if the current event matches release-events; "false" otherwise.
+          Wrangle gates the provenance job on this internally; callers can
+          gate downstream release-time jobs on it too.
+        value: ${{ jobs.gate.outputs.should-release }}
 
 jobs:
+  gate:
+    runs-on: ubuntu-latest
+    permissions: {}    # release_gate reads only env; no workspace, no API
+    outputs:
+      should-release: ${{ steps.gate.outputs.should-release }}
+    steps:
+      # No checkout: release_gate resolves via ${{ github.action_path }}.
+      # TODO: replace with $/actions/release_gate when GitHub ships $/ syntax (#136)
+      - uses: TomHennen/wrangle/actions/release_gate@391c46e2dc5d3bc17ce183ad2094380b04c041c1 # add-release-gate 2026-04-26
+        id: gate
+        with:
+          events: ${{ inputs.release-events }}
+
   build:
     permissions:
       contents: read
@@ -48,7 +82,7 @@ jobs:
     # TODO: replace with $/build/actions/container when GitHub ships $/ syntax (#136)
     - name: "build and publish"
       id: build
-      uses: TomHennen/wrangle/build/actions/container@80bb7cbd8ff4f346a237ea0d4b5aaf4a78c9d546 # main 2026-04-26
+      uses: TomHennen/wrangle/build/actions/container@391c46e2dc5d3bc17ce183ad2094380b04c041c1 # add-release-gate 2026-04-26
       with:
         path: ${{ inputs.path }}
         imagename: ${{ inputs.imagename }}
@@ -56,10 +90,10 @@ jobs:
         github_token: ${{ secrets.GITHUB_TOKEN }}
 
   provenance:
-    # Generate provenance for anything that's not a PR
-    # We should probably be more restrictive in the future?
-    if: ${{ ! startsWith(github.event_name, 'pull_') }}
-    needs: [build]
+    # Gated on release-events (default: non-pull-request) so adopters can
+    # tighten when provenance is produced without forking the workflow.
+    if: ${{ needs.gate.outputs.should-release == 'true' }}
+    needs: [gate, build]
     permissions:
       actions: read # for detecting the Github Actions environment.
       id-token: write # for creating OIDC tokens for signing.

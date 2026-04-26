@@ -183,6 +183,26 @@ The build stage has multiple failure points with different behaviors:
 
 This "fail on anything that weakens security guarantees" approach is stricter than the typical "warn on infra" pattern, but wrangle is a security tool — its releases must model the behavior it advocates. If Sigstore/Fulcio is down, the correct response is to wait and retry, not to ship without signing.
 
+### Release-events gating
+
+Every wrangle build-type reusable workflow MUST expose a `release-events` input that controls whether release-time side effects (SLSA provenance generation; in some build types, publish) run for a given event. The default is `non-pull-request`. Internally the workflow MUST delegate the decision to the shared composite action `actions/release_gate/`, which exposes a `should-release` output. The reusable workflow then:
+
+1. Gates its own provenance job on `needs.gate.outputs.should-release == 'true'`.
+2. Re-exports `should-release` as a workflow output so the caller's publish job (when one exists) can gate on the same value — keeping wrangle's internal gating and the caller's downstream gating in lockstep.
+
+Supported `release-events` shorthands:
+
+- `non-pull-request` (default) — every event except `pull_request*`.
+- `tag-only` — push to `refs/tags/*` only.
+- `main-and-tags` — push to `refs/heads/main` or `refs/tags/*`.
+- A comma-separated list of `github.event_name` values (e.g., `push,workflow_dispatch`) for adopters who need exact control. The list matches purely on event name; ref filtering is only available through the shorthands above.
+
+Why a shared composite. Centralizing the predicate means adopters get a single vocabulary across every build type, and refining the gate (adding a shorthand, supporting environments, applying ref filters to event lists) is a single-PR change rather than a sweep across every reusable workflow.
+
+Why over-generation is acceptable for the default. SLSA L3 provenance is non-falsifiable: a verifier checks `--source-uri` and (where the consumer specifies it) `--source-tag` against the provenance's recorded `workflow_ref`. A `schedule`-cron run that nobody downstream consumes is harmless because no consumer references that `workflow_ref`. The cost of over-generation is generator-job runtime; the cost of under-generation is "the consumer expected provenance and didn't get it." Asymmetric — over-generate by default, let adopters tighten when they have a stronger threat model (e.g., `tag-only` to ensure unauthorized `workflow_dispatch` cannot mint provenance for a release that downstream verifiers might trust under a default policy).
+
+Asymmetry: container vs. python. The container reusable workflow's docker push happens mid-composite inside `build/actions/container`; `release-events` currently gates only the provenance job in that workflow, not the push. The python reusable workflow has no publish step (PyPI Trusted Publishing's OIDC constraint means publish lives in the caller), so `release-events` gates provenance and `should-release` flows out to the caller's publish job. Build types MUST document this scope when their publish path differs from the python pattern.
+
 ## Architecture
 
 ### Layers

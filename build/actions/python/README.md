@@ -47,9 +47,33 @@ Two ways to adopt:
 ## Outputs from the reusable workflow
 
 - `dist-artifact-name` — workflow-artifact name to download with `actions/download-artifact` to retrieve the built wheel + sdist.
-- `provenance-artifact-name` — workflow-artifact name for the SLSA provenance (empty on PR builds).
+- `provenance-artifact-name` — workflow-artifact name for the SLSA provenance (empty when `should-release` is false).
 - `metadata-artifact-name` — workflow-artifact name for the SBOM and any scan output (`python-metadata-<shortname>`). See [`docs/SPEC.md`](../../../docs/SPEC.md) "Unified metadata layout."
+- `should-release` — `"true"` if the current event matches `release-events`. Your publish job MUST gate on this (see below).
 - `hashes`, `version`.
+
+## Controlling when releases happen
+
+The `release-events` input controls which events produce SLSA provenance. Your publish job MUST also gate on `should-release` so wrangle's provenance gating and your publish gating stay in lockstep.
+
+> **Required wiring.** Without the gate, your publish job runs on every non-PR event regardless of what you pass as `release-events`. The example workflow at [`gh_workflow_examples/build_python.yml`](../../../gh_workflow_examples/build_python.yml) shows the canonical shape:
+>
+> ```yaml
+> publish:
+>   if: ${{ needs.build.outputs.should-release == 'true' }}
+>   needs: [build]
+> ```
+>
+> Wrangle cannot enforce this from inside its reusable workflow — publish lives in your workflow due to PyPI Trusted Publishing's OIDC `workflow_ref` constraint ([pypi/warehouse#11096](https://github.com/pypi/warehouse/issues/11096)). If you forget the gate, builds still succeed, provenance still respects `release-events`, but your publish runs more often than you intended. ([#176](https://github.com/TomHennen/wrangle/issues/176) tracks moving verification — and possibly more of this gating responsibility — into wrangle itself.)
+
+`release-events` accepts: `non-pull-request` (default), `tag-only`, `main-and-tags`, or a comma-separated `github.event_name` list (e.g., `push,workflow_dispatch`). See [`docs/SPEC.md`](../../../docs/SPEC.md) "Release-events gating" for the full vocabulary.
+
+```yaml
+uses: TomHennen/wrangle/.github/workflows/build_and_publish_python.yml@v0.2.0
+with:
+  path: "."
+  release-events: tag-only   # only tag pushes mint provenance and publish
+```
 
 ## Verifying SLSA provenance before publish (recommended, optional)
 
