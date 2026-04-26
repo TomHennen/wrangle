@@ -183,3 +183,82 @@ EOF
     [[ "$status" -eq 0 ]]
     grep -q "@${NEW_SHA}" .github/workflows/a.yaml
 }
+
+@test "bump_action_pins: ignores commented-out uses: lines" {
+    cat > .github/workflows/a.yml <<EOF
+jobs:
+  build:
+    # uses: TomHennen/wrangle/build/actions/python@aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
+    uses: TomHennen/wrangle/actions/scan@bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb
+EOF
+    run "$SCRIPT" "$NEW_SHA"
+    [[ "$status" -eq 0 ]]
+    # Commented line untouched
+    grep -q "# uses: TomHennen/wrangle/build/actions/python@aaaa" .github/workflows/a.yml
+    # Real pin updated
+    grep -q "uses: TomHennen/wrangle/actions/scan@${NEW_SHA}" .github/workflows/a.yml
+}
+
+@test "bump_action_pins: rejects CRLF line endings" {
+    printf 'jobs:\r\n  build:\r\n    uses: TomHennen/wrangle/build/actions/python@aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\r\n' > .github/workflows/a.yml
+    run "$SCRIPT" "$NEW_SHA"
+    [[ "$status" -ne 0 ]]
+    [[ "$output" == *"CRLF"* ]]
+}
+
+@test "bump_action_pins: idempotent when SHA matches even with different env date/branch" {
+    # Initial bump with date X, branch Y.
+    cat > .github/workflows/a.yml <<EOF
+jobs:
+  build:
+    uses: TomHennen/wrangle/build/actions/python@aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
+EOF
+    "$SCRIPT" "$NEW_SHA" >/dev/null
+    BEFORE="$(cat .github/workflows/a.yml)"
+
+    # Re-run with the same SHA but a different date/branch — file must
+    # remain byte-identical because the SHA hasn't changed.
+    WRANGLE_PINS_DATE=2100-01-01 WRANGLE_PINS_BRANCH=other-branch run "$SCRIPT" "$NEW_SHA"
+    [[ "$status" -eq 0 ]]
+    [[ "$output" == *"0 file(s) changed"* ]]
+    AFTER="$(cat .github/workflows/a.yml)"
+    [[ "$BEFORE" == "$AFTER" ]]
+}
+
+@test "bump_action_pins: cleans up temp files on sed failure" {
+    # Simulate a permission-denied write to make sed fail. Pre-create
+    # a target file, then make the workflows dir non-writable.
+    cat > .github/workflows/a.yml <<EOF
+jobs:
+  build:
+    uses: TomHennen/wrangle/build/actions/python@aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
+EOF
+    chmod -w .github/workflows
+    run "$SCRIPT" "$NEW_SHA"
+    chmod +w .github/workflows
+    # Either it errored, or it succeeded but no temp files leaked.
+    # Crucial assertion: no leftover .yml.* temp files in the workflows dir.
+    leftover_count="$(find .github/workflows -maxdepth 1 -name 'a.yml.*' | wc -l)"
+    [[ "$leftover_count" -eq 0 ]]
+}
+
+@test "bump_action_pins: only mixed-SHA files are rewritten when some pins already match target" {
+    # File with a mix of SHAs — must be rewritten so all pins reach target.
+    cat > .github/workflows/mixed.yml <<EOF
+jobs:
+  a:
+    uses: TomHennen/wrangle/build/actions/python@${NEW_SHA}
+  b:
+    uses: TomHennen/wrangle/actions/scan@aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
+EOF
+    # File with all pins already at target — must NOT be rewritten.
+    cat > .github/workflows/all-match.yml <<EOF
+jobs:
+  a:
+    uses: TomHennen/wrangle/build/actions/python@${NEW_SHA}
+EOF
+    run "$SCRIPT" "$NEW_SHA"
+    [[ "$status" -eq 0 ]]
+    [[ "$output" == *"bumped: .github/workflows/mixed.yml"* ]]
+    [[ "$output" != *"bumped: .github/workflows/all-match.yml"* ]]
+}

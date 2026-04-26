@@ -11,6 +11,15 @@
 # No per-action change tracking — bump everything to HEAD on each run.
 # That matches how `$/` syntax (#136) would behave once it ships.
 #
+# Idempotency: if every matching pin in a file already points at the
+# target SHA, the file is left untouched (the comment date/branch is
+# only refreshed when the SHA actually changes). This means running
+# the script on different days produces no spurious diff.
+#
+# Portability: works with GNU and BSD sed. Workflow files are required
+# to use LF line endings — CRLF causes the script to error out so the
+# rewrite doesn't silently mangle line endings.
+#
 # Usage:
 #   tools/bump_action_pins.sh             # bump every pin to current HEAD
 #   tools/bump_action_pins.sh <sha>       # bump every pin to a specific SHA
@@ -60,39 +69,67 @@ else
 fi
 date_label="${WRANGLE_PINS_DATE:-$(date -u +%Y-%m-%d)}"
 
-# Build the sed expression. Escape the slashes in the repo prefix so
-# they survive the s|||g delimiter choice. We use | as the delimiter
-# because the matched text contains /, which would otherwise need
-# escaping.
+# Build the sed expression. We use | as the delimiter because the matched
+# text contains /, which would otherwise need escaping. The `\{0,1\}`
+# quantifier is POSIX BRE and works on both GNU and BSD sed (\? is GNU-only).
+#
+# Anchor: the line must start with optional whitespace and an optional
+# YAML list-item dash. Without the anchor, comment lines like
+# `# uses: ...@<sha>` would match — wrong, since the comment is supposed
+# to neutralize the line.
 escaped_repo="${PINS_REPO//\//\\/}"
 new_suffix="@${target_sha} # ${branch_label} ${date_label}"
 
-# Match group 1: the path between the repo prefix and the @ separator.
-# The whole tail (sha + optional " # ..." comment) is replaced.
-match='\(uses:[[:space:]]*'"$escaped_repo"'/[^@[:space:]]*\)@[0-9a-f]\{40\}\([[:space:]]*#[^\n]*\)\?'
+match='\(^[[:space:]]*-\{0,1\}[[:space:]]*uses:[[:space:]]*'"$escaped_repo"'/[^@[:space:]]*\)@[0-9a-f]\{40\}\([[:space:]]*#[^\r\n]*\)\{0,1\}'
 replace='\1'"$new_suffix"
 
-# Walk every YAML file in the target dir and rewrite in place. POSIX sed
-# (BSD on macOS, GNU on Linux) differ on -i; sed's -i'' form works on GNU
-# but not BSD. To stay portable, write to a temp file and atomically replace.
+# Walk every YAML file in the target dir and rewrite in place. We write
+# to a sibling temp file (mktemp on the same filesystem) and atomically
+# rename — `mktemp` defaults to $TMPDIR, often a different mount, where
+# `mv` falls back to copy+unlink (not atomic).
+tmp_file=""
+cleanup() { [[ -n "$tmp_file" && -f "$tmp_file" ]] && rm -f "$tmp_file"; tmp_file=""; }
+trap cleanup EXIT INT TERM
+
 shopt -s nullglob
 changed=0
 total=0
 for f in "$REPO_ROOT/$PINS_DIR"/*.yml "$REPO_ROOT/$PINS_DIR"/*.yaml; do
     [[ -f "$f" ]] || continue
+
+    # Filter to files that even contain a matching pin.
     if ! grep -q -E "uses:[[:space:]]*${PINS_REPO}/[^@[:space:]]+@[0-9a-f]{40}" "$f"; then
         continue
     fi
     total=$((total + 1))
-    tmp="$(mktemp)"
-    sed "s|$match|$replace|g" "$f" > "$tmp"
-    if ! cmp -s "$f" "$tmp"; then
-        mv "$tmp" "$f"
-        changed=$((changed + 1))
-        printf 'bumped: %s\n' "${f#"$REPO_ROOT"/}"
-    else
-        rm -f "$tmp"
+
+    # Reject CRLF — silently dropping \r would produce mixed line endings.
+    if grep -q $'\r' "$f"; then
+        # shellcheck disable=SC2016 # the backticks are part of the human-readable message, not an attempt at command substitution
+        printf 'Error: %s has CRLF line endings; convert to LF first (see dos2unix(1) or `tr -d "\\r" < file > tmp && mv tmp file`).\n' "${f#"$REPO_ROOT"/}" >&2
+        exit 1
     fi
+
+    # Idempotency: if every existing pin already matches the target SHA,
+    # leave the file alone (preserves the existing comment, so re-runs
+    # on different days don't produce spurious diffs).
+    needs_update=false
+    while IFS= read -r existing_sha; do
+        if [[ "$existing_sha" != "$target_sha" ]]; then
+            needs_update=true
+            break
+        fi
+    done < <(grep -oE "${PINS_REPO}/[^@[:space:]]+@[0-9a-f]{40}" "$f" | grep -oE '[0-9a-f]{40}$')
+    if [[ "$needs_update" == "false" ]]; then
+        continue
+    fi
+
+    tmp_file="$(mktemp "$f.XXXXXX")"
+    sed "s|$match|$replace|g" "$f" > "$tmp_file"
+    mv "$tmp_file" "$f"
+    tmp_file=""
+    changed=$((changed + 1))
+    printf 'bumped: %s\n' "${f#"$REPO_ROOT"/}"
 done
 
 printf '\nSummary: %d file(s) had pins, %d file(s) changed.\n' "$total" "$changed"
