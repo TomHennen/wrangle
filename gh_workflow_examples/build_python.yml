@@ -13,15 +13,16 @@
 # from your workflow, not a reusable workflow. See:
 # https://github.com/pypi/warehouse/issues/11096
 #
-# Wrangle's reusable workflow generates SLSA L3 provenance. This example
-# verifies that provenance with `slsa-verifier` before publishing — the
-# recommended pattern, but you may remove the verify step if you don't
-# need it. See build/actions/python/README.md for details.
+# Wrangle's reusable workflow generates SLSA L3 provenance AND verifies
+# the just-built dist against it before declaring success. If verification
+# fails, the workflow fails and `needs: [build]` blocks publish — so
+# adopters don't need to wire `slsa-verifier` into their own publish job.
+# Pass `verify-provenance: false` to opt out of wrangle's verification.
 #
 # Trigger note: this workflow publishes when `should-release` is true.
 # This template sets `release-events: tag-only` so only tag pushes
-# publish — `workflow_dispatch` runs build + test + provenance but does
-# NOT publish, even from main. That is the safer default for a
+# publish — `workflow_dispatch` runs build + test + provenance + verify
+# but does NOT publish, even from main. That is the safer default for a
 # canonical security-tool template: a stolen workflow_dispatch invocation
 # from any branch cannot mint a release. Switch to `non-pull-request`
 # (publish on every non-PR event) or `main-and-tags` (push to main or
@@ -48,10 +49,13 @@ jobs:
       release-events: tag-only          # only tag pushes publish (recommended default)
       # python-version: ""              # optional: auto-detected from pyproject.toml
       # run-tests: true                 # optional: skip with false
+      # verify-provenance: true         # optional: wrangle verifies before declaring success; set false for custom verify
 
   publish:
-    # Gate on the should-release output so wrangle's reusable workflow
-    # and this publish job agree on which events trigger a release.
+    # Gate on the should-release output. should-release is "true" only when
+    # the wrangle workflow succeeded (which includes verify, on by default),
+    # so by the time this job runs the dist has already been verified
+    # against its provenance.
     if: ${{ needs.build.outputs.should-release == 'true' }}
     needs: [build]
     runs-on: ubuntu-latest
@@ -62,26 +66,6 @@ jobs:
         with:
           name: ${{ needs.build.outputs.dist-artifact-name }}
           path: dist/
-
-      # Verify SLSA provenance before publishing. This step is optional —
-      # remove it (and the download-artifact + installer steps above it)
-      # if you don't want to verify in the workflow.
-      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
-        with:
-          name: ${{ needs.build.outputs.provenance-artifact-name }}
-          path: provenance/
-      - uses: slsa-framework/slsa-verifier/actions/installer@ea584f4502babc6f60d9bc799dbbb13c1caa9ee6 # v2.7.1
-      - name: Verify SLSA provenance
-        env:
-          SOURCE_URI: github.com/${{ github.repository }}
-          # The SLSA generator's artifact name equals the provenance filename.
-          PROVENANCE_NAME: ${{ needs.build.outputs.provenance-artifact-name }}
-        run: |
-          set -euo pipefail
-          slsa-verifier verify-artifact \
-              --provenance-path "provenance/${PROVENANCE_NAME}" \
-              --source-uri "$SOURCE_URI" \
-              dist/*
 
       - uses: pypa/gh-action-pypi-publish@cef221092ed1bacb1cc03d23a2d87d1d172e277b # v1.14.0
         with:

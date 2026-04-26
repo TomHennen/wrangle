@@ -30,7 +30,8 @@ on:
       release-events:
         description: |
           Which events should trigger release-time actions (SLSA provenance,
-          and — in the caller's publish job — package publish). One of:
+          verification, and — in the caller's publish job — package publish).
+          One of:
             - non-pull-request (default): every event except pull_request*.
             - tag-only: push to refs/tags/* only.
             - main-and-tags: push to refs/heads/main or refs/tags/*.
@@ -39,6 +40,20 @@ on:
         required: false
         type: string
         default: non-pull-request
+      verify-provenance:
+        description: |
+          When true (default), wrangle runs `slsa-verifier verify-artifact`
+          against the just-built dist before declaring the workflow
+          successful. If verification fails, the workflow fails — and the
+          caller's publish job is blocked via standard `needs:` propagation,
+          so a tampered dist between build and publish cannot be released.
+          Set to false to skip wrangle's verification (e.g., adopters with
+          a custom verification flow). Skipping makes the dist's integrity
+          between wrangle's build and the caller's publish an
+          adopter-managed concern.
+        required: false
+        type: boolean
+        default: true
     outputs:
       hashes:
         description: "Base64-encoded SHA-256 hashes of built artifacts (for SLSA provenance)"
@@ -152,3 +167,39 @@ jobs:
     with:
       base64-subjects: ${{ needs.build.outputs.hashes }}
       upload-assets: ${{ startsWith(github.ref, 'refs/tags/') }}
+
+  # Verify the just-built dist matches the just-generated provenance.
+  # Catches "dist tampered with after build, before publish" — the same
+  # guarantee the example workflow used to provide via per-adopter
+  # boilerplate, now owned by wrangle. Failing here fails the workflow,
+  # which (via standard `needs:` propagation) blocks the caller's
+  # publish job. Adopters with custom verification flows pass
+  # `verify-provenance: false` and wire their own.
+  verify:
+    if: ${{ needs.gate.outputs.should-release == 'true' && inputs.verify-provenance }}
+    needs: [gate, build, provenance]
+    runs-on: ubuntu-latest
+    permissions: {}    # default token; download-artifact reads same-run artifacts
+    steps:
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        with:
+          name: ${{ needs.build.outputs.dist-artifact-name }}
+          path: dist/
+
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        with:
+          name: ${{ needs.provenance.outputs.provenance-name }}
+          path: provenance/
+
+      - uses: slsa-framework/slsa-verifier/actions/installer@ea584f4502babc6f60d9bc799dbbb13c1caa9ee6 # v2.7.1
+
+      - name: Verify SLSA provenance
+        env:
+          SOURCE_URI: github.com/${{ github.repository }}
+          PROVENANCE_NAME: ${{ needs.provenance.outputs.provenance-name }}
+        run: |
+          set -euo pipefail
+          slsa-verifier verify-artifact \
+              --provenance-path "provenance/${PROVENANCE_NAME}" \
+              --source-uri "$SOURCE_URI" \
+              dist/*
