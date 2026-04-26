@@ -25,6 +25,6 @@ jobs:
       # action-pattern tools (zizmor, scorecard) via uses: internally.
       # TODO: replace with $/actions/scan when GitHub ships $/ syntax (#136)
       - name: Source scan
-        uses: TomHennen/wrangle/actions/scan@6cbd393e779e98c40459ef8032dbac62b7805e16 # main 2026-04-22
+        uses: TomHennen/wrangle/actions/scan@80bb7cbd8ff4f346a237ea0d4b5aaf4a78c9d546 # main 2026-04-26
         with:
           tools: ${{ inputs.tools }}

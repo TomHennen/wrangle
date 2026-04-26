@@ -27,9 +27,17 @@
 # Env overrides (escape hatch for forks / testing):
 #   WRANGLE_PINS_REPO   — repo prefix to match (default: TomHennen/wrangle)
 #   WRANGLE_PINS_DIR    — directory to walk (default: .github/workflows)
-#   WRANGLE_PINS_BRANCH — branch label to write into the comment
-#                         (default: `git symbolic-ref --short HEAD`,
-#                         falling back to "main" if detached)
+#   WRANGLE_PINS_BRANCH — branch label to write into the comment.
+#                         Default detection (in order):
+#                           1. If target_sha is reachable from `main` (i.e.,
+#                              already merged), use `main`. This makes
+#                              post-merge cleanup runs label correctly even
+#                              when the cleanup happens on a temporary branch.
+#                           2. Else use the current branch
+#                              (`git symbolic-ref --short HEAD`).
+#                           3. Else (detached HEAD) fall back to "main".
+#                         WRANGLE_PINS_DEFAULT_BRANCH overrides which branch
+#                         the merge-base check considers (default: main).
 #   WRANGLE_PINS_DATE   — date label to write into the comment
 #                         (default: today's date in YYYY-MM-DD UTC)
 
@@ -62,10 +70,16 @@ if [[ ! "$target_sha" =~ ^[0-9a-f]{40}$ ]]; then
     exit 1
 fi
 
+default_branch="${WRANGLE_PINS_DEFAULT_BRANCH:-main}"
 if [[ -n "${WRANGLE_PINS_BRANCH:-}" ]]; then
     branch_label="$WRANGLE_PINS_BRANCH"
+elif git -C "$REPO_ROOT" merge-base --is-ancestor "$target_sha" "$default_branch" >/dev/null 2>&1; then
+    # Target is already on the default branch — e.g., the operator branched
+    # off main to refresh pins after a merge. Label as the default branch
+    # rather than the cleanup branch's name, which would be misleading.
+    branch_label="$default_branch"
 else
-    branch_label="$(git -C "$REPO_ROOT" symbolic-ref --short HEAD 2>/dev/null || echo main)"
+    branch_label="$(git -C "$REPO_ROOT" symbolic-ref --short HEAD 2>/dev/null || echo "$default_branch")"
 fi
 date_label="${WRANGLE_PINS_DATE:-$(date -u +%Y-%m-%d)}"
 
