@@ -21,19 +21,31 @@ on:
         type: boolean
       release-events:
         description: |
-          Which events should trigger SLSA provenance generation. One of:
+          Which events should trigger SLSA provenance generation and
+          verification. One of:
             - non-pull-request (default): every event except pull_request*.
             - tag-only: push to refs/tags/* only.
             - main-and-tags: push to refs/heads/main or refs/tags/*.
             - <comma-separated event_name list>: matches if github.event_name
               is in the list. See actions/release_gate for full vocabulary.
-          Note: this gate currently controls only provenance generation, not
-          the docker push (which happens mid-composite in build/actions/container
-          and is gated by the workflow's own trigger conditions). See
-          docs/SPEC.md for the asymmetry rationale.
+          Note: this gate currently controls provenance generation and
+          verification, not the docker push (which happens mid-composite
+          in build/actions/container and is gated by the workflow's own
+          trigger conditions). See docs/SPEC.md for the asymmetry rationale.
         required: false
         type: string
         default: non-pull-request
+      verify-image:
+        description: |
+          When true (default), wrangle runs `cosign verify-attestation`
+          against the just-pushed image's SLSA provenance attestation
+          before declaring the workflow successful. Verify failure fails
+          the workflow. Set to false to skip wrangle's verification.
+          (When the composite action gains cosign image signing, this
+          input will also gate `cosign verify` of the signature.)
+        required: false
+        type: boolean
+        default: true
     secrets:
       gh_token:
         description: "GitHub token with write access"
@@ -64,7 +76,7 @@ jobs:
     steps:
       # No checkout: release_gate resolves via ${{ github.action_path }}.
       # TODO: replace with $/actions/release_gate when GitHub ships $/ syntax (#136)
-      - uses: TomHennen/wrangle/actions/release_gate@391c46e2dc5d3bc17ce183ad2094380b04c041c1 # add-release-gate 2026-04-26
+      - uses: TomHennen/wrangle/actions/release_gate@2395271ddf17e4cf17741bacfe30e0450ad05f51 # add-release-verify 2026-04-26
         id: gate
         with:
           events: ${{ inputs.release-events }}
@@ -82,7 +94,7 @@ jobs:
     # TODO: replace with $/build/actions/container when GitHub ships $/ syntax (#136)
     - name: "build and publish"
       id: build
-      uses: TomHennen/wrangle/build/actions/container@391c46e2dc5d3bc17ce183ad2094380b04c041c1 # add-release-gate 2026-04-26
+      uses: TomHennen/wrangle/build/actions/container@2395271ddf17e4cf17741bacfe30e0450ad05f51 # add-release-verify 2026-04-26
       with:
         path: ${{ inputs.path }}
         imagename: ${{ inputs.imagename }}
@@ -110,3 +122,49 @@ jobs:
       private-repository: ${{ inputs.publish_provenance_for_private_repo }}
     secrets:
       registry-password: ${{ secrets.gh_token }}
+
+  # Verify the SLSA provenance attestation on the just-pushed image.
+  # Catches the "registry served bytes that don't match what wrangle
+  # pushed" attack window. Failing here fails the workflow, blocking
+  # any downstream release-time job via standard `needs:` propagation.
+  #
+  # Today the verify only covers the SLSA attestation. When the
+  # composite action gains `cosign sign` of the image digest, this job
+  # will also verify the image signature with the adopter's
+  # workflow_ref as the cert identity.
+  #
+  # The cert identity below is fixed by the SLSA generator's @v2.1.0
+  # pin in the provenance: job above — both refs MUST move together.
+  # Tests assert the lockstep so a single-side bump fails CI loudly.
+  verify:
+    if: ${{ needs.gate.outputs.should-release == 'true' && inputs.verify-image }}
+    needs: [gate, build, provenance]
+    runs-on: ubuntu-latest
+    permissions:
+      packages: read    # pull image manifest + attestation from ghcr.io
+    steps:
+      - uses: sigstore/cosign-installer@cad07c2e89fa2edd6e2d7bab4c1aa38e53f76003 # v4.1.1
+
+      - name: Log in to ghcr.io
+        # Needed when the image (or its repo) is private; harmless for public.
+        env:
+          REGISTRY: ${{ inputs.registry }}
+          ACTOR: ${{ github.actor }}
+          GH_TOKEN: ${{ secrets.gh_token }}
+        run: |
+          set -euo pipefail
+          echo "$GH_TOKEN" | cosign login "$REGISTRY" --username "$ACTOR" --password-stdin
+
+      - name: Verify SLSA provenance attestation
+        env:
+          IMAGE_REF: ${{ needs.build.outputs.imagename }}@${{ needs.build.outputs.digest }}
+          EXPECTED_REPO: ${{ github.repository }}
+        run: |
+          set -euo pipefail
+          cosign verify-attestation \
+            --type slsaprovenance \
+            --certificate-identity "https://github.com/slsa-framework/slsa-github-generator/.github/workflows/generator_container_slsa3.yml@refs/tags/v2.1.0" \
+            --certificate-oidc-issuer "https://token.actions.githubusercontent.com" \
+            --certificate-github-workflow-repository "$EXPECTED_REPO" \
+            "$IMAGE_REF" > /dev/null
+          printf 'Verified SLSA provenance attestation for %s\n' "$IMAGE_REF"

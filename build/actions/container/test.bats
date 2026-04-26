@@ -139,3 +139,56 @@ teardown() {
     run grep -E '^      should-release:' "$wf"
     [[ "$status" -eq 0 ]]
 }
+
+# --- Verify-image (#176) ---
+
+@test "container: reusable workflow has verify job calling cosign verify-attestation" {
+    local wf="$REPO_ROOT/.github/workflows/build_and_publish_container.yml"
+    run grep -E '^  verify:' "$wf"
+    [[ "$status" -eq 0 ]]
+    run grep 'cosign verify-attestation' "$wf"
+    [[ "$status" -eq 0 ]]
+    run grep -E 'sigstore/cosign-installer@[0-9a-f]{40}' "$wf"
+    [[ "$status" -eq 0 ]]
+}
+
+@test "container: verify job is gated on should-release AND verify-image" {
+    local wf="$REPO_ROOT/.github/workflows/build_and_publish_container.yml"
+    run bash -c "sed -n '/^  verify:/,/^[a-z]/p' \"$wf\" | grep -E \"if:.*should-release.*verify-image\""
+    [[ "$status" -eq 0 ]]
+}
+
+@test "container: workflow exposes verify-image input (default true)" {
+    local wf="$REPO_ROOT/.github/workflows/build_and_publish_container.yml"
+    run grep -E '^      verify-image:' "$wf"
+    [[ "$status" -eq 0 ]]
+    run bash -c "sed -n '/^      verify-image:/,/^      [a-z]/p' \"$wf\" | grep -E 'default:[[:space:]]*true'"
+    [[ "$status" -eq 0 ]]
+}
+
+@test "container: verify job pins SLSA generator cert identity to the same tag as provenance job" {
+    # The cert identity in the verify command MUST point at the same SLSA
+    # generator tag the provenance: job invokes. A lockstep mismatch would
+    # break verification on every run.
+    local wf="$REPO_ROOT/.github/workflows/build_and_publish_container.yml"
+    local generator_tag verify_tag
+    generator_tag="$(grep -oE 'generator_container_slsa3\.yml@v[0-9]+\.[0-9]+\.[0-9]+' "$wf" | head -1 | sed 's/.*@//')"
+    verify_tag="$(grep -oE 'generator_container_slsa3\.yml@refs/tags/v[0-9]+\.[0-9]+\.[0-9]+' "$wf" | head -1 | sed 's@.*refs/tags/@@')"
+    [[ -n "$generator_tag" ]]
+    [[ -n "$verify_tag" ]]
+    [[ "$generator_tag" == "$verify_tag" ]]
+}
+
+@test "container: verify job depends on provenance" {
+    local wf="$REPO_ROOT/.github/workflows/build_and_publish_container.yml"
+    run bash -c "sed -n '/^  verify:/,/^[a-z]/p' \"$wf\" | grep -E 'needs:.*provenance'"
+    [[ "$status" -eq 0 ]]
+}
+
+@test "container: verify job pins certificate-github-workflow-repository to the calling repo" {
+    local wf="$REPO_ROOT/.github/workflows/build_and_publish_container.yml"
+    run grep 'certificate-github-workflow-repository' "$wf"
+    [[ "$status" -eq 0 ]]
+    run grep 'github.repository' "$wf"
+    [[ "$status" -eq 0 ]]
+}
