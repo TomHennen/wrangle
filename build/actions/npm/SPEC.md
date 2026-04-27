@@ -94,7 +94,7 @@ This is the load-bearing decision and where the npm spec aligns to the python an
 - **ESLint** is the dominant linter. Canonical invocation is `eslint .` against the project root, configured via `eslint.config.js` (flat config, ESLint 9+) or legacy `.eslintrc.{js,json,yml}`. Most projects also expose it as `npm run lint`.
 - **Prettier** is widely paired for formatting. **TypeScript** projects also typically run `tsc --noEmit` for type-checking.
 - Reference setups: [`vercel/next.js`](https://github.com/vercel/next.js) uses ESLint + custom rules via `npm run lint`; [`facebook/react`](https://github.com/facebook/react) uses ESLint + Prettier coordinated through Yarn workspace scripts.
-- **Source vs. build placement:** linting fits more naturally in wrangle's **source stage** (alongside OSV-Scanner, Zizmor, Scorecard) than in the build stage. The build action could optionally invoke `npm run lint` if a `lint` script is declared in `package.json`, but the primary source-scan placement is the right home.
+- **Source-stage placement (wrangle-wide convention):** lint runs in wrangle's source-scan stage (alongside OSV-Scanner, Zizmor, Scorecard), **not** in the build action. The build action does NOT invoke `npm run lint` — that would duplicate the source-scan invocation and conflict with PRs that intentionally block on lint at the source level.
 
 ### Tests — `npm test`
 
