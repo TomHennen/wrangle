@@ -10,7 +10,7 @@ Go projects in 2026 fall into three release shapes:
 2. **Library-only modules.** No `main` package, no binary. Consumers fetch source via `go get` / `go install <module>@<version>`; integrity comes from Go's checksum database (`sum.golang.org`, a Trillian-backed Merkle log over `go.sum`-shaped lines — see the [Go module mirror launch announcement](https://go.dev/blog/module-mirror-launch) and [proposal 25530](https://go.googlesource.com/proposal/+/master/design/25530-sumdb.md)).
 3. **`go install <repo>@<tag>` for CLI tools whose maintainers chose not to run a release pipeline.** Equivalent to (1) minus the build job; consumers compile from source on their own machines.
 
-**Operating model.** Wrangle owns the build hygiene — test, SBOM, vulnscan, lint, gating, the unified metadata layout. The upstream SLSA generator owns the L3 provenance envelope. One attestation per artifact, not stacked. This is the same shape python and container ship today, and the picks below preserve it.
+**Operating model.** Wrangle owns the build hygiene — test, SBOM, vulnscan, lint, gating, the unified metadata layout — and produces its own L3 SLSA provenance via the upstream generator, stored in `metadata/go/<shortname>/`. The L3 bundle is verifiable offline by any consumer regardless of where the binary is hosted. Ecosystem-native attestations (Cosign signatures of binaries, GitHub artifact attestations, OCI image attestations for ko-built containers) populate alongside; wrangle's L3 doesn't compete for any ecosystem-native attestation slot. Same shape python and container ship today, and the picks below preserve it.
 
 ## Recommended defaults (the picks)
 
