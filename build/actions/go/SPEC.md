@@ -55,17 +55,17 @@ The stale `cyclonedx-gomod` reference in [`docs/docker_best_practices.md`](../..
 
 #### Pattern A (alternative, not picked)
 
-`slsa-framework/slsa-github-generator/.github/workflows/builder_go_slsa3.yml` is a Go-specific *builder* that performs the build itself inside an isolated reusable workflow, driven by a `.slsa-goreleaser.yml` config file (the filename predates goreleaser conventions; the format is the SLSA builder's own). `slsa-verifier`'s [release workflow](https://github.com/slsa-framework/slsa-verifier/blob/main/.github/workflows/release.yml) demonstrates the canonical 6-cell `os × arch` matrix. It exists as an alternative for adopters who specifically want `.slsa-goreleaser.yml`-driven isolated builds. The cost is wrangle's seam: `builder_go_slsa3.yml` has no `hashes` input — the build, the SBOM, the test, and the provenance all happen inside one sealed reusable workflow with no caller hook between them, so wrangle's `syft` / `go test` / `release_gate` steps either run on a separate checkout (different bytes than the builder produces) or don't run at all. Adopters who want that trade can opt in via a separate variant in a later iteration; not the v0.x default. Pattern A also doesn't support `pull_request` triggers (per the upstream README).
+`slsa-framework/slsa-github-generator/.github/workflows/builder_go_slsa3.yml` is a Go-specific *builder* that performs the build itself inside the same reusable workflow that signs the provenance, driven by a `.slsa-goreleaser.yml` config file (the filename predates goreleaser conventions; the format is the SLSA builder's own). `slsa-verifier`'s [release workflow](https://github.com/slsa-framework/slsa-verifier/blob/main/.github/workflows/release.yml) demonstrates the canonical 6-cell `os × arch` matrix. **Security strength is comparable to Pattern B** — both run the build inside a reusable workflow the adopter can't falsify, both sign provenance via Sigstore against the workflow's OIDC identity, and Pattern B's `generator_generic_slsa3.yml` is itself a reusable workflow with the same isolation property. The actual difference is **operational**: Pattern A binds build and sign in one upstream-controlled reusable workflow with no caller hook, so wrangle's `syft` / `go test` / `release_gate` steps either run on a separate checkout (against different bytes than the builder produces) or don't run at all. Pattern B keeps build inside wrangle's reusable workflow and signs via `generator_generic_slsa3.yml` — two reusable-workflow boundaries instead of one, with a caller-side hook in between for hygiene. Adopters who want Pattern A's no-second-checkout property can opt in via a separate variant in a later iteration; not the v0.x default. Pattern A also doesn't support `pull_request` triggers (per the upstream README).
 
 #### Pattern C (one-line alternative)
 
 GitHub's [`actions/attest@v4`](https://github.com/actions/attest) (used by [`goreleaser`'s own release workflow](https://github.com/goreleaser/goreleaser/blob/main/.github/workflows/release.yml), invoked twice — once over `dist/checksums.txt`, once over Docker digests) emits `slsa.dev/provenance/v1` predicates today, but lacks the L3-isolated-builder property and doesn't compose with wrangle's metadata layout — same reason wrangle's container and python specs don't use it.
 
-### Linting — `gofmt` + `golangci-lint`
+### Linting — `gofmt` + `golangci-lint` in source scans
 
 `gofmt` is mandatory (built into the Go toolchain); CI typically runs `gofmt -l .` and fails if the output is non-empty. [`golangci-lint`](https://golangci-lint.run/) is the canonical aggregator (vet, staticcheck, errcheck, ineffassign, unused, etc.), used by the goreleaser repo, slsa-verifier, oras, and most production Go projects.
 
-Source-stage placement is the natural fit (alongside OSV-Scanner and Zizmor in `actions/scan`); the build action could optionally invoke `gofmt -l .` and `golangci-lint run` if declared. Concrete recommendation for the implementation PR: enable lint by default with an opt-out input, mirroring the `run-tests: true` default python uses.
+Lint runs in **wrangle's source-scan stage** (`actions/scan`), alongside OSV/Zizmor/Scorecard, not in the build action. This is the wrangle-wide convention — same placement npm picks, and python and container should adopt source-stage lint in the same iteration. Build-stage lint creates duplicated invocations and conflicts with PRs that intentionally block on lint at the source level.
 
 ### Tests — `go test ./...` before build
 
@@ -75,7 +75,7 @@ Run `go test ./...` (with `-race` on the linux-amd64 cell when not cross-compili
 
 Out of the box, `go build` embeds build info (working directory, VCS revision, dirty flag, build timestamps) into the binary, which breaks reproducibility — two builds of the same source produce different bytes. Setting `-trimpath` (strips local filesystem paths from the binary) and `-buildvcs=false` (suppresses VCS-info embedding) plus a fixed `CGO_ENABLED=0` (where applicable) makes Go binaries reproducible. Goreleaser exposes these via `builds.flags` and `builds.env`; the wrangle action should set them by default and let the adopter's `.goreleaser.yml` opt out if they have a specific reason.
 
-This matters because it closes the wrangle-tested-bytes vs. SLSA-attested-bytes gap. Without reproducibility, "we tested the source and SLSA attests the build" is two different artifacts; with it, they are the same artifact byte-for-byte.
+Under Pattern B (the pick) wrangle's test step and wrangle's hash step both run against the same bytes goreleaser produced in the same job, so reproducibility isn't needed to close a wrangle-vs-builder gap (Pattern A's gap doesn't apply here). Reproducibility still matters for **consumer-side verification** — a downstream consumer who rebuilds from source should get the same binary the SLSA provenance attests — and for security audits that want to confirm "this binary corresponds to this source." That justifies the flags by default.
 
 ### Authentication — `GITHUB_TOKEN` only
 
@@ -98,9 +98,7 @@ The first option is simpler and avoids a directory split for what's essentially 
 
 ## ko / container builds
 
-Go projects that publish container images via [`ko`](https://ko.build/) (small distroless images built from Go binaries without a Dockerfile) should use **wrangle's existing container build type**, not the Go build type. ko produces an OCI image; the container build type already handles SBOM, Cosign signing, and SLSA provenance for OCI images. The Go build type doesn't need a ko-specific code path — ko-using projects already have a container build need, and routing them to the container action keeps wrangle's per-ecosystem boundaries clean.
-
-This mirrors how the container build type doesn't try to handle goreleaser-built tarball artifacts: each artifact shape gets its own build type.
+Go projects that publish container images via [`ko`](https://ko.build/) (small distroless images built directly from Go modules without a Dockerfile) are **out of scope for v0.1**. ko uses its own toolchain (it doesn't drive `docker buildx` or consume a Dockerfile), so wrangle's existing container build type — which expects a Dockerfile and `docker buildx build` — does not cover the ko case. A ko-aware build type (or a `mode: ko` variant of the Go build type that invokes `ko build` and hands the resulting OCI digest to the container provenance generator) is a possible follow-up but isn't in scope for the Go Phase 1 design.
 
 ## Wrangle's value-add
 
@@ -139,6 +137,6 @@ Practical notes for whoever picks up the implementation PR.
 ## Open questions
 
 - **Binary vs. validate-only as one action or two.** See "Validation-only sub-shape." Decide in the implementation PR.
-- **Lint placement.** Source-stage (in `actions/scan`) vs. build-stage (in the Go build action) vs. both. Python doesn't currently lint in the build action; Go could either follow that or differ.
+- **Lint placement is decided: source-stage only.** Lint runs in `actions/scan` alongside OSV/Zizmor/Scorecard, not in the Go build action. Wrangle-wide; python and container should adopt source-stage lint too in the same iteration to stay consistent.
 - **`.goreleaser.yml` template ownership.** Should wrangle ship a starter `.goreleaser.yml` for adopters (with `-trimpath` / `-buildvcs=false` baked in), or require adopters to bring their own and validate it has the reproducibility flags? Python doesn't ship a starter `pyproject.toml`; consistency with python argues "require adopters to bring their own."
-- **`govulncheck` vs. `osv-scanner` for Go vulnscan.** Source-stage scanning already uses OSV-Scanner; `govulncheck` is Go-aware (callgraph-based, fewer false positives) and could be a complementary check. Decide in the implementation PR; not load-bearing for Phase 1.
+- **`govulncheck` for Go-aware vulnscan, complementary to OSV-Scanner.** Recommendation is to support `govulncheck` for Go projects — it's Go-aware (callgraph-based), so it has a lower false-positive rate than lockfile scanning by reporting only vulnerabilities actually reachable from the project's code. OSV-Scanner against `go.sum` stays as a candidate too (it complements rather than competes — OSV catches vulnerable deps the callgraph misses). Decide whether to ship both or just `govulncheck` in the implementation PR; not load-bearing for Phase 1.
