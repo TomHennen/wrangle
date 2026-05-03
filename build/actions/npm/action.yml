@@ -1,0 +1,144 @@
+name: Wrangle npm Build
+description: |
+  Build an npm package (tarball via `npm pack`), run tests, generate SBOM,
+  and compute artifact hashes for SLSA provenance. SLSA provenance
+  generation is handled by a separate job in the reusable workflow;
+  publishing lives in the adopter's own workflow because npm Trusted
+  Publishing's OIDC token must come from the caller, not a reusable
+  workflow.
+
+inputs:
+  path:
+    description: "Relative path to the directory containing package.json"
+    required: false
+    default: "."
+  node-version:
+    description: "Node.js version override. If empty, detected from .nvmrc or package.json's engines.node."
+    required: false
+    default: ""
+  run-tests:
+    description: "Whether to run `npm test` if a non-default test script is declared in package.json"
+    required: false
+    default: "true"
+
+outputs:
+  version:
+    description: "The package version that was built"
+    value: ${{ steps.metadata.outputs.version }}
+  tarball:
+    description: "Filename of the produced .tgz (relative to <path>/dist/)"
+    value: ${{ steps.build.outputs.tarball }}
+  hashes:
+    description: "Base64-encoded SHA-256 hashes of built artifacts (for SLSA generator)"
+    value: ${{ steps.hash.outputs.hashes }}
+  shortname:
+    description: "Path-derived short name for artifact namespacing (e.g., '.' becomes '_')"
+    value: ${{ steps.metadata.outputs.shortname }}
+  metadata-dir:
+    description: "Path to the metadata directory (relative to the workspace) containing the SBOM"
+    value: ${{ steps.metadata.outputs.metadata-dir }}
+
+runs:
+  using: "composite"
+  steps:
+    - name: Validate inputs
+      shell: bash
+      env:
+        INPUT_PATH: ${{ inputs.path }}
+      run: |
+        set -euo pipefail
+        "${{ github.action_path }}/validate_inputs.sh" "$INPUT_PATH"
+
+    - name: Detect node-version source
+      id: tooling
+      shell: bash
+      env:
+        INPUT_PATH: ${{ inputs.path }}
+        NODE_VERSION: ${{ inputs.node-version }}
+      run: |
+        set -euo pipefail
+        if [[ -n "$NODE_VERSION" ]]; then
+            printf 'node-version-file=\n' >> "$GITHUB_OUTPUT"
+        elif [[ -f "$INPUT_PATH/.nvmrc" ]]; then
+            printf 'node-version-file=%s/.nvmrc\n' "$INPUT_PATH" >> "$GITHUB_OUTPUT"
+        else
+            printf 'node-version-file=%s/package.json\n' "$INPUT_PATH" >> "$GITHUB_OUTPUT"
+        fi
+
+    - name: Setup Node.js
+      uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+      with:
+        node-version: ${{ inputs.node-version }}
+        node-version-file: ${{ steps.tooling.outputs.node-version-file }}
+
+    - name: Build and pack
+      id: build
+      shell: bash
+      env:
+        INPUT_PATH: ${{ inputs.path }}
+        RUN_TESTS: ${{ inputs.run-tests }}
+      run: |
+        set -euo pipefail
+        TARBALL="$("${{ github.action_path }}/build_and_pack.sh" "$INPUT_PATH" "$RUN_TESTS" | tail -n1)"
+        printf 'tarball=%s\n' "$TARBALL" >> "$GITHUB_OUTPUT"
+
+    - name: Extract package metadata
+      id: metadata
+      shell: bash
+      env:
+        INPUT_PATH: ${{ inputs.path }}
+      run: |
+        set -euo pipefail
+        SHORTNAME="${INPUT_PATH////_}"
+        METADATA_DIR="metadata/npm/${SHORTNAME}"
+        mkdir -p "$METADATA_DIR"
+        printf 'shortname=%s\n' "$SHORTNAME" >> "$GITHUB_OUTPUT"
+        printf 'metadata-dir=%s\n' "$METADATA_DIR" >> "$GITHUB_OUTPUT"
+
+        VERSION="$(jq -r .version "$INPUT_PATH/package.json")"
+        printf 'version=%s\n' "$VERSION" >> "$GITHUB_OUTPUT"
+        printf 'Package version: %s\n' "$VERSION"
+
+    - name: Compute artifact hashes
+      id: hash
+      shell: bash
+      env:
+        INPUT_PATH: ${{ inputs.path }}
+      run: |
+        set -euo pipefail
+        # Subshell + bare * (not ./*) so subject names in the resulting
+        # provenance are filenames without a leading ./, which is what
+        # slsa-verifier matches against downloaded artifacts.
+        HASHES="$(cd "$INPUT_PATH/dist" && sha256sum -- * | base64 -w0)"
+        printf 'hashes=%s\n' "$HASHES" >> "$GITHUB_OUTPUT"
+
+    - name: Generate SBOM
+      shell: bash
+      env:
+        INPUT_PATH: ${{ inputs.path }}
+        METADATA_DIR: ${{ steps.metadata.outputs.metadata-dir }}
+      run: |
+        set -euo pipefail
+        SBOM_PATH="${METADATA_DIR}/sbom.spdx.json"
+        # `npm sbom --sbom-format=spdx` is in-tree (npm 10+). It reads the
+        # same package-lock.json npm uses to resolve, so the SBOM matches
+        # the dependency graph npm ci produced.
+        (cd "$INPUT_PATH" && npm sbom --sbom-format=spdx) > "$SBOM_PATH"
+        printf 'SBOM written to %s\n' "$SBOM_PATH"
+
+    - name: Generate summary
+      if: always()
+      shell: bash
+      env:
+        INPUT_PATH: ${{ inputs.path }}
+        VERSION: ${{ steps.metadata.outputs.version }}
+        TARBALL: ${{ steps.build.outputs.tarball }}
+      run: |
+        set -euo pipefail
+        {
+            printf '## npm Build Results\n\n'
+            printf '| | |\n|---|---|\n'
+            printf '| **Package** | %s |\n' "$INPUT_PATH"
+            printf '| **Version** | %s |\n' "$VERSION"
+            printf '| **Tarball** | `%s` |\n' "$TARBALL"
+        } >> "$GITHUB_STEP_SUMMARY"

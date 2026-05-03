@@ -1,0 +1,88 @@
+# Copy this file to your repo at .github/workflows/build_npm.yml
+#
+# Before first use:
+# 1. Configure a Trusted Publisher on npmjs.com (npmjs.com → your package
+#    → Settings → Trusted publishing)
+#    - Owner: <your-github-org-or-user>
+#    - Repository: <your-repo>
+#    - Workflow name: build_npm.yml
+#    - (optional) Environment: <env-name>
+# 2. Bootstrap: trusted publishing cannot publish a package's first
+#    version (npm/cli#8544). Run `npm publish` once from a maintainer's
+#    terminal with an NPM_TOKEN; subsequent versions go through this
+#    automated path.
+#
+# Publishing runs directly in this workflow (not inside wrangle's reusable
+# workflow) because npm Trusted Publishing validates the OIDC token's
+# `workflow_ref` against the caller workflow's filename. See:
+# https://docs.npmjs.com/trusted-publishers/ (Troubleshooting)
+# https://github.com/npm/documentation/issues/1755
+#
+# Wrangle's reusable workflow generates SLSA L3 provenance AND verifies
+# the just-built tarball against it before declaring success. If
+# verification fails, the workflow fails and `needs: [build]` blocks
+# publish — so adopters don't need to wire `slsa-verifier` into their
+# own publish job. Pass `verify-provenance: false` to opt out.
+#
+# Trigger note: this workflow publishes when `should-release` is true.
+# This template sets `release-events: tag-only` so only tag pushes
+# publish — `workflow_dispatch` runs build + test + provenance + verify
+# but does NOT publish, even from main. Switch to `non-pull-request`
+# (publish on every non-PR event) or `main-and-tags` (push to main or
+# tags) if your release model needs that.
+name: npm Build
+
+on:
+  push:
+    tags: ["v*"]       # publish on version tags
+  pull_request:
+    branches: ["**"]   # build + test on PRs (no publish)
+  workflow_dispatch:
+
+jobs:
+  build:
+    permissions:
+      # Required by wrangle's reusable workflow's nested provenance job:
+      contents: write   # SLSA generator's upload-assets job declares this; GitHub validates at startup even when upload-assets is false
+      id-token: write   # OIDC for Sigstore signing
+      actions: read     # SLSA generator detects the GitHub Actions environment
+    uses: TomHennen/wrangle/.github/workflows/build_and_publish_npm.yml@v0.2.0
+    with:
+      path: "."
+      release-events: tag-only          # only tag pushes publish (recommended default)
+      # node-version: ""                # optional: auto-detected from .nvmrc or package.json
+      # run-tests: true                 # optional: skip with false
+      # verify-provenance: true         # optional: wrangle verifies before declaring success; set false for custom verify
+
+  publish:
+    # Gate on the should-release output. should-release is "true" only when
+    # the wrangle workflow succeeded (which includes verify, on by default),
+    # so by the time this job runs the tarball has already been verified
+    # against its provenance.
+    if: ${{ needs.build.outputs.should-release == 'true' }}
+    needs: [build]
+    runs-on: ubuntu-latest
+    permissions:
+      id-token: write   # OIDC for Trusted Publishing
+      contents: read
+    steps:
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version: "22"
+          registry-url: "https://registry.npmjs.org"
+
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: ${{ needs.build.outputs.dist-artifact-name }}
+          path: dist/
+
+      # `npm publish <tgz> --provenance --access public` populates the
+      # registry's per-version attestation slot with a Sigstore-signed
+      # SLSA L2 in-CLI bundle. Wrangle's separate L3 bundle lives in the
+      # metadata-artifact, attached to GitHub Releases on tag pushes.
+      # Note: --access public is only required on the FIRST publish of
+      # a scoped package; harmless on subsequent publishes.
+      - name: Publish to npmjs.org
+        env:
+          TARBALL: ${{ needs.build.outputs.tarball }}
+        run: npm publish "dist/${TARBALL}" --provenance --access public
