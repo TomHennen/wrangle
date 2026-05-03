@@ -77,7 +77,7 @@ This is the load-bearing decision and where the npm spec aligns to the python an
 **3. npm's L2 in-CLI attestation — populated by the adopter at publish time, lives in the npm registry slot.**
 
 - The adopter's caller workflow runs `npm publish <tgz> --provenance --access public`. This produces an additional Sigstore-signed in-toto Statement carrying a SLSA Provenance predicate, stored in Rekor and attached to the registry's per-version attestation slot. `npm audit signatures` verifies it for downstream consumers.
-- This is **L2, not L3** — the build runs on the adopter's GHA runner with the adopter's full workflow context, not in an isolated builder. That's fine: this attestation's job is to satisfy `npm audit signatures` and the registry's UI, not to be the highest-grade provenance available. Wrangle's L3 in (1) covers that.
+- This is **L2, not L3** — the build runs on the adopter's GHA runner with the adopter's full workflow context, not in an isolated builder. That's fine: this attestation's job is to satisfy `npm audit signatures` and the registry's UI, not to be the highest-grade provenance available. Wrangle's L3 in (1) covers that. Both bundles share the **same Sigstore Public Good Instance** (Fulcio at `fulcio.sigstore.dev`, Rekor at `rekor.sigstore.dev`, TUF at `tuf-repo-cdn.sigstore.dev`); the L2-vs-L3 difference is builder isolation, not the cryptographic root of trust.
 - Adopters publishing to private registries omit `--provenance` (it doesn't work there). They still have wrangle's L3 from (1) — the design doesn't degrade for the private-registry case.
 - Predicate version emitted by the npm CLI is currently SLSA v1.0; the registry retains v0.2 for backward compatibility ([npm/provenance README](https://github.com/npm/provenance)).
 
