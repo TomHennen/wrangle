@@ -23,6 +23,12 @@ setup() {
     [ "$status" -eq 0 ]
 }
 
+@test "scan: osv SARIF upload is gated on osv being in the tools input" {
+    run grep -A1 'Upload OSV SARIF' "$ACTION_DIR/action.yml"
+    [ "$status" -eq 0 ]
+    [[ "$output" == *"contains(inputs.tools, 'osv')"* ]]
+}
+
 @test "scan: has upload-sarif step for scorecard" {
     run grep -A2 'Upload Scorecard SARIF' "$ACTION_DIR/action.yml"
     [ "$status" -eq 0 ]
@@ -32,6 +38,12 @@ setup() {
 @test "scan: scorecard SARIF has correct category (wrangle/scorecard)" {
     run grep 'category: wrangle/scorecard' "$ACTION_DIR/action.yml"
     [ "$status" -eq 0 ]
+}
+
+@test "scan: scorecard SARIF upload is gated on scorecard being in the tools input" {
+    run grep -A1 'Upload Scorecard SARIF' "$ACTION_DIR/action.yml"
+    [ "$status" -eq 0 ]
+    [[ "$output" == *"contains(inputs.tools, 'scorecard')"* ]]
 }
 
 @test "scan: has upload-artifact step" {

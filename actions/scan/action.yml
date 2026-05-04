@@ -94,8 +94,14 @@ runs:
     # SARIF upload: per-tool attribution in the Security tab.
     # continue-on-error is legitimate here — Advanced Security may not
     # be available (private repos, no license).
+    #
+    # Each upload is gated on its tool actually being in the `tools`
+    # input. Without the gate, upload-sarif emits noisy `::error::`
+    # annotations on every run that omits the tool because the
+    # corresponding metadata/<tool>/output.sarif file was never
+    # produced — see issue #189.
     - name: Upload OSV SARIF
-      if: always()
+      if: always() && contains(inputs.tools, 'osv')
       uses: github/codeql-action/upload-sarif@95e58e9a2cdfd71adc6e0353d5c52f41a045d225 # v4.35.2
       continue-on-error: true
       with:
@@ -107,7 +113,7 @@ runs:
     # a duplicate code scanning configuration.
 
     - name: Upload Scorecard SARIF
-      if: always() && github.event_name != 'pull_request'
+      if: always() && contains(inputs.tools, 'scorecard') && github.event_name != 'pull_request'
       uses: github/codeql-action/upload-sarif@95e58e9a2cdfd71adc6e0353d5c52f41a045d225 # v4.35.2
       continue-on-error: true
       with:
