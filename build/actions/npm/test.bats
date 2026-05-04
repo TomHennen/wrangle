@@ -93,6 +93,21 @@ setup() {
     [[ "$status" -eq 0 ]]
 }
 
+@test "npm: setup-node enables npm caching keyed on the lockfile" {
+    # Caches ~/.npm (registry tarball cache). Safe to enable: npm ci
+    # re-validates each cached tarball's integrity hash against the
+    # lockfile on every install. setup-node's `cache: 'npm'` does NOT
+    # cache node_modules/ (which would bypass integrity checks if cached
+    # as extracted modules).
+    run grep -E "cache: 'npm'" "$ACTION"
+    [[ "$status" -eq 0 ]]
+    # cache-dependency-path must be set so the cache key invalidates
+    # when deps change. The action lists both lockfile names accepted
+    # by validate_inputs.sh.
+    run grep -E 'cache-dependency-path' "$ACTION"
+    [[ "$status" -eq 0 ]]
+}
+
 @test "npm: build step asserts exactly one tarball in dist/ (not tail-n1)" {
     # Channel-free output: derives the tarball name from a glob over
     # dist/*.tgz and asserts the count is exactly 1 — catches surprise
