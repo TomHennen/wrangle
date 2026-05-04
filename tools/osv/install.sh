@@ -40,20 +40,25 @@ URL="https://github.com/${SOURCE_REPO}/releases/download/v${VERSION}/${BINARY_NA
 
 mkdir -p "$BIN_DIR"
 
-# Download binary to a temporary file
+# Download binary to a temporary file.
+# --retry 5 + --retry-all-errors retries on any failure (including 5xx
+# from GitHub's release CDN). Default exponential backoff (1s, 2s, 4s,
+# 8s, 16s) is curl's built-in. --retry-max-time caps total retry
+# duration so a sustained outage fails the install promptly. See #190.
 TMP_BINARY="$(mktemp "${BIN_DIR}/wrangle-dl-XXXXX")"
-if ! curl -fsSL -o "$TMP_BINARY" "$URL"; then
+if ! curl -fsSL --retry 5 --retry-all-errors --retry-max-time 60 -o "$TMP_BINARY" "$URL"; then
     printf 'wrangle: FATAL: failed to download %s %s\n' "$TOOL_NAME" "$VERSION" >&2
     rm -f "$TMP_BINARY"
     exit 1
 fi
 
-# Download SLSA provenance attestation
+# Download SLSA provenance attestation.
 # Note: raw curl is used (not wrangle_download_verify) because verifying
 # the provenance file's own integrity would be circular — it IS the trust anchor.
+# Same retry flags as above for the same reason.
 PROVENANCE_URL="https://github.com/${SOURCE_REPO}/releases/download/v${VERSION}/multiple.intoto.jsonl"
 PROVENANCE_PATH="${TMP_BINARY}.intoto.jsonl"
-if ! curl -fsSL -o "$PROVENANCE_PATH" "$PROVENANCE_URL"; then
+if ! curl -fsSL --retry 5 --retry-all-errors --retry-max-time 60 -o "$PROVENANCE_PATH" "$PROVENANCE_URL"; then
     printf 'wrangle: FATAL: failed to download SLSA provenance for %s %s\n' "$TOOL_NAME" "$VERSION" >&2
     rm -f "$TMP_BINARY" "$PROVENANCE_PATH"
     exit 1
