@@ -98,11 +98,26 @@ runs:
             printf 'No version hint in .nvmrc, engines.node, or node-version input — falling back to wrangle default Node %s\n' "$WRANGLE_DEFAULT_NODE"
         fi
 
+    # Cache npm's registry tarball cache (~/.npm), keyed on the lockfile.
+    # Safe under wrangle's threat model: `npm ci` re-validates each cached
+    # tarball's integrity hash against the lockfile on every install, so a
+    # poisoned cache that produces non-matching bytes is rejected before
+    # extraction. setup-node's `cache: 'npm'` caches `~/.npm` only — it
+    # does NOT cache `node_modules/`, which would bypass integrity checks
+    # if cached as extracted modules.
+    #
+    # cache-dependency-path lists both lockfile names accepted by
+    # validate_inputs.sh; setup-node hashes whichever exists (skips missing
+    # paths) so the cache key correctly invalidates on dependency changes.
     - name: Setup Node.js
       uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
       with:
         node-version: ${{ steps.tooling.outputs.effective-version }}
         node-version-file: ${{ steps.tooling.outputs.effective-version-file }}
+        cache: 'npm'
+        cache-dependency-path: |
+          ${{ inputs.path }}/package-lock.json
+          ${{ inputs.path }}/npm-shrinkwrap.json
 
     # Run npm ci, optional build, optional test, npm pack into dist/.
     # The script does not emit the tarball name on stdout — instead this
