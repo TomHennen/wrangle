@@ -13,7 +13,7 @@ inputs:
     required: false
     default: "."
   node-version:
-    description: "Node.js version override. If empty, detected from .nvmrc or package.json's engines.node."
+    description: "Node.js version override. If empty, detected from .nvmrc, then package.json's engines.node, then a wrangle-default LTS."
     required: false
     default: ""
   run-tests:
@@ -49,28 +49,57 @@ runs:
         set -euo pipefail
         "${{ github.action_path }}/validate_inputs.sh" "$INPUT_PATH"
 
-    - name: Detect node-version source
+    # Resolve which Node.js version setup-node should use. Order:
+    #   1. inputs.node-version override
+    #   2. .nvmrc in the project directory
+    #   3. engines.node in package.json
+    #   4. wrangle-default LTS — avoids setup-node's confusing "no
+    #      version found" error for projects that pin neither file.
+    # Outputs always set exactly one of effective-version /
+    # effective-version-file so setup-node has unambiguous instruction.
+    - name: Detect Node.js version source
       id: tooling
       shell: bash
       env:
         INPUT_PATH: ${{ inputs.path }}
-        NODE_VERSION: ${{ inputs.node-version }}
+        INPUT_NODE_VERSION: ${{ inputs.node-version }}
+        # Default LTS bumped wrangle-side as new LTS releases land. Adopters
+        # who want a specific version should set engines.node, .nvmrc, or
+        # the node-version input rather than rely on this fallback.
+        WRANGLE_DEFAULT_NODE: "22"
       run: |
         set -euo pipefail
-        if [[ -n "$NODE_VERSION" ]]; then
-            printf 'node-version-file=\n' >> "$GITHUB_OUTPUT"
+        if [[ -n "$INPUT_NODE_VERSION" ]]; then
+            printf 'effective-version=%s\n' "$INPUT_NODE_VERSION" >> "$GITHUB_OUTPUT"
+            printf 'effective-version-file=\n' >> "$GITHUB_OUTPUT"
+            printf 'Using node-version override: %s\n' "$INPUT_NODE_VERSION"
         elif [[ -f "$INPUT_PATH/.nvmrc" ]]; then
-            printf 'node-version-file=%s/.nvmrc\n' "$INPUT_PATH" >> "$GITHUB_OUTPUT"
+            printf 'effective-version=\n' >> "$GITHUB_OUTPUT"
+            printf 'effective-version-file=%s/.nvmrc\n' "$INPUT_PATH" >> "$GITHUB_OUTPUT"
+            printf 'Using .nvmrc\n'
+        elif [[ -n "$(jq -r '.engines.node // empty' "$INPUT_PATH/package.json")" ]]; then
+            printf 'effective-version=\n' >> "$GITHUB_OUTPUT"
+            printf 'effective-version-file=%s/package.json\n' "$INPUT_PATH" >> "$GITHUB_OUTPUT"
+            printf 'Using engines.node from package.json\n'
         else
-            printf 'node-version-file=%s/package.json\n' "$INPUT_PATH" >> "$GITHUB_OUTPUT"
+            printf 'effective-version=%s\n' "$WRANGLE_DEFAULT_NODE" >> "$GITHUB_OUTPUT"
+            printf 'effective-version-file=\n' >> "$GITHUB_OUTPUT"
+            printf 'No version hint in .nvmrc, engines.node, or node-version input — falling back to wrangle default Node %s\n' "$WRANGLE_DEFAULT_NODE"
         fi
 
     - name: Setup Node.js
       uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
       with:
-        node-version: ${{ inputs.node-version }}
-        node-version-file: ${{ steps.tooling.outputs.node-version-file }}
+        node-version: ${{ steps.tooling.outputs.effective-version }}
+        node-version-file: ${{ steps.tooling.outputs.effective-version-file }}
 
+    # Run npm ci, optional build, optional test, npm pack into dist/.
+    # The script does not emit the tarball name on stdout — instead this
+    # step globs dist/*.tgz after the script returns and asserts exactly
+    # one match. Channel-free output prevents a future stray stdout-bound
+    # printf from silently breaking the capture, and the explicit count
+    # check turns "unexpected multiple tarballs" (e.g., from a workspace
+    # change) into a clear error rather than a non-deterministic pick.
     - name: Build and pack
       id: build
       shell: bash
@@ -79,8 +108,16 @@ runs:
         RUN_TESTS: ${{ inputs.run-tests }}
       run: |
         set -euo pipefail
-        TARBALL="$("${{ github.action_path }}/build_and_pack.sh" "$INPUT_PATH" "$RUN_TESTS" | tail -n1)"
-        printf 'tarball=%s\n' "$TARBALL" >> "$GITHUB_OUTPUT"
+        "${{ github.action_path }}/build_and_pack.sh" "$INPUT_PATH" "$RUN_TESTS"
+        cd "$INPUT_PATH/dist"
+        shopt -s nullglob
+        tarballs=(*.tgz)
+        if (( ${#tarballs[@]} != 1 )); then
+            printf 'Error: expected exactly 1 tarball in dist/, found %d:\n' "${#tarballs[@]}" >&2
+            printf '  %s\n' "${tarballs[@]}" >&2
+            exit 1
+        fi
+        printf 'tarball=%s\n' "${tarballs[0]}" >> "$GITHUB_OUTPUT"
 
     - name: Extract package metadata
       id: metadata

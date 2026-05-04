@@ -3,16 +3,16 @@
 # optional test, then `npm pack` to produce the tarball in dist/.
 #
 # Build and test are conditional on package.json declaring non-default
-# scripts. The npm default test script (`echo "Error: no test specified"
-# && exit 1`) is detected and skipped — same shape as python's
-# tests-detection logic.
+# scripts. The npm default test script (a `no test specified` echo+exit
+# stub) is detected and skipped — substring match so minor wording
+# tweaks in future npm releases don't accidentally re-enable the no-op.
 #
 # Tarball lands in dist/ (matching python's layout) so the reusable
 # workflow can upload `${path}/dist/` symmetrically with python and
-# slsa-verifier matches subjects against bare filenames.
-#
-# Outputs the produced .tgz filename on stdout's last line so the caller
-# can capture it; emits progress messages on stderr.
+# slsa-verifier matches subjects against bare filenames. The action.yml
+# locates the produced tarball via a glob over dist/*.tgz after this
+# script returns — keeping the tarball name out of stdout means a stray
+# stdout-bound printf elsewhere can't silently break the capture.
 #
 # Usage: build/actions/npm/build_and_pack.sh <path> <run_tests>
 #   path:       project directory (already validated)
@@ -31,7 +31,7 @@ RUN_TESTS="$2"
 
 cd "$INPUT_PATH"
 
-printf 'Installing dependencies (npm ci)...\n' >&2
+printf 'Installing dependencies (npm ci)...\n'
 npm ci
 
 # Reflect on package.json to decide whether to run build/test scripts.
@@ -41,31 +41,30 @@ npm ci
 HAS_BUILD="$(jq -r 'has("scripts") and (.scripts | has("build"))' package.json)"
 HAS_TEST_SCRIPT="$(jq -r 'has("scripts") and (.scripts | has("test"))' package.json)"
 TEST_CMD="$(jq -r '.scripts.test // ""' package.json)"
-DEFAULT_TEST_CMD='echo "Error: no test specified" && exit 1'
 
 if [[ "$HAS_BUILD" == "true" ]]; then
-    printf 'Running npm run build...\n' >&2
+    printf 'Running npm run build...\n'
     npm run build
 else
-    printf 'No build script in package.json — skipping build step\n' >&2
+    printf 'No build script in package.json — skipping build step\n'
 fi
 
 if [[ "$RUN_TESTS" == "true" ]]; then
-    if [[ "$HAS_TEST_SCRIPT" == "true" ]] && [[ "$TEST_CMD" != "$DEFAULT_TEST_CMD" ]]; then
-        printf 'Running npm test...\n' >&2
+    # Substring match against the npm-default no-op script. Catches the
+    # current `echo "Error: no test specified" && exit 1` and tolerates
+    # minor wording changes in future npm versions.
+    if [[ "$HAS_TEST_SCRIPT" == "true" ]] && [[ "$TEST_CMD" != *'no test specified'* ]]; then
+        printf 'Running npm test...\n'
         npm test
     else
-        printf 'No non-default test script in package.json — skipping tests\n' >&2
+        printf 'No non-default test script in package.json — skipping tests\n'
     fi
 fi
 
-printf 'Packing tarball into dist/ (npm pack)...\n' >&2
+printf 'Packing tarball into dist/ (npm pack)...\n'
 mkdir -p dist
-# `npm pack --silent --pack-destination dist` writes the tarball to dist/
-# and prints the filename (relative to the destination) on stdout. The
-# --pack-destination flag is npm 9+; v0.1 requires npm CLI >= 11.5.1
-# (Trusted Publishing requirement) so this is safely available.
-TARBALL="$(npm pack --silent --pack-destination dist)"
+# `npm pack --pack-destination dist` writes the tarball to dist/. Output
+# parsing is the action.yml's job (glob over dist/*.tgz); this script
+# only needs to exit 0 on success.
+npm pack --pack-destination dist
 
-printf 'Created dist/%s\n' "$TARBALL" >&2
-printf '%s\n' "$TARBALL"

@@ -86,6 +86,25 @@ setup() {
     [[ "$status" -eq 0 ]]
 }
 
+@test "npm: action.yml sets a fallback Node version when no version source is present" {
+    # Without this, setup-node fails with a confusing "no version found"
+    # error for projects that pin neither .nvmrc nor engines.node.
+    run grep -E 'WRANGLE_DEFAULT_NODE' "$ACTION"
+    [[ "$status" -eq 0 ]]
+}
+
+@test "npm: build step asserts exactly one tarball in dist/ (not tail-n1)" {
+    # Channel-free output: derives the tarball name from a glob over
+    # dist/*.tgz and asserts the count is exactly 1 — catches surprise
+    # multi-build scenarios (e.g., a future workspace change) explicitly,
+    # instead of non-deterministically picking via `tail -n1`.
+    run grep -E 'expected exactly 1 tarball' "$ACTION"
+    [[ "$status" -eq 0 ]]
+    # And verify we are not relying on tail -n1 for the tarball capture.
+    run grep -E 'tarball=.*tail' "$ACTION"
+    [[ "$status" -ne 0 ]]
+}
+
 @test "npm: action.yml computes artifact hashes for SLSA" {
     run grep -E 'sha256sum|base64' "$ACTION"
     [[ "$status" -eq 0 ]]
@@ -97,9 +116,32 @@ setup() {
 }
 
 @test "npm: passes inputs through env not interpolation" {
-    # No ${{ inputs.* }} in run: blocks (action_path is allowed).
-    run grep -P 'run:.*\$\{\{.*inputs\.' "$ACTION"
-    [[ "$status" -eq 1 ]]
+    # Walks both single-line `run: <cmd>` declarations and block-form
+    # `run: |` / `run: >` bodies, and fails if ${{ inputs.* }} appears
+    # inside either. github.action_path is allowed (it's not user input).
+    # The earlier line-wise grep this replaces missed multi-line cases.
+    run awk '
+        BEGIN { in_run = 0; run_col = -1; bad = 0 }
+        /^[[:space:]]*run:[[:space:]]+[^|>]/ && /\$\{\{[[:space:]]*inputs\./ {
+            printf "FAIL inline run, line %d: %s\n", NR, $0
+            bad = 1
+        }
+        /^[[:space:]]*run:[[:space:]]*([|>]|$)/ {
+            match($0, /^ */); run_col = RLENGTH
+            in_run = 1; next
+        }
+        in_run {
+            if ($0 !~ /[^[:space:]]/) next
+            match($0, /^ */); col = RLENGTH
+            if (col <= run_col) { in_run = 0 }
+            else if (/\$\{\{[[:space:]]*inputs\./) {
+                printf "FAIL run-block body, line %d: %s\n", NR, $0
+                bad = 1
+            }
+        }
+        END { exit bad }
+    ' "$ACTION"
+    [[ "$status" -eq 0 ]]
 }
 
 @test "npm: validate_inputs.sh disables globbing via lib/validate_path.sh" {

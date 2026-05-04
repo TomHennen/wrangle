@@ -71,7 +71,7 @@ on:
         description: "Name of the SLSA provenance workflow artifact (= the provenance filename). Empty when should-release is false."
         value: ${{ jobs.provenance.outputs.provenance-name }}
       metadata-artifact-name:
-        description: "Name of the workflow artifact (a zip of `metadata/npm/<shortname>/`'s contents) containing the SBOM. Format: `npm-metadata-<shortname>`."
+        description: "Name of the workflow artifact (a zip of `metadata/npm/<shortname>/`'s contents) containing the SBOM. Format: `npm-metadata-<shortname>`. Adopters fetch via `actions/download-artifact` — the metadata files land at the top level of the configured `path:`, not under `metadata/npm/<shortname>/`."
         value: ${{ jobs.build.outputs.metadata-artifact-name }}
       should-release:
         description: |
