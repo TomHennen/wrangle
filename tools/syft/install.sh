@@ -54,6 +54,12 @@ PEM_PATH="${CHECKSUMS_PATH}.pem"
 # Download checksums.txt + cosign signature + cert.
 # Raw curl is intentional here: integrity is established by cosign
 # verify-blob in the next step, not by a checksum.
+#
+# --retry 5 + --retry-all-errors retries on any failure (including 5xx
+# responses from GitHub's release CDN, which periodically returns 502).
+# Default exponential backoff (1s, 2s, 4s, 8s, 16s) is curl's built-in.
+# --retry-max-time caps total retry duration so a sustained outage fails
+# the install promptly rather than hanging the runner. See issue #190.
 for spec in "checksums:${CHECKSUMS_URL}:${CHECKSUMS_PATH}" \
             "signature:${CHECKSUMS_URL}.sig:${SIG_PATH}" \
             "certificate:${CHECKSUMS_URL}.pem:${PEM_PATH}"; do
@@ -61,7 +67,7 @@ for spec in "checksums:${CHECKSUMS_URL}:${CHECKSUMS_PATH}" \
     rest="${spec#*:}"
     url="${rest%:*}"
     out="${rest##*:}"
-    if ! curl -fsSL -o "$out" "$url"; then
+    if ! curl -fsSL --retry 5 --retry-all-errors --retry-max-time 60 -o "$out" "$url"; then
         printf 'wrangle: FATAL: failed to download %s for syft %s\n' "$label" "$VERSION" >&2
         exit 1
     fi
