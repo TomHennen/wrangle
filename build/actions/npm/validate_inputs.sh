@@ -26,6 +26,17 @@ if [[ ! -f "$INPUT_PATH/package.json" ]]; then
     exit 1
 fi
 
+# v0.1 supports single-package npm only. A workspaces field would mean
+# `npm pack` at the project root produces an empty-`files` tarball while
+# `npm publish --workspaces` would publish N sub-packages — wrangle's
+# attestation would not match what consumers download. Reject early
+# rather than letting the L3 + verify pipeline run on the wrong bytes.
+if [[ "$(jq -r 'has("workspaces")' "$INPUT_PATH/package.json")" == "true" ]]; then
+    printf 'Error: workspaces field detected in %s/package.json; npm workspaces are not supported in v0.1.\n' "$INPUT_PATH" >&2
+    printf 'Hint: file an issue if you need workspaces support.\n' >&2
+    exit 1
+fi
+
 if [[ -f "$INPUT_PATH/package-lock.json" ]] || [[ -f "$INPUT_PATH/npm-shrinkwrap.json" ]]; then
     exit 0
 fi

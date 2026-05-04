@@ -49,7 +49,7 @@ Two ways to adopt:
 - Runs `npm run build` if `package.json` declares a `scripts.build` entry. Skipped if absent.
 - Runs `npm test` if `package.json` declares a non-default `scripts.test` entry (the npm-default `"echo \"Error: no test specified\" && exit 1"` is detected and skipped).
 - Produces the package tarball via `npm pack`, written to `dist/`.
-- Generates an SPDX SBOM via `npm sbom --sbom-format=spdx` (in-tree, npm 10+).
+- Generates an SPDX SBOM via [`syft`](https://github.com/anchore/syft) (Cosign-keyless-verified install, same tool python uses) over the project source tree.
 - Computes SHA-256 hashes of the tarball in the format `slsa-github-generator`'s `base64-subjects` input expects.
 
 ## Outputs from the reusable workflow
@@ -90,15 +90,57 @@ The npm pipeline produces two distinct attestations:
 
 Both bundles share the same Sigstore Public Good Instance (Fulcio, Rekor, TUF). The L2-vs-L3 distinction is builder isolation, not the cryptographic root of trust. See [`SPEC.md`](./SPEC.md) for the full attestation design.
 
+**End-to-end coverage.** Wrangle's `verify` job closes the wrangle→caller-publish handoff: it re-fetches the dist artifact and confirms it matches wrangle's L3 provenance before letting the publish step run. The caller→registry segment is bound by Trusted Publishing's OIDC `workflow_ref` claim, which the npm registry validates against the publisher's registered workflow filename. Consumers verifying the L2 attestation get end-to-end coverage by checking that `workflow_ref` matches the expected caller workflow path.
+
+## Verifying after install (downstream consumers)
+
+Your package's consumers can verify it two complementary ways. Each answers a different question, and they trust different roots.
+
+### npm's L2 in-CLI attestation (against the registry)
+
+`npm audit signatures` reports whether the registry-served bundle verifies against the package's published Sigstore attestation. This is the default consumer flow.
+
+```bash
+npm install <pkg>@<version>
+npm audit signatures
+# Expected output: "<pkg>@<version> ... has a verified attestation"
+```
+
+This proves the bundle was published from the expected GitHub repo + workflow, but does **not** independently attest to the build environment beyond what the npm CLI's in-process signing captures (SLSA L2).
+
+### Wrangle's L3 SLSA provenance (against the GitHub release)
+
+For tag-pushed releases, wrangle attaches the L3 bundle as a release asset. SLSA provenance is non-falsifiable because the generator runs in an isolated reusable workflow.
+
+```bash
+# Download tarball + provenance from the GitHub release
+curl -LO https://github.com/<owner>/<repo>/releases/download/<tag>/<scope>-<name>-<version>.tgz
+curl -LO https://github.com/<owner>/<repo>/releases/download/<tag>/npm-<shortname>.intoto.jsonl
+
+slsa-verifier verify-artifact \
+  --provenance-path npm-<shortname>.intoto.jsonl \
+  --source-uri github.com/<owner>/<repo> \
+  <scope>-<name>-<version>.tgz
+```
+
+> **Important limitation.** Provenance is **only** in the GitHub release on tag pushes. On non-tag publishes (e.g., `workflow_dispatch` from a branch) the provenance lives only as a 90-day workflow artifact and is not retrievable by external consumers. Adopters whose workflows don't push tags should publicize how to obtain provenance — wrangle's convention is "tag pushes attach provenance to the release; non-tag publishes don't have consumer-retrievable provenance." Adopters publishing to private npm registries (Artifactory, etc.) face the same constraint: the L3 bundle lives at the GitHub release, not in the private registry.
+
+[`#181`](https://github.com/TomHennen/wrangle/issues/181) tracks moving to a single bundled `multiple.intoto.jsonl` at the release/consumer layer; until that ships, use the per-build filename.
+
 ## Lifecycle hooks
 
-Wrangle runs `npm pack` to produce the tarball, and your publish job runs `npm publish <packed.tgz>`. Two consequences:
+Wrangle runs `npm ci` and `npm pack` against your project. By default, lifecycle hooks fire normally — `prepare`, `prepack`, `postpack`, and any `install` hooks in dependencies all run, just as they would for an adopter running these commands locally. The L3 attestation thus binds to "what wrangle built from this commit's source + lockfile" — which is what source-control review processes are already designed to govern. A malicious script in `package.json` or a pinned dev-dep is the same threat surface as malicious source code in `src/`: the source/lockfile is version-controlled, code review applies.
 
-- **`prepublishOnly` does NOT fire.** It only runs when `npm publish` is invoked against a directory, not against a pre-built tarball. If you rely on `prepublishOnly` for type-checking or last-mile validation, move the work into a regular `build` script — wrangle runs `npm run build` automatically when `package.json` declares one.
-- **`prepack` runs once, in wrangle's pipeline, against the source tree.** The tarball wrangle hashes is the exact tarball your publish job uploads. This is intentional: it's what makes wrangle's L3 attestation match what consumers download.
+What this means concretely:
+
+- **`prepack` and `prepare` run during wrangle's pipeline.** Whatever they produce is what wrangle hashes and attests. If you change `prepack`, the produced tarball — and thus the L3 attestation — changes accordingly. Same for transitive dev-deps' `prepare` scripts.
+- **`prepublishOnly` does NOT fire.** It only runs when `npm publish` is invoked against a directory, not against a pre-built tarball. If you relied on it for type-checking, move the work into a regular `build` script — wrangle runs `npm run build` automatically when `package.json` declares one.
+- **Tarball-direct publish is intentional.** Your publish job runs `npm publish <packed.tgz>`, so the bytes wrangle hashes are exactly the bytes consumers download. This is what makes wrangle's L3 attestation actionable.
+
+**Opt-in hardening.** For adopters who want the stricter "source bytes only, no script execution" model, set `ignore-scripts: true` on the reusable workflow. That passes `--ignore-scripts` to `npm ci` and `npm pack`, suppressing all four hook types. Default is off because common ecosystem tools (husky's `prepare`, prebuild-install's `install`) rely on these hooks; suppressing them breaks those projects' setup.
 
 ## v0.1 limitations
 
-- npm only (pnpm and Yarn detection is follow-on).
-- Single-package builds. Workspaces / monorepos that produce N tarballs from one build are not yet supported; the action errors out if `npm pack` produces more than one `.tgz`.
-- Native modules: the npm `.tgz` is attested regardless of what's inside, but SBOM coverage of compiled C/C++ portions is partial. See [`SPEC.md`](./SPEC.md) "Awkward cases."
+- **npm only.** pnpm and Yarn detection is follow-on; their lockfiles are explicitly rejected at validation.
+- **Single-package builds.** `package.json` with a `workspaces` field is rejected at validation; the action also errors out if `npm pack` produces more than one `.tgz`.
+- **Native modules and SBOM.** Wrangle's SBOM scope is the project source tree. Bundled C/C++ binaries that `prebuild-install` fetches at consumer install time are not in source — they don't appear in wrangle's SBOM. Adopters who care about CVE coverage of compiled native portions SHOULD layer binary scanners (Trivy, Grype) against installed `node_modules/` in their own CI. The L3 attestation still covers the npm `.tgz` regardless of what's inside it.

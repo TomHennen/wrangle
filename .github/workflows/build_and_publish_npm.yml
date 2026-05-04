@@ -29,6 +29,17 @@ on:
         required: false
         type: boolean
         default: true
+      ignore-scripts:
+        description: |
+          When true, passes `--ignore-scripts` to npm ci and npm pack,
+          suppressing prepare/prepack/postpack/install lifecycle hooks
+          (including hooks in transitive dev-deps). Opt-in hardening for
+          adopters who want to attest to source bytes only and review
+          hooks out-of-band. Defaults to false because common ecosystem
+          tools (husky, prebuild-install) rely on these hooks.
+        required: false
+        type: boolean
+        default: false
       release-events:
         description: |
           Which events should trigger release-time actions (SLSA provenance,
@@ -118,6 +129,7 @@ jobs:
           path: ${{ inputs.path }}
           node-version: ${{ inputs.node-version }}
           run-tests: ${{ inputs.run-tests }}
+          ignore-scripts: ${{ inputs.ignore-scripts }}
 
       # Namespace artifact names by the path-derived shortname so multiple
       # npm builds in one workflow don't collide.

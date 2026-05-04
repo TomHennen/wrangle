@@ -110,8 +110,65 @@ setup() {
     [[ "$status" -eq 0 ]]
 }
 
-@test "npm: action.yml generates SBOM via npm sbom (SPDX)" {
-    run grep -E 'npm sbom.*spdx' "$ACTION"
+@test "npm: action.yml generates SBOM via syft (SPDX)" {
+    # Switched from `npm sbom --sbom-format=spdx` to syft because npm
+    # sbom's SPDX/CycloneDX conformance was publicly criticized; syft is
+    # OWASP-known-conformant and already in wrangle's tool inventory.
+    run grep -E 'syft.*-o spdx-json' "$ACTION"
+    [[ "$status" -eq 0 ]]
+    # Should NOT regress to npm sbom — that path was abandoned.
+    run grep -E 'npm sbom' "$ACTION"
+    [[ "$status" -ne 0 ]]
+}
+
+@test "npm: action installs cosign before syft (signature verification)" {
+    # syft install via tools/syft/install.sh uses Cosign keyless verify;
+    # cosign-installer must run before the syft install step so the
+    # cosign binary is on PATH when syft's install script runs.
+    run bash -c "awk '/sigstore\\/cosign-installer/{c=NR} /tools\\/syft\\/install.sh/{s=NR} END{exit !(c && s && c<s)}' \"$ACTION\""
+    [[ "$status" -eq 0 ]]
+}
+
+@test "npm: action installs syft via tools/syft (not curl | sh)" {
+    run grep -E 'curl[^|]*\| *sh|/usr/local/bin' "$ACTION"
+    [[ "$status" -ne 0 ]]
+    run grep 'tools/syft/install.sh' "$ACTION"
+    [[ "$status" -eq 0 ]]
+}
+
+@test "npm: action.yml exposes ignore-scripts input (default false)" {
+    run grep -E '^  ignore-scripts:' "$ACTION"
+    [[ "$status" -eq 0 ]]
+    # Default must be false — ecosystem norm is hooks-on, and turning
+    # them off would break husky/prebuild-install for typical adopters.
+    run bash -c "sed -n '/^  ignore-scripts:/,/^  [a-z]/p' \"$ACTION\" | grep -E 'default:.*\"false\"'"
+    [[ "$status" -eq 0 ]]
+}
+
+@test "npm: build_and_pack.sh threads ignore-scripts through to npm ci AND npm pack" {
+    run grep -E 'ignore_scripts_args' "$ACTION_DIR/build_and_pack.sh"
+    [[ "$status" -eq 0 ]]
+    # Must be applied to both `npm ci` and `npm pack`, not just one.
+    run bash -c "grep 'npm ci.*ignore_scripts_args' \"$ACTION_DIR/build_and_pack.sh\""
+    [[ "$status" -eq 0 ]]
+    run bash -c "grep 'npm pack.*ignore_scripts_args' \"$ACTION_DIR/build_and_pack.sh\""
+    [[ "$status" -eq 0 ]]
+}
+
+@test "npm: validate_inputs.sh rejects package.json with workspaces field" {
+    # v0.1 single-package only. A workspaces project would produce N
+    # tarballs that wrangle would not attest correctly.
+    run grep -E 'workspaces' "$ACTION_DIR/validate_inputs.sh"
+    [[ "$status" -eq 0 ]]
+}
+
+@test "npm: reusable workflow exposes ignore-scripts input that flows to composite" {
+    # Workflow declares the input.
+    run grep -E '^      ignore-scripts:' "$WORKFLOW"
+    [[ "$status" -eq 0 ]]
+    # And forwards `inputs.ignore-scripts` through to the composite.
+    # The threading line is the only place this expression appears.
+    run grep -E 'ignore-scripts:[[:space:]]*\$\{\{[[:space:]]*inputs\.ignore-scripts' "$WORKFLOW"
     [[ "$status" -eq 0 ]]
 }
 
