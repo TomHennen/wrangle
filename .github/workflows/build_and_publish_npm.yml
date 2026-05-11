@@ -53,6 +53,15 @@ on:
         required: false
         type: string
         default: non-pull-request
+      ref:
+        description: |
+          Git ref to check out for the build. If empty (default), uses the
+          triggering commit SHA (github.sha). Callers whose prep jobs push
+          version-bump commits to the branch during the same run should pass
+          github.ref so the build sees the latest commit.
+        required: false
+        type: string
+        default: ""
       verify-provenance:
         description: |
           When true (default), wrangle runs `slsa-verifier verify-artifact`
@@ -121,6 +130,7 @@ jobs:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
           persist-credentials: false
+          ref: ${{ inputs.ref || '' }}
 
       # TODO: replace with $/build/actions/npm when GitHub ships $/ syntax (#136)
       - uses: TomHennen/wrangle/build/actions/npm@72f1040fab83a7c8faaf21888eb16a1b70fa4b93 # claude/implement-npm-build-type-draft 2026-05-11
