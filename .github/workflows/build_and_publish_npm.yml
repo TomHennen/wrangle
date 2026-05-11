@@ -1,0 +1,226 @@
+name: "Build and test an npm package with best practices."
+
+# Build + SLSA provenance reusable workflow. Publishing is NOT included
+# because npm Trusted Publishing's OIDC token's workflow_ref claim is
+# bound to the caller workflow's filename — a reusable workflow does
+# not satisfy that constraint. See:
+# https://docs.npmjs.com/trusted-publishers/ (Troubleshooting)
+# https://github.com/npm/documentation/issues/1755
+#
+# Adopters add a publish job in their own calling workflow. Verifying
+# wrangle's L3 SLSA provenance before publish is recommended (and is
+# the pattern shown in gh_workflow_examples/build_npm.yml) but optional.
+
+on:
+  workflow_call:
+    inputs:
+      path:
+        description: "Relative path to the directory containing package.json"
+        required: false
+        type: string
+        default: "."
+      node-version:
+        description: "Node.js version override. If empty, detected from .nvmrc or package.json's engines.node."
+        required: false
+        type: string
+        default: ""
+      run-tests:
+        description: "Whether to run `npm test` if a non-default test script is declared"
+        required: false
+        type: boolean
+        default: true
+      ignore-scripts:
+        description: |
+          When true, passes `--ignore-scripts` to npm ci and npm pack,
+          suppressing prepare/prepack/postpack/install lifecycle hooks
+          (including hooks in transitive dev-deps). Opt-in hardening for
+          adopters who want to attest to source bytes only and review
+          hooks out-of-band. Defaults to false because common ecosystem
+          tools (husky, prebuild-install) rely on these hooks.
+        required: false
+        type: boolean
+        default: false
+      release-events:
+        description: |
+          Which events should trigger release-time actions (SLSA provenance,
+          verification, and — in the caller's publish job — package publish).
+          One of:
+            - non-pull-request (default): every event except pull_request*.
+            - tag-only: push to refs/tags/* only.
+            - main-and-tags: push to refs/heads/main or refs/tags/*.
+            - <comma-separated event_name list>: matches if github.event_name
+              is in the list. See actions/release_gate for full vocabulary.
+        required: false
+        type: string
+        default: non-pull-request
+      ref:
+        description: |
+          Git ref to check out for the build. If empty (default), uses the
+          triggering commit SHA (github.sha). Callers whose prep jobs push
+          version-bump commits to the branch during the same run should pass
+          github.ref so the build sees the latest commit.
+        required: false
+        type: string
+        default: ""
+      verify-provenance:
+        description: |
+          When true (default), wrangle runs `slsa-verifier verify-artifact`
+          against the just-built tarball before declaring the workflow
+          successful. If verification fails, the workflow fails — and the
+          caller's publish job is blocked via standard `needs:` propagation,
+          so a tampered tarball between build and publish cannot be released.
+          Set to false to skip wrangle's verification (e.g., adopters with
+          a custom verification flow).
+        required: false
+        type: boolean
+        default: true
+    outputs:
+      hashes:
+        description: "Base64-encoded SHA-256 hashes of built artifacts (for SLSA provenance)"
+        value: ${{ jobs.build.outputs.hashes }}
+      version:
+        description: "The package version that was built"
+        value: ${{ jobs.build.outputs.version }}
+      tarball:
+        description: "Filename of the produced .tgz (relative to the dist/ artifact root)"
+        value: ${{ jobs.build.outputs.tarball }}
+      dist-artifact-name:
+        description: "Name of the uploaded dist/ artifact (download with this name to publish)"
+        value: ${{ jobs.build.outputs.dist-artifact-name }}
+      provenance-artifact-name:
+        description: "Name of the SLSA provenance workflow artifact (= the provenance filename). Empty when should-release is false."
+        value: ${{ jobs.provenance.outputs.provenance-name }}
+      metadata-artifact-name:
+        description: "Name of the workflow artifact (a zip of `metadata/npm/<shortname>/`'s contents) containing the SBOM. Format: `npm-metadata-<shortname>`. Adopters fetch via `actions/download-artifact` — the metadata files land at the top level of the configured `path:`, not under `metadata/npm/<shortname>/`."
+        value: ${{ jobs.build.outputs.metadata-artifact-name }}
+      should-release:
+        description: |
+          "true" if the current event matches release-events and the caller
+          should perform release-time actions (publish, attestation upload,
+          etc.); "false" otherwise. Wrangle gates the provenance job on
+          this internally; the caller's publish job should gate on it too.
+        value: ${{ jobs.gate.outputs.should-release }}
+
+jobs:
+  gate:
+    runs-on: ubuntu-latest
+    permissions: {}    # release_gate reads only env; no workspace, no API
+    outputs:
+      should-release: ${{ steps.gate.outputs.should-release }}
+    steps:
+      # No checkout: release_gate resolves via ${{ github.action_path }}.
+      # TODO: replace with $/actions/release_gate when GitHub ships $/ syntax (#136)
+      - uses: TomHennen/wrangle/actions/release_gate@72f1040fab83a7c8faaf21888eb16a1b70fa4b93 # claude/implement-npm-build-type-draft 2026-05-11
+        id: gate
+        with:
+          events: ${{ inputs.release-events }}
+
+  build:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read    # minimal — no OIDC, no publish
+    outputs:
+      hashes: ${{ steps.build.outputs.hashes }}
+      version: ${{ steps.build.outputs.version }}
+      tarball: ${{ steps.build.outputs.tarball }}
+      shortname: ${{ steps.build.outputs.shortname }}
+      dist-artifact-name: ${{ steps.names.outputs.dist }}
+      metadata-artifact-name: ${{ steps.names.outputs.metadata }}
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+          ref: ${{ inputs.ref || '' }}
+
+      # TODO: replace with $/build/actions/npm when GitHub ships $/ syntax (#136)
+      - uses: TomHennen/wrangle/build/actions/npm@72f1040fab83a7c8faaf21888eb16a1b70fa4b93 # claude/implement-npm-build-type-draft 2026-05-11
+        id: build
+        with:
+          path: ${{ inputs.path }}
+          node-version: ${{ inputs.node-version }}
+          run-tests: ${{ inputs.run-tests }}
+          ignore-scripts: ${{ inputs.ignore-scripts }}
+
+      # Namespace artifact names by the path-derived shortname so multiple
+      # npm builds in one workflow don't collide.
+      - id: names
+        shell: bash
+        env:
+          SHORTNAME: ${{ steps.build.outputs.shortname }}
+        run: |
+          set -euo pipefail
+          printf 'dist=npm-dist-%s\n' "$SHORTNAME" >> "$GITHUB_OUTPUT"
+          printf 'metadata=npm-metadata-%s\n' "$SHORTNAME" >> "$GITHUB_OUTPUT"
+
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: ${{ steps.names.outputs.dist }}
+          path: ${{ inputs.path }}/dist/
+
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: ${{ steps.names.outputs.metadata }}
+          path: ${{ steps.build.outputs.metadata-dir }}/
+          if-no-files-found: error
+
+  # Generate SLSA L3 provenance for the built artifacts. The generator
+  # runs in an isolated reusable workflow that the caller cannot tamper
+  # with — this is what makes the provenance non-falsifiable. Gated on
+  # the release-events input so adopters can tighten when provenance is
+  # produced (e.g., tag-only) without forking the workflow.
+  #
+  # contents: write is required because the generator's upload-assets
+  # job declares it. GitHub validates every called job's permissions
+  # at startup regardless of the job's `if:` condition, so granting
+  # write is mandatory even when upload-assets is false.
+  provenance:
+    if: ${{ needs.gate.outputs.should-release == 'true' }}
+    needs: [gate, build]
+    permissions:
+      actions: read    # detect the GitHub Actions environment
+      id-token: write  # OIDC for Sigstore signing
+      contents: write  # required by generator's upload-assets job at startup
+    # MUST use tag, not SHA — the SLSA generator validates its own invocation
+    # ref. See https://github.com/TomHennen/wrangle/issues/147
+    uses: slsa-framework/slsa-github-generator/.github/workflows/generator_generic_slsa3.yml@v2.1.0 # zizmor: ignore[unpinned-uses] tag required by SLSA generator's OIDC verification
+    with:
+      base64-subjects: ${{ needs.build.outputs.hashes }}
+      # Namespace the provenance filename by shortname so multiple npm
+      # builds in one workflow don't collide on the default name.
+      provenance-name: npm-${{ needs.build.outputs.shortname }}.intoto.jsonl
+      upload-assets: ${{ startsWith(github.ref, 'refs/tags/') }}
+
+  # Verify the just-built tarball matches the just-generated provenance.
+  # Catches "tarball tampered with after build, before publish". Failing
+  # here fails the workflow, which (via standard `needs:` propagation)
+  # blocks the caller's publish job. Adopters with custom verification
+  # flows pass `verify-provenance: false` and wire their own.
+  verify:
+    if: ${{ needs.gate.outputs.should-release == 'true' && inputs.verify-provenance }}
+    needs: [gate, build, provenance]
+    runs-on: ubuntu-latest
+    permissions: {}    # default token; download-artifact reads same-run artifacts
+    steps:
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: ${{ needs.build.outputs.dist-artifact-name }}
+          path: dist/
+
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: ${{ needs.provenance.outputs.provenance-name }}
+          path: provenance/
+
+      - uses: slsa-framework/slsa-verifier/actions/installer@ea584f4502babc6f60d9bc799dbbb13c1caa9ee6 # v2.7.1
+
+      - name: Verify SLSA provenance
+        env:
+          SOURCE_URI: github.com/${{ github.repository }}
+          PROVENANCE_NAME: ${{ needs.provenance.outputs.provenance-name }}
+        run: |
+          set -euo pipefail
+          slsa-verifier verify-artifact \
+              --provenance-path "provenance/${PROVENANCE_NAME}" \
+              --source-uri "$SOURCE_URI" \
+              dist/*
+
