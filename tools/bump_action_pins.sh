@@ -92,6 +92,15 @@ date_label="${WRANGLE_PINS_DATE:-$(date -u +%Y-%m-%d)}"
 # `# uses: ...@<sha>` would match — wrong, since the comment is supposed
 # to neutralize the line.
 #
+# Trailing comment uses `.*` to match the rest of the line. `.` does not
+# match newline in sed (which processes one line at a time by default),
+# so `.*` is bounded. Earlier drafts used `[^\r\n]*` to be explicit, but
+# BSD sed (macOS) does NOT interpret \r/\n as escape sequences inside a
+# bracket expression — it reads them as the literal characters '\', 'r',
+# 'n', so any branch name containing those letters (e.g.,
+# `claude/implement-npm-build-type-draft`) was truncated at the first
+# such letter on macOS, leaving a corrupted trailing comment.
+#
 # The branch and date labels flow into the sed REPLACEMENT string. Three
 # characters need escaping there: `\` (sed escape), `&` (matched-text
 # backreference), and `|` (our chosen delimiter — legal in git refs per
@@ -111,7 +120,7 @@ escaped_date="$(escape_for_sed_replace "$date_label")"
 escaped_repo="${PINS_REPO//\//\\/}"
 new_suffix="@${target_sha} # ${escaped_branch} ${escaped_date}"
 
-match='\(^[[:space:]]*-\{0,1\}[[:space:]]*uses:[[:space:]]*'"$escaped_repo"'/[^@[:space:]]*\)@[0-9a-f]\{40\}\([[:space:]]*#[^\r\n]*\)\{0,1\}'
+match='\(^[[:space:]]*-\{0,1\}[[:space:]]*uses:[[:space:]]*'"$escaped_repo"'/[^@[:space:]]*\)@[0-9a-f]\{40\}\([[:space:]]*#.*\)\{0,1\}'
 replace='\1'"$new_suffix"
 
 # Walk every YAML file in the target dir and rewrite in place. We write
