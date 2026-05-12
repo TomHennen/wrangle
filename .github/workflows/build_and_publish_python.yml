@@ -42,10 +42,16 @@ on:
         default: non-pull-request
       ref:
         description: |
-          Git ref to check out for the build. If empty (default), uses the
-          triggering commit SHA (github.sha). Callers whose prep jobs push
-          version-bump commits to the branch during the same run should pass
-          github.ref so the build sees the latest commit.
+          Git ref to check out for the build. If empty (default), uses
+          the triggering commit SHA (github.sha) — which is what almost
+          every adopter wants.
+
+          This input exists for the narrower case where an earlier job
+          in the same workflow run has pushed a commit to the branch
+          (e.g., a release-please-style version-bump prep job, or
+          wrangle's own integration-test fixture in wrangle-test) and
+          the build needs to pick up that new commit rather than the
+          original triggering SHA. Pass `github.ref` for that case.
         required: false
         type: string
         default: ""
