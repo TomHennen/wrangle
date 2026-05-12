@@ -1,0 +1,229 @@
+name: Wrangle npm Build
+description: |
+  Build an npm package (tarball via `npm pack`), run tests, generate SBOM,
+  and compute artifact hashes for SLSA provenance. SLSA provenance
+  generation is handled by a separate job in the reusable workflow;
+  publishing lives in the adopter's own workflow because npm Trusted
+  Publishing's OIDC token must come from the caller, not a reusable
+  workflow.
+
+inputs:
+  path:
+    description: "Relative path to the directory containing package.json"
+    required: false
+    default: "."
+  node-version:
+    description: "Node.js version override. If empty, detected from .nvmrc, then package.json's engines.node, then a wrangle-default LTS."
+    required: false
+    default: ""
+  run-tests:
+    description: "Whether to run `npm test` if a non-default test script is declared in package.json"
+    required: false
+    default: "true"
+  ignore-scripts:
+    description: |
+      When true, no package.json script runs: --ignore-scripts is passed
+      to npm ci AND npm pack (suppressing prepare/prepack/postpack/install
+      lifecycle hooks, including those in transitive dev-deps), AND
+      `npm run build` / `npm test` are skipped outright. Opt-in hardening
+      for adopters who want the L3 attestation to bind to "what npm pack
+      produces with no script execution at all." Defaults to false because
+      common ecosystem tools (husky, prebuild-install) rely on these hooks
+      and most adopters expect their declared build/test to run. If a
+      finer-grained mode is needed (suppress hooks but still run the
+      user's build), it can be added as a separate input.
+    required: false
+    default: "false"
+
+outputs:
+  version:
+    description: "The package version that was built"
+    value: ${{ steps.metadata.outputs.version }}
+  tarball:
+    description: "Filename of the produced .tgz (relative to <path>/dist/)"
+    value: ${{ steps.build.outputs.tarball }}
+  hashes:
+    description: "Base64-encoded SHA-256 hashes of built artifacts (for SLSA generator)"
+    value: ${{ steps.hash.outputs.hashes }}
+  shortname:
+    description: "Path-derived short name for artifact namespacing (e.g., '.' becomes '_')"
+    value: ${{ steps.metadata.outputs.shortname }}
+  metadata-dir:
+    description: "Path to the metadata directory (relative to the workspace) containing the SBOM"
+    value: ${{ steps.metadata.outputs.metadata-dir }}
+
+runs:
+  using: "composite"
+  steps:
+    - name: Validate inputs
+      shell: bash
+      env:
+        INPUT_PATH: ${{ inputs.path }}
+      run: |
+        set -euo pipefail
+        "${{ github.action_path }}/validate_inputs.sh" "$INPUT_PATH"
+
+    # Resolve which Node.js version setup-node should use. Order:
+    #   1. inputs.node-version override
+    #   2. .nvmrc in the project directory
+    #   3. engines.node in package.json
+    #   4. wrangle-default LTS — avoids setup-node's confusing "no
+    #      version found" error for projects that pin neither file.
+    # Outputs always set exactly one of effective-version /
+    # effective-version-file so setup-node has unambiguous instruction.
+    - name: Detect Node.js version source
+      id: tooling
+      shell: bash
+      env:
+        INPUT_PATH: ${{ inputs.path }}
+        INPUT_NODE_VERSION: ${{ inputs.node-version }}
+        # Default LTS bumped wrangle-side as new LTS releases land. Adopters
+        # who want a specific version should set engines.node, .nvmrc, or
+        # the node-version input rather than rely on this fallback.
+        WRANGLE_DEFAULT_NODE: "22"
+      run: |
+        set -euo pipefail
+        if [[ -n "$INPUT_NODE_VERSION" ]]; then
+            printf 'effective-version=%s\n' "$INPUT_NODE_VERSION" >> "$GITHUB_OUTPUT"
+            printf 'effective-version-file=\n' >> "$GITHUB_OUTPUT"
+            printf 'Using node-version override: %s\n' "$INPUT_NODE_VERSION"
+        elif [[ -f "$INPUT_PATH/.nvmrc" ]]; then
+            printf 'effective-version=\n' >> "$GITHUB_OUTPUT"
+            printf 'effective-version-file=%s/.nvmrc\n' "$INPUT_PATH" >> "$GITHUB_OUTPUT"
+            printf 'Using .nvmrc\n'
+        elif [[ -n "$(jq -r '.engines.node // empty' "$INPUT_PATH/package.json")" ]]; then
+            printf 'effective-version=\n' >> "$GITHUB_OUTPUT"
+            printf 'effective-version-file=%s/package.json\n' "$INPUT_PATH" >> "$GITHUB_OUTPUT"
+            printf 'Using engines.node from package.json\n'
+        else
+            printf 'effective-version=%s\n' "$WRANGLE_DEFAULT_NODE" >> "$GITHUB_OUTPUT"
+            printf 'effective-version-file=\n' >> "$GITHUB_OUTPUT"
+            printf 'No version hint in .nvmrc, engines.node, or node-version input — falling back to wrangle default Node %s\n' "$WRANGLE_DEFAULT_NODE"
+        fi
+
+    # Cache npm's registry tarball cache (~/.npm), keyed on the lockfile.
+    # Safe under wrangle's threat model: `npm ci` re-validates each cached
+    # tarball's integrity hash against the lockfile on every install, so a
+    # poisoned cache that produces non-matching bytes is rejected before
+    # extraction. setup-node's `cache: 'npm'` caches `~/.npm` only — it
+    # does NOT cache `node_modules/`, which would bypass integrity checks
+    # if cached as extracted modules.
+    #
+    # cache-dependency-path lists both lockfile names accepted by
+    # validate_inputs.sh; setup-node hashes whichever exists (skips missing
+    # paths) so the cache key correctly invalidates on dependency changes.
+    - name: Setup Node.js
+      uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+      with:
+        node-version: ${{ steps.tooling.outputs.effective-version }}
+        node-version-file: ${{ steps.tooling.outputs.effective-version-file }}
+        cache: 'npm'
+        cache-dependency-path: |
+          ${{ inputs.path }}/package-lock.json
+          ${{ inputs.path }}/npm-shrinkwrap.json
+
+    # Run npm ci, optional build, optional test, npm pack into dist/.
+    # The script does not emit the tarball name on stdout — instead this
+    # step globs dist/*.tgz after the script returns and asserts exactly
+    # one match. Channel-free output prevents a future stray stdout-bound
+    # printf from silently breaking the capture, and the explicit count
+    # check turns "unexpected multiple tarballs" (e.g., from a workspace
+    # change) into a clear error rather than a non-deterministic pick.
+    - name: Build and pack
+      id: build
+      shell: bash
+      env:
+        INPUT_PATH: ${{ inputs.path }}
+        RUN_TESTS: ${{ inputs.run-tests }}
+        IGNORE_SCRIPTS: ${{ inputs.ignore-scripts }}
+      run: |
+        set -euo pipefail
+        "${{ github.action_path }}/build_and_pack.sh" "$INPUT_PATH" "$RUN_TESTS" "$IGNORE_SCRIPTS"
+        cd "$INPUT_PATH/dist"
+        shopt -s nullglob
+        tarballs=(*.tgz)
+        if (( ${#tarballs[@]} != 1 )); then
+            printf 'Error: expected exactly 1 tarball in dist/, found %d:\n' "${#tarballs[@]}" >&2
+            printf '  %s\n' "${tarballs[@]}" >&2
+            exit 1
+        fi
+        printf 'tarball=%s\n' "${tarballs[0]}" >> "$GITHUB_OUTPUT"
+
+    - name: Extract package metadata
+      id: metadata
+      shell: bash
+      env:
+        INPUT_PATH: ${{ inputs.path }}
+      run: |
+        set -euo pipefail
+        SHORTNAME="${INPUT_PATH////_}"
+        METADATA_DIR="metadata/npm/${SHORTNAME}"
+        mkdir -p "$METADATA_DIR"
+        printf 'shortname=%s\n' "$SHORTNAME" >> "$GITHUB_OUTPUT"
+        printf 'metadata-dir=%s\n' "$METADATA_DIR" >> "$GITHUB_OUTPUT"
+
+        VERSION="$(jq -r .version "$INPUT_PATH/package.json")"
+        printf 'version=%s\n' "$VERSION" >> "$GITHUB_OUTPUT"
+        printf 'Package version: %s\n' "$VERSION"
+
+    - name: Compute artifact hashes
+      id: hash
+      shell: bash
+      env:
+        INPUT_PATH: ${{ inputs.path }}
+      run: |
+        set -euo pipefail
+        # Subshell + bare * (not ./*) so subject names in the resulting
+        # provenance are filenames without a leading ./, which is what
+        # slsa-verifier matches against downloaded artifacts.
+        HASHES="$(cd "$INPUT_PATH/dist" && sha256sum -- * | base64 -w0)"
+        printf 'hashes=%s\n' "$HASHES" >> "$GITHUB_OUTPUT"
+
+    - name: Install Cosign (for syft signature verification)
+      uses: sigstore/cosign-installer@cad07c2e89fa2edd6e2d7bab4c1aa38e53f76003 # v4.1.1
+
+    - name: Install syft
+      shell: bash
+      env:
+        WRANGLE_ROOT: ${{ github.action_path }}/../../..
+      run: |
+        set -euo pipefail
+        "$WRANGLE_ROOT/tools/syft/install.sh"
+
+    - name: Generate SBOM
+      shell: bash
+      env:
+        INPUT_PATH: ${{ inputs.path }}
+        METADATA_DIR: ${{ steps.metadata.outputs.metadata-dir }}
+      run: |
+        set -euo pipefail
+        SBOM_PATH="${METADATA_DIR}/sbom.spdx.json"
+        BIN_DIR="${WRANGLE_BIN_DIR:-${RUNNER_TEMP:-.}/.wrangle/bin}"
+        # syft over the project source. Same tool wrangle's python build
+        # type uses; OWASP-known-conformant for SPDX. (Earlier SPEC drafts
+        # picked the npm-CLI's in-tree SBOM command, but its conformance
+        # was publicly criticized; switching to syft removes the question.)
+        # Adopters consuming wrangle-attested packages with bundled native
+        # code SHOULD layer binary scanners (Trivy, Grype) against installed
+        # node_modules/ for full coverage — wrangle's source-tree SBOM does
+        # not see compiled C/C++ artifacts that prebuild-install fetches at
+        # consumer install time.
+        "$BIN_DIR/syft" dir:"$INPUT_PATH" -o spdx-json > "$SBOM_PATH"
+        printf 'SBOM written to %s\n' "$SBOM_PATH"
+
+    - name: Generate summary
+      if: always()
+      shell: bash
+      env:
+        INPUT_PATH: ${{ inputs.path }}
+        VERSION: ${{ steps.metadata.outputs.version }}
+        TARBALL: ${{ steps.build.outputs.tarball }}
+      run: |
+        set -euo pipefail
+        {
+            printf '## npm Build Results\n\n'
+            printf '| | |\n|---|---|\n'
+            printf '| **Package** | %s |\n' "$INPUT_PATH"
+            printf '| **Version** | %s |\n' "$VERSION"
+            printf '| **Tarball** | `%s` |\n' "$TARBALL"
+        } >> "$GITHUB_STEP_SUMMARY"
