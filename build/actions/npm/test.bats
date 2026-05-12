@@ -170,6 +170,41 @@ setup() {
     [[ "$status" -eq 0 ]]
 }
 
+@test "npm: build_and_pack.sh skips npm run build and npm test when ignore-scripts is true" {
+    # ignore-scripts: true must mean "no package.json script runs" —
+    # not just suppressing transitive hooks. The script logs a single
+    # "Skipping npm run build and npm test" line on that path, and the
+    # `npm run build` / `npm test` invocations live in the matching
+    # else branch so they cannot execute when the guard fires.
+    run grep -F 'Skipping npm run build and npm test' "$ACTION_DIR/build_and_pack.sh"
+    [[ "$status" -eq 0 ]]
+    # `npm run build` and `npm test` must appear after an `else` line —
+    # i.e., not in the top-level path and not in the IGNORE_SCRIPTS=true
+    # branch. awk walks the file and tracks whether we've crossed the
+    # else of the IGNORE_SCRIPTS guard before the build/test calls.
+    run awk '
+        /IGNORE_SCRIPTS" == "true"/ { saw_guard = 1 }
+        saw_guard && /^else$/        { in_else = 1 }
+        in_else && /^[[:space:]]*npm run build$/ { saw_build = 1 }
+        in_else && /^[[:space:]]*npm test$/      { saw_test = 1 }
+        # Fail if npm run build / npm test appears before we hit the else.
+        !in_else && /^[[:space:]]*npm run build$/ { exit 1 }
+        !in_else && /^[[:space:]]*npm test$/      { exit 1 }
+        END { exit !(saw_guard && saw_build && saw_test) }
+    ' "$ACTION_DIR/build_and_pack.sh"
+    [[ "$status" -eq 0 ]]
+}
+
+@test "npm: build_and_pack.sh uses null-safe jq for scripts.build/test detection" {
+    # `(.scripts // {}) | has(...)` survives `"scripts": null` (or missing).
+    # The earlier `has("scripts") and (.scripts | has(...))` form errored
+    # on `"scripts": null` because the second clause ran on null.
+    run grep -E '\(\.scripts // \{\}\) \| has\("build"\)' "$ACTION_DIR/build_and_pack.sh"
+    [[ "$status" -eq 0 ]]
+    run grep -E '\(\.scripts // \{\}\) \| has\("test"\)' "$ACTION_DIR/build_and_pack.sh"
+    [[ "$status" -eq 0 ]]
+}
+
 @test "npm: validate_inputs.sh rejects package.json with workspaces field" {
     # v0.1 single-package only. A workspaces project would produce N
     # tarballs that wrangle would not attest correctly.

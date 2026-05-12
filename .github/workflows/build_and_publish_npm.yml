@@ -20,7 +20,11 @@ on:
         type: string
         default: "."
       node-version:
-        description: "Node.js version override. If empty, detected from .nvmrc or package.json's engines.node."
+        description: |
+          Node.js version override. If empty, detected from .nvmrc, then
+          package.json's engines.node, then a wrangle-default LTS (currently
+          Node 22). Adopters who care about a specific version should set
+          one of the first three explicitly rather than rely on the fallback.
         required: false
         type: string
         default: ""
@@ -31,12 +35,15 @@ on:
         default: true
       ignore-scripts:
         description: |
-          When true, passes `--ignore-scripts` to npm ci and npm pack,
-          suppressing prepare/prepack/postpack/install lifecycle hooks
-          (including hooks in transitive dev-deps). Opt-in hardening for
-          adopters who want to attest to source bytes only and review
-          hooks out-of-band. Defaults to false because common ecosystem
-          tools (husky, prebuild-install) rely on these hooks.
+          When true, no package.json script runs: --ignore-scripts is
+          passed to npm ci AND npm pack (suppressing prepare/prepack/
+          postpack/install lifecycle hooks, including those in transitive
+          dev-deps), AND `npm run build` / `npm test` are skipped outright.
+          Opt-in hardening for adopters who want the L3 attestation to bind
+          to "what npm pack produces with no script execution at all."
+          Defaults to false because common ecosystem tools (husky,
+          prebuild-install) rely on these hooks and most adopters expect
+          their declared build/test to run.
         required: false
         type: boolean
         default: false
@@ -223,4 +230,3 @@ jobs:
               --provenance-path "provenance/${PROVENANCE_NAME}" \
               --source-uri "$SOURCE_URI" \
               dist/*
-# Trusted Publishing: requires npm 11.5.1+ (Node 24) and setup-node v6

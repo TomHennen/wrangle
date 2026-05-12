@@ -22,13 +22,16 @@ inputs:
     default: "true"
   ignore-scripts:
     description: |
-      When true, passes `--ignore-scripts` to npm ci and npm pack,
-      suppressing prepare/prepack/postpack/install lifecycle hooks
-      (including hooks in transitive dev-deps). Opt-in hardening for
-      adopters who want to attest to source bytes only and review hooks
-      out-of-band. Defaults to false because common ecosystem tools
-      (husky, prebuild-install) rely on these hooks; turning them off
-      breaks those projects' setup.
+      When true, no package.json script runs: --ignore-scripts is passed
+      to npm ci AND npm pack (suppressing prepare/prepack/postpack/install
+      lifecycle hooks, including those in transitive dev-deps), AND
+      `npm run build` / `npm test` are skipped outright. Opt-in hardening
+      for adopters who want the L3 attestation to bind to "what npm pack
+      produces with no script execution at all." Defaults to false because
+      common ecosystem tools (husky, prebuild-install) rely on these hooks
+      and most adopters expect their declared build/test to run. If a
+      finer-grained mode is needed (suppress hooks but still run the
+      user's build), it can be added as a separate input.
     required: false
     default: "false"
 

@@ -67,14 +67,22 @@ jobs:
       id-token: write   # OIDC for Trusted Publishing
       contents: read
     steps:
+      # setup-node v6 + Node 24 are required for Trusted Publishing:
+      #   - npm 11.5.1+ is the minimum that supports OIDC auth (ships with Node 24).
+      #   - setup-node v6 does NOT auto-export NODE_AUTH_TOKEN, letting
+      #     npm 11's OIDC auto-detection take effect. v4/v5 would inject
+      #     an empty NODE_AUTH_TOKEN that silently downgrades the publish
+      #     to legacy token auth.
       # Trusted Publishing exchanges the GHA OIDC token for a publish
-      # credential — DO NOT set NODE_AUTH_TOKEN. A leftover token (e.g.,
-      # from an org-level secret reference) would silently bypass the
-      # OIDC binding and downgrade to legacy token auth.
-      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+      # credential — DO NOT set NODE_AUTH_TOKEN anywhere in this job.
+      # A leftover token (e.g., from an org-level secret reference)
+      # would silently bypass the OIDC binding and downgrade to legacy
+      # token auth.
+      - uses: actions/setup-node@2028fbc5c25fe9cf00d9f06a71cc4710d4507903 # v6.0.0
         with:
-          node-version: "22"
+          node-version: "24"
           registry-url: "https://registry.npmjs.org"
+          package-manager-cache: false   # no lockfile in this job; suppresses v6's cache warning
 
       - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
         with:
@@ -87,7 +95,13 @@ jobs:
       # metadata-artifact, attached to GitHub Releases on tag pushes.
       # Note: --access public is only required on the FIRST publish of
       # a scoped package; harmless on subsequent publishes.
+      #
+      # The `./` prefix on the tarball path is load-bearing: without it,
+      # npm's package-arg parser treats `dist/foo.tgz` as a GitHub
+      # shorthand (`owner=dist`, `repo=foo.tgz`) and attempts
+      # `git ls-remote ssh://git@github.com/dist/foo.tgz.git` instead of
+      # publishing the local file.
       - name: Publish to npmjs.org
         env:
           TARBALL: ${{ needs.build.outputs.tarball }}
-        run: npm publish "dist/${TARBALL}" --provenance --access public
+        run: npm publish "./dist/${TARBALL}" --provenance --access public
