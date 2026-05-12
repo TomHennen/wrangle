@@ -76,7 +76,7 @@ jobs:
     steps:
       # No checkout: release_gate resolves via ${{ github.action_path }}.
       # TODO: replace with $/actions/release_gate when GitHub ships $/ syntax (#136)
-      - uses: TomHennen/wrangle/actions/release_gate@72f1040fab83a7c8faaf21888eb16a1b70fa4b93 # claude/implement-npm-build-type-draft 2026-05-11
+      - uses: TomHennen/wrangle/actions/release_gate@21dc3e6d965ea45a933c1173c86b1db2c649d460 # main 2026-05-12
         id: gate
         with:
           events: ${{ inputs.release-events }}
@@ -94,7 +94,7 @@ jobs:
     # TODO: replace with $/build/actions/container when GitHub ships $/ syntax (#136)
     - name: "build and publish"
       id: build
-      uses: TomHennen/wrangle/build/actions/container@72f1040fab83a7c8faaf21888eb16a1b70fa4b93 # claude/implement-npm-build-type-draft 2026-05-11
+      uses: TomHennen/wrangle/build/actions/container@21dc3e6d965ea45a933c1173c86b1db2c649d460 # main 2026-05-12
       with:
         path: ${{ inputs.path }}
         imagename: ${{ inputs.imagename }}
