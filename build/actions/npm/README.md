@@ -10,9 +10,11 @@ This action hardens *how* your artifact is produced. It does NOT scan your sourc
 
 ## Before first use
 
-**Bootstrap the package's first version manually.** npm Trusted Publishing cannot publish a package's *first* version ([npm/cli#8544](https://github.com/npm/cli/issues/8544)). For a brand-new package, run `npm publish` once from a maintainer's terminal with an `NPM_TOKEN` to mint v0.0.1 (or whatever the initial version is). After that, every subsequent version goes through the automated path. Skip this step and your first run of the workflow will fail with a non-obvious "package not found" error from the registry.
+1. **Bootstrap the package's first version manually.** npm Trusted Publishing cannot publish a package's *first* version ([npm/cli#8544](https://github.com/npm/cli/issues/8544)). For a brand-new package, run `npm publish` once from a maintainer's terminal with an `NPM_TOKEN` to mint v0.0.1 (or whatever the initial version is). After that, every subsequent version goes through the automated path. Skip this step and your first run of the workflow will fail with a non-obvious "package not found" error from the registry.
 
-**Configure the trusted publisher.** On npmjs.com → your package → Settings → Trusted publishing, pin: GitHub repo, workflow filename (`build_npm.yml`), and optionally an environment.
+2. **Configure the trusted publisher.** On npmjs.com → your package → Settings → Trusted publishing, pin: GitHub repo, workflow filename (`build_npm.yml`), and optionally an environment.
+
+3. **Revoke the bootstrap token immediately, and don't keep classic / granular publish tokens around.** The `NPM_TOKEN` you used in step 1 has publish rights on the package. After Trusted Publishing is configured (step 2), that token — and any other classic or granular token with publish rights — is a **bypass vector**: an attacker with a stolen token can `npm publish` malicious versions directly without ever triggering your CI, the same way the May 2026 `mistralai` / `guardrails-ai` PyPI attacks shipped malware (and the December 2024 ultralytics PyPI attack before them, despite Trusted Publishing being configured on the affected projects). Unlike PyPI, npm doesn't have a project-level "disable token uploads" toggle, so the procedural defense is: **don't keep classic or granular tokens with publish rights to begin with**. Revoke the bootstrap token at npmjs.com → account settings → access tokens immediately after Trusted Publishing is verified.
 
 ## Quick-start
 
@@ -111,6 +113,8 @@ npm audit signatures
 ```
 
 This proves the bundle was published from the expected GitHub repo + workflow, but does **not** independently attest to the build environment beyond what the npm CLI's in-process signing captures (SLSA L2).
+
+> **Known limitation.** `npm install` does NOT run `npm audit signatures` by default. Consumers who care about attestation verification must opt in by running `npm audit signatures` as a separate step. Until verification is the default, the load-bearing check is the registry-side `workflow_ref` validation at *upload* time — but that check is only meaningful if classic / granular publish tokens have been revoked (see "Before first use" above), since a stolen token bypasses the workflow-identity binding entirely.
 
 ### Wrangle's L3 SLSA provenance (against the GitHub release)
 
