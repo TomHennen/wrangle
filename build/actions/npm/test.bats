@@ -21,12 +21,25 @@ setup() {
     [[ -f "$ACTION" ]]
 }
 
-@test "npm: validate_inputs.sh exists and is executable" {
-    [[ -x "$ACTION_DIR/validate_inputs.sh" ]]
+@test "npm: validate_inputs.sh exists" {
+    # Note: action.yml invokes scripts via `bash <script>` rather than
+    # directly, so the file does not need exec bit. See action.yml's
+    # comment block at the Validate inputs step for the rationale.
+    [[ -f "$ACTION_DIR/validate_inputs.sh" ]]
 }
 
-@test "npm: build_and_pack.sh exists and is executable" {
-    [[ -x "$ACTION_DIR/build_and_pack.sh" ]]
+@test "npm: build_and_pack.sh exists" {
+    [[ -f "$ACTION_DIR/build_and_pack.sh" ]]
+}
+
+@test "npm: action.yml invokes .sh scripts via bash (defensive against mode loss)" {
+    # push_files (the GitHub MCP API used to maintain this branch) does
+    # not preserve exec bit when overwriting files. Invoking via `bash`
+    # makes the action work regardless of filesystem mode.
+    run grep -E 'bash "\$\{\{ github\.action_path \}\}/validate_inputs\.sh"' "$ACTION"
+    [[ "$status" -eq 0 ]]
+    run grep -E 'bash "\$\{\{ github\.action_path \}\}/build_and_pack\.sh"' "$ACTION"
+    [[ "$status" -eq 0 ]]
 }
 
 @test "npm: action.yml delegates input validation to validate_inputs.sh" {
@@ -51,9 +64,7 @@ setup() {
 
 @test "npm: validate_inputs.sh accepts pnpm-lock.yaml (v0.2 addition)" {
     # v0.2 supports pnpm-lock.yaml. The lockfile must be in the accept
-    # path, NOT the reject path. The accept path is the early-exit
-    # success branch; the reject paths are guarded by yarn.lock or the
-    # ambiguous-state check.
+    # path, NOT the reject path.
     run grep -E 'pnpm-lock.yaml' "$ACTION_DIR/validate_inputs.sh"
     [[ "$status" -eq 0 ]]
     # Must NOT have a "pnpm is not supported" error string anymore.
@@ -92,7 +103,6 @@ setup() {
 
 @test "npm: build_and_pack.sh runs pack via the detected package manager" {
     # Pack is invoked via "$PM" pack to use whichever manager was detected.
-    # The script's PM variable resolves to npm or pnpm.
     run grep -E '"\$PM" pack' "$ACTION_DIR/build_and_pack.sh"
     [[ "$status" -eq 0 ]]
 }
@@ -223,18 +233,13 @@ setup() {
 
 @test "npm: build_and_pack.sh skips run-build and test when ignore-scripts is true" {
     # ignore-scripts: true must mean "no package.json script runs" — not
-    # just suppressing transitive hooks. The script logs a single
-    # "Skipping ... run build and ... test" line on that path, and the
-    # `<pm> run build` / `<pm> test` invocations live in the matching
-    # else branch so they cannot execute when the guard fires.
+    # just suppressing transitive hooks.
     run grep -E 'Skipping %s run build and %s test' "$ACTION_DIR/build_and_pack.sh"
     [[ "$status" -eq 0 ]]
 }
 
 @test "npm: build_and_pack.sh uses null-safe jq for scripts.build/test detection" {
     # `(.scripts // {}) | has(...)` survives `"scripts": null` (or missing).
-    # The earlier `has("scripts") and (.scripts | has(...))` form errored
-    # on `"scripts": null` because the second clause ran on null.
     run grep -E '\(\.scripts // \{\}\) \| has\("build"\)' "$ACTION_DIR/build_and_pack.sh"
     [[ "$status" -eq 0 ]]
     run grep -E '\(\.scripts // \{\}\) \| has\("test"\)' "$ACTION_DIR/build_and_pack.sh"
@@ -254,7 +259,6 @@ setup() {
     run grep -E '^      ignore-scripts:' "$WORKFLOW"
     [[ "$status" -eq 0 ]]
     # And forwards `inputs.ignore-scripts` through to the composite.
-    # The threading line is the only place this expression appears.
     run grep -E 'ignore-scripts:[[:space:]]*\$\{\{[[:space:]]*inputs\.ignore-scripts' "$WORKFLOW"
     [[ "$status" -eq 0 ]]
 }
@@ -263,7 +267,6 @@ setup() {
     # Walks both single-line `run: <cmd>` declarations and block-form
     # `run: |` / `run: >` bodies, and fails if ${{ inputs.* }} appears
     # inside either. github.action_path is allowed (it's not user input).
-    # The earlier line-wise grep this replaces missed multi-line cases.
     run awk '
         BEGIN { in_run = 0; run_col = -1; bad = 0 }
         /^[[:space:]]*run:[[:space:]]+[^|>]/ && /\$\{\{[[:space:]]*inputs\./ {

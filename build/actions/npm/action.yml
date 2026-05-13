@@ -61,13 +61,20 @@ outputs:
 runs:
   using: "composite"
   steps:
+    # Scripts are invoked via `bash <script>` (rather than directly) so
+    # the action works regardless of the .sh files' filesystem mode.
+    # The GitHub MCP push_files API used to maintain this branch demotes
+    # exec bit when overwriting; explicit `bash` invocation is defensive
+    # against that and any similar future regressions. Functionally
+    # equivalent: the scripts have a `#!/bin/bash` shebang that would
+    # otherwise drive interpreter selection.
     - name: Validate inputs
       shell: bash
       env:
         INPUT_PATH: ${{ inputs.path }}
       run: |
         set -euo pipefail
-        "${{ github.action_path }}/validate_inputs.sh" "$INPUT_PATH"
+        bash "${{ github.action_path }}/validate_inputs.sh" "$INPUT_PATH"
 
     # Resolve which Node.js version setup-node should use, and which
     # package manager to install + use. Order:
@@ -195,7 +202,7 @@ runs:
         IGNORE_SCRIPTS: ${{ inputs.ignore-scripts }}
       run: |
         set -euo pipefail
-        "${{ github.action_path }}/build_and_pack.sh" "$INPUT_PATH" "$RUN_TESTS" "$IGNORE_SCRIPTS"
+        bash "${{ github.action_path }}/build_and_pack.sh" "$INPUT_PATH" "$RUN_TESTS" "$IGNORE_SCRIPTS"
         cd "$INPUT_PATH/dist"
         shopt -s nullglob
         tarballs=(*.tgz)
