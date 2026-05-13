@@ -150,7 +150,10 @@ setup() {
 @test "npm: action.yml does NOT enable pnpm-store cache anywhere" {
     # pnpm-store cache is the Mini Shai-Hulud / TanStack May 2026 cache-
     # poisoning vector. Wrangle must never enable it. See issue #205.
-    run grep -E "cache:[[:space:]]*['\"]pnpm['\"]" "$ACTION"
+    # Pattern is anchored to the start of the line so prose in comments
+    # that references the avoided `cache: 'pnpm'` pattern doesn't trip
+    # the test that enforces it.
+    run grep -E "^[[:space:]]*cache:[[:space:]]*['\"]?pnpm['\"]?[[:space:]]*\$" "$ACTION"
     [[ "$status" -ne 0 ]]
 }
 
