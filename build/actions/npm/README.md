@@ -4,6 +4,10 @@ Build an npm package (tarball via `npm pack`), run tests, generate an SBOM, and 
 
 > **Note:** This README documents *currently-shipped* behavior. For the full design — architecture, attestation model, full step sequence — see [`SPEC.md`](./SPEC.md).
 
+## Recommended companion: source scan
+
+This action hardens *how* your artifact is produced. It does NOT scan your source — vulnerable deps in `package-lock.json`, dangerous workflow triggers, or missing branch protection still slip through and would be faithfully L3-attested by wrangle as legitimately built. Pair this with wrangle's source-scan workflow ([`actions/scan/README.md`](../../../actions/scan/README.md)) to close that gap on every PR and push. The May 2026 Mini Shai-Hulud compromise of TanStack/router is the most recent example of why this matters — the build side wasn't the vulnerability; the source side was.
+
 ## Before first use
 
 **Bootstrap the package's first version manually.** npm Trusted Publishing cannot publish a package's *first* version ([npm/cli#8544](https://github.com/npm/cli/issues/8544)). For a brand-new package, run `npm publish` once from a maintainer's terminal with an `NPM_TOKEN` to mint v0.0.1 (or whatever the initial version is). After that, every subsequent version goes through the automated path. Skip this step and your first run of the workflow will fail with a non-obvious "package not found" error from the registry.

@@ -4,6 +4,10 @@ Build a Python package (wheel + sdist), run tests, generate an SBOM, and produce
 
 > **Note:** This README documents *currently-shipped* behavior. For the full design — architecture, security model, full step sequence — see [`SPEC.md`](./SPEC.md).
 
+## Recommended companion: source scan
+
+This action hardens *how* your artifact is produced. It does NOT scan your source — vulnerable deps in your lockfile, dangerous workflow triggers, or missing branch protection still slip through and would be faithfully L3-attested by wrangle as legitimately built. Pair this with wrangle's source-scan workflow ([`actions/scan/README.md`](../../../actions/scan/README.md)) to close that gap on every PR and push. Without it, an attacker who lands a malicious dep or workflow misconfiguration routes around the build-side hardening — the May 2026 Mini Shai-Hulud compromise of TanStack/router is the canonical recent example.
+
 ## Quick-start
 
 Two ways to adopt:
@@ -150,5 +154,6 @@ Before the first publish:
 - [`SPEC.md`](./SPEC.md) — this action's full specification
 - [`../../../docs/SPEC.md`](../../../docs/SPEC.md) — wrangle's overall architecture
 - [`../../README.md`](../../README.md) — the build/ directory overview
+- [`../../../actions/scan/README.md`](../../../actions/scan/README.md) — recommended source-scan companion
 - [PyPI Trusted Publishing](https://docs.pypi.org/trusted-publishers/) — the underlying PyPI feature
 - [SLSA generic generator](https://github.com/slsa-framework/slsa-github-generator/blob/main/internal/builders/generic/README.md)
