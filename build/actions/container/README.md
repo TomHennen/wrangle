@@ -4,6 +4,10 @@ A GitHub composite action that builds and publishes a container image to GitHub 
 
 > **Note:** This README documents *currently-shipped* behavior. For the full design — including Cosign signing, SLSA L3 provenance, the release gate, failure contract, and trust model — see [`SPEC.md`](./SPEC.md). The spec is forward-looking; features described there but not yet implemented in `action.yml` will land in follow-up PRs, and this README will be updated in the same commit. The full structure this README must eventually cover (quick-start example, verification commands, failure runbook) is defined in [`SPEC.md` §"Required contents of `build/actions/container/README.md`"](./SPEC.md#required-contents-of-buildactionscontainerreadmemd).
 
+## Recommended companion: source scan
+
+This action hardens *how* your container image is produced. It does NOT scan your source — vulnerable deps in your Dockerfile's base image or pinned packages, dangerous workflow triggers, or missing branch protection still slip through and would be faithfully L3-attested by wrangle as legitimately built. Pair this with wrangle's source-scan workflow ([`actions/scan/README.md`](../../../actions/scan/README.md)) to close that gap on every PR and push. Without it, an attacker who lands a malicious dep or workflow misconfiguration routes around the build-side hardening — the May 2026 Mini Shai-Hulud compromise of TanStack/router is the canonical recent example of why this matters.
+
 ## What this action does today
 
 - Builds a Docker image from a Dockerfile at a caller-provided path
@@ -79,3 +83,4 @@ Per the failure contract in [`SPEC.md`](./SPEC.md#failure-contract), SBOM vulner
 - [`SPEC.md`](./SPEC.md) — this action's full specification
 - [`../../../docs/SPEC.md`](../../../docs/SPEC.md) — wrangle's overall architecture and build-type model
 - [`../../README.md`](../../README.md) — the build/ directory overview
+- [`../../../actions/scan/README.md`](../../../actions/scan/README.md) — recommended source-scan companion
