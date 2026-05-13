@@ -94,11 +94,46 @@ on:
         value: ${{ jobs.gate.outputs.should-release }}
 
 jobs:
+  # Refuse pull_request_target invocations (defense-in-depth against the
+  # "pwn request" pattern that compromised TanStack/router via Mini
+  # Shai-Hulud in May 2026). pull_request_target runs in the base repo's
+  # privileged context, so a caller using that trigger could have
+  # poisoned the runner before invoking wrangle. No legitimate wrangle
+  # adoption uses this trigger. Every downstream job needs guard, so
+  # the gate, build, provenance, and verify jobs are all skipped on a
+  # refused invocation — no OIDC tokens minted, no privileged actions
+  # executed. See: https://github.com/TomHennen/wrangle/issues/202
+  guard:
+    runs-on: ubuntu-latest
+    permissions: {}    # reads env only — no workspace, no API, no secrets
+    steps:
+      - name: Refuse pull_request_target invocations
+        shell: bash
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          OUTER_EVENT: ${{ github.event.workflow_run.event }}
+        run: |
+          set -euo pipefail
+          fail() {
+              printf '::error::wrangle refuses %s.\n' "$1" >&2
+              printf "::error::This trigger pattern combined with a checkout of PR head SHA is the 'pwn request' vector that compromised TanStack/router via Mini Shai-Hulud in May 2026.\n" >&2
+              printf '::error::Move build/publish to a push-triggered workflow (push to main or tags). See docs/SPEC.md threat model.\n' >&2
+              exit 1
+          }
+          if [[ "$EVENT_NAME" == "pull_request_target" ]]; then
+              fail "pull_request_target invocations"
+          fi
+          if [[ "$EVENT_NAME" == "workflow_run" && "$OUTER_EVENT" == "pull_request_target" ]]; then
+              fail "workflow_run invocations triggered by pull_request_target"
+          fi
+          printf 'Event "%s" allowed.\n' "$EVENT_NAME"
+
   # Decide whether release-time actions (provenance, publish) should run
   # for this event. Cheap separate job so the result is available to
   # both the provenance job below and the caller's publish job via
   # outputs.should-release.
   gate:
+    needs: [guard]
     runs-on: ubuntu-latest
     permissions: {}    # release_gate reads only env; no workspace, no API
     outputs:
@@ -112,6 +147,7 @@ jobs:
           events: ${{ inputs.release-events }}
 
   build:
+    needs: [guard]
     runs-on: ubuntu-latest
     permissions:
       contents: read    # minimal — no OIDC, no publish
@@ -173,7 +209,7 @@ jobs:
   # only uploads provenance as a workflow artifact (90-day retention).
   provenance:
     if: ${{ needs.gate.outputs.should-release == 'true' }}
-    needs: [gate, build]
+    needs: [guard, gate, build]
     permissions:
       actions: read    # detect the GitHub Actions environment
       id-token: write  # OIDC for Sigstore signing
@@ -202,7 +238,7 @@ jobs:
   # `verify-provenance: false` and wire their own.
   verify:
     if: ${{ needs.gate.outputs.should-release == 'true' && inputs.verify-provenance }}
-    needs: [gate, build, provenance]
+    needs: [guard, gate, build, provenance]
     runs-on: ubuntu-latest
     permissions: {}    # default token; download-artifact reads same-run artifacts
     steps:

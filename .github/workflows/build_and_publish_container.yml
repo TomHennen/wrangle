@@ -68,7 +68,42 @@ on:
         value: ${{ jobs.gate.outputs.should-release }}
 
 jobs:
+  # Refuse pull_request_target invocations (defense-in-depth against the
+  # "pwn request" pattern that compromised TanStack/router via Mini
+  # Shai-Hulud in May 2026). pull_request_target runs in the base repo's
+  # privileged context, so a caller using that trigger could have
+  # poisoned the runner before invoking wrangle. No legitimate wrangle
+  # adoption uses this trigger. Refusal here also blocks the build job's
+  # docker push (which happens mid-composite, before any verify step
+  # could run), closing the worst-case gap for this build type.
+  # See: https://github.com/TomHennen/wrangle/issues/202
+  guard:
+    runs-on: ubuntu-latest
+    permissions: {}    # reads env only — no workspace, no API, no secrets
+    steps:
+      - name: Refuse pull_request_target invocations
+        shell: bash
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          OUTER_EVENT: ${{ github.event.workflow_run.event }}
+        run: |
+          set -euo pipefail
+          fail() {
+              printf '::error::wrangle refuses %s.\n' "$1" >&2
+              printf "::error::This trigger pattern combined with a checkout of PR head SHA is the 'pwn request' vector that compromised TanStack/router via Mini Shai-Hulud in May 2026.\n" >&2
+              printf '::error::Move build/publish to a push-triggered workflow (push to main or tags). See docs/SPEC.md threat model.\n' >&2
+              exit 1
+          }
+          if [[ "$EVENT_NAME" == "pull_request_target" ]]; then
+              fail "pull_request_target invocations"
+          fi
+          if [[ "$EVENT_NAME" == "workflow_run" && "$OUTER_EVENT" == "pull_request_target" ]]; then
+              fail "workflow_run invocations triggered by pull_request_target"
+          fi
+          printf 'Event "%s" allowed.\n' "$EVENT_NAME"
+
   gate:
+    needs: [guard]
     runs-on: ubuntu-latest
     permissions: {}    # release_gate reads only env; no workspace, no API
     outputs:
@@ -82,6 +117,7 @@ jobs:
           events: ${{ inputs.release-events }}
 
   build:
+    needs: [guard]
     permissions:
       contents: read
       packages: write
@@ -105,7 +141,7 @@ jobs:
     # Gated on release-events (default: non-pull-request) so adopters can
     # tighten when provenance is produced without forking the workflow.
     if: ${{ needs.gate.outputs.should-release == 'true' }}
-    needs: [gate, build]
+    needs: [guard, gate, build]
     permissions:
       actions: read # for detecting the Github Actions environment.
       id-token: write # for creating OIDC tokens for signing.
@@ -138,7 +174,7 @@ jobs:
   # Tests assert the lockstep so a single-side bump fails CI loudly.
   verify:
     if: ${{ needs.gate.outputs.should-release == 'true' && inputs.verify-image }}
-    needs: [gate, build, provenance]
+    needs: [guard, gate, build, provenance]
     runs-on: ubuntu-latest
     # No registry credentials needed: cosign verify-attestation against
     # ghcr.io public images works anonymously, and the SLSA attestation
