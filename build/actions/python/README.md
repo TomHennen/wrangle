@@ -10,9 +10,9 @@ This action hardens *how* your artifact is produced. It does NOT scan your sourc
 
 ## Before first use
 
-1. **Configure a Trusted Publisher on PyPI.** Project settings → Publishing → Add a trusted publisher. Specify your GitHub repository, workflow filename (`build_python.yml`), and optionally an environment name.
+1. **Configure a Trusted Publisher on PyPI.** Project → Publishing → Add a trusted publisher. Specify your GitHub repository, workflow filename (`build_python.yml`), and optionally an environment name.
 
-2. **Disable legacy API token uploads on PyPI** (Project settings → Publishing → disable token uploads). PyPI allows both Trusted Publishing AND legacy API tokens by default. **A stolen or leftover token bypasses your CI entirely** — including all of wrangle's hardening — because the attacker can `twine upload` malicious artifacts directly without ever triggering your trusted workflow. This is exactly the attack vector behind the December 2024 ultralytics compromise and the May 2026 `mistralai` / `guardrails-ai` compromise (both shipped malware to PyPI by pushing directly to the registry, never triggering the legitimate GitHub Actions release workflow). Wrangle's pipeline cannot help if attackers can bypass it; PyPI is the authority for this setting.
+2. **Disable legacy API token uploads on PyPI** (Project → Publishing). PyPI allows both Trusted Publishing AND legacy API tokens by default. **A stolen or leftover token bypasses your CI entirely** — including all of wrangle's hardening — because the attacker can `twine upload` malicious artifacts directly without ever triggering your trusted workflow. This is exactly the attack vector behind the December 2024 ultralytics compromise and the May 2026 `mistralai` / `guardrails-ai` compromise (both shipped malware to PyPI by pushing directly to the registry, never triggering the legitimate GitHub Actions release workflow). Wrangle's pipeline can't enforce this; the toggle lives in PyPI's settings.
 
 3. **(Optional) Configure TestPyPI.** For pre-release testing, repeat step 1 on test.pypi.org with a separate Trusted Publisher.
 
