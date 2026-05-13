@@ -10,9 +10,13 @@ This action hardens *how* your artifact is produced. It does NOT scan your sourc
 
 ## Before first use
 
-**Bootstrap the package's first version manually.** npm Trusted Publishing cannot publish a package's *first* version ([npm/cli#8544](https://github.com/npm/cli/issues/8544)). For a brand-new package, run `npm publish` once from a maintainer's terminal with an `NPM_TOKEN` to mint v0.0.1 (or whatever the initial version is). After that, every subsequent version goes through the automated path. Skip this step and your first run of the workflow will fail with a non-obvious "package not found" error from the registry.
+Complete these in order — step 1's bootstrap publish requires an `NPM_TOKEN`, which step 3 disallows.
 
-**Configure the trusted publisher.** On npmjs.com → your package → Settings → Trusted publishing, pin: GitHub repo, workflow filename (`build_npm.yml`), and optionally an environment.
+1. **Bootstrap the package's first version manually.** npm Trusted Publishing cannot publish a package's *first* version ([npm/cli#8544](https://github.com/npm/cli/issues/8544)). For a brand-new package, run `npm publish` once from a maintainer's terminal with an `NPM_TOKEN` to mint v0.0.1 (or whatever the initial version is). After that, every subsequent version goes through the automated path. Skip this step and your first run of the workflow will fail with a non-obvious "package not found" error from the registry.
+
+2. **Configure the trusted publisher.** On npmjs.com → your package → Settings → Trusted publishing, pin: GitHub repo, workflow filename (`build_npm.yml`), and optionally an environment.
+
+3. **Enable npm's "Require two-factor authentication and disallow tokens" setting on the package.** On npmjs.com → your package → Settings → Publishing access, select **"Require two-factor authentication and disallow tokens (recommended)"**. This is npm's equivalent of PyPI's "disable token uploads": it blocks all classic / granular publish tokens from being used on the package, leaving Trusted Publishing's OIDC flow as the only publish path (npm's own UI confirms: "All publishing access options above are compatible with OIDC trusted publishers"). **Without this**, a stolen or leftover token bypasses your CI entirely — the attack vector behind the May 2026 `mistralai` / `guardrails-ai` PyPI compromise and the December 2024 ultralytics compromise (both shipped malware to the registry by pushing directly, never triggering the legitimate workflow, even though Trusted Publishing was configured on the affected projects). After enabling the setting, revoke the bootstrap NPM_TOKEN you used in step 1 at npmjs.com → account settings → access tokens — defense in depth.
 
 ## Quick-start
 
@@ -111,6 +115,8 @@ npm audit signatures
 ```
 
 This proves the bundle was published from the expected GitHub repo + workflow, but does **not** independently attest to the build environment beyond what the npm CLI's in-process signing captures (SLSA L2).
+
+> **Known limitation.** `npm install` does NOT run `npm audit signatures` by default. Consumers who care about attestation verification must opt in by running `npm audit signatures` as a separate step. Until verification is the default, the load-bearing check is the registry-side `workflow_ref` validation at *upload* time — but that check is only meaningful when "Require two-factor authentication and disallow tokens" is enabled on the package (see "Before first use" above), since a stolen token bypasses the workflow-identity binding entirely.
 
 ### Wrangle's L3 SLSA provenance (against the GitHub release)
 

@@ -8,6 +8,14 @@ Build a Python package (wheel + sdist), run tests, generate an SBOM, and produce
 
 This action hardens *how* your artifact is produced. It does NOT scan your source — vulnerable deps in your lockfile, dangerous workflow triggers, or missing branch protection still slip through and would be faithfully L3-attested by wrangle as legitimately built. Pair this with wrangle's source-scan workflow ([`actions/scan/README.md`](../../../actions/scan/README.md)) to close that gap on every PR and push. Without it, an attacker who lands a malicious dep or workflow misconfiguration routes around the build-side hardening — the May 2026 Mini Shai-Hulud compromise of TanStack/router is the canonical recent example.
 
+## Before first use
+
+1. **Configure a Trusted Publisher on PyPI.** Project → Publishing → Add a trusted publisher. Specify your GitHub repository, workflow filename (`build_python.yml`), and optionally an environment name.
+
+2. **Disable legacy API token uploads on PyPI** (Project → Publishing). PyPI allows both Trusted Publishing AND legacy API tokens by default. **A stolen or leftover token bypasses your CI entirely** — including all of wrangle's hardening — because the attacker can `twine upload` malicious artifacts directly without ever triggering your trusted workflow. This is exactly the attack vector behind the December 2024 ultralytics compromise and the May 2026 `mistralai` / `guardrails-ai` compromise (both shipped malware to PyPI by pushing directly to the registry, never triggering the legitimate GitHub Actions release workflow). Wrangle's pipeline can't enforce this; the toggle lives in PyPI's settings.
+
+3. **(Optional) Configure TestPyPI.** For pre-release testing, repeat step 1 on test.pypi.org with a separate Trusted Publisher.
+
 ## Quick-start
 
 Two ways to adopt:
@@ -104,6 +112,8 @@ Your package's consumers — anyone who installs your wheel — can verify it tw
 
 PyPI stores Sigstore-based PEP 740 attestations alongside every wheel published with `attestations: true` (which `pypa/gh-action-pypi-publish` does in the example workflow). These prove **who published the package** — the GitHub workflow identity, recorded in Sigstore's transparency log. `pip` verifies them natively (experimental as of pip 24.x); `sigstore-python` verifies them on the command line. The wheel's PyPI page also displays the verification status. No download from your repo needed — PyPI is the source of truth.
 
+> **Known limitation.** `pip install` does NOT verify PEP 740 attestations by default — verification is experimental in pip 24.x and requires opt-in flags. Until verification is the default, consumers who care about provenance must opt in via `sigstore-python` or pip's experimental flag. This is a pip-ecosystem gap, not a wrangle gap; the legitimate-publish guarantee ("this version was published from the registered trusted workflow") is enforced by PyPI at *upload* time — but only when legacy token uploads are disabled (see "Before first use" above), since a stolen token bypasses that enforcement entirely.
+
 ### SLSA L3 provenance (against your repo's release)
 
 SLSA provenance proves **how the artifact was built** — inputs, builder, materials — and is non-falsifiable because the generator runs in an isolated reusable workflow. Wrangle uploads the provenance to your GitHub release on tag pushes (because the reusable workflow sets `upload-assets: ${{ startsWith(github.ref, 'refs/tags/') }}`). The filename today is `python-<shortname>.intoto.jsonl` (e.g., `python-_.intoto.jsonl` for a top-level project, where `_` is the shortname for `.`). [#181](https://github.com/TomHennen/wrangle/issues/181) tracks moving to a single `multiple.intoto.jsonl` bundle (in-toto convention) at the release/consumer layer; until that ships, use the per-build filename. Verify with `slsa-verifier`:
@@ -140,14 +150,6 @@ Naming and layout follow the unified-metadata convention shared across every bui
 ```
 
 `<shortname>` is the path-derived short name — `.` becomes `_`, `pkg/foo` becomes `pkg_foo`. This namespacing lets you run multiple python builds in one workflow without artifact-name collisions.
-
-## Adopter onboarding (PyPI Trusted Publishing)
-
-Before the first publish:
-
-1. **Configure a Trusted Publisher on PyPI.** Project settings → Publishing → Add a trusted publisher. Specify your GitHub repository, workflow filename (`build_python.yml`), and optionally an environment name.
-2. **Disable legacy API token uploads.** PyPI allows both Trusted Publishing and tokens by default. Disable tokens after configuring Trusted Publishing — this prevents the attack vector exploited in the December 2024 ultralytics compromise (stolen API token despite Trusted Publishing being configured). Wrangle cannot enforce this; PyPI is the authority.
-3. **(Optional) Configure TestPyPI.** For pre-release testing, repeat step 1 on test.pypi.org with a separate Trusted Publisher.
 
 ## Further reading
 
