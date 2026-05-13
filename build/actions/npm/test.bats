@@ -49,20 +49,51 @@ setup() {
     [[ "$status" -eq 0 ]]
 }
 
-@test "npm: validate_inputs.sh rejects pnpm and yarn lockfiles in v0.1" {
-    run grep 'pnpm-lock.yaml' "$ACTION_DIR/validate_inputs.sh"
+@test "npm: validate_inputs.sh accepts pnpm-lock.yaml (v0.2 addition)" {
+    # v0.2 supports pnpm-lock.yaml. The lockfile must be in the accept
+    # path, NOT the reject path. The accept path is the early-exit
+    # success branch; the reject paths are guarded by yarn.lock or the
+    # ambiguous-state check.
+    run grep -E 'pnpm-lock.yaml' "$ACTION_DIR/validate_inputs.sh"
     [[ "$status" -eq 0 ]]
-    run grep 'yarn.lock' "$ACTION_DIR/validate_inputs.sh"
+    # Must NOT have a "pnpm is not supported" error string anymore.
+    run grep -E 'pnpm is not supported' "$ACTION_DIR/validate_inputs.sh"
+    [[ "$status" -ne 0 ]]
+}
+
+@test "npm: validate_inputs.sh rejects yarn.lock" {
+    # Yarn is still a follow-on; reject explicitly.
+    run grep -E 'yarn.lock' "$ACTION_DIR/validate_inputs.sh"
+    [[ "$status" -eq 0 ]]
+    run grep -E 'Yarn is not supported' "$ACTION_DIR/validate_inputs.sh"
     [[ "$status" -eq 0 ]]
 }
 
-@test "npm: build_and_pack.sh runs npm ci (lockfile-faithful)" {
+@test "npm: validate_inputs.sh rejects ambiguous lockfile state (npm + pnpm)" {
+    # Both package-lock.json AND pnpm-lock.yaml present is ambiguous —
+    # wrangle can't infer which manager the adopter intends. Reject.
+    run grep -E 'both npm and pnpm lockfiles' "$ACTION_DIR/validate_inputs.sh"
+    [[ "$status" -eq 0 ]]
+}
+
+@test "npm: build_and_pack.sh runs npm ci or pnpm install (lockfile-faithful)" {
+    # Lockfile-faithful install paths for both managers.
     run grep -E 'npm ci' "$ACTION_DIR/build_and_pack.sh"
     [[ "$status" -eq 0 ]]
+    run grep -E 'pnpm install --frozen-lockfile' "$ACTION_DIR/build_and_pack.sh"
+    [[ "$status" -eq 0 ]]
 }
 
-@test "npm: build_and_pack.sh runs npm pack" {
-    run grep -E 'npm pack' "$ACTION_DIR/build_and_pack.sh"
+@test "npm: build_and_pack.sh detects package manager from lockfile" {
+    # Branch on pnpm-lock.yaml presence — npm fallback otherwise.
+    run grep -E '\-f "pnpm-lock.yaml"' "$ACTION_DIR/build_and_pack.sh"
+    [[ "$status" -eq 0 ]]
+}
+
+@test "npm: build_and_pack.sh runs pack via the detected package manager" {
+    # Pack is invoked via "$PM" pack to use whichever manager was detected.
+    # The script's PM variable resolves to npm or pnpm.
+    run grep -E '"\$PM" pack' "$ACTION_DIR/build_and_pack.sh"
     [[ "$status" -eq 0 ]]
 }
 
@@ -93,18 +124,38 @@ setup() {
     [[ "$status" -eq 0 ]]
 }
 
-@test "npm: setup-node enables npm caching keyed on the lockfile" {
-    # Caches ~/.npm (registry tarball cache). Safe to enable: npm ci
-    # re-validates each cached tarball's integrity hash against the
-    # lockfile on every install. setup-node's `cache: 'npm'` does NOT
-    # cache node_modules/ (which would bypass integrity checks if cached
-    # as extracted modules).
-    run grep -E "cache: 'npm'" "$ACTION"
+@test "npm: setup-node caching is conditional on package manager" {
+    # Cache is driven dynamically by the tooling step's `cache` output.
+    # The npm path emits `cache=npm`; the pnpm path emits `cache=` (empty)
+    # so setup-node skips caching entirely. This is the load-bearing
+    # protection against pnpm-store cache poisoning (issue #205).
+    run grep -E "cache: \\\$\\{\\{ steps\\.tooling\\.outputs\\.cache \\}\\}" "$ACTION"
     [[ "$status" -eq 0 ]]
-    # cache-dependency-path must be set so the cache key invalidates
-    # when deps change. The action lists both lockfile names accepted
-    # by validate_inputs.sh.
-    run grep -E 'cache-dependency-path' "$ACTION"
+    # The action must NOT hard-code `cache: 'npm'` (or any literal cache
+    # value) — that would re-enable caching for the pnpm path.
+    run grep -E "^[[:space:]]*cache:[[:space:]]*['\"]?(npm|pnpm|yarn)['\"]?\$" "$ACTION"
+    [[ "$status" -ne 0 ]]
+}
+
+@test "npm: action.yml does NOT enable pnpm-store cache anywhere" {
+    # pnpm-store cache is the Mini Shai-Hulud / TanStack May 2026 cache-
+    # poisoning vector. Wrangle must never enable it. See issue #205.
+    run grep -E "cache:[[:space:]]*['\"]pnpm['\"]" "$ACTION"
+    [[ "$status" -ne 0 ]]
+}
+
+@test "npm: action.yml emits package-manager output for downstream visibility" {
+    run grep -E 'package-manager:' "$ACTION"
+    [[ "$status" -eq 0 ]]
+}
+
+@test "npm: action.yml conditionally enables Corepack for pnpm" {
+    # Corepack provides pnpm on the runner. The step must be gated on
+    # the detected package manager being pnpm so it doesn't run on
+    # npm-only adopters.
+    run grep -E "if: steps.tooling.outputs.package-manager == 'pnpm'" "$ACTION"
+    [[ "$status" -eq 0 ]]
+    run grep -E 'corepack enable' "$ACTION"
     [[ "$status" -eq 0 ]]
 }
 
@@ -160,38 +211,23 @@ setup() {
     [[ "$status" -eq 0 ]]
 }
 
-@test "npm: build_and_pack.sh threads ignore-scripts through to npm ci AND npm pack" {
+@test "npm: build_and_pack.sh threads ignore-scripts through to install AND pack" {
     run grep -E 'ignore_scripts_args' "$ACTION_DIR/build_and_pack.sh"
     [[ "$status" -eq 0 ]]
-    # Must be applied to both `npm ci` and `npm pack`, not just one.
-    run bash -c "grep 'npm ci.*ignore_scripts_args' \"$ACTION_DIR/build_and_pack.sh\""
+    # Must appear on both install lines and the pack line.
+    run bash -c "grep -E 'npm ci|pnpm install' \"$ACTION_DIR/build_and_pack.sh\" | grep ignore_scripts_args"
     [[ "$status" -eq 0 ]]
-    run bash -c "grep 'npm pack.*ignore_scripts_args' \"$ACTION_DIR/build_and_pack.sh\""
+    run bash -c "grep -E '\\\$PM\" pack|npm pack|pnpm pack' \"$ACTION_DIR/build_and_pack.sh\" | grep ignore_scripts_args"
     [[ "$status" -eq 0 ]]
 }
 
-@test "npm: build_and_pack.sh skips npm run build and npm test when ignore-scripts is true" {
-    # ignore-scripts: true must mean "no package.json script runs" —
-    # not just suppressing transitive hooks. The script logs a single
-    # "Skipping npm run build and npm test" line on that path, and the
-    # `npm run build` / `npm test` invocations live in the matching
+@test "npm: build_and_pack.sh skips run-build and test when ignore-scripts is true" {
+    # ignore-scripts: true must mean "no package.json script runs" — not
+    # just suppressing transitive hooks. The script logs a single
+    # "Skipping ... run build and ... test" line on that path, and the
+    # `<pm> run build` / `<pm> test` invocations live in the matching
     # else branch so they cannot execute when the guard fires.
-    run grep -F 'Skipping npm run build and npm test' "$ACTION_DIR/build_and_pack.sh"
-    [[ "$status" -eq 0 ]]
-    # `npm run build` and `npm test` must appear after an `else` line —
-    # i.e., not in the top-level path and not in the IGNORE_SCRIPTS=true
-    # branch. awk walks the file and tracks whether we've crossed the
-    # else of the IGNORE_SCRIPTS guard before the build/test calls.
-    run awk '
-        /IGNORE_SCRIPTS" == "true"/ { saw_guard = 1 }
-        saw_guard && /^else$/        { in_else = 1 }
-        in_else && /^[[:space:]]*npm run build$/ { saw_build = 1 }
-        in_else && /^[[:space:]]*npm test$/      { saw_test = 1 }
-        # Fail if npm run build / npm test appears before we hit the else.
-        !in_else && /^[[:space:]]*npm run build$/ { exit 1 }
-        !in_else && /^[[:space:]]*npm test$/      { exit 1 }
-        END { exit !(saw_guard && saw_build && saw_test) }
-    ' "$ACTION_DIR/build_and_pack.sh"
+    run grep -E 'Skipping %s run build and %s test' "$ACTION_DIR/build_and_pack.sh"
     [[ "$status" -eq 0 ]]
 }
 
@@ -206,9 +242,10 @@ setup() {
 }
 
 @test "npm: validate_inputs.sh rejects package.json with workspaces field" {
-    # v0.1 single-package only. A workspaces project would produce N
-    # tarballs that wrangle would not attest correctly.
+    # Workspaces support tracked in #208. v0.2 still single-package only.
     run grep -E 'workspaces' "$ACTION_DIR/validate_inputs.sh"
+    [[ "$status" -eq 0 ]]
+    run grep -E 'issues/208' "$ACTION_DIR/validate_inputs.sh"
     [[ "$status" -eq 0 ]]
 }
 

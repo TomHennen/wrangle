@@ -1,7 +1,9 @@
 name: Wrangle npm Build
 description: |
-  Build an npm package (tarball via `npm pack`), run tests, generate SBOM,
-  and compute artifact hashes for SLSA provenance. SLSA provenance
+  Build an npm package (tarball via `npm pack` or `pnpm pack`), run tests,
+  generate SBOM, and compute artifact hashes for SLSA provenance.
+  Package manager is detected from the lockfile: `package-lock.json` /
+  `npm-shrinkwrap.json` -> npm; `pnpm-lock.yaml` -> pnpm. SLSA provenance
   generation is handled by a separate job in the reusable workflow;
   publishing lives in the adopter's own workflow because npm Trusted
   Publishing's OIDC token must come from the caller, not a reusable
@@ -17,19 +19,20 @@ inputs:
     required: false
     default: ""
   run-tests:
-    description: "Whether to run `npm test` if a non-default test script is declared in package.json"
+    description: "Whether to run `npm test` / `pnpm test` if a non-default test script is declared in package.json"
     required: false
     default: "true"
   ignore-scripts:
     description: |
       When true, no package.json script runs: --ignore-scripts is passed
-      to npm ci AND npm pack (suppressing prepare/prepack/postpack/install
-      lifecycle hooks, including those in transitive dev-deps), AND
-      `npm run build` / `npm test` are skipped outright. Opt-in hardening
-      for adopters who want the L3 attestation to bind to "what npm pack
-      produces with no script execution at all." Defaults to false because
-      common ecosystem tools (husky, prebuild-install) rely on these hooks
-      and most adopters expect their declared build/test to run. If a
+      to install (npm ci / pnpm install) AND pack (npm pack / pnpm pack),
+      suppressing prepare/prepack/postpack/install lifecycle hooks
+      (including those in transitive dev-deps), AND `<pm> run build` /
+      `<pm> test` are skipped outright. Opt-in hardening for adopters
+      who want the L3 attestation to bind to "what pack produces with
+      no script execution at all." Defaults to false because common
+      ecosystem tools (husky, prebuild-install) rely on these hooks and
+      most adopters expect their declared build/test to run. If a
       finer-grained mode is needed (suppress hooks but still run the
       user's build), it can be added as a separate input.
     required: false
@@ -51,6 +54,9 @@ outputs:
   metadata-dir:
     description: "Path to the metadata directory (relative to the workspace) containing the SBOM"
     value: ${{ steps.metadata.outputs.metadata-dir }}
+  package-manager:
+    description: "Package manager detected from lockfile ('npm' or 'pnpm')"
+    value: ${{ steps.tooling.outputs.package-manager }}
 
 runs:
   using: "composite"
@@ -63,15 +69,22 @@ runs:
         set -euo pipefail
         "${{ github.action_path }}/validate_inputs.sh" "$INPUT_PATH"
 
-    # Resolve which Node.js version setup-node should use. Order:
-    #   1. inputs.node-version override
-    #   2. .nvmrc in the project directory
-    #   3. engines.node in package.json
-    #   4. wrangle-default LTS — avoids setup-node's confusing "no
-    #      version found" error for projects that pin neither file.
+    # Resolve which Node.js version setup-node should use, and which
+    # package manager to install + use. Order:
+    #   Node.js version:
+    #     1. inputs.node-version override
+    #     2. .nvmrc in the project directory
+    #     3. engines.node in package.json
+    #     4. wrangle-default LTS — avoids setup-node's confusing "no
+    #        version found" error for projects that pin neither file.
+    #   Package manager:
+    #     pnpm-lock.yaml -> pnpm; otherwise npm. validate_inputs.sh has
+    #     already rejected ambiguous and unsupported lockfile states.
     # Outputs always set exactly one of effective-version /
     # effective-version-file so setup-node has unambiguous instruction.
-    - name: Detect Node.js version source
+    # Cache config is conditional on package manager — see comments at
+    # the Setup Node.js step below.
+    - name: Detect tooling
       id: tooling
       shell: bash
       env:
@@ -101,34 +114,78 @@ runs:
             printf 'No version hint in .nvmrc, engines.node, or node-version input — falling back to wrangle default Node %s\n' "$WRANGLE_DEFAULT_NODE"
         fi
 
-    # Cache npm's registry tarball cache (~/.npm), keyed on the lockfile.
-    # Safe under wrangle's threat model: `npm ci` re-validates each cached
-    # tarball's integrity hash against the lockfile on every install, so a
-    # poisoned cache that produces non-matching bytes is rejected before
-    # extraction. setup-node's `cache: 'npm'` caches `~/.npm` only — it
-    # does NOT cache `node_modules/`, which would bypass integrity checks
-    # if cached as extracted modules.
+        # Package manager + cache configuration.
+        if [[ -f "$INPUT_PATH/pnpm-lock.yaml" ]]; then
+            printf 'package-manager=pnpm\n' >> "$GITHUB_OUTPUT"
+            # NO cache for the pnpm path. setup-node's `cache: 'pnpm'`
+            # would cache the pnpm-store, which stores extracted modules
+            # under content-addressed paths and does NOT re-verify
+            # content matches the path's claimed hash at install time.
+            # That's exactly the cache-poisoning vector the May 2026
+            # Mini Shai-Hulud / TanStack compromise exploited. See:
+            #   https://github.com/TomHennen/wrangle/issues/205
+            # npm's `cache: 'npm'` is safe because `npm ci` re-validates
+            # each tarball's integrity against package-lock.json on every
+            # install — pnpm install has no equivalent re-verification.
+            printf 'cache=\n' >> "$GITHUB_OUTPUT"
+            printf 'Detected pnpm-lock.yaml; using pnpm. setup-node caching deliberately disabled (see issue #205).\n'
+        else
+            printf 'package-manager=npm\n' >> "$GITHUB_OUTPUT"
+            printf 'cache=npm\n' >> "$GITHUB_OUTPUT"
+            printf 'Detected npm lockfile; using npm with cache=npm.\n'
+        fi
+
+    # Cache npm's registry tarball cache (~/.npm), keyed on the lockfile,
+    # ONLY when the npm path is active. Safe under wrangle's threat model:
+    # `npm ci` re-validates each cached tarball's integrity hash against
+    # the lockfile on every install, so a poisoned cache that produces
+    # non-matching bytes is rejected before extraction. setup-node's
+    # `cache: 'npm'` caches `~/.npm` only — it does NOT cache
+    # `node_modules/`, which would bypass integrity checks if cached as
+    # extracted modules.
     #
     # cache-dependency-path lists both lockfile names accepted by
-    # validate_inputs.sh; setup-node hashes whichever exists (skips missing
-    # paths) so the cache key correctly invalidates on dependency changes.
+    # validate_inputs.sh for the npm path; setup-node hashes whichever
+    # exists. When the pnpm path is active (`cache:` is empty from the
+    # tooling step), setup-node skips caching entirely and ignores
+    # cache-dependency-path.
     - name: Setup Node.js
       uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
       with:
         node-version: ${{ steps.tooling.outputs.effective-version }}
         node-version-file: ${{ steps.tooling.outputs.effective-version-file }}
-        cache: 'npm'
+        cache: ${{ steps.tooling.outputs.cache }}
         cache-dependency-path: |
           ${{ inputs.path }}/package-lock.json
           ${{ inputs.path }}/npm-shrinkwrap.json
 
-    # Run npm ci, optional build, optional test, npm pack into dist/.
-    # The script does not emit the tarball name on stdout — instead this
-    # step globs dist/*.tgz after the script returns and asserts exactly
-    # one match. Channel-free output prevents a future stray stdout-bound
-    # printf from silently breaking the capture, and the explicit count
-    # check turns "unexpected multiple tarballs" (e.g., from a workspace
-    # change) into a clear error rather than a non-deterministic pick.
+    # Enable Corepack (bundled with Node 16.10+) so pnpm is available on
+    # PATH. With Corepack enabled, invoking `pnpm` uses the version
+    # pinned by package.json's `packageManager` field if set, otherwise
+    # Corepack's bundled default. Adopters who want deterministic builds
+    # should set `packageManager` per
+    # https://nodejs.org/api/packages.html#packagemanager .
+    #
+    # Trust model: Corepack downloads pnpm from the npm registry and
+    # verifies the downloaded package's integrity via the npm registry's
+    # signed metadata (the same trust chain as `npm install`). Not
+    # hermetic, but matches every other tool wrangle relies on.
+    - name: Setup pnpm (via Corepack)
+      if: steps.tooling.outputs.package-manager == 'pnpm'
+      shell: bash
+      run: |
+        set -euo pipefail
+        corepack enable
+        pnpm --version
+
+    # Run install (npm ci or pnpm install --frozen-lockfile), optional
+    # build, optional test, pack into dist/. The script does not emit
+    # the tarball name on stdout — instead this step globs dist/*.tgz
+    # after the script returns and asserts exactly one match. Channel-
+    # free output prevents a future stray stdout-bound printf from
+    # silently breaking the capture, and the explicit count check turns
+    # "unexpected multiple tarballs" (e.g., from a workspace change)
+    # into a clear error rather than a non-deterministic pick.
     - name: Build and pack
       id: build
       shell: bash
@@ -218,12 +275,14 @@ runs:
         INPUT_PATH: ${{ inputs.path }}
         VERSION: ${{ steps.metadata.outputs.version }}
         TARBALL: ${{ steps.build.outputs.tarball }}
+        PACKAGE_MANAGER: ${{ steps.tooling.outputs.package-manager }}
       run: |
         set -euo pipefail
         {
             printf '## npm Build Results\n\n'
             printf '| | |\n|---|---|\n'
             printf '| **Package** | %s |\n' "$INPUT_PATH"
+            printf '| **Package manager** | %s |\n' "$PACKAGE_MANAGER"
             printf '| **Version** | %s |\n' "$VERSION"
             printf '| **Tarball** | `%s` |\n' "$TARBALL"
         } >> "$GITHUB_STEP_SUMMARY"
