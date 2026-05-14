@@ -759,6 +759,44 @@ Wrangle runs security tools on behalf of adopting repositories. This makes it a 
 2. **Compromised wrangle itself** — an attacker gains commit access to the wrangle repo
 3. **Malicious adapter inputs** — attacker-controlled data flows into shell commands
 4. **Tool misbehavior** — a tool writes outside its output directory, exfiltrates data, or produces malicious SARIF
+5. **Adopter trigger misconfiguration** — an adopter wires wrangle's reusable workflows under a GitHub Actions trigger that runs attacker-influenced code in the base repo's privileged context. See "Trigger Model" below.
+
+### Trigger Model
+
+Every wrangle reusable workflow runs a `guard` job at the head of `jobs:` (the [`actions/preflight_guard`](../actions/preflight_guard/action.yml) composite action). Refusal fails the workflow; every other job declares `needs: [guard]` so a refused invocation skips the entire run — no OIDC tokens minted, no privileged actions executed, no docker push, no provenance generation.
+
+**Triggers wrangle's reusable workflows are designed for:**
+
+- `push` to `main`, release branches, or tags.
+- `push` to integration test branches (e.g., `integration/**` used by `test/integration/dispatch.sh`).
+- `workflow_dispatch` (manual).
+- `workflow_call` (when one wrangle reusable workflow wraps another internally).
+
+**Triggers `preflight_guard` refuses:**
+
+- `pull_request_target` — runs in the **base** repo's privileged context with the base repo's secrets, while a checkout of `${{ github.event.pull_request.head.sha }}` brings in PR-author code. This is the "pwn request" vector: attacker code executes with secrets it shouldn't have. The TanStack/router Mini Shai-Hulud compromise (May 2026) is the most-cited recent exploitation.
+- `workflow_run` triggered by `pull_request_target` — indirect form of the same vector. The outer event (`github.event.workflow_run.event`) is checked, not just `github.event_name`.
+
+**Triggers `preflight_guard` does NOT (currently) refuse but adopters should still be careful about:**
+
+- `pull_request` from a fork that the workflow then `checkout`s with `ref: ${{ github.event.pull_request.head.sha }}` — this is the same untrusted-checkout pattern but without base-repo privileges, so the blast radius is smaller. `actions/scan`'s `zizmor` runs in wrangle's source-scan path catches this finding for adopters.
+- `workflow_dispatch` chains where an upstream workflow was itself `pull_request_target`-triggered — GitHub flattens the event chain to `workflow_dispatch` and the guard sees only that. Out of scope; the `workflow_run`-via-`pull_request_target` check covers the most common indirect vector.
+
+**Guard vs. gate — two preflight check shapes:**
+
+Wrangle's reusable workflows have two kinds of checks that sit at workflow start. Different mechanisms, different jobs to gate downstream on:
+
+| | `actions/preflight_guard` | `actions/release_gate` |
+|---|---|---|
+| **What it does** | Refuses the workflow run if the trigger is unsafe | Decides whether release-time actions should run this event/ref |
+| **Mechanism** | Fails (`exit 1`) on a refused trigger | Outputs `should-release: true/false` |
+| **Downstream uses it as** | `needs: [guard]` — fail propagation | `if: needs.gate.outputs.should-release == 'true'` — signal branching |
+| **What happens on a "no"** | Whole workflow fails; everything skips | Workflow succeeds; non-release jobs (build, test) still run; release-time jobs (provenance, publish) skip |
+| **Why this shape** | A green ✅ with everything skipped would hide the misconfiguration — fail-loud is the security-relevant property | Legit non-release events (PR builds) should still run build/test, just not provenance/publish |
+
+The `_guard` / `_gate` suffix is the name's contract: `_guard` = abort on fail, `_gate` = signal and let downstream branch.
+
+**Adding refusal categories:** add the check to `actions/preflight_guard/preflight_guard.sh`, add a matching row to the "refuses" list above, and add a structural assertion to `actions/preflight_guard/test.bats`.
 
 ### Integrity Verification
 
