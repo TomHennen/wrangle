@@ -1,12 +1,12 @@
 # Wrangle Build npm
 
-Build an npm package (tarball via `npm pack`), run tests, generate an SBOM, and produce SLSA L3 build provenance via `slsa-github-generator`. The publish step itself runs in the adopter's own workflow because npm Trusted Publishing's OIDC token must come from the caller's workflow filename, not a reusable workflow ([npm/documentation#1755](https://github.com/npm/documentation/issues/1755)).
+Build an npm or pnpm package (tarball via `npm pack` or `pnpm pack`), run tests, generate an SBOM, and produce SLSA L3 build provenance via `slsa-github-generator`. Package manager is detected from the lockfile (`package-lock.json` / `npm-shrinkwrap.json` → npm; `pnpm-lock.yaml` → pnpm). The publish step itself runs in the adopter's own workflow because npm Trusted Publishing's OIDC token must come from the caller's workflow filename, not a reusable workflow ([npm/documentation#1755](https://github.com/npm/documentation/issues/1755)).
 
-> **Note:** This README documents *currently-shipped* behavior. For the full design — architecture, attestation model, full step sequence — see [`SPEC.md`](./SPEC.md).
+> **Note:** This README documents *currently-shipped* behavior. For the full design — architecture, attestation model, full step sequence — see [`SPEC.md`](./SPEC.md). For npm workspaces support (multi-package monorepos), see [`WORKSPACES_PHASE_1.md`](./WORKSPACES_PHASE_1.md) — design only; not yet implemented.
 
 ## Recommended companion: source scan
 
-This action hardens *how* your artifact is produced. It does NOT scan your source — vulnerable deps in `package-lock.json`, dangerous workflow triggers, or missing branch protection still slip through and would be faithfully L3-attested by wrangle as legitimately built. Pair this with wrangle's source-scan workflow ([`actions/scan/README.md`](../../../actions/scan/README.md)) to close that gap on every PR and push. The May 2026 Mini Shai-Hulud compromise of TanStack/router is the most recent example of why this matters — the build side wasn't the vulnerability; the source side was.
+This action hardens *how* your artifact is produced. It does NOT scan your source — vulnerable deps in your lockfile, dangerous workflow triggers, or missing branch protection still slip through and would be faithfully L3-attested by wrangle as legitimately built. Pair this with wrangle's source-scan workflow ([`actions/scan/README.md`](../../../actions/scan/README.md)) to close that gap on every PR and push. The May 2026 Mini Shai-Hulud compromise of TanStack/router is the most recent example of why this matters — the build side wasn't the vulnerability; the source side was.
 
 ## Before first use
 
@@ -51,12 +51,13 @@ Two ways to adopt:
 
 ## What this action does
 
-- Validates that `package.json` and a lockfile (`package-lock.json` or `npm-shrinkwrap.json`) exist. v0.1 supports npm only — pnpm and Yarn are follow-on.
+- Validates that `package.json` and a supported lockfile (`package-lock.json`, `npm-shrinkwrap.json`, or `pnpm-lock.yaml`) exist. Yarn (`yarn.lock`) is rejected — Yarn support is a follow-on. If both an npm-style lockfile AND `pnpm-lock.yaml` are present, the action rejects the ambiguous state.
 - Installs Node.js via `actions/setup-node`. Version resolution order: the `node-version` input, then `.nvmrc`, then `package.json`'s `engines.node`, then a wrangle-default LTS (currently Node 22). Adopters who care about a specific version should set one of the first three explicitly rather than rely on the fallback.
-- Installs dependencies with `npm ci` (lockfile-faithful, fails on lockfile drift).
-- Runs `npm run build` if `package.json` declares a `scripts.build` entry. Skipped if absent.
-- Runs `npm test` if `package.json` declares a non-default `scripts.test` entry (the npm-default `"echo \"Error: no test specified\" && exit 1"` is detected and skipped).
-- Produces the package tarball via `npm pack`, written to `dist/`.
+- For pnpm projects: enables [Corepack](https://nodejs.org/api/corepack.html) (bundled with Node 16.10+) to provide pnpm on the runner. Corepack uses the version pinned by `package.json`'s `packageManager` field if set, otherwise its bundled default. **Adopters who want deterministic builds should set `packageManager`** — that's the modern ecosystem-standard pin for pnpm and Yarn versions.
+- Installs dependencies with `npm ci` (lockfile-faithful, fails on lockfile drift) or `pnpm install --frozen-lockfile` (the pnpm equivalent).
+- Runs the project's build script (`npm run build` or `pnpm run build`) if `package.json` declares a `scripts.build` entry. Skipped if absent.
+- Runs tests (`npm test` or `pnpm test`) if `package.json` declares a non-default `scripts.test` entry (the npm-default `"echo \"Error: no test specified\" && exit 1"` is detected and skipped).
+- Produces the package tarball via `npm pack` or `pnpm pack`, written to `dist/`.
 - Generates an SPDX SBOM via [`syft`](https://github.com/anchore/syft) (Cosign-keyless-verified install, same tool python uses) over the project source tree.
 - Computes SHA-256 hashes of the tarball in the format `slsa-github-generator`'s `base64-subjects` input expects.
 
@@ -139,7 +140,7 @@ slsa-verifier verify-artifact \
 
 ## Lifecycle hooks
 
-Wrangle runs `npm ci` and `npm pack` against your project. By default, lifecycle hooks fire normally — `prepare`, `prepack`, `postpack`, and any `install` hooks in dependencies all run, just as they would for an adopter running these commands locally. The L3 attestation thus binds to "what wrangle built from this commit's source + lockfile" — which is what source-control review processes are already designed to govern. A malicious script in `package.json` or a pinned dev-dep is the same threat surface as malicious source code in `src/`: the source/lockfile is version-controlled, code review applies.
+Wrangle runs `npm ci` and `npm pack` (or `pnpm install --frozen-lockfile` and `pnpm pack`) against your project. By default, lifecycle hooks fire normally — `prepare`, `prepack`, `postpack`, and any `install` hooks in dependencies all run, just as they would for an adopter running these commands locally. The L3 attestation thus binds to "what wrangle built from this commit's source + lockfile" — which is what source-control review processes are already designed to govern. A malicious script in `package.json` or a pinned dev-dep is the same threat surface as malicious source code in `src/`: the source/lockfile is version-controlled, code review applies.
 
 What this means concretely:
 
@@ -147,10 +148,16 @@ What this means concretely:
 - **`prepublishOnly` does NOT fire.** It only runs when `npm publish` is invoked against a directory, not against a pre-built tarball. If you relied on it for type-checking, move the work into a regular `build` script — wrangle runs `npm run build` automatically when `package.json` declares one.
 - **Tarball-direct publish is intentional.** Your publish job runs `npm publish <packed.tgz>`, so the bytes wrangle hashes are exactly the bytes consumers download. This is what makes wrangle's L3 attestation actionable.
 
-**Opt-in hardening.** For adopters who want the stricter "source bytes only, no script execution" model, set `ignore-scripts: true` on the reusable workflow. When true, **nothing in your `package.json`'s `scripts` field runs**: `--ignore-scripts` is passed to both `npm ci` and `npm pack` (suppressing `prepare`/`prepack`/`postpack`/`install` hooks, including in transitive dev-deps), AND `npm run build` and `npm test` are skipped outright. The L3 attestation then binds to "what `npm pack` produces against this source with no script execution at all." Default is off because common ecosystem tools (husky's `prepare`, prebuild-install's `install`) rely on these hooks, and most projects expect their declared build/test to run; turning it on breaks those flows. If you need a finer-grained mode (suppress hooks but still run your own build), open an issue.
+**Opt-in hardening.** For adopters who want the stricter "source bytes only, no script execution" model, set `ignore-scripts: true` on the reusable workflow. When true, **nothing in your `package.json`'s `scripts` field runs**: `--ignore-scripts` is passed to both install and pack (suppressing `prepare`/`prepack`/`postpack`/`install` hooks, including in transitive dev-deps), AND `npm run build` / `npm test` (or pnpm equivalents) are skipped outright. The L3 attestation then binds to "what pack produces against this source with no script execution at all." Default is off because common ecosystem tools (husky's `prepare`, prebuild-install's `install`) rely on these hooks, and most projects expect their declared build/test to run; turning it on breaks those flows. If you need a finer-grained mode (suppress hooks but still run your own build), open an issue.
 
-## v0.1 limitations
+## Caching
 
-- **npm only.** pnpm and Yarn detection is follow-on; their lockfiles are explicitly rejected at validation.
-- **Single-package builds.** `package.json` with a `workspaces` field is rejected at validation; the action also errors out if `npm pack` produces more than one `.tgz`.
+Wrangle's npm path enables [`actions/setup-node`'s `cache: 'npm'`](https://github.com/actions/setup-node#caching-global-packages-data) keyed on the lockfile. This caches `~/.npm` (the registry tarball cache), which is safe because `npm ci` re-validates each cached tarball's `integrity` field against `package-lock.json` on every install — a poisoned cache that produces non-matching bytes is rejected before extraction.
+
+Wrangle's **pnpm path does NOT enable setup-node caching.** pnpm-store stores extracted modules under content-addressed paths and does not re-verify content matches the path's claimed hash at install time. That's the cache-poisoning vector the May 2026 Mini Shai-Hulud / TanStack compromise exploited (see [issue #205](https://github.com/TomHennen/wrangle/issues/205) for the full analysis). For pnpm projects, wrangle accepts the cold-install overhead in exchange for closing that attack vector.
+
+## v0.2 status
+
+- **Supported package managers:** npm (`package-lock.json` / `npm-shrinkwrap.json`) and pnpm (`pnpm-lock.yaml`). Yarn is a follow-on.
+- **Single-package only.** `package.json` with a `workspaces` field is rejected at validation; the action also errors out if pack produces more than one `.tgz`. Workspaces support (the N-tarball case) is tracked in [#208](https://github.com/TomHennen/wrangle/issues/208); design in [`WORKSPACES_PHASE_1.md`](./WORKSPACES_PHASE_1.md).
 - **SBOM scope is the project source tree, not the tarball contents.** Wrangle runs `syft dir:<path>` over your source. If `package.json`'s `files` field restricts what `npm pack` ships, the SBOM lists components that aren't in the published `.tgz`. Conversely, bundled C/C++ binaries that `prebuild-install` fetches at consumer install time aren't in source — they don't appear in the SBOM either. Adopters who care about CVE coverage of compiled native portions SHOULD layer binary scanners (Trivy, Grype) against installed `node_modules/` in their own CI. The L3 attestation still covers the exact bytes of the npm `.tgz` regardless of what's inside it.
