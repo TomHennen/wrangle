@@ -20,11 +20,11 @@ The same overall flow as v0.1 npm, adjusted for multiple artifacts:
 2. **Install** at the workspaces root using the project's package manager (`npm ci` / `pnpm install --frozen-lockfile` / `yarn install --immutable`). Each pulls workspace deps into a single coordinated `node_modules/`.
 3. **Pack** each workspace member. Strategy varies by package manager:
    - `npm pack --workspaces` packs all members into `<root>/dist/` (with the right scope-name-version naming for each).
-   - `pnpm -r pack --pack-destination <root>/dist/` does the equivalent.
+   - `pnpm -r exec pnpm pack --pack-destination <root>/dist/` — pnpm's `pack` command itself doesn't accept `-r`; the recursive form is via `pnpm -r exec` wrapping the per-package pack. **Verify the exact invocation against current pnpm during implementation** — pnpm CLI surface shifts between minor versions.
    - Yarn Berry: `yarn workspaces foreach -A pack -o <root>/dist/<name>.tgz` or similar (pending verification — see open questions).
 4. **Hash** all tarballs in `<root>/dist/` and emit a multi-subject `base64-subjects` for the SLSA generator.
 5. **Generate provenance** via `generator_generic_slsa3.yml` with the multi-subject input. ONE bundle attesting N artifacts.
-6. **Verify** each tarball against the multi-subject bundle in wrangle's verify step.
+6. **Verify** all tarballs against the multi-subject bundle in a single `slsa-verifier verify-artifact ... dist/*` invocation (matches python's existing wheel+sdist verify pattern — not an N-call loop).
 7. **Publish** in the adopter's caller workflow — iterate over the N tarballs, publish each with appropriate per-package `--access` and `--tag` flags.
 
 Most of the structural changes are at steps 3-5 (artifact count cascades through hash, SBOM, and provenance). Steps 1-2 are localized validation/install changes. Steps 6-7 fan out per-tarball but stay shaped the same per-tarball.
@@ -47,7 +47,7 @@ Most of the structural changes are at steps 3-5 (artifact count cascades through
 ### Pack invocation — manager-specific
 
 - **npm:** `npm pack --workspaces --pack-destination dist/` (npm 7+ supports `--workspaces`). Honor adopter's `ignore-scripts: true` opt-in. Writes `<scope>-<name>-<version>.tgz` per package.
-- **pnpm:** `pnpm -r pack --pack-destination <root>/dist/`. `-r` is pnpm's "recursive across workspaces."
+- **pnpm:** `pnpm -r exec pnpm pack --pack-destination <root>/dist/`. pnpm's `pack` command operates on the current package only — `-r` does NOT accept `pack` directly per pnpm's CLI docs (the recursive flag's supported-command allowlist is install/update/run/test/exec/publish/etc., not pack). The recursive-pack idiom is `pnpm -r exec` wrapping the per-package `pnpm pack`. Confirm the exact invocation against the pnpm version pinned at implementation time.
 - **yarn:** Defer to #207's pnpm work landing first; yarn variant is third in line. Phase 1 design assumes the same shape (one invocation produces N tarballs in dist/).
 
 ### Tarball discovery — glob and count
@@ -67,24 +67,35 @@ Most of the structural changes are at steps 3-5 (artifact count cascades through
   ...
   ```
   base64-encoded as a single string (multi-line input, base64 of the concatenation including newlines). This matches python's existing multi-artifact pattern (wheel + sdist) which already uses multi-subject base64-subjects today.
-- **Implementation note:** `cd dist/ && sha256sum -- * | base64 -w0` produces the right output as long as the listing is deterministic. Sort by filename for reproducibility: `cd dist/ && sha256sum -- $(ls -1 *.tgz | sort) | base64 -w0`.
+- **Implementation note:** `cd dist/ && sha256sum -- * | base64 -w0` produces the right output as long as the listing is deterministic. Sort by filename for reproducibility: `cd dist/ && sha256sum -- $(ls -1 *.tgz | sort) | base64 -w0`. **Divergence from python:** python's existing hash step uses bare `sha256sum -- *` (no explicit sort), which is fine for N=2 wheel+sdist where the glob expansion is predictable. Workspaces has unbounded N, so an explicit `sort` is required for byte-identical hashes across re-runs.
 
-### Provenance bundle — one bundle, N subjects
+### Provenance bundle — one wrangle L3 bundle (N subjects), paired with N per-package L2 in-CLI attestations
 
-- **Pick:** Single `provenance-name: npm-<shortname>.intoto.jsonl` bundle attesting all N artifacts as separate subjects. The generic generator handles this natively — `base64-subjects` with N entries produces a single in-toto Statement with N `subject[]` entries. **No per-package bundle.**
-- **Why one bundle:** Operationally simpler for adopters (download one file, verify any of N tarballs against it). Matches in-toto's design intent (subjects are a list precisely for this case). Doesn't waste signing operations.
+- **Pick:** Single `provenance-name: npm-<shortname>.intoto.jsonl` bundle attesting all N artifacts as separate subjects. The generic generator handles this natively — `base64-subjects` with N entries produces a single in-toto Statement with N `subject[]` entries. **No per-package L3 bundle.**
+- **Why one L3 bundle for the build:** A single workflow run, against a single commit, by a single builder identity is one atomic build event. One bundle expresses that claim natively; N bundles fragment it into N redundant copies that share all the same metadata (commit SHA, builder identity, `workflow_ref`, timestamp). Sigstore-signing isn't free — N bundles means N OIDC handshakes against Fulcio, N short-lived certs, and N Rekor entries for a claim expressible once. The bundle JSON stays compact (~10 KB even at 100 subjects).
+- **Two-layer attestation model (intentional).** Wrangle's L3 bundle is the *build* attestation. The adopter's publish loop separately produces the npm CLI's L2 in-CLI attestation via `npm publish --provenance` — one per package per publish, landing in each package's npmjs.org attestation slot. These map cleanly to different events at different granularities:
+  - **L3 (wrangle, shared, build-time):** "these N artifacts are the build output of one run." One bundle, N subjects, one Sigstore signing.
+  - **L2 (npm CLI, per-package, publish-time):** "this single tarball was published from this workflow." Per-package, per-publish.
+  - Under changesets-style "only changed packages publish," the L2 attestations naturally cover only the released subset. The L3 bundle still enumerates all N built artifacts — that's accurate: wrangle *built* them, even if the adopter chose not to publish them all this release. The L3 attests build, not publish.
 - **Filename:** Keep `npm-<shortname>.intoto.jsonl` (where shortname is the path-derived shortname of the workspaces root, e.g., `_` for `.`). Don't fan out filenames per package; the bundle's subjects array carries the per-package info.
+- **Subject cap caveat.** The above assumes the SLSA generic generator accepts arbitrary-N subjects in one invocation. See "Open questions" — this is a pre-implementation verification item, since a hard cap below typical monorepo size would force a redesign.
 
 ### `slsa-verifier verify-artifact` semantics — verified
 
-- **Confirmed behavior:** `slsa-verifier verify-artifact --provenance-path <bundle> --source-uri <repo> <one-tarball>` verifies the single tarball against the bundle by matching the tarball's hash against the bundle's `subjects[].digest.sha256`. Passes if any subject in the bundle matches the artifact's hash. Does NOT require the verifier to know all N tarballs.
-- **Verify step shape:** Wrangle's verify step iterates over `dist/*.tgz` and runs `slsa-verifier verify-artifact` for each. Failing any single one fails the workflow. This is the multi-subject pattern slsa-verifier explicitly supports.
+- **Confirmed behavior:** `slsa-verifier verify-artifact --provenance-path <bundle> --source-uri <repo> <artifacts...>` accepts multiple positional artifacts in one invocation and verifies each against the bundle's `subjects[].digest.sha256`. Failing any artifact fails the whole invocation.
+- **Verify step shape:** Wrangle's verify step calls `slsa-verifier verify-artifact ... dist/*` **once** — not an N-call loop. This matches python's existing wheel+sdist verify pattern at `.github/workflows/build_and_publish_python.yml`. A loop would be N OIDC handshakes / Fulcio cert lookups for the same bundle with no behavioral benefit; one call is faster and matches the established cross-build-type pattern.
 
 ### SBOM scope — per-workspace-member, NOT repo-wide
 
-- **Pick:** Run `syft dir:<member-path>` per workspace member, producing `metadata/npm/<shortname>/sbom-<package-shortname>.spdx.json` per member. Skip the repo-wide SBOM.
+- **Pick:** Run `syft dir:<member-path>` per workspace member, producing `metadata/npm/<shortname>/sbom-<member-shortname>.spdx.json` per member. `<shortname>` is the workspaces-root path-derived shortname (e.g., `_` for `.`); `<member-shortname>` is the per-member path-derived shortname (e.g., `packages_foo` for `packages/foo`) — **path-derived, not name-derived**, so the filename stays deterministic regardless of how the adopter scopes the published package name. Skip the repo-wide SBOM.
 - **Why per-member:** An npm consumer installs one workspace package, not the whole repo. Per-package SBOM reflects what the consumer actually receives. Repo-wide SBOM (across the workspaces root + every member) double-counts shared transitive deps and includes dev tooling that doesn't end up in any published `.tgz`.
 - **Alternative considered:** One repo-wide SBOM saves syft runs. Rejected — the false economy is paid by every downstream consumer who has to filter the SBOM to their package, and wrangle's per-build metadata layout already supports per-member directories.
+
+### `workspace:` protocol resolution — must verify, not assume
+
+- **Pick:** After pack, structurally verify that no resulting tarball contains a literal `workspace:` string in its embedded `package.json`'s `dependencies` / `devDependencies` / `peerDependencies`. The npm and pnpm pack commands resolve `workspace:*` / `workspace:^` / `workspace:~` specifiers to concrete versions automatically — but yarn berry's behavior is configurable, future pack-command changes could regress, and a third-party pack-like tool an adopter substitutes might not. The structural test is the guard.
+- **Why mandatory, not "awkward case":** A tarball with `"foo": "workspace:*"` as a published dep breaks consumer installs (the consumer's package manager doesn't know what `workspace:*` means outside the workspaces context). Beyond the install break, the unresolved string is a supply-chain smell — the tarball wrangle attests doesn't match the dependency graph the consumer actually resolves. Catching this at build time keeps the L3 claim accurate.
+- **Implementation:** `tar -xOf <tarball> package/package.json | jq -r '[..|strings] | map(select(startswith("workspace:"))) | length'` per tarball; fail if non-zero. Mandatory bats test in the implementation PR.
 
 ### Versioning coordination — wrangle stays agnostic
 
@@ -102,7 +113,7 @@ Most of the structural changes are at steps 3-5 (artifact count cascades through
 ### Failure semantics — atomic, no partial publish
 
 - **Pick:** Any failure during pack, hash, provenance, or verify fails the entire workflow. The adopter's publish loop in the caller workflow should also fail atomically — if `npm publish` succeeds for packages 1-3 of 5 and fails for package 4, the workflow exits non-zero, and the adopter sees a partial-publish state on the registry that needs manual reconciliation.
-- **Why atomic:** Partial-publish is recoverable (re-run the workflow; npm re-publishes the partial set via `skip-existing`-equivalent semantics), but partial-success-shown-as-success is not — adopters miss that some packages didn't ship.
+- **Why atomic:** Partial-publish is recoverable, but partial-success-shown-as-success is not — adopters miss that some packages didn't ship. **Recovery mechanism (important to document accurately):** `npm publish` has no `--skip-existing` flag (that's PyPI). Re-publishing an already-published `<name>@<version>` returns HTTP 409. So the adopter's publish loop must gate each `npm publish` on the package version not already existing (e.g., `npm view <pkg>@<version>` returning empty) and skip on existence. changesets handles this automatically; a hand-rolled loop in the example workflow must include the gate. Wrangle's side of recovery — "what was built can be re-built byte-identical from the same commit + lockfile" — stays true; the npm-CLI mechanism for skipping the already-published subset is just different from PyPI's flag.
 - **Best-effort alternative considered:** Continue past per-package publish failures, collect a summary. Rejected for v0.2 — adds complexity for a case better handled by re-running the workflow.
 
 ## Wrangle's value-add for workspaces
@@ -110,7 +121,7 @@ Most of the structural changes are at steps 3-5 (artifact count cascades through
 Same as the v0.1 npm pitch, multiplied across N packages:
 
 - **Coordinated L3 provenance.** One bundle attests N artifacts produced from the same source at the same commit. Consumers verifying ANY package get the same supply-chain claim. No per-package signing ceremony for adopters to wire up.
-- **Per-package SBOM** at a consistent layout (`metadata/npm/<shortname>/sbom-<package-shortname>.spdx.json`) — matches what consumers of any one workspace package actually need.
+- **Per-package SBOM** at a consistent layout (`metadata/npm/<shortname>/sbom-<member-shortname>.spdx.json`) — matches what consumers of any one workspace package actually need.
 - **One workflow invocation** publishes N packages with consistent attestation. Adopters today have to wire this themselves; changesets/lerna handle the orchestration but don't ensure SLSA L3 across the set.
 - **Tarball-direct publish** preserves the hash-pinned binding between what wrangle attests and what consumers download, the same as v0.1's single-package case.
 
@@ -119,7 +130,6 @@ Same as the v0.1 npm pitch, multiplied across N packages:
 - **Partial workspace publishes.** Adopters who only publish a subset of workspace members per release (e.g., changesets' "only changed packages publish" mode). Wrangle should pack ALL members but the adopter's publish loop is free to skip un-changed ones. This requires the example workflow to demonstrate a "is-this-package-in-the-changeset" gate per tarball — likely via `jq` against `.changeset/`'s state file or via changesets' own `changeset publish`. **Documented as adopter-side workflow concern, not wrangle's job.**
 - **Mixed-scope packages in one repo.** Workspaces with `@org/foo` and `@org-other/bar` and bare `top-level`. Wrangle handles each per its own metadata; no special casing. The Trusted Publisher must be registered per-package on npmjs.com, which is an adopter-onboarding scaling concern (N registrations instead of 1).
 - **Workspaces that DON'T publish** (private packages, examples, tests). `package.json` with `"private": true` is conventionally skipped by `npm pack --workspaces` and similar. Wrangle should respect this — don't pack `private: true` members, and don't include them in the expected-count check. Document explicitly so adopters who set `private: true` don't get confused by why a package "isn't in the bundle."
-- **Workspace protocol dependencies** (`workspace:*`, `workspace:^`, `workspace:~`). These must be resolved to concrete versions before publish; both npm and pnpm do this in `npm pack` / `pnpm pack` automatically. Verify that wrangle's pack step produces tarballs with resolved versions (not literal `workspace:*` strings, which would break consumer installs). Likely fine by default; worth a structural test in `test.bats`.
 - **Native modules in one member of many.** Same SBOM scope limitation as v0.1 noted in the existing SPEC — `prebuild-install`-fetched binaries aren't in source. Per-member SBOM doesn't change this; adopters who need binary-level coverage still layer Trivy/Grype.
 - **Changesets-aware workflows.** Most workspace-shaped npm repos use [changesets](https://github.com/changesets/changesets) for version + publish orchestration. The example workflow should show one explicit changesets pattern (probably using `changesets/action` for the version-bump step + wrangle for the build/publish). This is the most-likely-to-be-correct shape for v0.2 adopters; wrangle stays tool-agnostic but the canonical example reduces friction.
 
@@ -128,18 +138,18 @@ Same as the v0.1 npm pitch, multiplied across N packages:
 Things the implementation PR will need to handle. Not commitment, just reminders for the implementer.
 
 - **`build_and_pack.sh` branching.** The single-package path stays as-is; the workspaces path is a separate code branch keyed on `jq 'has("workspaces")' package.json`. Don't try to unify — the assertions differ (single tarball vs. multi-tarball-count).
-- **`action.yml` output shape.** New output `tarballs` (JSON array or newline-separated list) added alongside the existing `tarball` (kept for v0.1 backcompat; populated with the first tarball when workspaces is active so existing single-package adopter workflows don't break). Caller workflows that consume `tarball` get a sensible default; caller workflows that need the full list use `tarballs`.
+- **`action.yml` output shape.** New output `tarballs` (newline-separated list) added. The existing singular `tarball` is populated only on the single-package path; **on the workspaces path it stays empty**. Rationale: there are no v0.1 adopters with workspaces (validate_inputs.sh rejects them), so there's no breaking-change cost to forcing migration to `tarballs`. Populating `tarball` with "the first tarball" on the workspaces path would silently let single-package-shaped caller workflows under-publish 1 of N tarballs to the registry. Failing loudly — empty `tarball` → shell substitution produces a clear error — beats publishing silently incomplete.
 - **Hash computation step.** `cd "$INPUT_PATH/dist" && sha256sum -- $(ls -1 *.tgz | sort) | base64 -w0` — sort for determinism. Same shape as the single-package case, just N entries instead of 1.
-- **Metadata directory layout.** `metadata/npm/<shortname>/sbom-<package-shortname>.spdx.json` per member. The unified-metadata convention from `docs/SPEC.md` already supports this — multiple files per metadata dir is allowed.
-- **Verify step in reusable workflow.** Loop over `dist/*.tgz`, invoke `slsa-verifier verify-artifact` per file. Fail on first mismatch.
+- **Metadata directory layout.** `metadata/npm/<shortname>/sbom-<member-shortname>.spdx.json` per member (member-shortname is path-derived per the SBOM section above). The unified-metadata convention from `docs/SPEC.md` already supports this — multiple files per metadata dir is allowed.
+- **Verify step in reusable workflow.** Single `slsa-verifier verify-artifact ... dist/*` invocation (not an N-call loop). Mirrors python's existing wheel+sdist verify shape.
 - **No new SHA-pinned actions needed.** Workspaces support reuses everything from v0.1 npm — `actions/setup-node`, `sigstore/cosign-installer`, `slsa-framework/slsa-verifier`, `actions/upload-artifact`, the same SLSA generic generator. The change is in `build_and_pack.sh` and `action.yml` only.
-- **bats coverage:** structural tests for the new branch — "if workspaces field present, validate per-member name+version exists"; "hash step sorts before base64"; "verify step is a loop"; "private: true members are skipped." Mirror the existing test.bats patterns.
+- **bats coverage:** structural tests for the new branch — "if workspaces field present, validate per-member name+version exists"; "hash step sorts before base64"; "verify step is one call, not a loop"; "private: true members are skipped"; "no tarball contains literal `workspace:` in its embedded package.json's deps." Mirror the existing test.bats patterns.
 
 ## Open questions for the implementation PR
 
 - **Yarn Berry behavior.** Confirm `yarn workspaces foreach pack` produces tarballs with the same naming and writes to a deterministic location. Yarn ecosystem support is third in priority (#207 covers pnpm); could be deferred to a separate follow-up PR.
 - **Versioning prep-step interaction.** Wrangle-test's `prep-python` and `prep-npm` bump version per-run for integration tests. For workspaces, the prep would need to bump per-member or coordinated. Whether wrangle ships an opinionated prep helper is an open question — leaning toward "no, document the changesets pattern instead."
-- **SLSA generator subject limit.** The generic generator's documented per-invocation subject cap (if any). Some workspace repos have 50+ packages; verify the generator accepts that many subjects in one call, or document the limit. As of slsa-github-generator v2.1.0 I'm not aware of a hard cap, but worth confirming during implementation.
+- **SLSA generator subject cap — design-blocking, verify before implementation starts.** The generic generator's per-invocation subject cap, if any. Large workspace repos exist in the wild (Babel 100+, TanStack ~40 packages). A hard cap below typical monorepo size would force a redesign — chunked bundles or per-namespace bundles instead of one. The empirical check is cheap: throwaway workflow that invokes `generator_generic_slsa3.yml` with a synthetic 100-subject `base64-subjects` input and observes. As of slsa-github-generator v2.1.0 no hard cap is documented, but absence of documentation isn't confirmation. Treat as a prerequisite, not a follow-on; if a cap exists, the one-bundle decision in this doc has to be revisited.
 - **Single-package fallback during transition.** Adopters currently using v0.1 npm with no workspaces don't need to change anything when v0.2 ships — the workspaces-detection branch only activates when `workspaces` is in `package.json`. Verify this in a structural test.
 
 ## Out of scope
@@ -147,7 +157,7 @@ Things the implementation PR will need to handle. Not commitment, just reminders
 - **pnpm support itself** — tracked in [#207](https://github.com/TomHennen/wrangle/issues/207), lands first.
 - **Yarn Berry support** — separate follow-up PR. Same shape as pnpm in principle, but Yarn's CLI differs enough to warrant its own validation pass.
 - **changesets specifically** — wrangle stays tool-agnostic. The example workflow shows ONE changesets pattern as a starting point; alternatives (Lerna, Nx, manual prep) work without wrangle changes.
-- **Auto-detecting partial publish state** to reconcile registry vs. local. That's changesets/`npm publish --skip-existing`-territory; wrangle just packs and signs.
+- **Auto-detecting partial publish state** to reconcile registry vs. local. That's changesets-territory (it gates each publish on `npm view <pkg>@<version>` — `npm publish` itself has no `--skip-existing` flag); wrangle just packs and signs.
 - **Source-side workspaces semantics** (per-package OSV scanning, per-package Scorecard) — out of `build/actions/npm`'s scope; lives in `actions/scan` if it's worth doing at all.
 
 ## Related
