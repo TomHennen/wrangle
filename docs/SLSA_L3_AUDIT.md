@@ -31,8 +31,9 @@ future readers can independently re-verify.
    - [Shell path](#shell-path)
 7. [Cross-cutting findings](#cross-cutting-findings)
 8. [Pattern A vs Pattern B revisit](#pattern-a-vs-pattern-b-revisit)
-9. [Findings and recommendations](#findings-and-recommendations)
-10. [References](#references)
+9. [Release-vs-PR build asymmetry: a structural remediation pattern](#release-vs-pr-build-asymmetry-a-structural-remediation-pattern)
+10. [Findings and recommendations](#findings-and-recommendations)
+11. [References](#references)
 
 ---
 
@@ -776,6 +777,173 @@ wrangle's Pattern B is the only SLSA-tooled path on GitHub Actions today —
 The conformance gaps are L3-for-build-platform issues internal to wrangle's
 composites, not architectural problems with Pattern B as a whole.
 
+## Release-vs-PR build asymmetry: a structural remediation pattern
+
+The two GAP findings ([uv cache](#python-path-uv-sub-path),
+[BuildKit GHA cache](#container-path)) share a structural property: the gap
+only matters for builds that produce L3-attested artifacts. PR builds run
+under wrangle today, but they do **not** produce L3 provenance (the `provenance`
+job is gated on `gate.outputs.should-release`). A cache that is unsafe to use
+for a release build can be perfectly safe for a PR build — the attested
+output set is empty either way.
+
+This audit recommends gating caches on the same `should-release` signal
+wrangle already uses to gate provenance creation. The pattern:
+
+- **PR / feature-branch / non-release events:** caches enabled. Fast iteration
+  for "does this change still build?" PR builds get cache hits from prior
+  blessed entries; PR builds may write entries that later PR builds read. No
+  L3 provenance is produced, so cache-poisoning is not an L3 concern at this
+  layer.
+- **Release events (tag push, default branch, or whatever the adopter's
+  `release-events` input configures):** caches disabled. Fresh download / fresh
+  build / no shared mutable state between builds. The bytes the generator
+  signs over are derived without consulting any cross-build cache.
+
+This composes naturally with wrangle's existing release-gate vocabulary
+([`actions/release_gate/action.yml`](../actions/release_gate/action.yml)).
+Adopters who set `release-events: tag-only` already pay no provenance cost on
+default-branch pushes; they would similarly pay no cache cost on tag pushes
+and benefit from full caching everywhere else.
+
+### What wrangle does today
+
+Build, test, and SBOM run on every event the reusable workflow is called on
+(see [`build_and_publish_python.yml:114–158`](../.github/workflows/build_and_publish_python.yml),
+parallels for npm and container). Only the `provenance` job
+([line 175](../.github/workflows/build_and_publish_python.yml): `if: ${{ needs.gate.outputs.should-release == 'true' }}`)
+and the `verify` job ([line 204](../.github/workflows/build_and_publish_python.yml))
+are gated on `should-release`.
+
+Adopter publish jobs typically depend on the reusable workflow's
+`should-release` output (see [`gh_workflow_examples/`](../gh_workflow_examples/)),
+so they inherit the same gating. PRs build and test for free; nothing is
+published, signed, or attested.
+
+Cache configuration is currently **not** gated. The `cache-from: type=gha` +
+`cache-to: type=gha,mode=max` in
+[`build/actions/container/action.yml:89–90`](../build/actions/container/action.yml)
+and the implicit `setup-uv` cache in
+[`build/actions/python/action.yml:71`](../build/actions/python/action.yml)
+both run on every event regardless of release-status. This is the lever the
+audit recommends pulling.
+
+### Per-builder implementation sketch
+
+These are sketches, not patches. Concrete implementation belongs in follow-up
+issues per the contract of #216.
+
+**Container path.** Plumb `should-release` from the reusable workflow into
+the composite as an input (e.g., `cache: 'auto' | 'enabled' | 'disabled'`,
+default `'auto'`), then conditionally emit `cache-from`/`cache-to` in the
+`docker/build-push-action` step:
+
+```yaml
+# Reusable workflow:
+- uses: TomHennen/wrangle/build/actions/container@<sha>
+  with:
+    cache: ${{ needs.gate.outputs.should-release == 'true' && 'disabled' || 'enabled' }}
+
+# Composite action.yml:
+- name: Build and push (cached, PR/dev path)
+  if: inputs.cache != 'disabled'
+  uses: docker/build-push-action@<sha>
+  with:
+    cache-from: type=gha
+    cache-to: type=gha,mode=max
+    # ... rest unchanged
+
+- name: Build and push (cache-free, release path)
+  if: inputs.cache == 'disabled'
+  uses: docker/build-push-action@<sha>
+  # no cache-from / cache-to
+  # ... rest unchanged
+```
+
+Alternative simpler shape: pass empty strings for `cache-from`/`cache-to`
+when release; `docker/build-push-action` treats empty as "don't cache."
+One step instead of two, less duplication, slightly more magic.
+
+**Python uv path.** Same plumbing, different lever — set
+`UV_CACHE_DIR=$RUNNER_TEMP/uv-cache` for release builds (ephemeral cache,
+disappears with the runner) and leave the default in place for PR builds:
+
+```yaml
+- name: Install uv
+  if: steps.tooling.outputs.use_uv == 'true'
+  uses: astral-sh/setup-uv@<sha>
+  with:
+    enable-cache: ${{ inputs.cache != 'disabled' }}
+```
+
+Or simpler: always set `UV_CACHE_DIR=$RUNNER_TEMP/uv-cache` in the build job's
+env on release. Either closes the [Finding 1](#finding-1-uv-cache-integrity-gap-on-the-python-uv-sub-path)
+gap.
+
+**Python pip path.** Already L3-clean; no change needed. (PR caching could be
+*added* for speed using `setup-python`'s `cache: 'pip'` input gated the same
+way, since pip's lockfile-less install model means PRs and releases would have
+disjoint caches by default. Optional optimization, not a security fix.)
+
+**npm path (npm sub-path).** Already L3-clean via `npm ci` re-verification at
+install time. Cache can stay enabled in both PR and release contexts without
+risking the L3 verdict.
+
+**npm path (pnpm sub-path).** Currently cache-disabled in both contexts per
+#205. Could be relaxed for PRs only: enable pnpm-store caching when
+`should-release == false`, keep disabled on release. Trade-off: a malicious
+PR that poisons the pnpm-store for itself only affects that PR's unattested
+output, but a maintainer who runs that PR's branch locally or merges without
+careful review could spread the impact. Probably worth a separate threat-model
+discussion before changing.
+
+**Shell path.** No caches; no provenance; no change.
+
+### What the pattern closes and doesn't close
+
+**Closes:** The two GAP findings, completely, for the release path. Release
+builds consume no cross-build state; the bytes the generator signs over are
+derived from the just-downloaded lockfile contents and the just-checked-out
+source. SLSA v1.2's *"the output of the build MUST be identical whether or
+not the cache is used"* is satisfied trivially when the cache is not used.
+
+**Does not close:** PR-to-PR cache poisoning. A malicious PR that poisons the
+GHA cache (or uv cache) for itself still gets to influence subsequent PR
+builds reading from the same scope. This is not an L3 concern (PRs produce
+no L3 attestation), but it is a real CI-hygiene concern that adopters should
+weigh independently. Mitigations exist (per-PR cache scope via GitHub's
+`refs/pull/.../merge` rules; `actions/cache` `restore-keys` discipline) but
+are out of scope for this audit.
+
+**Does not close:** The Pattern A "build job has stripped permissions"
+property. Wrangle's reusable workflow already restricts the build job to
+`contents: read`, so the gap is already closed there for the
+reusable-workflow consumption path. Adopters who invoke the composite
+directly from a job with broader permissions remain on the unsupervised
+path. Documenting this is a separate (doc-only) recommendation.
+
+### Why this pattern is preferred over per-finding mitigations
+
+The audit's [Finding 1](#finding-1-uv-cache-integrity-gap-on-the-python-uv-sub-path)
+and [Finding 2](#finding-2-buildkit-gha-cache-integrity-gap-on-the-container-path)
+each list local mitigation options (pin `UV_CACHE_DIR`, gate `cache-to` on
+branch ref, etc.). The release-vs-PR asymmetry subsumes both:
+
+- Composes with the existing release-gate vocabulary, no parallel mechanism.
+- Closes both gaps with one structural change instead of two ad hoc ones.
+- Preserves PR-build performance (the original reason `type=gha`/`enable-cache`
+  exist) where it doesn't cost L3 conformance.
+- Leaves adopters with the existing tightening knob (`release-events`) — an
+  adopter who wants every build cache-clean can set `release-events:
+  always-release` (or equivalent) and get the strictest behavior without
+  changing wrangle.
+
+The audit recommends adopting this asymmetry as the **primary** remediation
+pattern, with the per-finding options retained as supplemental fallbacks
+(e.g., for adopters who already want cache-free PR builds for other reasons,
+or for environments where the release-gate vocabulary doesn't fit). Spawn one
+follow-up issue per affected builder.
+
 ## Findings and recommendations
 
 This audit produces two GAP findings and one defense-in-depth recommendation.
@@ -797,10 +965,16 @@ attested-as-clean poisoned bytes. Requires write access to the cache
 directory between builds; on GitHub-hosted runners this requires a prior run's
 malicious step.
 
-**Recommendation.** Pin `UV_CACHE_DIR=$RUNNER_TEMP/uv-cache` so the cache is
-ephemeral per job (cheap, no network cost), with `enable-cache: false`
-available as an adopter-overridable input for high-assurance contexts. Spawn a
-follow-up issue tracking the implementation.
+**Recommendation (preferred): release-vs-PR cache asymmetry.** See
+[Release-vs-PR build asymmetry](#release-vs-pr-build-asymmetry-a-structural-remediation-pattern).
+Disable the uv cache only when `gate.outputs.should-release == 'true'`; keep
+the default behavior for PR builds. Composes with wrangle's existing release
+vocabulary and closes the gap without slowing PR iteration.
+
+**Recommendation (fallback, if release-gate plumbing is deferred).** Pin
+`UV_CACHE_DIR=$RUNNER_TEMP/uv-cache` unconditionally so the cache is ephemeral
+per job (cheap, no network cost). Cheaper to implement; slower PR builds.
+Spawn a follow-up issue tracking whichever path is chosen.
 
 ### Finding 2: BuildKit GHA cache integrity gap on the container path
 
@@ -819,11 +993,22 @@ specifically bounded by what triggers wrangle's container reusable workflow
 admits — verify that there is no `pull_request_target` path that reaches the
 container composite.
 
-**Recommendation.** Make `cache-to` conditional on trusted context
-(default branch, release tag) and keep `cache-from` always-on as read-only.
-For release-tag builds, disable cache entirely. Spawn a follow-up issue
-tracking the implementation. Consider migrating to `type=registry` with
-write-restricted tags as a stronger long-term posture.
+**Recommendation (preferred): release-vs-PR cache asymmetry.** See
+[Release-vs-PR build asymmetry](#release-vs-pr-build-asymmetry-a-structural-remediation-pattern).
+Drop both `cache-from` and `cache-to` when `gate.outputs.should-release ==
+'true'`; keep both enabled for PR builds. PR builds remain fast; release
+builds consume and write no cross-build state, so the cross-scope poisoning
+vector is unreachable for L3-attested artifacts.
+
+**Recommendation (supplemental, stronger long-term posture).** Migrate from
+`type=gha` to `type=registry` with write-restricted tags, so that even the PR
+cache uses content-addressable lookups gated by registry credentials. More
+implementation work; closes PR-to-PR poisoning too. Worth a separate proposal.
+
+Spawn a follow-up issue tracking the implementation. Also verify that no
+`pull_request_target` path reaches this composite — `pull_request_target` is
+the highest-risk poisoning vector and is uniquely dangerous because it
+executes in base-repo context.
 
 ### Finding 3 (defense in depth): `::stop-commands::` guard around build/test invocations
 
