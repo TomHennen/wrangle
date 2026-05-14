@@ -909,11 +909,9 @@ not the cache is used"* is satisfied trivially when the cache is not used.
 
 **Does not close:** PR-to-PR cache poisoning. A malicious PR that poisons the
 GHA cache (or uv cache) for itself still gets to influence subsequent PR
-builds reading from the same scope. This is not an L3 concern (PRs produce
-no L3 attestation), but it is a real CI-hygiene concern that adopters should
-weigh independently. Mitigations exist (per-PR cache scope via GitHub's
-`refs/pull/.../merge` rules; `actions/cache` `restore-keys` discipline) but
-are out of scope for this audit.
+builds reading from the same scope. Not an L3 concern (PRs produce no L3
+attestation), but a real CI-hygiene concern. See
+[next subsection](#should-wrangle-care-about-pr-to-pr-cache-poisoning).
 
 **Does not close:** The Pattern A "build job has stripped permissions"
 property. Wrangle's reusable workflow already restricts the build job to
@@ -921,6 +919,103 @@ property. Wrangle's reusable workflow already restricts the build job to
 reusable-workflow consumption path. Adopters who invoke the composite
 directly from a job with broader permissions remain on the unsupervised
 path. Documenting this is a separate (doc-only) recommendation.
+
+### Should wrangle care about PR-to-PR cache poisoning?
+
+This is a judgment call, not a SLSA-spec lookup. The audit's recommendation:
+**yes, proportionately** — not as a default-on lockdown, but as a documented
+adopter-tunable knob, with a stricter posture on wrangle's own repo where
+the dogfooding argument bites.
+
+**The threat shape.** Two PRs (A and B) on the same repo. PR A obtains code
+execution in its build step — easy if PR A submits a `package.json` with a
+malicious `postinstall` hook, a poisoned `Dockerfile`, a malicious test, or
+exploits a known vulnerability in a build tool. PR A writes a poisoned entry
+to the shared GHA cache. PR B (or PR A itself on a later run, or a feature
+branch derived from PR A's base) reads the poisoned entry. PR B's CI runs
+attacker-controlled bytes.
+
+Consequences range from mild to meaningful:
+
+- **Misleading review signals.** PR B's "tests pass" may be a lie; SBOM may
+  not reflect actual installed dependencies. A reviewer or merge-bot acting
+  on these signals can be tricked into merging code that's actually broken
+  or contains backdoors.
+- **`GITHUB_TOKEN` exfiltration.** Wrangle's reusable workflow restricts the
+  build job to `contents: read`, so the worst exfiltration is read access to
+  the repo's source — limited but not nothing.
+- **Cache persistence.** Adnan Khan's
+  ["Cacheract"](https://adnanthekhan.com/2024/12/21/cacheract-the-monster-in-your-build-cache/)
+  research demonstrates "cache-native malware": poisoned entries that survive
+  in the cache for the GHA-eviction window (7 days of no access).
+- **Staging for release-path poisoning.** Closed by the [release-vs-PR
+  asymmetry](#release-vs-pr-build-asymmetry-a-structural-remediation-pattern)
+  recommendation above — if release builds skip the cache, PR-staged
+  poisoning can't reach an attested release. But the protection relies on
+  the asymmetry being in place. An adopter who overrides or misconfigures
+  it loses this guarantee.
+
+**Why not default-on lockdown.** PR build performance matters. Cache-free PRs
+slow every adopter's developer iteration loop for a threat that is real but
+not constant-rate. Most adopters' threat profile is "trusted contributors
+submit PRs, occasional fork PR from someone we vet," not "every PR is
+attacker-controlled." Locking down PR caches by default trades developer
+experience for a marginal security gain on the typical repo.
+
+**Why not "wrangle ignores it." ** Wrangle's product positioning is supply-chain
+security. Closing the cache-poisoning vector for release builds while leaving
+the same vector open on every PR build is hard to defend with a straight
+face, even though it's technically not an L3-conformance issue. Adopters
+expect strong defaults *and* informed adopter-side knobs.
+
+**The audit's recommended posture:**
+
+1. **Default unchanged.** PR caches on, release caches off — the asymmetry
+   already recommended.
+2. **Document the PR-to-PR threat** in adopter-facing READMEs and in this
+   audit (this section) so adopters can make an informed choice.
+3. **Expose tuning knobs** for adopters who want stricter PR isolation:
+   - **Per-PR cache namespacing.** For BuildKit:
+     `cache-from: type=gha,scope=${{ github.head_ref || github.ref_name }}`
+     and matching `cache-to`. Each PR gets its own cache scope; PR A cannot
+     write entries PR B reads. Cost: PRs no longer share entries across
+     branches; rebuilds within a PR still hit cache. For uv: ephemeral
+     `UV_CACHE_DIR=$RUNNER_TEMP/uv-cache` works identically.
+   - **Read-only cache-from on PRs.** PRs read main-branch entries written
+     by trusted contexts (fast first build) but `cache-to` is omitted on
+     PR runs (PRs cannot poison). Released entries fill the cache; PRs
+     consume but never produce. Trade-off: PR-internal rebuilds don't
+     benefit from caching beyond the initial main-branch entries.
+   - **Global cache-disabled mode.** An adopter-facing `cache: 'never'`
+     input on the reusable workflow disables caching on every event. Heavy
+     hammer for strict-isolation contexts (regulated, government, etc.).
+4. **Dogfood the strict position on wrangle's own repo.** Wrangle's own
+   compromise propagates to every adopter — that is a different threat tier
+   than a typical user repo. Wrangle's own PR CI should run cache-clean
+   (the strictest of the knobs above). Tracks with the
+   [Supply Chain Discipline](../CLAUDE.md) principle that wrangle's code
+   must be exemplary.
+5. **Explicitly warn against `pull_request_target`** in any cache-touching
+   path. `pull_request_target` workflows execute in base-repo context with
+   base-repo cache write access; if such a workflow ever touches wrangle's
+   build composite, it becomes the highest-risk poisoning vector by a wide
+   margin. Wrangle should refuse to run on `pull_request_target` or, if
+   that's too strict, surface a loud warning. Cross-reference
+   [#202](https://github.com/TomHennen/wrangle/issues/202) for the
+   defense-in-depth `pull_request_target` refusal guard that's already
+   tracked.
+
+This expands the audit's recommendation set to four follow-up issues
+(in priority order):
+
+- Implement the release-vs-PR cache asymmetry (the L3 fix).
+- Add adopter-tunable PR cache knobs (per-PR scope, read-only, never).
+- Adopt the strictest knob on wrangle's own CI (dogfooding).
+- Document the PR-to-PR threat and the available knobs in build-type
+  READMEs.
+
+None of these belong in this audit doc beyond the recommendation —
+implementation lives in their own issues per the contract of #216.
 
 ### Why this pattern is preferred over per-finding mitigations
 
