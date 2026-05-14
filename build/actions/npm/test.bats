@@ -21,29 +21,25 @@ setup() {
     [[ -f "$ACTION" ]]
 }
 
-@test "npm: validate_inputs.sh exists" {
-    # Note: action.yml invokes scripts via `bash <script>` rather than
-    # directly, so the file does not need exec bit. See action.yml's
-    # comment block at the Validate inputs step for the rationale.
-    [[ -f "$ACTION_DIR/validate_inputs.sh" ]]
+@test "npm: validate_inputs.sh exists and is executable" {
+    [[ -x "$ACTION_DIR/validate_inputs.sh" ]]
 }
 
-@test "npm: build_and_pack.sh exists" {
-    [[ -f "$ACTION_DIR/build_and_pack.sh" ]]
+@test "npm: build_and_pack.sh exists and is executable" {
+    [[ -x "$ACTION_DIR/build_and_pack.sh" ]]
 }
 
-@test "npm: action.yml invokes .sh scripts via bash (defensive against mode loss)" {
-    # push_files (the GitHub MCP API used to maintain this branch) does
-    # not preserve exec bit when overwriting files. Invoking via `bash`
-    # makes the action work regardless of filesystem mode.
-    run grep -E 'bash "\$\{\{ github\.action_path \}\}/validate_inputs\.sh"' "$ACTION"
-    [[ "$status" -eq 0 ]]
-    run grep -E 'bash "\$\{\{ github\.action_path \}\}/build_and_pack\.sh"' "$ACTION"
-    [[ "$status" -eq 0 ]]
+@test "npm: detect_tooling.sh exists and is executable" {
+    [[ -x "$ACTION_DIR/detect_tooling.sh" ]]
 }
 
 @test "npm: action.yml delegates input validation to validate_inputs.sh" {
     run grep 'validate_inputs.sh' "$ACTION"
+    [[ "$status" -eq 0 ]]
+}
+
+@test "npm: action.yml delegates tooling detection to detect_tooling.sh" {
+    run grep 'detect_tooling.sh' "$ACTION"
     [[ "$status" -eq 0 ]]
 }
 
@@ -127,10 +123,10 @@ setup() {
     [[ "$status" -eq 0 ]]
 }
 
-@test "npm: action.yml sets a fallback Node version when no version source is present" {
+@test "npm: detect_tooling.sh sets a fallback Node version when no version source is present" {
     # Without this, setup-node fails with a confusing "no version found"
     # error for projects that pin neither .nvmrc nor engines.node.
-    run grep -E 'WRANGLE_DEFAULT_NODE' "$ACTION"
+    run grep -E 'WRANGLE_DEFAULT_NODE' "$ACTION_DIR/detect_tooling.sh"
     [[ "$status" -eq 0 ]]
 }
 

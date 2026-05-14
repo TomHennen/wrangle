@@ -61,101 +61,24 @@ outputs:
 runs:
   using: "composite"
   steps:
-    # Scripts are invoked via `bash <script>` (rather than directly) so
-    # the action works regardless of the .sh files' filesystem mode.
-    # The GitHub MCP push_files API used to maintain this branch demotes
-    # exec bit when overwriting; explicit `bash` invocation is defensive
-    # against that and any similar future regressions. Functionally
-    # equivalent: the scripts have a `#!/bin/bash` shebang that would
-    # otherwise drive interpreter selection.
     - name: Validate inputs
       shell: bash
       env:
         INPUT_PATH: ${{ inputs.path }}
       run: |
         set -euo pipefail
-        bash "${{ github.action_path }}/validate_inputs.sh" "$INPUT_PATH"
+        "${{ github.action_path }}/validate_inputs.sh" "$INPUT_PATH"
 
-    # Resolve which Node.js version setup-node should use, and which
-    # package manager to install + use. Order:
-    #   Node.js version:
-    #     1. inputs.node-version override
-    #     2. .nvmrc in the project directory
-    #     3. engines.node in package.json
-    #     4. wrangle-default LTS — avoids setup-node's confusing "no
-    #        version found" error for projects that pin neither file.
-    #   Package manager:
-    #     pnpm-lock.yaml -> pnpm; otherwise npm. validate_inputs.sh has
-    #     already rejected ambiguous and unsupported lockfile states.
-    # Outputs always set exactly one of effective-version /
-    # effective-version-file so setup-node has unambiguous instruction.
-    # Cache config is conditional on package manager — see comments at
-    # the Setup Node.js step below.
     - name: Detect tooling
       id: tooling
       shell: bash
       env:
         INPUT_PATH: ${{ inputs.path }}
         INPUT_NODE_VERSION: ${{ inputs.node-version }}
-        # Default LTS bumped wrangle-side as new LTS releases land. Adopters
-        # who want a specific version should set engines.node, .nvmrc, or
-        # the node-version input rather than rely on this fallback.
-        WRANGLE_DEFAULT_NODE: "22"
       run: |
         set -euo pipefail
-        if [[ -n "$INPUT_NODE_VERSION" ]]; then
-            printf 'effective-version=%s\n' "$INPUT_NODE_VERSION" >> "$GITHUB_OUTPUT"
-            printf 'effective-version-file=\n' >> "$GITHUB_OUTPUT"
-            printf 'Using node-version override: %s\n' "$INPUT_NODE_VERSION"
-        elif [[ -f "$INPUT_PATH/.nvmrc" ]]; then
-            printf 'effective-version=\n' >> "$GITHUB_OUTPUT"
-            printf 'effective-version-file=%s/.nvmrc\n' "$INPUT_PATH" >> "$GITHUB_OUTPUT"
-            printf 'Using .nvmrc\n'
-        elif [[ -n "$(jq -r '.engines.node // empty' "$INPUT_PATH/package.json")" ]]; then
-            printf 'effective-version=\n' >> "$GITHUB_OUTPUT"
-            printf 'effective-version-file=%s/package.json\n' "$INPUT_PATH" >> "$GITHUB_OUTPUT"
-            printf 'Using engines.node from package.json\n'
-        else
-            printf 'effective-version=%s\n' "$WRANGLE_DEFAULT_NODE" >> "$GITHUB_OUTPUT"
-            printf 'effective-version-file=\n' >> "$GITHUB_OUTPUT"
-            printf 'No version hint in .nvmrc, engines.node, or node-version input — falling back to wrangle default Node %s\n' "$WRANGLE_DEFAULT_NODE"
-        fi
+        "${{ github.action_path }}/detect_tooling.sh" "$INPUT_PATH" "$INPUT_NODE_VERSION"
 
-        # Package manager + cache configuration.
-        if [[ -f "$INPUT_PATH/pnpm-lock.yaml" ]]; then
-            printf 'package-manager=pnpm\n' >> "$GITHUB_OUTPUT"
-            # NO cache for the pnpm path. setup-node's `cache: 'pnpm'`
-            # would cache the pnpm-store, which stores extracted modules
-            # under content-addressed paths and does NOT re-verify
-            # content matches the path's claimed hash at install time.
-            # That's exactly the cache-poisoning vector the May 2026
-            # Mini Shai-Hulud / TanStack compromise exploited. See:
-            #   https://github.com/TomHennen/wrangle/issues/205
-            # npm's `cache: 'npm'` is safe because `npm ci` re-validates
-            # each tarball's integrity against package-lock.json on every
-            # install — pnpm install has no equivalent re-verification.
-            printf 'cache=\n' >> "$GITHUB_OUTPUT"
-            printf 'Detected pnpm-lock.yaml; using pnpm. setup-node caching deliberately disabled (see issue #205).\n'
-        else
-            printf 'package-manager=npm\n' >> "$GITHUB_OUTPUT"
-            printf 'cache=npm\n' >> "$GITHUB_OUTPUT"
-            printf 'Detected npm lockfile; using npm with cache=npm.\n'
-        fi
-
-    # Cache npm's registry tarball cache (~/.npm), keyed on the lockfile,
-    # ONLY when the npm path is active. Safe under wrangle's threat model:
-    # `npm ci` re-validates each cached tarball's integrity hash against
-    # the lockfile on every install, so a poisoned cache that produces
-    # non-matching bytes is rejected before extraction. setup-node's
-    # `cache: 'npm'` caches `~/.npm` only — it does NOT cache
-    # `node_modules/`, which would bypass integrity checks if cached as
-    # extracted modules.
-    #
-    # cache-dependency-path lists both lockfile names accepted by
-    # validate_inputs.sh for the npm path; setup-node hashes whichever
-    # exists. When the pnpm path is active (`cache:` is empty from the
-    # tooling step), setup-node skips caching entirely and ignores
-    # cache-dependency-path.
     - name: Setup Node.js
       uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
       with:
@@ -202,7 +125,7 @@ runs:
         IGNORE_SCRIPTS: ${{ inputs.ignore-scripts }}
       run: |
         set -euo pipefail
-        bash "${{ github.action_path }}/build_and_pack.sh" "$INPUT_PATH" "$RUN_TESTS" "$IGNORE_SCRIPTS"
+        "${{ github.action_path }}/build_and_pack.sh" "$INPUT_PATH" "$RUN_TESTS" "$IGNORE_SCRIPTS"
         cd "$INPUT_PATH/dist"
         shopt -s nullglob
         tarballs=(*.tgz)
