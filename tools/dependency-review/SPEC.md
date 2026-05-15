@@ -12,6 +12,8 @@
 | Required permissions | `contents: read` (already standard for `actions/checkout`); no extra perms unless `comment-summary-in-pr` is overridden to `on-failure` or `always`, in which case the adopter must also grant `pull-requests: write` |
 | Skipped on | Any event other than `pull_request` — the upstream action errors out without the diff base/head refs. On those events the metadata directory is not produced, and `lib/check_results.sh` treats the missing SARIF as "tool did not run", matching the Scorecard pattern |
 
+`lib/check_results.sh` is the pass/fail gate **only on `pull_request` events**, where the SARIF is produced. On any other event the tool is skipped entirely, no SARIF is written, and `check_results.sh` continues silently for this tool — the same contract as Scorecard.
+
 ## How dep-review complements OSV-Scanner
 
 OSV scans the entire lockfile on every event and reports any known vulnerability. Dep-review scans **just the diff** on PRs and (by default) blocks the merge. They overlap at the package level but differ in trigger and intent:

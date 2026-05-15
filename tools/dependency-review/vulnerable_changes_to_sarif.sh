@@ -28,6 +28,8 @@ set -euo pipefail
 #
 # Usage: vulnerable_changes_to_sarif.sh <json_file>
 # Output: SARIF 2.1.0 JSON to stdout.
+# Exit: 0 on success (including no findings), 1 on missing/unreadable input,
+#       2 on invalid JSON or jq filter failure.
 
 if [[ $# -ne 1 ]]; then
     printf 'Usage: vulnerable_changes_to_sarif.sh <json_file>\n' >&2
@@ -42,31 +44,46 @@ if [[ ! -f "$JSON_FILE" ]]; then
 fi
 
 # An empty file (no output from dep-review) means no vulnerable changes.
-# Normalise to an empty JSON array.
-if [[ ! -s "$JSON_FILE" ]]; then
-    printf '[]' > "$JSON_FILE"
+# Pass the literal "[]" to jq via stdin rather than mutating the caller's
+# file — surprise side effects on inputs are a footgun.
+INPUT_SIZE=$(wc -c < "$JSON_FILE")
+if [[ "$INPUT_SIZE" -eq 0 ]]; then
+    json_input='[]'
+else
+    if ! jq empty "$JSON_FILE" 2>/dev/null; then
+        printf 'Error: invalid JSON in %s\n' "$JSON_FILE" >&2
+        exit 2
+    fi
+    json_input="$(cat "$JSON_FILE")"
 fi
 
-if ! jq empty "$JSON_FILE" 2>/dev/null; then
-    printf 'Error: invalid JSON in %s\n' "$JSON_FILE" >&2
-    exit 2
-fi
-
-# jq does the heavy lifting:
-#   - severity → SARIF level (critical/high → error, moderate → warning, low/* → note)
+# jq filter does the heavy lifting:
+#   - severity → SARIF level and numeric security-severity. Unknown
+#     severities fall back to "note" / "0.0" so unexpected upstream
+#     output is surfaced rather than silently mapped to a high level.
 #   - rules: one per unique GHSA id
 #   - results: one per (change, vulnerability)
-jq '
-  # Severity → SARIF level
+# Empty advisory_url / advisory_summary are omitted (SARIF requires
+# helpUri to be a valid URI when present; empty strings fail strict
+# validators).
+# shellcheck disable=SC2016 # $pairs is a jq variable, not bash — single quotes intentional
+SARIF_FILTER='
   def sarif_level(s):
     if   s == "critical" then "error"
     elif s == "high"     then "error"
     elif s == "moderate" then "warning"
+    elif s == "low"      then "note"
     else "note"
     end;
 
-  # Flatten to (change, vuln) pairs first; downstream rules/results
-  # both consume this list.
+  def security_severity(s):
+    if   s == "critical" then "9.5"
+    elif s == "high"     then "7.5"
+    elif s == "moderate" then "5.0"
+    elif s == "low"      then "2.5"
+    else "0.0"
+    end;
+
   [ .[] as $c
     | ($c.vulnerabilities // [])[]
     | {change: $c, vuln: .}
@@ -82,12 +99,18 @@ jq '
             informationUri: "https://github.com/actions/dependency-review-action",
             rules: (
               [ $pairs[]
-                | {
-                    id: .vuln.advisory_ghsa_id,
-                    name: .vuln.advisory_ghsa_id,
-                    shortDescription: { text: (.vuln.advisory_summary // "") },
-                    helpUri: (.vuln.advisory_url // "")
-                  }
+                | (
+                    {
+                      id: .vuln.advisory_ghsa_id,
+                      name: .vuln.advisory_ghsa_id
+                    }
+                    + (if (.vuln.advisory_summary // "") != ""
+                        then {shortDescription: {text: .vuln.advisory_summary}}
+                        else {} end)
+                    + (if (.vuln.advisory_url // "") != ""
+                        then {helpUri: .vuln.advisory_url}
+                        else {} end)
+                  )
               ]
               | unique_by(.id)
             )
@@ -95,34 +118,39 @@ jq '
         },
         results: [
           $pairs[]
-          | {
-              ruleId: .vuln.advisory_ghsa_id,
-              level: sarif_level(.vuln.severity),
-              message: {
-                text: ("\(.vuln.advisory_summary // "Vulnerability") in \(.change.ecosystem // "?"):\(.change.name)@\(.change.version) (severity: \(.vuln.severity // "unknown"))")
-              },
-              locations: [{
-                physicalLocation: {
-                  artifactLocation: { uri: (.change.manifest // "") }
+          | (
+              {
+                ruleId: .vuln.advisory_ghsa_id,
+                level: sarif_level(.vuln.severity),
+                message: {
+                  text: ("\(.vuln.advisory_summary // "Vulnerability") in \(.change.ecosystem // "?"):\(.change.name)@\(.change.version) (severity: \(.vuln.severity // "unknown"))")
+                },
+                locations: [{
+                  physicalLocation: {
+                    artifactLocation: { uri: (.change.manifest // "") }
+                  }
+                }],
+                properties: {
+                  "security-severity": security_severity(.vuln.severity),
+                  ghsa_id: (.vuln.advisory_ghsa_id // ""),
+                  package: ("\(.change.ecosystem // "?"):\(.change.name)@\(.change.version)"),
+                  ecosystem: (.change.ecosystem // ""),
+                  change_type: (.change.change_type // "")
                 }
-              }],
-              properties: {
-                "security-severity": (
-                  if   .vuln.severity == "critical" then "9.5"
-                  elif .vuln.severity == "high"     then "7.5"
-                  elif .vuln.severity == "moderate" then "5.0"
-                  elif .vuln.severity == "low"      then "2.5"
-                  else "0.0"
-                  end
-                ),
-                ghsa_id: (.vuln.advisory_ghsa_id // ""),
-                package: ("\(.change.ecosystem // "?"):\(.change.name)@\(.change.version)"),
-                ecosystem: (.change.ecosystem // ""),
-                change_type: (.change.change_type // "")
-              },
-              helpUri: (.vuln.advisory_url // "")
-            }
+              }
+              + (if (.vuln.advisory_url // "") != ""
+                  then {helpUri: .vuln.advisory_url}
+                  else {} end)
+            )
         ]
       }]
     }
-' "$JSON_FILE"
+'
+
+# Buffer the jq output so a filter failure does not leave a partially-
+# written SARIF on stdout (or in the caller's redirect target).
+if ! sarif_out="$(printf '%s' "$json_input" | jq "$SARIF_FILTER" 2>/dev/null)"; then
+    printf 'Error: jq filter failed while converting to SARIF\n' >&2
+    exit 2
+fi
+printf '%s\n' "$sarif_out"

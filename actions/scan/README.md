@@ -51,7 +51,9 @@ with:
   tools: "osv zizmor"   # skip Scorecard and dependency-review
 ```
 
-`dependency-review` only runs on `pull_request` events (the upstream action needs the PR diff). On `push` events it is silently skipped, the same way `scorecard` is silently skipped on PRs. The default severity threshold is `high`; tune it via the tool's wrapper inputs if you fork the action.
+`dependency-review` only runs on `pull_request` events (the upstream action needs the PR diff). On `push` events it is silently skipped, the same way `scorecard` is silently skipped on PRs.
+
+The default severity threshold is `high` and PR comments are off. These knobs are exposed as inputs on `tools/dependency-review/action.yml` (`fail-on-severity`, `comment-summary-in-pr`) but `actions/scan/action.yml` does not currently forward them — adopters who need different thresholds either call `TomHennen/wrangle/tools/dependency-review@<sha>` directly in their own composite, or open an issue for `actions/scan` to expose passthrough inputs. The default severity (`high`) blocks high+critical advisories; lower severities are reported informationally via SARIF without failing the check.
 
 ## What this composite does NOT do (yet)
 

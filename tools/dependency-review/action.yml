@@ -68,9 +68,15 @@ runs:
         # Write the (possibly empty) JSON to a temp file so the converter
         # never reads from a CLI argument that could expand to glob/quoting hazards.
         JSON_TMP="$(mktemp "${TMPDIR:-/tmp}/wrangle-depreview-XXXXXX.json")"
-        trap 'rm -f "$JSON_TMP"' EXIT
+        SARIF_TMP="$(mktemp "${TMPDIR:-/tmp}/wrangle-depreview-XXXXXX.sarif")"
+        trap 'rm -f "$JSON_TMP" "$SARIF_TMP"' EXIT
         printf '%s' "${VULNERABLE_CHANGES:-[]}" > "$JSON_TMP"
-        "$TOOL_DIR/vulnerable_changes_to_sarif.sh" "$JSON_TMP" > "$SARIF_DST"
+        # Atomic write: build SARIF in a temp file, mv on success. If the
+        # converter exits non-zero, the destination is left untouched
+        # (or absent), which causes the existing Check results step to
+        # treat the run as a tool failure rather than reading partial JSON.
+        "$TOOL_DIR/vulnerable_changes_to_sarif.sh" "$JSON_TMP" > "$SARIF_TMP"
+        mv "$SARIF_TMP" "$SARIF_DST"
 
     - name: Generate human-readable output
       if: always()

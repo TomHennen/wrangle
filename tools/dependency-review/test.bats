@@ -147,6 +147,76 @@ EOF
     printf '%s' "$output" | jq -e '.runs[0].results | map(.level) | . == ["warning","note"]' >/dev/null
 }
 
+@test "converter: change with no vulnerabilities array produces zero results" {
+    cat > "$TMP_DIR/in.json" <<'EOF'
+[
+  { "change_type": "added", "manifest": "package.json", "ecosystem": "npm", "name": "p", "version": "1" }
+]
+EOF
+    run "$TOOL_DIR/vulnerable_changes_to_sarif.sh" "$TMP_DIR/in.json"
+    [ "$status" -eq 0 ]
+    printf '%s' "$output" | jq -e '[.runs[].results[]] | length == 0' >/dev/null
+    printf '%s' "$output" | jq -e '[.runs[].tool.driver.rules[]] | length == 0' >/dev/null
+}
+
+@test "converter: missing advisory_url -> helpUri key omitted (SARIF spec)" {
+    cat > "$TMP_DIR/in.json" <<'EOF'
+[
+  { "change_type": "added", "manifest": "a", "ecosystem": "npm", "name": "a", "version": "1",
+    "vulnerabilities": [
+      { "severity": "high", "advisory_ghsa_id": "GHSA-aaa", "advisory_summary": "a" }
+    ]
+  }
+]
+EOF
+    run "$TOOL_DIR/vulnerable_changes_to_sarif.sh" "$TMP_DIR/in.json"
+    [ "$status" -eq 0 ]
+    # helpUri must be absent when advisory_url is missing — SARIF 2.1.0
+    # rejects empty-string URIs in strict validation.
+    printf '%s' "$output" | jq -e '.runs[0].results[0] | has("helpUri") | not' >/dev/null
+    printf '%s' "$output" | jq -e '.runs[0].tool.driver.rules[0] | has("helpUri") | not' >/dev/null
+}
+
+@test "converter: advisory text with special characters round-trips safely" {
+    cat > "$TMP_DIR/in.json" <<'EOF'
+[
+  { "change_type": "added", "manifest": "p.json", "ecosystem": "npm", "name": "x", "version": "1",
+    "vulnerabilities": [
+      { "severity": "high",
+        "advisory_ghsa_id": "GHSA-xxx",
+        "advisory_summary": "He said \"oops\" — newline\nand a backslash \\ and unicode ✓",
+        "advisory_url": "https://example.com/a"
+      }
+    ]
+  }
+]
+EOF
+    run "$TOOL_DIR/vulnerable_changes_to_sarif.sh" "$TMP_DIR/in.json"
+    [ "$status" -eq 0 ]
+    # Output must still parse as JSON.
+    printf '%s' "$output" | jq empty
+    # Message text must contain the original summary verbatim (jq does
+    # the escaping when serialising back to JSON).
+    printf '%s' "$output" | jq -e '.runs[0].results[0].message.text | contains("He said \"oops\"")' >/dev/null
+    printf '%s' "$output" | jq -e '.runs[0].results[0].message.text | contains("unicode ✓")' >/dev/null
+}
+
+@test "converter: unknown severity falls back to note + 0.0" {
+    cat > "$TMP_DIR/in.json" <<'EOF'
+[
+  { "change_type": "added", "manifest": "p.json", "ecosystem": "npm", "name": "y", "version": "1",
+    "vulnerabilities": [
+      { "severity": "fizzbuzz", "advisory_ghsa_id": "GHSA-yyy", "advisory_summary": "y", "advisory_url": "u" }
+    ]
+  }
+]
+EOF
+    run "$TOOL_DIR/vulnerable_changes_to_sarif.sh" "$TMP_DIR/in.json"
+    [ "$status" -eq 0 ]
+    printf '%s' "$output" | jq -e '.runs[0].results[0].level == "note"' >/dev/null
+    printf '%s' "$output" | jq -e '.runs[0].results[0].properties["security-severity"] == "0.0"' >/dev/null
+}
+
 @test "converter: one rule per unique GHSA across multiple results" {
     cat > "$TMP_DIR/in.json" <<'EOF'
 [
