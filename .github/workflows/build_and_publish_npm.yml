@@ -123,7 +123,7 @@ jobs:
     steps:
       # No checkout: release_gate resolves via ${{ github.action_path }}.
       # TODO: replace with $/actions/release_gate when GitHub ships $/ syntax (#136)
-      - uses: TomHennen/wrangle/actions/release_gate@dad131c0f4faf6348952ad21b037750cb568834a # claude/v0.2-pnpm-support 2026-05-14
+      - uses: TomHennen/wrangle/actions/release_gate@184105530fd123a7e93eaa7c39f03dc2758a07d9 # main 2026-05-15
         id: gate
         with:
           events: ${{ inputs.release-events }}
@@ -146,7 +146,7 @@ jobs:
           ref: ${{ inputs.ref || '' }}
 
       # TODO: replace with $/build/actions/npm when GitHub ships $/ syntax (#136)
-      - uses: TomHennen/wrangle/build/actions/npm@dad131c0f4faf6348952ad21b037750cb568834a # claude/v0.2-pnpm-support 2026-05-14
+      - uses: TomHennen/wrangle/build/actions/npm@184105530fd123a7e93eaa7c39f03dc2758a07d9 # main 2026-05-15
         id: build
         with:
           path: ${{ inputs.path }}
