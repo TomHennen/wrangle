@@ -64,6 +64,17 @@ meet SLSA v1.2 Build L3 "Isolated"?
 
 SLSA v1.2 Build L3 has two halves and adopters routinely conflate them.
 
+The terms *"L3-for-signing"* and *"L3-for-build-platform"* are this audit's
+shorthand, not verbatim SLSA spec language. They map onto two of the five
+L3 requirements in [`build-requirements.md`](https://github.com/slsa-framework/slsa/blob/releases/v1.2/spec/build-requirements.md):
+the audit's "L3-for-signing" is SLSA's *"Provenance is Unforgeable"*, and the
+audit's "L3-for-build-platform" is SLSA's *"Isolated"*. The other three L3
+requirements (*"Provenance Exists"*, *"Provenance is Authentic"*, *"Hosted"*)
+are covered in [their own section below](#coverage-of-the-other-l3-requirements).
+The shorthand exists because the two halves are routinely conflated in
+adopter-facing prose ("we have SLSA L3 provenance" reads as both) and the
+audit needs to talk about them separately.
+
 **L3-for-signing** is the property of the workflow that emits the signed
 attestation. SLSA v1.2 calls this *"Provenance is Unforgeable"*
 ([build-requirements.md, "Provenance is Unforgeable"](https://github.com/slsa-framework/slsa/blob/releases/v1.2/spec/build-requirements.md)):
@@ -116,6 +127,16 @@ strength" → "Isolated"):
 Emphasis added. The cache-poisoning prohibition is the rule that #205 found
 wrangle's pnpm path violating. This audit asks the same question of every
 other builder.
+
+The *"MUST NOT open services that allow for remote influence"* bullet
+(third from the bottom, "open services" rule) is satisfied by-construction
+across every wrangle builder: none of the build composites start listening
+sockets, debug servers, or remote-control endpoints. The composites' outbound
+network calls are scoped to dependency fetches (npm registry, PyPI, container
+base-image registry) and the `docker/build-push-action` step that pushes the
+built image. None of these are services *the build* opens; they are clients
+of services the dependency ecosystem or adopter-configured registry opens.
+The `externalParameters` carve-out is therefore not needed and not used.
 
 When wrangle's docs say "SLSA L3 provenance," they correctly describe the
 *signing-side* property. They do **not**, by themselves, claim L3-for-build-platform
@@ -261,10 +282,15 @@ wrangle build composite can rewrite. The one field the build composite does
 supply is the `base64-subjects` (the digests of the artifacts), which falls
 under the spec's explicit tenant-allowed carve-out for the `subject` field.
 
-**Conditional caveat:** this verdict is contingent on the reusable-workflow
-consumption path. An adopter who calls `build/actions/python@<sha>` directly
-from a job that also has `id-token: write` voluntarily forfeits the
-separation. The audit recommends documenting this in the build-type READMEs
+**Conditional caveat:** this verdict is contingent on the adopter consuming
+wrangle via one of **wrangle's** reusable workflows
+([`build_and_publish_python.yml`](../.github/workflows/build_and_publish_python.yml)
+and parallels — not to be confused with the upstream SLSA generator's
+reusable workflow, which is invoked from inside wrangle's). An adopter who
+calls `build/actions/python@<sha>` directly from a workflow they wrote
+themselves — placing the composite in a job that also has `id-token: write`
+— voluntarily forfeits the build-vs-sign job separation. The audit recommends
+documenting this in the build-type READMEs
 (see [Findings](#findings-and-recommendations)).
 
 ### Hosted (L2 + L3)
@@ -320,9 +346,15 @@ and [`build_and_publish_container.yml`](../.github/workflows/build_and_publish_c
 (line 24: `contents: read`).
 
 This separation is the same property the SLSA upstream's BYOB framework
-(`delegator_lowperms-generic_slsa3.yml`) enforces for ecosystem-specific Pattern A
-builders: the build job has minimal permissions, the signing job runs separately
-with `id-token: write`, neither can directly tamper with the other. When an
+(`delegator_lowperms-generic_slsa3.yml`) enforces for ecosystem-specific
+"Pattern A" builders — i.e., the SLSA project's term for builders where the
+ecosystem-specific build logic runs *inside* an upstream-controlled reusable
+workflow (vs. wrangle's "Pattern B", where wrangle ships composite actions
+that the caller invokes and only the signing step lives inside an upstream
+reusable workflow). See the [Pattern A vs Pattern B revisit](#pattern-a-vs-pattern-b-revisit)
+section below for the full comparison. The relevant Pattern A property here:
+the build job has minimal permissions, the signing job runs separately with
+`id-token: write`, neither can directly tamper with the other. When an
 adopter consumes wrangle via a reusable workflow, they inherit this separation
 for free. The signing-key reach into the build environment is **closed** by
 construction.
@@ -502,21 +534,42 @@ GitHub-hosted runners. The uv cache is therefore enabled and restored from
 prior runs unless wrangle explicitly disables it.
 
 **Evidence — uv's cache-hit path does not re-hash on use.** Source-verified
-against `astral-sh/uv` `main` HEAD. The relevant call chain:
+against `astral-sh/uv` `main` HEAD. The relevant call chain has two
+sequential checks on a cache hit; the gap is that *both* operate on hashes
+read from the sidecar pointer, not hashes recomputed from the on-disk wheel.
 
 1. `uv_installer::Preparer` calls `database.get_or_build_wheel(&dist, tags, policy)`
    then checks `wheel.satisfies(policy)`, where `policy` carries the lockfile
-   hash. ([`crates/uv-installer/src/preparer.rs`](https://github.com/astral-sh/uv/blob/main/crates/uv-installer/src/preparer.rs).)
-2. `wheel.hashes()` returns whatever the `Archive` recorded — and on the
-   cache-hit path, `Archive` is deserialized from the `.http` or `.rev`
-   sidecar pointer via `rmp_serde::from_slice`, with no recomputation from
-   the on-disk wheel bytes. The smoking-gun line is the `hashes:
-   archive.hashes` assignment in `load_wheel`'s cache-hit branch
-   ([`crates/uv-distribution/src/distribution_database.rs`](https://github.com/astral-sh/uv/blob/main/crates/uv-distribution/src/distribution_database.rs)).
-3. The cache-hit filter is `archive.has_digests(hashes)`
-   ([`crates/uv-distribution-types/src/hash.rs`](https://github.com/astral-sh/uv/blob/main/crates/uv-distribution-types/src/hash.rs)),
-   which only checks that the *algorithm name* matches (e.g., "sha256");
-   it does **not** compare digest values.
+   hash
+   ([`crates/uv-installer/src/preparer.rs:145–156`](https://github.com/astral-sh/uv/blob/main/crates/uv-installer/src/preparer.rs#L145-L156)).
+2. Inside `get_or_build_wheel`, the cache-hit branch reads the `.rev` sidecar
+   pointer from disk, deserializes it via `rmp_serde::from_slice` into an
+   `Archive`, then returns `LocalWheel { hashes: archive.hashes, … }` —
+   **the hashes come from the sidecar, with no re-hashing of the on-disk wheel
+   bytes**
+   ([`crates/uv-distribution/src/distribution_database.rs:1048–1065`](https://github.com/astral-sh/uv/blob/main/crates/uv-distribution/src/distribution_database.rs#L1048-L1065)).
+3. Two filters are then applied to those sidecar-sourced hashes:
+   - **First filter**, inside `get_or_build_wheel` itself:
+     `archive.has_digests(hashes)`
+     ([`crates/uv-distribution-types/src/hash.rs:126–128`](https://github.com/astral-sh/uv/blob/main/crates/uv-distribution-types/src/hash.rs#L126-L128)
+     → `has_required_algorithms`, lines 82–103). This is an
+     **algorithm-name-only** check — it confirms the sidecar contains a hash
+     under the required algorithm (e.g., "sha256"), but does not compare the
+     digest value.
+   - **Second filter**, back in `Preparer`: `wheel.satisfies(policy)`
+     ([`crates/uv-distribution-types/src/hash.rs:120–123`](https://github.com/astral-sh/uv/blob/main/crates/uv-distribution-types/src/hash.rs#L120-L123))
+     calls `HashPolicy::matches`
+     ([`crates/uv-distribution-types/src/hash.rs:66–79`](https://github.com/astral-sh/uv/blob/main/crates/uv-distribution-types/src/hash.rs#L66-L79)),
+     which **does** compare the full `(algorithm, digest)` value against the
+     lockfile via `HashDigest`'s derived `PartialEq`.
+
+The second filter at first glance reads like the validation that would close
+the gap. It is not, because the digest values it compares are the values the
+sidecar advertised — not values recomputed from the wheel bytes the build
+actually consumes. The on-disk wheel is never re-hashed on the cache-hit
+path; the comparison reduces to "does the sidecar's hash match the
+lockfile's hash?", and an attacker who can write to `$UV_CACHE_DIR` writes
+both the wheel and the sidecar as a coherent pair.
 
 This is structurally the same shape as the pnpm-store cache-poisoning vector
 that #205 closed. If an attacker can write to `$UV_CACHE_DIR` between a prior
@@ -541,13 +594,40 @@ the gap.
    `enable-cache: false` input on the wrangle invocation, or set
    `UV_NO_CACHE=1` in the build job's env. Cost: every dependency downloaded
    every release build. Likely acceptable given release frequency.
-2. **Force refresh on every install.** Run `uv sync --refresh` (or use
-   `--refresh-package` for specific packages). Same network cost as option 1
-   but more granular if partial caching is desirable.
+2. **(Not effective for PyPI; documented as a trap.)** `uv sync --refresh`
+   sounds like the natural "force re-download" fix, but it does **not** close
+   this vector for the common PyPI case. Source-verified against `astral-sh/uv`
+   `main`: `--refresh` produces `Refresh::All(now)`
+   ([`crates/uv-cache/src/lib.rs:1373`](https://github.com/astral-sh/uv/blob/main/crates/uv-cache/src/lib.rs#L1373))
+   which marks entries `Freshness::Stale` →
+   `CacheControl::MustRevalidate`
+   ([`crates/uv-client/src/cached_client.rs:182`](https://github.com/astral-sh/uv/blob/main/crates/uv-client/src/cached_client.rs#L182)),
+   which sets `Cache-Control: no-cache` on the HTTP request
+   ([`cached_client.rs:495`](https://github.com/astral-sh/uv/blob/main/crates/uv-client/src/cached_client.rs#L495)).
+   PyPI wheel URLs are content-addressed and immutable, so the server returns
+   **304 Not Modified** essentially always. On 304, uv rewrites the
+   cache-policy bytes and returns `Payload::from_aligned_bytes(cached.data)`
+   ([`cached_client.rs:306–335`](https://github.com/astral-sh/uv/blob/main/crates/uv-client/src/cached_client.rs#L306-L335)),
+   deserializing the existing `Archive { id, hashes, filename }` from the
+   unchanged `.http` sidecar — the on-disk wheel bytes are never re-hashed.
+   Only the 200-Modified branch
+   ([`distribution_database.rs:683–745`](https://github.com/astral-sh/uv/blob/main/crates/uv-distribution/src/distribution_database.rs#L683-L745))
+   re-hashes via `HashReader`, and that branch is only taken when the upstream
+   URL's content actually changed — precisely the case where no protection
+   was needed. For completeness: `--reinstall` controls site-packages
+   reinstallation (not the cache), and also does not close the gap.
 3. **Pin the cache to a fresh ephemeral location.** Set
    `UV_CACHE_DIR=$RUNNER_TEMP/uv-cache` so the cache cannot survive across
    builds. Cheap to add; relies on `$RUNNER_TEMP` being ephemeral, which is
-   GitHub's documented behavior on GitHub-hosted runners.
+   GitHub's documented behavior on GitHub-hosted runners. **Caveat:** this
+   protection only holds if no `actions/cache` step rehydrates
+   `$UV_CACHE_DIR` (or any path under `$RUNNER_TEMP` that includes it) before
+   `uv sync` runs. An adopter who wires their own `actions/cache` around the
+   wrangle composite and keys it on a stable name re-creates the poisoning
+   surface inside `$RUNNER_TEMP` and the protection collapses. Wrangle itself
+   uses no `actions/cache` calls (see cross-cutting finding #1), so the
+   protection holds for wrangle's own invocation; adopters adding caching
+   around wrangle need to be aware.
 4. **(Future)** Upstream-petition uv to add a `--verify-hashes-on-cache-hit`
    flag that re-hashes cached files at install time. The behavior is
    structurally cheap (hash the bytes already on disk) and would close the
@@ -555,7 +635,9 @@ the gap.
 
 **Verdict: GAP.** Recommendation: option (3) as a default for the release path
 inside the reusable workflow, with option (1) documented as the adopter-side
-opt-out for very high-assurance contexts.
+opt-out for very high-assurance contexts. Option (2) is listed only to mark
+it as a trap — anyone reaching for "force refresh" as the obvious fix should
+find this paragraph rather than reach for `--refresh` and assume it works.
 
 ### Container path
 
@@ -689,15 +771,37 @@ and the reusable workflows that wrap the npm and python composites
 ([`build_and_publish_python.yml:127`](../.github/workflows/build_and_publish_python.yml)
 and parallels). This matches Pattern A enforcement.
 
-**4. Self-hosted runner caveat.** GitHub-hosted runners are ephemeral; SLSA's
-"ephemeral build environment" requirement is satisfied by the runner image
-being fresh per job. If an adopter consumes wrangle on a **self-hosted**
-runner, that assumption no longer holds: `~/.cache/*`, `~/.npm`,
-`~/.pnpm-store`, `~/.cache/uv`, and `/var/lib/docker/` may persist across
-jobs in attacker-influenced ways. This audit treats GitHub-hosted runners as
-the supported substrate. Adopters using self-hosted runners take on additional
-build-platform-side responsibility; the adopter-facing doc should call this
-out explicitly.
+**4. Self-hosted runner caveat.**
+
+> ⚠️ **WARNING — wrangle's L3 verdicts assume GitHub-hosted runners.**
+> Adopters who run wrangle's composites or reusable workflows on **self-hosted
+> runners** invalidate the cross-cutting "ephemeral build environment"
+> assumption every per-builder verdict in this audit depends on, and may
+> silently drop below SLSA L3-for-build-platform without any other change
+> on their side. If your CI moves to self-hosted runners (whether for cost,
+> capacity, or hardware reasons), the L3 isolation analysis must be redone
+> against the runner-management posture you operate; the verdicts here do
+> not transfer.
+
+GitHub-hosted runners are ephemeral on two axes: the runner VM image is
+re-provisioned per job (so on-disk state like `~/.cache/*`, `~/.npm`,
+`~/.pnpm-store`, `~/.cache/uv`, and `/var/lib/docker/` does not survive a
+runner reboot), and the GitHub Actions cache service (where `actions/cache`
+and BuildKit's `type=gha` entries actually live — these are not stored on
+the runner VM but on a separate GitHub-managed cache backend, keyed by
+repo + branch scope and retrieved over the network at the start of each job)
+enforces the [cache scope rules](https://docs.github.com/en/actions/using-workflows/caching-dependencies-to-speed-up-workflows)
+that the per-builder audit treats as the in-scope threat surface. The
+runner image is fresh per job; the cache contents are not — that asymmetry
+is exactly what the BuildKit / uv cache findings exploit.
+
+On a **self-hosted** runner, neither axis is guaranteed. The runner VM /
+container may be long-lived (state in `~/.cache/*`, the local Docker layer
+store, etc. persists across jobs in attacker-influenced ways), and depending
+on how the operator wires GitHub's cache service in, additional persistent
+surfaces may exist that this audit did not enumerate. Adopters using
+self-hosted runners take on additional build-platform-side responsibility;
+the adopter-facing doc should call this out explicitly.
 
 **5. The reusable-workflow consumption path already separates build from
 sign.** This is the single biggest reason wrangle's framing is closer to
@@ -744,8 +848,9 @@ two GAPs in this audit.
 **3. `::stop-commands::` guard around the compile step.** Pattern A's Go
 builder wraps the compile in `echo "::stop-commands::$(echo -n "${GITHUB_TOKEN}" | sha256sum | head -c 64)"`
 so workflow-command injection via build-tool stdout is neutralized. Wrangle
-does not. This is defense-in-depth, not an isolation property, and could be
-added cheaply.
+does not. This is technically defense-in-depth rather than an isolation
+property, but the audit treats it as highly recommended given wrangle's
+threat model — see [Finding 3](#finding-3-highly-recommended-stop-commands-guard-around-buildtest-invocations).
 
 Things Pattern A is sometimes claimed to enforce but **does not**:
 
@@ -1041,9 +1146,10 @@ follow-up issue per affected builder.
 
 ## Findings and recommendations
 
-This audit produces two GAP findings and one defense-in-depth recommendation.
-Each is documentation; concrete remediation lands in separate issues/PRs per
-the contract of #216.
+This audit produces two GAP findings (uv cache, BuildKit GHA cache) and one
+highly-recommended defense-in-depth finding (`::stop-commands::` guard). Each
+is documentation; concrete remediation lands in separate issues/PRs per the
+contract of #216.
 
 ### Finding 1: uv cache integrity gap on the python uv sub-path
 
@@ -1105,20 +1211,40 @@ Spawn a follow-up issue tracking the implementation. Also verify that no
 the highest-risk poisoning vector and is uniquely dangerous because it
 executes in base-repo context.
 
-### Finding 3 (defense in depth): `::stop-commands::` guard around build/test invocations
+### Finding 3 (highly recommended): `::stop-commands::` guard around build/test invocations
 
 **Summary.** Pattern A's Go builder shadows the `::` workflow-command prefix
 with a per-run token before invoking the compile, neutralizing any attempt by
 the build tool (or a dependency's lifecycle hook) to inject workflow commands
 via stdout. Wrangle does not.
 
-**Severity.** Defense-in-depth, not an L3-for-build-platform requirement.
-Useful given wrangle's threat model includes "lifecycle hook in a transitive
-dev-dep" (`ignore-scripts` input exists for similar reasons).
+**Severity.** Strictly speaking this is defense-in-depth rather than an
+L3-for-build-platform requirement (it does not appear in SLSA v1.2's
+"Isolated" bullets). The audit elevates the recommendation because
+wrangle's threat model is unusually aligned with the attack class this
+defense addresses:
+
+- Wrangle's entire reason for existing is the npm / PyPI / container supply
+  chain attack class — exactly the contexts where a malicious lifecycle hook
+  in a transitive dev-dep can drop a `::set-output::`, `::add-mask::`, or
+  `::add-path::` line into stdout and silently re-route the build job
+  ([adopter README's `ignore-scripts` input](../build/actions/npm/README.md)
+  exists for the same threat surface, addressing a different facet).
+- Wrangle is positioned as a *security* framework. A compromise of wrangle
+  propagates to every adopter (see [`CLAUDE.md`](../CLAUDE.md)'s "Supply
+  Chain Discipline" section). The marginal cost of `::stop-commands::` is a
+  one-line wrapper per shell-invoking step; the marginal benefit is
+  closing the most well-known workflow-command-injection vector for free
+  on every adopter.
+- Pattern A's Go builder
+  ([`builder_go_slsa3.yml:290`](https://github.com/slsa-framework/slsa-github-generator/blob/main/.github/workflows/builder_go_slsa3.yml))
+  already does this. Wrangle's Pattern B should match.
 
 **Recommendation.** Add a `::stop-commands::` wrap around `build_and_pack.sh`,
-`run_tests.sh`, and `install_deps.sh` invocations in the composites. Cheap;
-optional; nice-to-have. Spawn an issue if and when adopted.
+`run_tests.sh`, and `install_deps.sh` invocations in every composite that
+runs ecosystem build tooling (npm, python, container). Spawn a follow-up
+issue; treat it on par with Finding 1 and Finding 2 in priority despite the
+"defense-in-depth, not L3-required" framing.
 
 ### Adopter-facing framing
 
