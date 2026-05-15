@@ -13,6 +13,7 @@
 # matching entry in docs/SPEC.md#trigger-model.
 
 set -euo pipefail
+set -f    # env vars come from GitHub event context — disable globbing defensively
 
 fail() {
     printf '::error::wrangle refuses %s.\n' "$1" >&2

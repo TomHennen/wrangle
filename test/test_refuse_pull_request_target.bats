@@ -38,7 +38,7 @@ setup() {
                 name=$1; sub(":", "", name); print name; exit
             }
         ' "$WORKFLOWS_DIR/$wf")
-        [ "$first_job" = "guard" ] || {
+        [[ "$first_job" == "guard" ]] || {
             printf "First job in %s is '%s' not 'guard'\n" "$wf" "$first_job" >&2
             return 1
         }
@@ -89,12 +89,12 @@ setup() {
                 name=$1; sub(":", "", name); print name
             }
         ' "$WORKFLOWS_DIR/$wf")
-        [ -n "$jobs" ] || {
+        [[ -n "$jobs" ]] || {
             printf 'No jobs found in %s — awk extraction broken?\n' "$wf" >&2
             return 1
         }
         for job in $jobs; do
-            [ "$job" = "guard" ] && continue
+            [[ "$job" == "guard" ]] && continue
             block=$(awk -v j="$job" '
                 $0 == "  " j ":"                       { in_job=1; print; next }
                 in_job && /^  [a-zA-Z][a-zA-Z0-9_-]*:$/ { in_job=0 }
