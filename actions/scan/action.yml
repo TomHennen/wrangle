@@ -71,7 +71,7 @@ runs:
     # TODO: replace with $/tools/dependency-review when $/ syntax ships (#136, #137)
     - name: Dependency Review
       if: always() && contains(inputs.tools, 'dependency-review') && github.event_name == 'pull_request'
-      uses: TomHennen/wrangle/tools/dependency-review@e858013837afec2c18c61d0d67249dca39efd225 # main 2026-04-22
+      uses: TomHennen/wrangle/tools/dependency-review@11e842f46dd7efdf94be5d9fa100e895ed762d25 # claude/address-issue-209-X3JeP 2026-05-15
 
     - name: Generate step summary
       if: always()
