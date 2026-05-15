@@ -7,7 +7,7 @@ on:
         description: "Space-separated list of tools to run (suffix :info for informational)"
         required: false
         type: string
-        default: "osv zizmor scorecard:info"
+        default: "osv zizmor scorecard:info dependency-review"
 
 jobs:
   check-change:

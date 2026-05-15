@@ -618,6 +618,7 @@ This is the entire file an adopter needs. No secrets, no configuration, no depen
 | [OSV-Scanner](https://github.com/google/osv-scanner) | Adapter | Scans dependencies against the OSV database |
 | [Zizmor](https://github.com/zizmorcore/zizmor) | Action (wraps `zizmorcore/zizmor-action`) | Security-focused linting of GitHub Actions workflows |
 | [OSSF Scorecard](https://scorecard.dev/) | Action (wraps `ossf/scorecard-action`) | Assesses repo security health across 18+ categories |
+| [Dependency Review](https://github.com/actions/dependency-review-action) | Action (wraps `actions/dependency-review-action`) | PR-time gate: blocks PRs that introduce known-vulnerable dependencies. Runs on `pull_request` events only |
 
 ### Two Tool Patterns
 
@@ -684,6 +685,7 @@ Each tool's detailed specification lives in `tools/<name>/SPEC.md` alongside the
 | OSV-Scanner | Adapter | `:fail` | [`tools/osv/SPEC.md`](../tools/osv/SPEC.md) |
 | Zizmor | Action | `:fail` | [`tools/zizmor/SPEC.md`](../tools/zizmor/SPEC.md) |
 | OSSF Scorecard | Action | `:info` | [`tools/scorecard/SPEC.md`](../tools/scorecard/SPEC.md) |
+| Dependency Review | Action | `:fail` | [`tools/dependency-review/SPEC.md`](../tools/dependency-review/SPEC.md) |
 
 ### Metadata Directory
 

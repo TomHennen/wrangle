@@ -65,3 +65,45 @@ setup() {
     run grep 'uses:.*tools/scorecard' "$ACTION_DIR/action.yml"
     [ "$status" -eq 0 ]
 }
+
+@test "scan: references dependency-review action" {
+    run grep 'uses:.*tools/dependency-review' "$ACTION_DIR/action.yml"
+    [ "$status" -eq 0 ]
+}
+
+@test "scan: dependency-review step is gated on pull_request event" {
+    # The upstream action requires github.event.pull_request.base.sha /
+    # head.sha — running it on push events errors out.
+    run grep -B1 -A2 'Dependency Review' "$ACTION_DIR/action.yml"
+    [ "$status" -eq 0 ]
+    [[ "$output" == *"github.event_name == 'pull_request'"* ]]
+}
+
+@test "scan: dependency-review step is gated on dependency-review being in the tools input" {
+    run grep -A2 '^    - name: Dependency Review$' "$ACTION_DIR/action.yml"
+    [ "$status" -eq 0 ]
+    [[ "$output" == *"contains(inputs.tools, 'dependency-review')"* ]]
+}
+
+@test "scan: has upload-sarif step for dependency-review" {
+    run grep -A2 'Upload Dependency Review SARIF' "$ACTION_DIR/action.yml"
+    [ "$status" -eq 0 ]
+    [[ "$output" == *"upload-sarif"* ]]
+}
+
+@test "scan: dependency-review SARIF has correct category (wrangle/dependency-review)" {
+    run grep 'category: wrangle/dependency-review' "$ACTION_DIR/action.yml"
+    [ "$status" -eq 0 ]
+}
+
+@test "scan: dependency-review SARIF upload is gated on dependency-review being in the tools input and on pull_request" {
+    run grep -A1 'Upload Dependency Review SARIF' "$ACTION_DIR/action.yml"
+    [ "$status" -eq 0 ]
+    [[ "$output" == *"contains(inputs.tools, 'dependency-review')"* ]]
+    [[ "$output" == *"github.event_name == 'pull_request'"* ]]
+}
+
+@test "scan: default tools input includes dependency-review" {
+    run grep 'default: "osv zizmor scorecard:info dependency-review"' "$ACTION_DIR/action.yml"
+    [ "$status" -eq 0 ]
+}

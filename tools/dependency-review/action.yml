@@ -1,0 +1,86 @@
+name: Wrangle Dependency Review
+description: |
+  Run actions/dependency-review-action within wrangle as the PR-time
+  blocking layer for vulnerable dependency introductions. Wraps the
+  upstream action and converts its vulnerable-changes JSON output to
+  SARIF for the wrangle metadata directory. This is the "action pattern"
+  — see tools/zizmor/action.yml for the same shape.
+
+  Only runs on pull_request events: the upstream action requires
+  github.event.pull_request.base.sha / head.sha to compute the diff.
+
+inputs:
+  fail-on-severity:
+    description: >
+      Block the PR on advisories at or above this severity.
+      One of: low, moderate, high, critical.
+    required: false
+    default: "high"
+  comment-summary-in-pr:
+    description: >
+      Post the dependency review summary as a PR comment.
+      Default never to avoid requiring pull-requests: write on the
+      adopter's workflow. Set to "on-failure" or "always" if the
+      adopter grants pull-requests: write.
+    required: false
+    default: "never"
+
+runs:
+  using: "composite"
+  steps:
+    - name: Log attribution banner
+      shell: bash
+      env:
+        WRANGLE_ROOT: ${{ github.action_path }}/../..
+      run: |
+        "$WRANGLE_ROOT/lib/tool_banner.sh" dependency-review
+
+    - name: Create wrangle output directory
+      shell: bash
+      run: mkdir -p "${GITHUB_WORKSPACE}/.wrangle/metadata/dependency-review"
+
+    - name: Run Dependency Review
+      id: depreview
+      # continue-on-error so SARIF collection runs even when the upstream
+      # action exits non-zero on findings. lib/check_results.sh is the
+      # actual pass/fail gate via the SARIF we produce below — keeping
+      # behavior consistent with how zizmor/osv are gated.
+      uses: actions/dependency-review-action@2031cfc080254a8a887f58cffee85186f0e49e48 # v4.9.0
+      continue-on-error: true
+      with:
+        fail-on-severity: ${{ inputs.fail-on-severity }}
+        comment-summary-in-pr: ${{ inputs.comment-summary-in-pr }}
+
+    - name: Convert vulnerable-changes to SARIF
+      if: always()
+      shell: bash
+      # Pass dep-review's JSON output through an env var, not a direct
+      # interpolation. Even though the output is action-generated (not
+      # attacker-controlled in the same way as inputs.*), the env-var
+      # pattern keeps the run: block free of expression interpolation
+      # and matches the rest of the repo.
+      env:
+        TOOL_DIR: ${{ github.action_path }}
+        VULNERABLE_CHANGES: ${{ steps.depreview.outputs.vulnerable-changes }}
+      run: |
+        set -euo pipefail
+        SARIF_DST="${GITHUB_WORKSPACE}/.wrangle/metadata/dependency-review/output.sarif"
+        # Write the (possibly empty) JSON to a temp file so the converter
+        # never reads from a CLI argument that could expand to glob/quoting hazards.
+        JSON_TMP="$(mktemp "${TMPDIR:-/tmp}/wrangle-depreview-XXXXXX.json")"
+        trap 'rm -f "$JSON_TMP"' EXIT
+        printf '%s' "${VULNERABLE_CHANGES:-[]}" > "$JSON_TMP"
+        "$TOOL_DIR/vulnerable_changes_to_sarif.sh" "$JSON_TMP" > "$SARIF_DST"
+
+    - name: Generate human-readable output
+      if: always()
+      shell: bash
+      env:
+        WRANGLE_ROOT: ${{ github.action_path }}/../..
+      run: |
+        set -euo pipefail
+        SARIF="${GITHUB_WORKSPACE}/.wrangle/metadata/dependency-review/output.sarif"
+        MD="${GITHUB_WORKSPACE}/.wrangle/metadata/dependency-review/output.md"
+        if [[ -f "$SARIF" ]]; then
+          "$WRANGLE_ROOT/lib/sarif_to_md.sh" "$SARIF" > "$MD"
+        fi
