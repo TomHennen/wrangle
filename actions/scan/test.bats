@@ -108,21 +108,11 @@ setup() {
     [ "$status" -eq 0 ]
 }
 
-@test "scan: exposes dependency-review-fail-on-severity input" {
-    run grep 'dependency-review-fail-on-severity:' "$ACTION_DIR/action.yml"
-    [ "$status" -eq 0 ]
-}
-
-@test "scan: exposes dependency-review-comment-summary-in-pr input" {
-    run grep 'dependency-review-comment-summary-in-pr:' "$ACTION_DIR/action.yml"
-    [ "$status" -eq 0 ]
-}
-
-@test "scan: forwards fail-on-severity and comment-summary to the dependency-review step" {
-    # The Dependency Review uses: step must pass the inputs through, so
-    # adopters can tune them via actions/scan without forking the tool.
-    run grep -A5 '^    - name: Dependency Review$' "$ACTION_DIR/action.yml"
-    [ "$status" -eq 0 ]
-    [[ "$output" == *"fail-on-severity: \${{ inputs.dependency-review-fail-on-severity }}"* ]]
-    [[ "$output" == *"comment-summary-in-pr: \${{ inputs.dependency-review-comment-summary-in-pr }}"* ]]
+@test "scan: does not plumb per-tool dependency-review config (deferred to #221)" {
+    # Per-tool config is intentionally not exposed through actions/scan —
+    # see #221. The Dependency Review step uses the wrapper's defaults.
+    run grep 'dependency-review-fail-on-severity' "$ACTION_DIR/action.yml"
+    [ "$status" -ne 0 ]
+    run grep 'dependency-review-comment-summary-in-pr' "$ACTION_DIR/action.yml"
+    [ "$status" -ne 0 ]
 }

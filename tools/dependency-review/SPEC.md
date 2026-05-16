@@ -4,7 +4,7 @@
 |----------|-------|
 | Pattern | Action (wraps `actions/dependency-review-action`) |
 | Trigger | `pull_request` events only — upstream action needs `github.event.pull_request.base.sha` / `head.sha` to compute the diff |
-| Configuration | `fail-on-severity` (default `high`) and `comment-summary-in-pr` (default `never`, to avoid requiring `pull-requests: write`). Both are wrapper inputs and are forwarded from `actions/scan` and `check_source_change.yml` as `dependency-review-fail-on-severity` / `dependency-review-comment-summary-in-pr` |
+| Configuration | `fail-on-severity` (default `high`) and `comment-summary-in-pr` (default `never`, to avoid requiring `pull-requests: write`) are inputs on this wrapper action. `actions/scan` and `check_source_change.yml` do **not** forward them — per-tool configuration is deferred to the native config-file design in [#221](https://github.com/TomHennen/wrangle/issues/221). Callers invoking `tools/dependency-review` directly can still set them. |
 | SARIF output | `collect_outputs.sh` reads dep-review's `vulnerable-changes` JSON from the `VULNERABLE_CHANGES` env var, calls `vulnerable_changes_to_sarif.sh`, and atomically writes `$WRANGLE_METADATA_DIR/dependency-review/output.sarif` (plus `output.md`) |
 | Human-readable output | `output.md` generated from SARIF via `lib/sarif_to_md.sh` for step summary details |
 | SARIF upload | Handled by the scan composite via `github/codeql-action/upload-sarif` (category `wrangle/dependency-review`) |

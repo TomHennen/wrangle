@@ -51,22 +51,7 @@ with:
   tools: "osv zizmor"   # skip Scorecard and dependency-review
 ```
 
-`dependency-review` only runs on `pull_request` events (the upstream action needs the PR diff). On `push` events it is silently skipped, the same way `scorecard` is silently skipped on PRs.
-
-### Tuning dependency-review
-
-Two inputs control the `dependency-review` tool. They are forwarded through both `check_source_change.yml` and `actions/scan`:
-
-| Input | Default | Values | Effect |
-|-------|---------|--------|--------|
-| `dependency-review-fail-on-severity` | `high` | `low`, `moderate`, `high`, `critical` | The upstream action only reports advisories at or above this severity. Every advisory it reports becomes a SARIF finding and blocks the PR. Lower-severity advisories are filtered out by the upstream action and do not appear in wrangle's output at all. |
-| `dependency-review-comment-summary-in-pr` | `never` | `never`, `on-failure`, `always` | Whether dependency-review posts its summary as a PR comment. `on-failure`/`always` require the caller's job to also grant `pull-requests: write`. |
-
-```yaml
-uses: TomHennen/wrangle/.github/workflows/check_source_change.yml@<version>
-with:
-  dependency-review-fail-on-severity: moderate
-```
+`dependency-review` only runs on `pull_request` events (the upstream action needs the PR diff). On `push` events it is silently skipped, the same way `scorecard` is silently skipped on PRs. It defaults to `fail-on-severity: high` and posts no PR comment. Per-tool configuration is not exposed through `actions/scan` or `check_source_change.yml` yet — it is deferred to the native per-tool config-file design in [#221](https://github.com/TomHennen/wrangle/issues/221).
 
 ## What this composite does NOT do (yet)
 

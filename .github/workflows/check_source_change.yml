@@ -8,16 +8,6 @@ on:
         required: false
         type: string
         default: "osv zizmor scorecard:info dependency-review"
-      dependency-review-fail-on-severity:
-        description: "dependency-review severity threshold: low, moderate, high, or critical"
-        required: false
-        type: string
-        default: "high"
-      dependency-review-comment-summary-in-pr:
-        description: "dependency-review PR comment mode: never, on-failure, or always (on-failure/always need pull-requests: write)"
-        required: false
-        type: string
-        default: "never"
 
 jobs:
   check-change:
@@ -38,5 +28,3 @@ jobs:
         uses: TomHennen/wrangle/actions/scan@075238e9d9dc8b1548912e4b387d243674f47abf # claude/address-issue-209-X3JeP 2026-05-15
         with:
           tools: ${{ inputs.tools }}
-          dependency-review-fail-on-severity: ${{ inputs.dependency-review-fail-on-severity }}
-          dependency-review-comment-summary-in-pr: ${{ inputs.dependency-review-comment-summary-in-pr }}
