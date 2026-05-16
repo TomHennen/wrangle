@@ -30,7 +30,7 @@ future readers can independently re-verify.
    - [Container path](#container-path)
    - [Shell path](#shell-path)
 7. [Cross-cutting findings](#cross-cutting-findings)
-8. [Pattern A vs Pattern B revisit](#pattern-a-vs-pattern-b-revisit)
+8. [Ecosystem-specific builders vs the generic generator](#ecosystem-specific-builders-vs-the-generic-generator)
 9. [Release-vs-PR build asymmetry: a structural remediation pattern](#release-vs-pr-build-asymmetry-a-structural-remediation-pattern)
 10. [Findings and recommendations](#findings-and-recommendations)
 11. [References](#references)
@@ -345,40 +345,60 @@ The same shape holds in [`build_and_publish_npm.yml`](../.github/workflows/build
 and [`build_and_publish_container.yml`](../.github/workflows/build_and_publish_container.yml)
 (line 24: `contents: read`).
 
-This separation is the same property the SLSA upstream's BYOB framework
-(`delegator_lowperms-generic_slsa3.yml`) enforces for ecosystem-specific
-"Pattern A" builders — i.e., the SLSA project's term for builders where the
-ecosystem-specific build logic runs *inside* an upstream-controlled reusable
-workflow (vs. wrangle's "Pattern B", where wrangle ships composite actions
-that the caller invokes and only the signing step lives inside an upstream
-reusable workflow). See the [Pattern A vs Pattern B revisit](#pattern-a-vs-pattern-b-revisit)
-section below for the full comparison. The relevant Pattern A property here:
-the build job has minimal permissions, the signing job runs separately with
-`id-token: write`, neither can directly tamper with the other. When an
-adopter consumes wrangle via a reusable workflow, they inherit this separation
-for free. The signing-key reach into the build environment is **closed** by
-construction.
+Wrangle implements this build-vs-sign job separation itself, in its own
+reusable workflows. It is the same separation the SLSA project's
+ecosystem-specific builders inherit from the BYOB framework
+(`delegator_lowperms-generic_slsa3.yml`) — restricted-permission build job,
+separate signing job — but wrangle reaches it by a different route. Wrangle
+does not use an ecosystem-specific SLSA builder; it uses the *generic
+generator* (`generator_generic_slsa3.yml`) and wraps it in wrangle-authored
+reusable workflows that place the build composite and the generator
+invocation in separate jobs. See [Ecosystem-specific builders vs the generic
+generator](#ecosystem-specific-builders-vs-the-generic-generator) below for
+why wrangle uses the generic generator and whether switching would help.
+The relevant property here: the build job has minimal permissions, the
+signing job runs separately with `id-token: write`, neither can directly
+tamper with the other. When an adopter consumes wrangle through a reusable
+workflow ("reusable consumption" — the supported L3 path), they inherit this
+separation for free. The signing-key reach into the build environment is
+**closed** by construction.
 
 What the reusable workflow does **not** isolate is the cache surfaces of the
 underlying setup-* actions and build tools. Those run inside the build job's
 runner image and inherit whatever cache surfaces wrangle wires up. The
 per-builder audit below treats each of those.
 
-### Composite actions invoked directly (the unsupervised path)
+### Direct composite consumption (NOT a supported L3 path)
 
 Adopters can also call `tomhennen/wrangle/build/actions/<type>@<ref>` directly
-from a workflow they write themselves. In that case, the permissions, the
-ordering relative to other steps, and the `id-token: write` reach are
-**adopter-managed**. The build runs in whatever job the adopter put it in. If
-that job has `id-token: write` and the build also has shell execution access
-to the runner, the signing-key separation that the reusable workflow provided
-is gone.
+from a workflow they write themselves ("direct consumption"). In that case,
+the permissions, the ordering relative to other steps, and the
+`id-token: write` reach are **adopter-managed**. The build runs in whatever
+job the adopter put it in. If that job has `id-token: write` and the build
+also has shell execution access to the runner, the build-vs-sign separation
+the reusable workflow provided is gone — a compromised build step can mint
+its own Sigstore certificate and forge provenance.
 
-The audit treats the reusable workflow as the supported L3 consumption path.
-The composite-only path remains supported for non-L3 use cases (e.g.,
-local-only builds, custom workflow orchestration), but the L3-for-build-platform
-conformance verdicts below assume the reusable-workflow path. See
-[Findings](#findings-and-recommendations) for the adopter-facing doc work this implies.
+> ⚠️ **WARNING — direct composite consumption is NOT a supported SLSA L3
+> path.** Every L3-for-build-platform verdict in this audit, and the
+> L3-for-signing ("Provenance is Unforgeable") verdict, assumes the adopter
+> consumes wrangle through one of wrangle's **reusable workflows**. Calling
+> the `build/actions/<type>` composites directly places the build in an
+> adopter-authored job whose permissions wrangle cannot constrain; the
+> build-vs-sign job separation becomes the adopter's responsibility and is
+> easy to get wrong (one stray `id-token: write` on the build job forfeits
+> it). Wrangle's reusable workflows are the **only** supported way to obtain
+> wrangle's L3 claims. Direct composite consumption is supported solely for
+> explicitly non-L3 use cases — local-only builds, experimentation, or custom
+> orchestration where the adopter is not claiming L3 provenance — and an
+> adopter on that path MUST NOT advertise the resulting artifacts as carrying
+> wrangle's L3 guarantees.
+
+The audit treats reusable consumption as the only supported L3 path, and the
+L3-for-build-platform conformance verdicts below assume it. The audit
+recommends a follow-up issue to carry this warning, loudly and explicitly,
+into the build-type READMEs rather than leaving it only here. See
+[Findings](#findings-and-recommendations).
 
 ## Per-builder audit
 
@@ -463,10 +483,10 @@ The block comment at lines 18–26 of the same file is the in-code justification
 and references #205 directly. Cache absence eliminates the cache-poisoning
 vector at the L3 layer wrangle controls.
 
-There is **no upstream Pattern A pnpm builder** in `slsa-framework/slsa-github-generator`
+There is **no upstream ecosystem-specific pnpm builder** in `slsa-framework/slsa-github-generator`
 to compare against ([builder README explicitly states pnpm "not supported"](https://github.com/slsa-framework/slsa-github-generator/blob/main/internal/builders/nodejs/README.md)).
-For pnpm specifically, wrangle's Pattern B composite is the only available
-SLSA-tooled path on GitHub Actions today.
+For pnpm specifically, wrangle's generic-generator composite is the only
+available SLSA-tooled path on GitHub Actions today.
 
 **Verdict: MEETS.** No follow-up.
 
@@ -581,7 +601,60 @@ There is no published CVE against uv for this — Astral's design philosophy
 treats the cache as trusted by its containing user account — but for SLSA L3
 purposes that design choice is the gap.
 
-**No upstream Pattern A python builder exists**
+**Threat model — which class of cache poisoning this is.** Cache poisoning
+splits into two classes, and it is worth being precise about which one uv's
+cache hit falls into:
+
+1. **Non-content-addressed lookup.** The cache is keyed by a name an attacker
+   can predict (a package name, a layer cache key). The attacker stores a
+   malicious artifact under that key; a later build that looks up the same
+   key gets the malicious artifact. The attacker does not need to tamper with
+   an existing entry — populating or overwriting the key is enough.
+2. **Content-addressed lookup, but no re-verification at use.** The cache is
+   keyed by — or carries — a content hash. Getting a malicious artifact
+   accepted requires either breaking the hash (infeasible) or modifying the
+   cache's stored bytes *and* the stored hash together. If the tool verifies
+   the hash when the entry is *created* but not when it is *used*, an attacker
+   with write access to the cache storage can swap both the payload and the
+   recorded hash as a coherent pair, and the next use passes verification.
+
+uv's cache hit is class 2. The lookup is by package URL/version; the recorded
+hash lives in the sidecar; and — as traced above — the on-disk wheel is never
+re-hashed at use. So the attack reduces to one question: *can an attacker
+write a coherent `(wheel, sidecar)` pair into cache storage that another
+build will read from?*
+
+**Is it fair to assume the attacker has that write access?** Yes — and the
+mechanism is the [GitHub Actions cache service](#cross-cutting-findings),
+not persistent-runner compromise. `astral-sh/setup-uv`'s cache integration
+saves `$UV_CACHE_DIR` to the GHA cache service at job end and restores it at
+job start. Any build that runs uv with caching enabled therefore has write
+access to the *shared* cache that later builds restore. An attacker who can
+run a build step at all — a malicious dependency lifecycle hook, a poisoned
+`pyproject.toml` build script, a malicious test, a build-tool exploit — can
+rewrite `$UV_CACHE_DIR` inside their own build; `setup-uv` then publishes the
+poisoned cache to the GHA cache service, and GHA's branch-scoped cache rules
+let later builds (including default-branch builds) restore it. This is the
+#205 pnpm vector exactly, and the mechanism in Adnan Khan's "Monsters in your
+build cache" research. The attacker never needs a persistent or self-hosted
+runner; the GHA cache service *is* the cross-build write channel.
+
+**What can prevent it, and what does SLSA L3 require?** SLSA v1.2's
+"Isolated" requirement is categorical: *"It MUST NOT be possible for one build
+to inject false entries into a build cache used by another build … the output
+of the build MUST be identical whether or not the cache is used."* The spec's
+worked example sets an even higher bar (each cache entry keyed by the
+transitive closure of inputs and itself an L3 build). uv's cache meets
+neither — entries are not re-verified at use, and the GHA cache service
+shares them across builds. SLSA L3 therefore leaves two roads: (a) make the
+cache poisoning-proof — re-hash on use, which only uv upstream can do — or
+(b) do not consume a shared cache for L3-attested builds. Road (b) is what
+the [release-vs-PR asymmetry](#release-vs-pr-build-asymmetry-a-structural-remediation-pattern)
+recommendation takes: disable the uv cache on release builds so the bytes the
+generator signs over never pass through cross-build storage. The mitigation
+options below are the concrete levers for road (b).
+
+**No upstream ecosystem-specific python builder exists**
 ([slsa-framework/slsa-github-generator issue #55](https://github.com/slsa-framework/slsa-github-generator/issues/55)
 remains open). Wrangle is the only SLSA-tooled python build path on GitHub
 Actions today, so the choice is between fixing this in wrangle or living with
@@ -713,7 +786,8 @@ takes a pre-built `(image, digest)` and runs `cosign attest`. **It does not
 build the image** and does not opine on the caller's docker build cache
 configuration — the upstream README explicitly tells callers to run
 `docker/build-push-action` themselves in the caller's job (so caching, or not,
-is the caller's choice). There is no Pattern A enforcement to compare against.
+is the caller's choice). There is no ecosystem-specific SLSA builder for
+containers to compare against.
 
 **Mitigation options, in order of strength:**
 
@@ -755,10 +829,32 @@ produces no provenance to attest.** No cache surfaces; no L3 concern.
 
 ## Cross-cutting findings
 
-**1. No direct `actions/cache` calls anywhere in the repository.** Verified by
-repo-wide grep at audit time. All caching is mediated through `setup-*`
-actions' built-in cache integrations or `docker/build-push-action`'s
-`cache-from`/`cache-to`.
+**1. No *direct* `actions/cache` calls — but the cache surfaces wrangle does
+use are backed by GitHub's Actions cache service.** Verified by repo-wide grep
+at audit time: wrangle calls no `actions/cache` step directly. "No direct
+calls" is not "no cache service," however. Three of wrangle's cache surfaces
+route to the GitHub Actions cache service (a GitHub-managed cross-build
+backend, not the runner's local disk):
+
+- **npm `cache: npm`** ([`build/actions/npm/action.yml:87`](../build/actions/npm/action.yml))
+  — `actions/setup-node`'s cache integration calls `actions/cache`
+  internally, so the cached `~/.npm` entries live on the GHA cache service.
+- **uv cache** — `astral-sh/setup-uv` is invoked without `enable-cache: false`
+  ([`build/actions/python/action.yml:69–71`](../build/actions/python/action.yml)),
+  so it defaults to `enable-cache: auto` (true on GitHub-hosted runners) and
+  saves/restores `$UV_CACHE_DIR` through the GHA cache service.
+- **container `type=gha`** ([`build/actions/container/action.yml:89–90`](../build/actions/container/action.yml))
+  — BuildKit's `type=gha` backend talks to the GitHub Actions cache API
+  directly; it *is* the GHA cache service.
+
+The one cache surface **not** on the GHA cache service is pip's
+`~/.cache/pip`: wrangle does not set `cache:` on `actions/setup-python`
+([covered above](#python-path-pip-sub-path)), so that cache is per-run and
+local to the runner. So "no direct `actions/cache` calls" is true but does
+not put the cross-build cache service out of scope — it is the backing store
+for the npm, uv, and container cache surfaces, and the branch-scoped sharing
+rules of that service are exactly what the uv and container GAP findings
+exploit.
 
 **2. No persistent state outside `$RUNNER_TEMP` and the workspace.** No
 composite writes to `~/.local` or other home-directory locations explicitly.
@@ -769,7 +865,8 @@ BuildKit are the only persistent surfaces, and each is audited above.
 build composites:** [`build/actions/container/action.yml:54`](../build/actions/container/action.yml)
 and the reusable workflows that wrap the npm and python composites
 ([`build_and_publish_python.yml:127`](../.github/workflows/build_and_publish_python.yml)
-and parallels). This matches Pattern A enforcement.
+and parallels). This matches the `persist-credentials: false` practice the
+SLSA ecosystem-specific builders follow.
 
 **4. Self-hosted runner caveat.**
 
@@ -803,37 +900,72 @@ surfaces may exist that this audit did not enumerate. Adopters using
 self-hosted runners take on additional build-platform-side responsibility;
 the adopter-facing doc should call this out explicitly.
 
-**5. The reusable-workflow consumption path already separates build from
-sign.** This is the single biggest reason wrangle's framing is closer to
-Pattern A than it might first appear. The build job has `contents: read`; the
-provenance job runs `generator_generic_slsa3.yml` (itself an isolated
-reusable workflow) with `id-token: write`. The signing key is unreachable from
-the build job. Adopters who bypass the reusable workflow and call the
-composite directly forfeit this separation; the audit recommends explicitly
-documenting this.
+**5. Reusable consumption already separates build from sign.** Wrangle's
+reusable workflows give the build-vs-sign job separation that the SLSA
+ecosystem-specific builders get from BYOB, even though wrangle uses the
+generic generator rather than a builder. The build job has `contents: read`;
+the provenance job runs `generator_generic_slsa3.yml` (itself an isolated
+reusable workflow) with `id-token: write`. The signing key is unreachable
+from the build job. Adopters who bypass the reusable workflow and call the
+composite directly ("direct consumption") forfeit this separation — see the
+[warning above](#direct-composite-consumption-not-a-supported-l3-path).
 
-## Pattern A vs Pattern B revisit
+## Ecosystem-specific builders vs the generic generator
 
-Wrangle deliberately picked Pattern B (generic generator + per-ecosystem
-composites running in the caller's workflow) over Pattern A (ecosystem-specific
-generators running the build inside an isolated reusable workflow). The
-reasoning is recorded in
-[`build/actions/npm/SPEC.md`](../build/actions/npm/SPEC.md) (lines 84–88) and
-parallels: the Pattern A Node.js builder is beta as of February 2025, npm-only,
-workspaces-unsupported, no `pull_request` trigger.
+A note on terminology first. An earlier draft of this audit used a home-grown
+"Pattern A / Pattern B" shorthand that conflated two unrelated axes; this
+audit no longer uses it. The two axes are:
 
-This audit doesn't dispute that historical choice. It does ask whether the
-choice still trades cleanly against L3 isolation. Three concrete things
-Pattern A enforces that Pattern B does not:
+- **SLSA architecture axis — ecosystem-specific *builder* vs *generic
+  generator*.** The SLSA project ships two kinds of trusted reusable workflow.
+  An *ecosystem-specific builder* (e.g., `builder_go_slsa3.yml`, the beta
+  `builder_nodejs_slsa3.yml`) runs the actual build *inside* the trusted
+  upstream reusable workflow. A *generic generator*
+  (`generator_generic_slsa3.yml`) does not build anything — the caller
+  builds, hashes the artifacts, and hands the hashes to the generator, which
+  only signs. **Wrangle uses the generic generator.** Wrangle's per-ecosystem
+  build logic lives in wrangle's own composite actions; wrangle invokes
+  `generator_generic_slsa3.yml` purely for the signing step.
+- **Wrangle consumption axis — *reusable* vs *direct*.** Independently of the
+  above, an adopter consumes wrangle either through one of wrangle's reusable
+  workflows ("reusable consumption" — the supported L3 path) or by calling
+  wrangle's composite actions directly ("direct consumption" — see the
+  [warning above](#direct-composite-consumption-not-a-supported-l3-path)).
+  This axis is about wrangle's public interface, not about the SLSA generator
+  architecture.
 
-**1. Job-level permission separation.** Pattern A (via BYOB's
-`delegator_lowperms-generic_slsa3.yml`) restricts the build job to
-`contents: read` only; the signing job runs separately. Wrangle's reusable
-workflows already do this — see [adopter consumption model](#adopter-consumption-model-what-isolation-comes-for-free).
-**No gap when wrangle is consumed via reusable workflow.**
+These axes are orthogonal. Wrangle is "generic generator" on the first axis
+regardless of which consumption path the adopter takes on the second. The
+remainder of this section is about the first axis only: would switching from
+the generic generator to an ecosystem-specific builder close the L3 gaps?
 
-**2. Cache disablement at the setup-* step.** Pattern A's Node.js builder has
-an explicit comment in `internal/builders/nodejs/action.yml` lines 72–73:
+### Why wrangle uses the generic generator
+
+Wrangle deliberately picked the generic generator over an ecosystem-specific
+builder. The reasoning is recorded in
+[`build/actions/npm/SPEC.md`](../build/actions/npm/SPEC.md) ("The SLSA Node.js
+builder is NOT the v0.1 path") and parallels: the ecosystem-specific Node.js
+builder is beta, npm-only, workspaces-unsupported, and has no `pull_request`
+trigger; there is no ecosystem-specific builder for python or for pnpm at all.
+
+### Would switching to an ecosystem-specific builder close the L3 gaps?
+
+This audit doesn't dispute the historical choice. It asks whether the choice
+still trades cleanly against L3 isolation. Three concrete things an
+ecosystem-specific builder enforces that the generic-generator model does not
+give you automatically:
+
+**1. Job-level permission separation.** The BYOB framework
+(`delegator_lowperms-generic_slsa3.yml`, which ecosystem-specific builders are
+built on) restricts the build job to `contents: read` only; the signing job
+runs separately. Wrangle's reusable workflows already do this themselves —
+see [adopter consumption model](#adopter-consumption-model-what-isolation-comes-for-free).
+**No gap under reusable consumption.** Direct consumption forfeits it — see
+the [warning above](#direct-composite-consumption-not-a-supported-l3-path).
+
+**2. Cache disablement at the setup-* step.** The ecosystem-specific Node.js
+builder has an explicit comment in `internal/builders/nodejs/action.yml`
+lines 72–73:
 ```yaml
 # TODO(#1679): cache dependencies.
 # cache: npm
@@ -845,42 +977,45 @@ pnpm sub-path, wrangle disables the cache outright per #205. On the uv sub-path
 and the container path, wrangle does **not** disable the cache — these are the
 two GAPs in this audit.
 
-**3. `::stop-commands::` guard around the compile step.** Pattern A's Go
-builder wraps the compile in `echo "::stop-commands::$(echo -n "${GITHUB_TOKEN}" | sha256sum | head -c 64)"`
+**3. `::stop-commands::` guard around the compile step.** The
+ecosystem-specific Go builder wraps the compile in `echo "::stop-commands::$(echo -n "${GITHUB_TOKEN}" | sha256sum | head -c 64)"`
 so workflow-command injection via build-tool stdout is neutralized. Wrangle
 does not. This is technically defense-in-depth rather than an isolation
 property, but the audit treats it as highly recommended given wrangle's
 threat model — see [Finding 3](#finding-3-highly-recommended-stop-commands-guard-around-buildtest-invocations).
 
-Things Pattern A is sometimes claimed to enforce but **does not**:
+Things an ecosystem-specific builder is sometimes claimed to enforce but
+**does not**:
 
-- Containerization or read-only source mount — neither Pattern A's Go builder
-  nor BYOB does this; both run on `ubuntu-latest`.
+- Containerization or read-only source mount — neither the Go builder nor
+  BYOB does this; both run on `ubuntu-latest`.
 - Network restriction / hermeticity — explicitly marked TODO in
   `builder_go_slsa3.yml` (line 273: *"TODO(hermeticity) OS-level"*).
 - Forbidding `cache-from`/`cache-to` on the container build — the container
   generator never even sees the docker build (the caller runs it).
 
-**Pattern A coverage gaps in the wrangle space:** no Pattern A pnpm builder
-exists. No Pattern A python builder exists (open since the project's early
-days as `slsa-framework/slsa-github-generator#55`). For these two ecosystems,
-wrangle's Pattern B is the only SLSA-tooled path on GitHub Actions today —
-"switch to Pattern A" is not an available option.
+**Builder coverage gaps in the wrangle space:** there is no ecosystem-specific
+pnpm builder, and no ecosystem-specific python builder (the latter open since
+the project's early days as `slsa-framework/slsa-github-generator#55`). For
+those two ecosystems, wrangle's generic-generator model is the only
+SLSA-tooled path on GitHub Actions today — "switch to an ecosystem-specific
+builder" is not an available option.
 
 **Per-builder decision:**
 
-| Builder | Pattern A option exists | Audit recommendation |
+| Builder | Ecosystem-specific builder available | Audit recommendation |
 |---|---|---|
-| npm | Beta Node.js builder (no pnpm support, no `pull_request`) | Stay Pattern B; npm sub-path is L3-clean. Continue tracking the Node.js builder for GA. |
-| pnpm | None | Stay Pattern B; only option. Already L3-clean via cache disablement. |
-| python (pip) | None | Stay Pattern B; only option. Currently L3-clean for isolation. |
-| python (uv) | None | Stay Pattern B; only option. Fix the uv-cache gap (see findings below). |
-| container | Container generator is signing-only (does not isolate the build) | Stay Pattern B; Pattern A would not solve the cache problem because Pattern A doesn't isolate the build either. Fix the GHA cache gap (see findings below). |
-| shell | n/a | Stay; no provenance produced. |
+| npm | Beta Node.js builder (no pnpm support, no `pull_request`) | Keep the generic generator; npm sub-path is L3-clean. Continue tracking the Node.js builder for GA. |
+| pnpm | None | Keep the generic generator; only option. Already L3-clean via cache disablement. |
+| python (pip) | None | Keep the generic generator; only option. Currently L3-clean for isolation. |
+| python (uv) | None | Keep the generic generator; only option. Fix the uv-cache gap (see findings below). |
+| container | Container generator is signing-only (does not isolate the build) | Keep the generic generator; an ecosystem-specific builder would not solve the cache problem because the container generator does not isolate the build either. Fix the GHA cache gap (see findings below). |
+| shell | n/a | Keep; no provenance produced. |
 
-**Conclusion: Pattern B remains the right choice across the board for v0.2.**
-The conformance gaps are L3-for-build-platform issues internal to wrangle's
-composites, not architectural problems with Pattern B as a whole.
+**Conclusion: the generic-generator model remains the right choice across the
+board for v0.2.** The conformance gaps are L3-for-build-platform issues
+internal to wrangle's composites, not architectural problems with the
+generic-generator model as a whole.
 
 ## Release-vs-PR build asymmetry: a structural remediation pattern
 
@@ -1018,12 +1153,14 @@ builds reading from the same scope. Not an L3 concern (PRs produce no L3
 attestation), but a real CI-hygiene concern. See
 [next subsection](#should-wrangle-care-about-pr-to-pr-cache-poisoning).
 
-**Does not close:** The Pattern A "build job has stripped permissions"
-property. Wrangle's reusable workflow already restricts the build job to
-`contents: read`, so the gap is already closed there for the
-reusable-workflow consumption path. Adopters who invoke the composite
-directly from a job with broader permissions remain on the unsupervised
-path. Documenting this is a separate (doc-only) recommendation.
+**Does not close:** The "build job has stripped permissions" property that
+BYOB-based ecosystem-specific builders enforce. Wrangle's reusable workflow
+already restricts the build job to `contents: read`, so the gap is already
+closed for reusable consumption. Adopters who invoke the composite directly
+from a job with broader permissions remain on the unsupported direct-consumption
+path — see the [warning above](#direct-composite-consumption-not-a-supported-l3-path).
+Carrying that warning into the build-type READMEs is a separate (doc-only)
+recommendation.
 
 ### Should wrangle care about PR-to-PR cache poisoning?
 
@@ -1213,10 +1350,10 @@ executes in base-repo context.
 
 ### Finding 3 (highly recommended): `::stop-commands::` guard around build/test invocations
 
-**Summary.** Pattern A's Go builder shadows the `::` workflow-command prefix
-with a per-run token before invoking the compile, neutralizing any attempt by
-the build tool (or a dependency's lifecycle hook) to inject workflow commands
-via stdout. Wrangle does not.
+**Summary.** The SLSA ecosystem-specific Go builder shadows the `::`
+workflow-command prefix with a per-run token before invoking the compile,
+neutralizing any attempt by the build tool (or a dependency's lifecycle hook)
+to inject workflow commands via stdout. Wrangle does not.
 
 **Severity.** Strictly speaking this is defense-in-depth rather than an
 L3-for-build-platform requirement (it does not appear in SLSA v1.2's
@@ -1236,9 +1373,9 @@ defense addresses:
   one-line wrapper per shell-invoking step; the marginal benefit is
   closing the most well-known workflow-command-injection vector for free
   on every adopter.
-- Pattern A's Go builder
+- The SLSA ecosystem-specific Go builder
   ([`builder_go_slsa3.yml:290`](https://github.com/slsa-framework/slsa-github-generator/blob/main/.github/workflows/builder_go_slsa3.yml))
-  already does this. Wrangle's Pattern B should match.
+  already does this. Wrangle's generic-generator composites should match.
 
 **Recommendation.** Add a `::stop-commands::` wrap around `build_and_pack.sh`,
 `run_tests.sh`, and `install_deps.sh` invocations in every composite that
@@ -1253,10 +1390,14 @@ In addition to these three findings, the audit recommends:
 - A short framing section in [`docs/SPEC.md`](./SPEC.md#slsa-l3-claims-what-wrangle-asserts)
   distinguishing **L3-for-signing** from **L3-for-build-platform**, with a
   pointer to this audit.
-- An explicit note in build-type READMEs that the L3 guarantee is contingent
-  on consuming wrangle via the reusable workflow rather than calling the
-  composite directly. This audit does not produce that change; spawn a
-  doc-only issue.
+- A loud, explicit warning in build-type READMEs that wrangle's L3 guarantee
+  is contingent on **reusable consumption** (calling wrangle's reusable
+  workflow) and that **direct consumption** (calling the `build/actions/<type>`
+  composites directly) is NOT a supported L3 path — mirroring the
+  [warning above](#direct-composite-consumption-not-a-supported-l3-path).
+  This audit does not produce that change; spawn a doc-only issue, and treat
+  it as a priority item rather than a nicety, since an adopter on the direct
+  path who believes they have L3 has a false assurance.
 - A self-hosted-runner caveat (cross-cutting finding 4 above) in the same
   README locations.
 
@@ -1277,25 +1418,26 @@ All on the `releases/v1.2` branch of `slsa-framework/slsa`, accessed 2026-05-14:
 - [Build track basics](https://github.com/slsa-framework/slsa/blob/releases/v1.2/spec/build-track-basics.md)
   ([rendered](https://slsa.dev/spec/v1.2/build-track-basics))
 
-### Upstream Pattern A references
+### Upstream SLSA builder / generator references
 
 - [`generator_generic_slsa3.yml`](https://github.com/slsa-framework/slsa-github-generator/blob/main/.github/workflows/generator_generic_slsa3.yml)
-  — wrangle's signing-side generator.
+  — the generic generator; wrangle's signing-side generator.
 - [`builder_go_slsa3.yml`](https://github.com/slsa-framework/slsa-github-generator/blob/main/.github/workflows/builder_go_slsa3.yml)
-  — Pattern A reference for Go (stable). The `::stop-commands::` example
-  lives at line 290.
+  — ecosystem-specific builder for Go (stable). The `::stop-commands::`
+  example lives at line 290.
 - [`builder_nodejs_slsa3.yml`](https://github.com/slsa-framework/slsa-github-generator/blob/main/.github/workflows/builder_nodejs_slsa3.yml)
   + [`internal/builders/nodejs/action.yml`](https://github.com/slsa-framework/slsa-github-generator/blob/main/internal/builders/nodejs/action.yml)
-  — Pattern A Node.js builder (beta). The `cache: npm` TODO comment lives
-  at lines 72–73 of `action.yml`.
+  — ecosystem-specific Node.js builder (beta). The `cache: npm` TODO comment
+  lives at lines 72–73 of `action.yml`.
 - [`generator_container_slsa3.yml`](https://github.com/slsa-framework/slsa-github-generator/blob/main/.github/workflows/generator_container_slsa3.yml)
   — pure attestation generator; does not isolate the docker build.
 - [`delegator_lowperms-generic_slsa3.yml`](https://github.com/slsa-framework/slsa-github-generator/blob/main/.github/workflows/delegator_lowperms-generic_slsa3.yml)
-  — BYOB framework, source of the `contents: read` build-job pattern.
+  — BYOB framework, source of the `contents: read` build-job pattern
+  ecosystem-specific builders inherit.
 - [Issue #55: Workflow for Python packages](https://github.com/slsa-framework/slsa-github-generator/issues/55)
-  — explains why there is no Pattern A python builder.
+  — explains why there is no ecosystem-specific python builder.
 - [Node.js README, "Other package managers not supported"](https://github.com/slsa-framework/slsa-github-generator/blob/main/internal/builders/nodejs/README.md)
-  — explains why there is no Pattern A pnpm builder.
+  — explains why there is no ecosystem-specific pnpm builder.
 
 ### uv source verification
 
@@ -1340,9 +1482,9 @@ All on `astral-sh/uv` `main` HEAD at audit time:
   poisoning (the precipitating finding).
 - [#212](https://github.com/TomHennen/wrangle/pull/212) — pnpm cache disabled.
 - [#216](https://github.com/TomHennen/wrangle/issues/216) — this audit.
-- [`build/actions/npm/SPEC.md`](../build/actions/npm/SPEC.md) — Pattern B
-  reasoning for npm.
-- [`build/actions/python/SPEC.md`](../build/actions/python/SPEC.md) — Pattern
-  B reasoning for python.
+- [`build/actions/npm/SPEC.md`](../build/actions/npm/SPEC.md) —
+  generic-generator reasoning for npm.
+- [`build/actions/python/SPEC.md`](../build/actions/python/SPEC.md) —
+  generic-generator reasoning for python.
 - [`build/actions/container/SPEC.md`](../build/actions/container/SPEC.md) —
   container build documentation.
