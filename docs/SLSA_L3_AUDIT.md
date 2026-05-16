@@ -554,90 +554,135 @@ GitHub-hosted runners. The uv cache is therefore enabled and restored from
 prior runs unless wrangle explicitly disables it.
 
 **Evidence — uv's cache-hit path does not re-hash on use.** Source-verified
-against `astral-sh/uv` `main` HEAD. The relevant call chain has two
-sequential checks on a cache hit; the gap is that *both* operate on hashes
-read from the sidecar pointer, not hashes recomputed from the on-disk wheel.
+against `astral-sh/uv` at commit
+[`1e99086`](https://github.com/astral-sh/uv/tree/1e99086e645038804c3f479ef24cc50f4ec74a96)
+(2026-05-16). wrangle's uv path runs `uv sync`
+([`build/actions/python/install_deps.sh`](../build/actions/python/install_deps.sh)),
+resolving PyPI wheels from `uv.lock`. The full chain:
 
-1. `uv_installer::Preparer` calls `database.get_or_build_wheel(&dist, tags, policy)`
-   then checks `wheel.satisfies(policy)`, where `policy` carries the lockfile
-   hash
-   ([`crates/uv-installer/src/preparer.rs:145–156`](https://github.com/astral-sh/uv/blob/main/crates/uv-installer/src/preparer.rs#L145-L156)).
-2. Inside `get_or_build_wheel`, the cache-hit branch reads the `.rev` sidecar
-   pointer from disk, deserializes it via `rmp_serde::from_slice` into an
-   `Archive`, then returns `LocalWheel { hashes: archive.hashes, … }` —
-   **the hashes come from the sidecar, with no re-hashing of the on-disk wheel
-   bytes**
-   ([`crates/uv-distribution/src/distribution_database.rs:1048–1065`](https://github.com/astral-sh/uv/blob/main/crates/uv-distribution/src/distribution_database.rs#L1048-L1065)).
-3. Two filters are then applied to those sidecar-sourced hashes:
-   - **First filter**, inside `get_or_build_wheel` itself:
-     `archive.has_digests(hashes)`
-     ([`crates/uv-distribution-types/src/hash.rs:126–128`](https://github.com/astral-sh/uv/blob/main/crates/uv-distribution-types/src/hash.rs#L126-L128)
-     → `has_required_algorithms`, lines 82–103). This is an
-     **algorithm-name-only** check — it confirms the sidecar contains a hash
-     under the required algorithm (e.g., "sha256"), but does not compare the
-     digest value.
-   - **Second filter**, back in `Preparer`: `wheel.satisfies(policy)`
-     ([`crates/uv-distribution-types/src/hash.rs:120–123`](https://github.com/astral-sh/uv/blob/main/crates/uv-distribution-types/src/hash.rs#L120-L123))
-     calls `HashPolicy::matches`
-     ([`crates/uv-distribution-types/src/hash.rs:66–79`](https://github.com/astral-sh/uv/blob/main/crates/uv-distribution-types/src/hash.rs#L66-L79)),
-     which **does** compare the full `(algorithm, digest)` value against the
-     lockfile via `HashDigest`'s derived `PartialEq`.
+1. `uv sync` builds the hash strategy from the lockfile:
+   `HashStrategy::from_resolution(&resolution, HashCheckingMode::Verify)`
+   ([`crates/uv/src/commands/project/sync.rs:814`](https://github.com/astral-sh/uv/blob/1e99086e645038804c3f479ef24cc50f4ec74a96/crates/uv/src/commands/project/sync.rs#L814)).
+   Hash checking is **on** — this is not a "hashes disabled" story.
+2. `uv_installer::Preparer` calls `database.get_or_build_wheel(&dist, tags, policy)`;
+   for a registry (PyPI) wheel this routes to `get_wheel` → `download_wheel`
+   ([`crates/uv-distribution/src/distribution_database.rs:124,185`](https://github.com/astral-sh/uv/blob/1e99086e645038804c3f479ef24cc50f4ec74a96/crates/uv-distribution/src/distribution_database.rs#L124)).
+3. `download_wheel` calls `cached_client().get_serde_with_retry(req, &http_entry, …, download)`.
+   The `download` closure is the **only** code that streams the wheel bytes
+   through `HashReader` to compute a hash
+   ([`distribution_database.rs:909–933`](https://github.com/astral-sh/uv/blob/1e99086e645038804c3f479ef24cc50f4ec74a96/crates/uv-distribution/src/distribution_database.rs#L909-L933)).
+4. On a cache hit, `get_cacheable` returns the `Archive` deserialized straight
+   from the `.http` sidecar and **never invokes the `download` closure**
+   ([`crates/uv-client/src/cached_client.rs:289–335`](https://github.com/astral-sh/uv/blob/1e99086e645038804c3f479ef24cc50f4ec74a96/crates/uv-client/src/cached_client.rs#L289-L335))
+   — so on a cache hit no wheel bytes are read or hashed.
+5. `download_wheel` then filters the cached archive: `archive.has_digests(hashes)`
+   and `archive.exists(cache)`
+   ([`distribution_database.rs:997–1003`](https://github.com/astral-sh/uv/blob/1e99086e645038804c3f479ef24cc50f4ec74a96/crates/uv-distribution/src/distribution_database.rs#L997-L1003)).
+   `has_digests` → `has_required_algorithms` is an **algorithm-name-only**
+   check (confirms a `sha256` entry exists, never compares the digest value);
+   `exists` only checks the unzipped directory is present. Neither reads
+   content.
+6. `Preparer` then checks `wheel.satisfies(policy)` → `HashPolicy::matches`
+   ([`preparer.rs:146`](https://github.com/astral-sh/uv/blob/1e99086e645038804c3f479ef24cc50f4ec74a96/crates/uv-installer/src/preparer.rs#L146),
+   [`uv-distribution-types/src/hash.rs:66–79`](https://github.com/astral-sh/uv/blob/1e99086e645038804c3f479ef24cc50f4ec74a96/crates/uv-distribution-types/src/hash.rs#L66-L79)).
+   This **does** compare full `(algorithm, digest)` values — but against
+   `archive.hashes`, which was read from the `.http` sidecar, not recomputed
+   from the wheel the build consumes.
+7. Install: `link_wheel_files` → `link_dir` clones/hardlinks/copies the
+   unzipped wheel from the cache into site-packages
+   ([`crates/uv-install-wheel/src/linker.rs:252–269`](https://github.com/astral-sh/uv/blob/1e99086e645038804c3f479ef24cc50f4ec74a96/crates/uv-install-wheel/src/linker.rs#L252-L269))
+   — **no hashing**. `validate_and_heal_record` runs only at cache-population
+   time, and its own comment states it does not validate content hashes
+   (*"It's not validated anyway (pip doesn't)"*).
 
-The second filter at first glance reads like the validation that would close
-the gap. It is not, because the digest values it compares are the values the
-sidecar advertised — not values recomputed from the wheel bytes the build
-actually consumes. The on-disk wheel is never re-hashed on the cache-hit
-path; the comparison reduces to "does the sidecar's hash match the
-lockfile's hash?", and an attacker who can write to `$UV_CACHE_DIR` writes
-both the wheel and the sidecar as a coherent pair.
+(The `file://`/path-wheel path, `load_wheel`, has the same shape via the
+`.rev` sidecar plus an mtime check; wrangle's PyPI dependencies take the
+registry path above.)
+
+**The unzipped cache is not content-addressed.** The bytes installed in step 7
+live in `archive-v0/<id>`, where `<id>` comes from `ArchiveId::new()` →
+`uv_fastid::Id::insecure()` — a **random** token, not a content hash. uv's own
+`persist` function carries the comment `// TODO(charlie): Support
+content-addressed persistence via SHAs`
+([`crates/uv-cache/src/lib.rs:386`](https://github.com/astral-sh/uv/blob/1e99086e645038804c3f479ef24cc50f4ec74a96/crates/uv-cache/src/lib.rs#L386)).
+`Archive::exists` checks only that the directory is present and a
+bucket-version integer matches
+([`crates/uv-distribution/src/archive.rs`](https://github.com/astral-sh/uv/blob/1e99086e645038804c3f479ef24cc50f4ec74a96/crates/uv-distribution/src/archive.rs)).
+There is no per-file manifest, signature, or MAC. Nothing relates the
+installed directory back to the verified download hash.
+
+**Consequence — the attacker need not touch the sidecar.** An earlier draft of
+this finding said the attacker must write "a coherent `(wheel, sidecar)`
+pair." That overstates the work required. The hash uv recorded is computed
+over the original *download stream*; the bytes that get *installed* are the
+*unzipped* directory addressed by a random id. The two are linked only at
+population time. An attacker with write access to `$UV_CACHE_DIR` overwrites
+files in the `archive-v0/<id>/` directory and touches **no sidecar and forges
+no hash** — `satisfies` still compares the untouched sidecar hash to the
+untouched lockfile hash and passes, while the install copies the poisoned
+directory.
 
 This is structurally the same shape as the pnpm-store cache-poisoning vector
-that #205 closed. If an attacker can write to `$UV_CACHE_DIR` between a prior
-build and a subsequent install, the subsequent install runs with the
-attacker's payload and trusts the attacker's pre-stored hash.
+that #205 closed, and the SLSA v1.2 threat (`threats.md`, "Poison the build
+cache") applies directly. There is no published CVE against uv, and uv does
+not treat this as a vulnerability: uv's
+[`SECURITY.md`](https://github.com/astral-sh/uv/blob/main/SECURITY.md)
+declares that executing arbitrary code (PEP 517 build backends, package code)
+is expected behavior, and uv's
+[cache documentation](https://docs.astral.sh/uv/concepts/cache/) discusses
+only operational safety (thread-safety, "never modify the cache directly"),
+never the cache as a security boundary. That is a deliberate design posture —
+the cache is trusted by its containing user account — but for SLSA L3 that
+posture is precisely the gap.
 
-The same SLSA v1.2 threat (`threats.md`, "Poison the build cache") applies.
-There is no published CVE against uv for this — Astral's design philosophy
-treats the cache as trusted by its containing user account — but for SLSA L3
-purposes that design choice is the gap.
-
-**Threat model — which class of cache poisoning this is.** Cache poisoning
-splits into two classes, and it is worth being precise about which one uv's
-cache hit falls into:
-
-1. **Non-content-addressed lookup.** The cache is keyed by a name an attacker
-   can predict (a package name, a layer cache key). The attacker stores a
-   malicious artifact under that key; a later build that looks up the same
-   key gets the malicious artifact. The attacker does not need to tamper with
-   an existing entry — populating or overwriting the key is enough.
-2. **Content-addressed lookup, but no re-verification at use.** The cache is
-   keyed by — or carries — a content hash. Getting a malicious artifact
-   accepted requires either breaking the hash (infeasible) or modifying the
-   cache's stored bytes *and* the stored hash together. If the tool verifies
-   the hash when the entry is *created* but not when it is *used*, an attacker
-   with write access to the cache storage can swap both the payload and the
-   recorded hash as a coherent pair, and the next use passes verification.
-
-uv's cache hit is class 2. The lookup is by package URL/version; the recorded
-hash lives in the sidecar; and — as traced above — the on-disk wheel is never
-re-hashed at use. So the attack reduces to one question: *can an attacker
-write a coherent `(wheel, sidecar)` pair into cache storage that another
-build will read from?*
+**Threat model — why the recorded hash provides no protection.** Cache
+poisoning generally requires one of: (1) a cache keyed by an
+attacker-predictable name, where merely populating the key is enough; or
+(2) a content-addressed cache that re-verifies at *creation* but not at *use*,
+where the attacker must swap the stored bytes and the stored hash together.
+uv's cache *looks* like case (2) — it records a hash — but is weaker in
+practice: the recorded hash is never bound to the bytes that get installed
+(the random-id-addressed unzipped directory), so the attacker does not even
+need to forge a matching hash. Overwriting the unzipped directory is
+sufficient, as traced above.
 
 **Is it fair to assume the attacker has that write access?** Yes — and the
 mechanism is the [GitHub Actions cache service](#cross-cutting-findings),
-not persistent-runner compromise. `astral-sh/setup-uv`'s cache integration
-saves `$UV_CACHE_DIR` to the GHA cache service at job end and restores it at
-job start. Any build that runs uv with caching enabled therefore has write
-access to the *shared* cache that later builds restore. An attacker who can
-run a build step at all — a malicious dependency lifecycle hook, a poisoned
-`pyproject.toml` build script, a malicious test, a build-tool exploit — can
-rewrite `$UV_CACHE_DIR` inside their own build; `setup-uv` then publishes the
-poisoned cache to the GHA cache service, and GHA's branch-scoped cache rules
-let later builds (including default-branch builds) restore it. This is the
+not persistent-runner compromise. There is **no privilege boundary inside a
+job**: every step, and every piece of code those steps invoke, runs as the
+same `runner` user with the same access to `$UV_CACHE_DIR`. Crucially,
+`uv run pytest` (wrangle's test step) imports and executes the project's
+*entire dependency tree*, and an sdist install runs that package's PEP 517
+build backend — all third-party code, running as `runner`. So write access to
+`$UV_CACHE_DIR` is not a privileged capability; it is held by every line of
+dependency code wrangle's own build runs. `astral-sh/setup-uv`'s cache
+integration then saves `$UV_CACHE_DIR` to the GHA cache service at job end and
+restores it at job start, so a poisoned cache from one build propagates to
+later builds. An attacker who can run a build step at all — a malicious
+dependency lifecycle hook, a poisoned `pyproject.toml` build script, a
+malicious test, a build-tool exploit — can rewrite `$UV_CACHE_DIR` inside
+their own build; `setup-uv` then publishes the poisoned cache, and GHA's
+branch-scoped cache rules govern which later builds restore it. This is the
 #205 pnpm vector exactly, and the mechanism in Adnan Khan's "Monsters in your
 build cache" research. The attacker never needs a persistent or self-hosted
 runner; the GHA cache service *is* the cross-build write channel.
+
+**Which later builds restore it — and the `pull_request_target` caveat.**
+GHA caches are branch-scoped: a run restores caches from its own ref, its base
+branch (for PRs), and the default branch. So an *ordinary* `pull_request`
+build's poisoned cache is scoped to `refs/pull/N/merge` and cannot reach a
+release build — the poisoning entry has to land in the **default-branch
+scope**, which normally means the planting build itself ran on the default
+branch (e.g., post-merge CI of a merged dependency change). **`pull_request_target`
+removes that caveat.** A `pull_request_target` (or `workflow_run`) workflow
+runs with `github.ref` set to the *base* branch, so its cache scope is the
+default branch — and if it executes any PR-controlled code or build inputs, an
+external attacker who never gets a PR merged can write straight into the
+default-branch cache scope a release build restores from. wrangle does not
+ship a `pull_request_target` workflow today; the exposure is an **adopter** who
+calls a wrangle reusable workflow from a `pull_request_target` context. See
+[cross-cutting findings](#cross-cutting-findings) and
+[Finding 1](#finding-1-uv-cache-integrity-gap-on-the-python-uv-sub-path).
 
 **What can prevent it, and what does SLSA L3 require?** SLSA v1.2's
 "Isolated" requirement is categorical: *"It MUST NOT be possible for one build
@@ -777,8 +822,13 @@ GitHub-side and is invisible to BuildKit.
 The SLSA v1.2 spec is explicit: *"the output of the build MUST be identical
 whether or not the cache is used."* For the current configuration, the output
 can differ if the cache is poisoned, and the poisoning conditions are
-reachable from contexts wrangle does not control (PR builds, feature branches,
-and — if wrangle ever ships a `pull_request_target` workflow — also that).
+reachable from contexts wrangle does not control (PR builds, feature
+branches). The exposure widens sharply if a `pull_request_target` (or
+`workflow_run`) workflow is in the picture: those run in the *base-branch*
+cache scope, so PR-controlled code can poison the default-branch scope
+directly. wrangle ships no such workflow, but an **adopter** who calls a
+wrangle reusable workflow from a `pull_request_target` context creates exactly
+that exposure — the adopter-facing docs must warn against it.
 
 **Comparison to upstream.** `slsa-github-generator`'s
 [`generator_container_slsa3.yml`](https://github.com/slsa-framework/slsa-github-generator/blob/main/.github/workflows/generator_container_slsa3.yml)
@@ -1297,11 +1347,30 @@ GitHub-hosted runners. uv's cache-hit code path trusts a pre-stored hash from a
 sidecar pointer file instead of re-hashing the cached file on disk, structurally
 matching the pnpm-store gap that #205 / #212 closed.
 
-**Severity.** Equivalent to #205 for the uv consumption path: a coherent
-(cache index, payload) pair injected into `~/.cache/uv` between builds yields
-attested-as-clean poisoned bytes. Requires write access to the cache
-directory between builds; on GitHub-hosted runners this requires a prior run's
-malicious step.
+**Severity — P2 / should-fix; a durable provenance-integrity gap, not a
+release RCE.** The precondition is code execution as `runner` in a build whose
+cache reaches a release build. That precondition is itself serious — code
+running in wrangle's build job can already tamper with the *current* release
+artifact directly (install, test, and `uv build` share one job). So in the
+base case the cache gap grants the attacker no new victims and no new code
+execution. Its *marginal* danger over direct tampering is specific: (1)
+**persistence** — the poison outlives both the ephemeral runner and the
+malicious dependency, lingering in the GHA cache service until the cache key
+changes or evicts; (2) **stealth** — it breaks the correspondence between the
+reviewed/attested inputs (`uv.lock`, SLSA provenance) and the bytes actually
+installed, so a low-profile package can poison a trusted pinned package's
+bytes while every diff, lockfile, and provenance still looks clean. Unlike a
+declared malicious dependency (which SLSA's threat model explicitly pushes to
+"apply SLSA recursively to dependencies"), this **is** a violation of L3's
+named cache-isolation requirement. Net: real and worth fixing, but it is not a
+critical release-compromise hole — the honest rating is P2.
+
+The "must reach the default-branch cache scope" caveat is load-bearing, and it
+is **removed** if a `pull_request_target` / `workflow_run` workflow is in play
+(see [the uv evidence section](#python-path-uv-sub-path)): that promotes the
+finding to a path an external, unmerged attacker can drive. wrangle ships no
+such workflow; adopters who do must not call wrangle's reusable workflows from
+that context.
 
 **Recommendation (preferred): release-vs-PR cache asymmetry.** See
 [Release-vs-PR build asymmetry](#release-vs-pr-build-asymmetry-a-structural-remediation-pattern).
@@ -1441,12 +1510,31 @@ All on the `releases/v1.2` branch of `slsa-framework/slsa`, accessed 2026-05-14:
 
 ### uv source verification
 
-All on `astral-sh/uv` `main` HEAD at audit time:
+All pinned to `astral-sh/uv` commit
+[`1e99086`](https://github.com/astral-sh/uv/tree/1e99086e645038804c3f479ef24cc50f4ec74a96)
+(2026-05-16):
 
-- [`crates/uv-installer/src/preparer.rs`](https://github.com/astral-sh/uv/blob/main/crates/uv-installer/src/preparer.rs)
-- [`crates/uv-distribution/src/distribution_database.rs`](https://github.com/astral-sh/uv/blob/main/crates/uv-distribution/src/distribution_database.rs)
-- [`crates/uv-distribution-types/src/hash.rs`](https://github.com/astral-sh/uv/blob/main/crates/uv-distribution-types/src/hash.rs)
-- [`crates/uv-distribution/src/index/built_wheel_index.rs`](https://github.com/astral-sh/uv/blob/main/crates/uv-distribution/src/index/built_wheel_index.rs)
+- [`crates/uv/src/commands/project/sync.rs`](https://github.com/astral-sh/uv/blob/1e99086e645038804c3f479ef24cc50f4ec74a96/crates/uv/src/commands/project/sync.rs)
+  — `uv sync` builds `HashStrategy` in `HashCheckingMode::Verify`.
+- [`crates/uv-installer/src/preparer.rs`](https://github.com/astral-sh/uv/blob/1e99086e645038804c3f479ef24cc50f4ec74a96/crates/uv-installer/src/preparer.rs)
+- [`crates/uv-distribution/src/distribution_database.rs`](https://github.com/astral-sh/uv/blob/1e99086e645038804c3f479ef24cc50f4ec74a96/crates/uv-distribution/src/distribution_database.rs)
+  — `get_wheel` / `download_wheel` / `load_wheel`; the `download` closure is
+  the only code that hashes wheel bytes.
+- [`crates/uv-client/src/cached_client.rs`](https://github.com/astral-sh/uv/blob/1e99086e645038804c3f479ef24cc50f4ec74a96/crates/uv-client/src/cached_client.rs)
+  — `get_cacheable`: a fresh-cache hit returns the sidecar `Archive` and never
+  invokes the download callback.
+- [`crates/uv-distribution-types/src/hash.rs`](https://github.com/astral-sh/uv/blob/1e99086e645038804c3f479ef24cc50f4ec74a96/crates/uv-distribution-types/src/hash.rs)
+  — `matches` (value comparison) vs `has_required_algorithms` (algorithm-only).
+- [`crates/uv-cache/src/lib.rs`](https://github.com/astral-sh/uv/blob/1e99086e645038804c3f479ef24cc50f4ec74a96/crates/uv-cache/src/lib.rs)
+  + [`crates/uv-cache/src/archive.rs`](https://github.com/astral-sh/uv/blob/1e99086e645038804c3f479ef24cc50f4ec74a96/crates/uv-cache/src/archive.rs)
+  — `persist`'s `TODO(charlie): Support content-addressed persistence via
+  SHAs`; `ArchiveId` is a random `uv_fastid::Id::insecure()`.
+- [`crates/uv-install-wheel/src/linker.rs`](https://github.com/astral-sh/uv/blob/1e99086e645038804c3f479ef24cc50f4ec74a96/crates/uv-install-wheel/src/linker.rs)
+  — `link_wheel_files` links/copies the unzipped wheel with no hashing.
+- [`crates/uv-distribution/src/index/built_wheel_index.rs`](https://github.com/astral-sh/uv/blob/1e99086e645038804c3f479ef24cc50f4ec74a96/crates/uv-distribution/src/index/built_wheel_index.rs)
+- uv's [`SECURITY.md`](https://github.com/astral-sh/uv/blob/main/SECURITY.md)
+  and [cache documentation](https://docs.astral.sh/uv/concepts/cache/) — no
+  treatment of the cache as a security boundary.
 
 ### BuildKit / containerd source verification
 
