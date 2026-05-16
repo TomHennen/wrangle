@@ -35,10 +35,6 @@ runs:
       run: |
         "$WRANGLE_ROOT/lib/tool_banner.sh" dependency-review
 
-    - name: Create wrangle output directory
-      shell: bash
-      run: mkdir -p "${GITHUB_WORKSPACE}/.wrangle/metadata/dependency-review"
-
     - name: Run Dependency Review
       id: depreview
       # continue-on-error so SARIF collection runs even when the upstream
@@ -51,42 +47,15 @@ runs:
         fail-on-severity: ${{ inputs.fail-on-severity }}
         comment-summary-in-pr: ${{ inputs.comment-summary-in-pr }}
 
-    - name: Convert vulnerable-changes to SARIF
+    - name: Collect dependency review output
       if: always()
       shell: bash
-      # Pass dep-review's JSON output through an env var, not a direct
-      # interpolation. Even though the output is action-generated (not
-      # attacker-controlled in the same way as inputs.*), the env-var
-      # pattern keeps the run: block free of expression interpolation
-      # and matches the rest of the repo.
+      # dep-review's vulnerable-changes output is routed through env: (not
+      # interpolated into the run: block). collect_outputs.sh converts it
+      # to SARIF + markdown in the wrangle metadata dir. Logic lives in the
+      # script, not inline here — see CLAUDE.md "Inline Shell".
       env:
         TOOL_DIR: ${{ github.action_path }}
         VULNERABLE_CHANGES: ${{ steps.depreview.outputs.vulnerable-changes }}
       run: |
-        set -euo pipefail
-        SARIF_DST="${GITHUB_WORKSPACE}/.wrangle/metadata/dependency-review/output.sarif"
-        # Write the (possibly empty) JSON to a temp file so the converter
-        # never reads from a CLI argument that could expand to glob/quoting hazards.
-        JSON_TMP="$(mktemp "${TMPDIR:-/tmp}/wrangle-depreview-XXXXXX.json")"
-        SARIF_TMP="$(mktemp "${TMPDIR:-/tmp}/wrangle-depreview-XXXXXX.sarif")"
-        trap 'rm -f "$JSON_TMP" "$SARIF_TMP"' EXIT
-        printf '%s' "${VULNERABLE_CHANGES:-[]}" > "$JSON_TMP"
-        # Atomic write: build SARIF in a temp file, mv on success. If the
-        # converter exits non-zero, the destination is left untouched
-        # (or absent), which causes the existing Check results step to
-        # treat the run as a tool failure rather than reading partial JSON.
-        "$TOOL_DIR/vulnerable_changes_to_sarif.sh" "$JSON_TMP" > "$SARIF_TMP"
-        mv "$SARIF_TMP" "$SARIF_DST"
-
-    - name: Generate human-readable output
-      if: always()
-      shell: bash
-      env:
-        WRANGLE_ROOT: ${{ github.action_path }}/../..
-      run: |
-        set -euo pipefail
-        SARIF="${GITHUB_WORKSPACE}/.wrangle/metadata/dependency-review/output.sarif"
-        MD="${GITHUB_WORKSPACE}/.wrangle/metadata/dependency-review/output.md"
-        if [[ -f "$SARIF" ]]; then
-          "$WRANGLE_ROOT/lib/sarif_to_md.sh" "$SARIF" > "$MD"
-        fi
+        "$TOOL_DIR/collect_outputs.sh" "${GITHUB_WORKSPACE}/.wrangle/metadata/dependency-review"

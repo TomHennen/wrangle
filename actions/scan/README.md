@@ -53,7 +53,20 @@ with:
 
 `dependency-review` only runs on `pull_request` events (the upstream action needs the PR diff). On `push` events it is silently skipped, the same way `scorecard` is silently skipped on PRs.
 
-The default severity threshold is `high` and PR comments are off. These knobs are exposed as inputs on `tools/dependency-review/action.yml` (`fail-on-severity`, `comment-summary-in-pr`) but `actions/scan/action.yml` does not currently forward them — adopters who need different thresholds either call `TomHennen/wrangle/tools/dependency-review@<sha>` directly in their own composite, or open an issue for `actions/scan` to expose passthrough inputs. The default severity (`high`) blocks high+critical advisories; lower severities are reported informationally via SARIF without failing the check.
+### Tuning dependency-review
+
+Two inputs control the `dependency-review` tool. They are forwarded through both `check_source_change.yml` and `actions/scan`:
+
+| Input | Default | Values | Effect |
+|-------|---------|--------|--------|
+| `dependency-review-fail-on-severity` | `high` | `low`, `moderate`, `high`, `critical` | Advisories at or above this severity block the PR; lower ones are reported via SARIF without failing the check. |
+| `dependency-review-comment-summary-in-pr` | `never` | `never`, `on-failure`, `always` | Whether dependency-review posts its summary as a PR comment. `on-failure`/`always` require the caller's job to also grant `pull-requests: write`. |
+
+```yaml
+uses: TomHennen/wrangle/.github/workflows/check_source_change.yml@<version>
+with:
+  dependency-review-fail-on-severity: moderate
+```
 
 ## What this composite does NOT do (yet)
 

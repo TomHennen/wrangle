@@ -3,7 +3,8 @@
 # Tests for tools/dependency-review/ (action pattern).
 #
 # Structural tests on action.yml plus unit tests on the
-# vulnerable_changes_to_sarif.sh converter using fixture JSON.
+# vulnerable_changes_to_sarif.sh converter and collect_outputs.sh
+# orchestration script, using fixture JSON.
 
 setup() {
     export ORIG_DIR="$(pwd)"
@@ -63,6 +64,18 @@ teardown() {
 
 @test "dependency-review: vulnerable_changes_to_sarif.sh exists and is executable" {
     [ -x "$TOOL_DIR/vulnerable_changes_to_sarif.sh" ]
+}
+
+@test "dependency-review: collect_outputs.sh exists and is executable" {
+    [ -x "$TOOL_DIR/collect_outputs.sh" ]
+}
+
+@test "dependency-review: action.yml delegates SARIF collection to a script, not inline shell" {
+    # Per CLAUDE.md, run: blocks with logic must be extracted to scripts.
+    # The collection step's run: block should be a single script call.
+    grep -q 'collect_outputs.sh' "$TOOL_DIR/action.yml"
+    # No conditionals/loops left inline in the action.
+    ! grep -Eq '^\s+(if|for|while) ' "$TOOL_DIR/action.yml"
 }
 
 @test "converter: empty array -> SARIF with zero results" {
@@ -236,4 +249,41 @@ EOF
     [ "$status" -eq 0 ]
     printf '%s' "$output" | jq -e '[.runs[].tool.driver.rules[]] | length == 1' >/dev/null
     printf '%s' "$output" | jq -e '[.runs[].results[]] | length == 2' >/dev/null
+}
+
+@test "collect_outputs: empty env -> output.sarif + output.md, zero results" {
+    META="$TMP_DIR/meta-empty"
+    VULNERABLE_CHANGES='' run "$TOOL_DIR/collect_outputs.sh" "$META"
+    [ "$status" -eq 0 ]
+    [ -f "$META/output.sarif" ]
+    [ -f "$META/output.md" ]
+    jq -e '[.runs[].results[]] | length == 0' "$META/output.sarif" >/dev/null
+}
+
+@test "collect_outputs: unset VULNERABLE_CHANGES treated as no findings" {
+    META="$TMP_DIR/meta-unset"
+    run "$TOOL_DIR/collect_outputs.sh" "$META"
+    [ "$status" -eq 0 ]
+    [ -f "$META/output.sarif" ]
+    jq -e '[.runs[].results[]] | length == 0' "$META/output.sarif" >/dev/null
+}
+
+@test "collect_outputs: real vulnerable change produces one SARIF result" {
+    META="$TMP_DIR/meta-vuln"
+    VC='[{"change_type":"added","manifest":"package.json","ecosystem":"npm","name":"x","version":"1","vulnerabilities":[{"severity":"high","advisory_ghsa_id":"GHSA-x","advisory_summary":"s","advisory_url":"https://example.com/a"}]}]'
+    VULNERABLE_CHANGES="$VC" run "$TOOL_DIR/collect_outputs.sh" "$META"
+    [ "$status" -eq 0 ]
+    jq -e '[.runs[].results[]] | length == 1' "$META/output.sarif" >/dev/null
+}
+
+@test "collect_outputs: malformed JSON exits 2 and writes no SARIF" {
+    META="$TMP_DIR/meta-bad"
+    VULNERABLE_CHANGES='not json' run "$TOOL_DIR/collect_outputs.sh" "$META"
+    [ "$status" -eq 2 ]
+    [ ! -f "$META/output.sarif" ]
+}
+
+@test "collect_outputs: usage error when metadata dir arg missing" {
+    run "$TOOL_DIR/collect_outputs.sh"
+    [ "$status" -eq 1 ]
 }

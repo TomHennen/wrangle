@@ -10,6 +10,21 @@ inputs:
       their uses: steps.
     required: false
     default: "osv zizmor scorecard:info dependency-review"
+  dependency-review-fail-on-severity:
+    description: >
+      Severity threshold for the dependency-review tool: advisories at
+      or above this level block the PR. One of: low, moderate, high,
+      critical. Only applies when dependency-review is in `tools`.
+    required: false
+    default: "high"
+  dependency-review-comment-summary-in-pr:
+    description: >
+      Whether dependency-review posts its summary as a PR comment:
+      never, on-failure, or always. on-failure/always require the
+      caller's job to also grant `pull-requests: write`. Only applies
+      when dependency-review is in `tools`.
+    required: false
+    default: "never"
 
 runs:
   using: "composite"
@@ -72,6 +87,9 @@ runs:
     - name: Dependency Review
       if: always() && contains(inputs.tools, 'dependency-review') && github.event_name == 'pull_request'
       uses: TomHennen/wrangle/tools/dependency-review@075238e9d9dc8b1548912e4b387d243674f47abf # claude/address-issue-209-X3JeP 2026-05-15
+      with:
+        fail-on-severity: ${{ inputs.dependency-review-fail-on-severity }}
+        comment-summary-in-pr: ${{ inputs.dependency-review-comment-summary-in-pr }}
 
     - name: Generate step summary
       if: always()
