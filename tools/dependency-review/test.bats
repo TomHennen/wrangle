@@ -251,6 +251,37 @@ EOF
     printf '%s' "$output" | jq -e '[.runs[].results[]] | length == 2' >/dev/null
 }
 
+@test "converter: change_type removed produces zero results (dropping a vuln dep must not block)" {
+    cat > "$TMP_DIR/in.json" <<'EOF'
+[
+  { "change_type": "removed", "manifest": "package.json", "ecosystem": "npm", "name": "old", "version": "1",
+    "vulnerabilities": [
+      { "severity": "high", "advisory_ghsa_id": "GHSA-rm", "advisory_summary": "r", "advisory_url": "u" }
+    ]
+  }
+]
+EOF
+    run "$TOOL_DIR/vulnerable_changes_to_sarif.sh" "$TMP_DIR/in.json"
+    [ "$status" -eq 0 ]
+    printf '%s' "$output" | jq -e '[.runs[].results[]] | length == 0' >/dev/null
+    printf '%s' "$output" | jq -e '[.runs[].tool.driver.rules[]] | length == 0' >/dev/null
+}
+
+@test "converter: missing change_type defaults to added (entry is converted)" {
+    cat > "$TMP_DIR/in.json" <<'EOF'
+[
+  { "manifest": "package.json", "ecosystem": "npm", "name": "p", "version": "1",
+    "vulnerabilities": [
+      { "severity": "high", "advisory_ghsa_id": "GHSA-noct", "advisory_summary": "s", "advisory_url": "u" }
+    ]
+  }
+]
+EOF
+    run "$TOOL_DIR/vulnerable_changes_to_sarif.sh" "$TMP_DIR/in.json"
+    [ "$status" -eq 0 ]
+    printf '%s' "$output" | jq -e '[.runs[].results[]] | length == 1' >/dev/null
+}
+
 @test "collect_outputs: empty env -> output.sarif + output.md, zero results" {
     META="$TMP_DIR/meta-empty"
     VULNERABLE_CHANGES='' run "$TOOL_DIR/collect_outputs.sh" "$META"

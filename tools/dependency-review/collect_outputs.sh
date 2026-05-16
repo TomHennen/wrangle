@@ -1,5 +1,6 @@
 #!/bin/bash
 set -euo pipefail
+set -f  # disable globbing — processes external tool output
 
 # collect_outputs.sh — produce wrangle metadata for the dependency-review tool.
 #
@@ -29,7 +30,9 @@ SARIF_DST="${METADATA_DIR}/output.sarif"
 MD_DST="${METADATA_DIR}/output.md"
 
 JSON_TMP="$(mktemp "${TMPDIR:-/tmp}/wrangle-depreview-XXXXXX.json")"
-SARIF_TMP="$(mktemp "${TMPDIR:-/tmp}/wrangle-depreview-XXXXXX.sarif")"
+# SARIF_TMP is created inside METADATA_DIR (not $TMPDIR) so the final mv
+# is a same-filesystem rename — atomic, never a cross-device copy.
+SARIF_TMP="$(mktemp "${METADATA_DIR}/.output.sarif.XXXXXX")"
 trap 'rm -f "$JSON_TMP" "$SARIF_TMP"' EXIT
 
 # dep-review's vulnerable-changes output; empty when the action did not

@@ -36,8 +36,13 @@ Severity mapping:
 | moderate | warning | 5.0 |
 | low | note | 2.5 |
 
+With the default `fail-on-severity: high`, the upstream action only emits `high` / `critical` advisories, so in practice only the `error`-level rows occur; the `moderate` / `low` rows apply when an adopter lowers `fail-on-severity`. Either way, every advisory that reaches the converter blocks the PR — the SARIF `level` affects only how the GitHub Security tab renders a finding, not the `check_results.sh` gate.
+
+Only `change_type: "added"` entries are converted. A `"removed"` entry means the PR drops a vulnerable dependency, which must not block the PR.
+
 ## Known limitations
 
 - The `continue-on-error: true` on the upstream step is required so the SARIF collection step runs even when dep-review exits non-zero on findings. `lib/check_results.sh` is the actual pass/fail gate via the produced SARIF.
 - License-policy findings (`invalid-license-changes`) and denied-package findings (`denied-changes`) are **not** currently converted to SARIF. Only `vulnerable-changes` flow into `output.sarif`. Adopters relying on license / deny-list policies should rely on the upstream action's own failure exit code; the wrangle wrapper preserves that exit semantics via `lib/check_results.sh` only for vulnerability findings.
 - The upstream action calls the GitHub Dependency Review API, which requires the PR's diff to be reachable. Forks of repositories that disable the GitHub Dependency Graph will not get useful output.
+- **A tool error fails open.** `continue-on-error: true` on the upstream step means an error (Dependency Review API unavailable, Dependency Graph disabled, network failure) produces an empty `vulnerable-changes` output — indistinguishable from "no vulnerable changes". The result is an empty SARIF and a passing `check_results.sh` gate, so a dep-review *failure* does not block a PR. This matches `zizmor`'s current behavior; tracked for a consistent cross-tool fix in [#222](https://github.com/TomHennen/wrangle/issues/222).

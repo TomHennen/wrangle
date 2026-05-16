@@ -59,7 +59,7 @@ Two inputs control the `dependency-review` tool. They are forwarded through both
 
 | Input | Default | Values | Effect |
 |-------|---------|--------|--------|
-| `dependency-review-fail-on-severity` | `high` | `low`, `moderate`, `high`, `critical` | Advisories at or above this severity block the PR; lower ones are reported via SARIF without failing the check. |
+| `dependency-review-fail-on-severity` | `high` | `low`, `moderate`, `high`, `critical` | The upstream action only reports advisories at or above this severity. Every advisory it reports becomes a SARIF finding and blocks the PR. Lower-severity advisories are filtered out by the upstream action and do not appear in wrangle's output at all. |
 | `dependency-review-comment-summary-in-pr` | `never` | `never`, `on-failure`, `always` | Whether dependency-review posts its summary as a PR comment. `on-failure`/`always` require the caller's job to also grant `pull-requests: write`. |
 
 ```yaml

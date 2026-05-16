@@ -1,5 +1,6 @@
 #!/bin/bash
 set -euo pipefail
+set -f  # disable globbing — processes external tool output
 
 # Convert actions/dependency-review-action's `vulnerable-changes` JSON
 # output into SARIF 2.1.0. Each (change, vulnerability) pair becomes one
@@ -63,6 +64,9 @@ fi
 #     output is surfaced rather than silently mapped to a high level.
 #   - rules: one per unique GHSA id
 #   - results: one per (change, vulnerability)
+#   - only change_type "added" entries are converted. A "removed"
+#     entry means the PR drops a vulnerable dependency — that must not
+#     block the PR. A missing change_type defaults to "added".
 # Empty advisory_url / advisory_summary are omitted (SARIF requires
 # helpUri to be a valid URI when present; empty strings fail strict
 # validators).
@@ -84,7 +88,8 @@ SARIF_FILTER='
     else "0.0"
     end;
 
-  [ .[] as $c
+  [ .[]
+    | select((.change_type // "added") == "added") as $c
     | ($c.vulnerabilities // [])[]
     | {change: $c, vuln: .}
   ] as $pairs
