@@ -10,7 +10,20 @@ on:
         default: "osv zizmor scorecard:info dependency-review"
 
 jobs:
+  # Refuse trigger patterns known to expose this workflow to supply-chain
+  # attack classes (pull_request_target, workflow_run via pull_request_target).
+  # The guard MUST stay first under `jobs:`; every other job lists `guard`
+  # in its `needs:` so a refused invocation skips the entire workflow.
+  # Full trigger contract: docs/SPEC.md#trigger-model.
+  guard:
+    runs-on: ubuntu-latest
+    permissions: {}    # reads env only — no workspace, no API, no secrets
+    steps:
+      # TODO: replace with $/actions/preflight_guard when GitHub ships $/ syntax (#136)
+      - uses: TomHennen/wrangle/actions/preflight_guard@2baa1821b4dea1c93faeb6b2b8adad8f5be50f9f # claude/202-refuse-pull-request-target 2026-05-17
+
   check-change:
+    needs: [guard]
     permissions:
       actions: read
       contents: read
@@ -25,6 +38,6 @@ jobs:
       # action-pattern tools (zizmor, scorecard) via uses: internally.
       # TODO: replace with $/actions/scan when GitHub ships $/ syntax (#136)
       - name: Source scan
-        uses: TomHennen/wrangle/actions/scan@075238e9d9dc8b1548912e4b387d243674f47abf # claude/address-issue-209-X3JeP 2026-05-15
+        uses: TomHennen/wrangle/actions/scan@2baa1821b4dea1c93faeb6b2b8adad8f5be50f9f # claude/202-refuse-pull-request-target 2026-05-17
         with:
           tools: ${{ inputs.tools }}

@@ -68,7 +68,22 @@ on:
         value: ${{ jobs.gate.outputs.should-release }}
 
 jobs:
+  # Refuse trigger patterns known to expose this workflow to supply-chain
+  # attack classes (pull_request_target, workflow_run via pull_request_target).
+  # The guard MUST stay first under `jobs:`; every other job lists `guard`
+  # in its `needs:` so a refused invocation skips the entire workflow —
+  # critical for the container build type, whose docker push happens
+  # mid-composite (no verify step could roll back a pushed image).
+  # Full trigger contract: docs/SPEC.md#trigger-model.
+  guard:
+    runs-on: ubuntu-latest
+    permissions: {}    # reads env only — no workspace, no API, no secrets
+    steps:
+      # TODO: replace with $/actions/preflight_guard when GitHub ships $/ syntax (#136)
+      - uses: TomHennen/wrangle/actions/preflight_guard@2baa1821b4dea1c93faeb6b2b8adad8f5be50f9f # claude/202-refuse-pull-request-target 2026-05-17
+
   gate:
+    needs: [guard]
     runs-on: ubuntu-latest
     permissions: {}    # release_gate reads only env; no workspace, no API
     outputs:
@@ -76,12 +91,13 @@ jobs:
     steps:
       # No checkout: release_gate resolves via ${{ github.action_path }}.
       # TODO: replace with $/actions/release_gate when GitHub ships $/ syntax (#136)
-      - uses: TomHennen/wrangle/actions/release_gate@184105530fd123a7e93eaa7c39f03dc2758a07d9 # main 2026-05-15
+      - uses: TomHennen/wrangle/actions/release_gate@2baa1821b4dea1c93faeb6b2b8adad8f5be50f9f # claude/202-refuse-pull-request-target 2026-05-17
         id: gate
         with:
           events: ${{ inputs.release-events }}
 
   build:
+    needs: [guard]
     permissions:
       contents: read
       packages: write
@@ -94,7 +110,7 @@ jobs:
     # TODO: replace with $/build/actions/container when GitHub ships $/ syntax (#136)
     - name: "build and publish"
       id: build
-      uses: TomHennen/wrangle/build/actions/container@184105530fd123a7e93eaa7c39f03dc2758a07d9 # main 2026-05-15
+      uses: TomHennen/wrangle/build/actions/container@2baa1821b4dea1c93faeb6b2b8adad8f5be50f9f # claude/202-refuse-pull-request-target 2026-05-17
       with:
         path: ${{ inputs.path }}
         imagename: ${{ inputs.imagename }}
@@ -105,7 +121,7 @@ jobs:
     # Gated on release-events (default: non-pull-request) so adopters can
     # tighten when provenance is produced without forking the workflow.
     if: ${{ needs.gate.outputs.should-release == 'true' }}
-    needs: [gate, build]
+    needs: [guard, gate, build]
     permissions:
       actions: read # for detecting the Github Actions environment.
       id-token: write # for creating OIDC tokens for signing.
@@ -138,7 +154,7 @@ jobs:
   # Tests assert the lockstep so a single-side bump fails CI loudly.
   verify:
     if: ${{ needs.gate.outputs.should-release == 'true' && inputs.verify-image }}
-    needs: [gate, build, provenance]
+    needs: [guard, gate, build, provenance]
     runs-on: ubuntu-latest
     # No registry credentials needed: cosign verify-attestation against
     # ghcr.io public images works anonymously, and the SLSA attestation
