@@ -96,8 +96,11 @@ setup() {
     [[ "$status" -eq 1 ]]
 }
 
-@test "python: validate_inputs.sh disables globbing via lib/validate_path.sh" {
-    # External input flows through validate_path.sh; CLAUDE.md requires set -f there.
+@test "python: validate_inputs.sh and validate_path.sh disable globbing with set -f" {
+    # Both process external input (validate_inputs.sh now also takes the
+    # cache arg); CLAUDE.md requires set -f in scripts that do.
+    run grep '^set -f' "$ACTION_DIR/validate_inputs.sh"
+    [[ "$status" -eq 0 ]]
     run grep '^set -f' "$REPO_ROOT/lib/validate_path.sh"
     [[ "$status" -eq 0 ]]
 }
@@ -144,9 +147,11 @@ setup() {
 }
 
 @test "python: action.yml gates setup-uv enable-cache on the cache input" {
-    # setup-uv's enable-cache must be conditional on inputs.cache so a
-    # release build (cache: disabled) passes enable-cache: false.
-    run grep -E 'enable-cache:.*inputs\.cache' "$ACTION"
+    # Pin the full expression — operator and operand. A loose
+    # 'mentions inputs.cache' regex would still pass if the condition
+    # were inverted (== instead of !=), which turns the uv cache ON for
+    # release builds: the exact Build L3 downgrade this gating prevents.
+    run grep -F "enable-cache: \${{ inputs.cache != 'disabled' }}" "$ACTION"
     [[ "$status" -eq 0 ]]
 }
 

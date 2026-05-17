@@ -8,6 +8,7 @@
 # Usage: build/actions/python/validate_inputs.sh <path> <cache>
 
 set -euo pipefail
+set -f  # disable globbing — processes external input
 
 if [[ $# -ne 2 ]]; then
     printf 'Usage: %s <path> <cache>\n' "$0" >&2

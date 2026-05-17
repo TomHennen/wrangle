@@ -36,6 +36,15 @@ adopter consuming wrangle through one of wrangle's **reusable workflows**:
     `npm ci` is the command wrangle invokes, so the precondition holds
     by-construction; full detail at [npm path (npm sub-path)](#npm-path-npm-sub-path).
 
+> **Update — 2026-05-17.** Findings 1 and 2 are now **resolved** by
+> [PR #226](https://github.com/TomHennen/wrangle/pull/226) (issue
+> [#224](https://github.com/TomHennen/wrangle/issues/224)): the python-uv and
+> container reusable workflows disable their shared caches for release builds,
+> so **both paths now meet Build L3**. The "Build L2 today" rows above are the
+> point-in-time verdict at the audit date (commit `a84c855`); the "After
+> follow-up fix" column is now the live state. The per-builder analysis below
+> is kept as the historical record of why the fix was needed.
+
 Two caveats narrow every Build L3 row above:
 
 - **Direct composite consumption is not a supported L3 path.** Calling the
@@ -1385,6 +1394,12 @@ contract of #216.
 
 ### Finding 1: uv cache integrity gap on the python uv sub-path
 
+> **Resolved by [PR #226](https://github.com/TomHennen/wrangle/pull/226).**
+> The python reusable workflow now passes `cache=disabled` to the build
+> composite on release builds, which sets `astral-sh/setup-uv`'s
+> `enable-cache: false` — the preferred option (1) below. The analysis that
+> follows is retained as the historical record of the gap.
+
 **Summary.** `astral-sh/setup-uv@v8.1.0` is invoked at
 [`build/actions/python/action.yml:69–71`](../build/actions/python/action.yml)
 without `enable-cache: false`, so the uv cache is enabled by default on
@@ -1434,6 +1449,12 @@ builds; protection is conditional on `$RUNNER_TEMP` ephemerality. Spawn a
 follow-up issue tracking whichever path is chosen.
 
 ### Finding 2: BuildKit GHA cache integrity gap on the container path
+
+> **Resolved by [PR #226](https://github.com/TomHennen/wrangle/pull/226).**
+> The container reusable workflow now passes `cache=disabled` to the build
+> composite on release builds, which drops `cache-from`/`cache-to` from the
+> `docker/build-push-action` step — the preferred recommendation below. The
+> analysis that follows is retained as the historical record of the gap.
 
 **Summary.** [`build/actions/container/action.yml:89–90`](../build/actions/container/action.yml)
 sets `cache-from: type=gha` and `cache-to: type=gha,mode=max`. BuildKit

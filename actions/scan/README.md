@@ -6,7 +6,7 @@ Run wrangle's bundled source-stage security scanners (OSV-Scanner, Zizmor, Score
 
 ## Why pair this with a build/publish workflow
 
-Wrangle's build/publish workflows produce signed SLSA L3 provenance over the bytes they ship. That provenance attests *how* the build happened — but it does not attest that the source was trustworthy. The May 2026 Mini Shai-Hulud compromise of TanStack/router illustrates the gap: a `pull_request_target` workflow with checkout of PR-head SHA let attacker code execute in the privileged base context, poison the GitHub Actions cache, and pollute legitimate downstream builds with malicious modules. The build was honest; the attestation was honest; the source side was the gap.
+Wrangle's build/publish workflows produce signed SLSA provenance (Build L3) over the bytes they ship. That provenance attests *how* the build happened — but it does not attest that the source was trustworthy. The May 2026 Mini Shai-Hulud compromise of TanStack/router illustrates the gap: a `pull_request_target` workflow with checkout of PR-head SHA let attacker code execute in the privileged base context, poison the GitHub Actions cache, and pollute legitimate downstream builds with malicious modules. The build was honest; the attestation was honest; the source side was the gap.
 
 This scan composite closes that gap on every PR and push to main:
 

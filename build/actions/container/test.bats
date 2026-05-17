@@ -97,11 +97,13 @@ teardown() {
 }
 
 @test "container: action.yml gates cache-from/cache-to on the cache input" {
-    # Both BuildKit cache keys must be conditional on inputs.cache so a
-    # release build (cache: disabled) emits no type=gha cache.
-    run grep -E 'cache-from:.*inputs\.cache' "$ACTION_DIR/action.yml"
+    # Pin the full expression — operator and operands. A loose
+    # 'mentions inputs.cache' regex would still pass if the condition
+    # were inverted (!= instead of ==), which turns caching ON for
+    # release builds: the exact Build L3 downgrade this gating prevents.
+    run grep -F "cache-from: \${{ inputs.cache == 'enabled' && 'type=gha' || '' }}" "$ACTION_DIR/action.yml"
     [[ "$status" -eq 0 ]]
-    run grep -E 'cache-to:.*inputs\.cache' "$ACTION_DIR/action.yml"
+    run grep -F "cache-to: \${{ inputs.cache == 'enabled' && 'type=gha,mode=max' || '' }}" "$ACTION_DIR/action.yml"
     [[ "$status" -eq 0 ]]
     # The unconditional type=gha cache config must be gone.
     run grep -E '^[[:space:]]+cache-from:[[:space:]]*type=gha[[:space:]]*$' "$ACTION_DIR/action.yml"
