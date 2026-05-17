@@ -15,6 +15,45 @@ spec quote points at a URL on the SLSA `releases/v1.2` branch so future readers
 do not have to re-do the lookup. Every wrangle claim points at `file:line` so
 future readers can independently re-verify.
 
+## Bottom line: per-builder Build Track level today
+
+Wrangle's adopter-facing docs should claim exactly one Build Track level per
+workflow — **Build L2** or **Build L3** — and nothing finer-grained. This
+audit's per-builder verdicts translate to that vocabulary as follows, for an
+adopter consuming wrangle through one of wrangle's **reusable workflows**:
+
+| Builder | Build Track level today | After follow-up fix |
+|---|---|---|
+| npm path (npm sub-path) | **Build L3** [^npmci] | — |
+| npm path (pnpm sub-path) | **Build L3** | — |
+| python path (pip sub-path) | **Build L3** | — |
+| python path (uv sub-path) | **Build L2** | Build L3 (Finding 1) |
+| container path | **Build L2** | Build L3 (Finding 2) |
+| shell path | **N/A** — no provenance produced | — |
+
+[^npmci]: Conditional on the install command being `npm ci`, which re-verifies
+    each cached tarball's SHA against `package-lock.json` on every install.
+    `npm ci` is the command wrangle invokes, so the precondition holds
+    by-construction; full detail at [npm path (npm sub-path)](#npm-path-npm-sub-path).
+
+Two caveats narrow every Build L3 row above:
+
+- **Direct composite consumption is not a supported L3 path.** Calling the
+  `build/actions/<type>` composites directly from an adopter-authored job
+  forfeits the build-vs-sign job separation; see
+  [Direct composite consumption](#direct-composite-consumption-not-a-supported-l3-path).
+- **Self-hosted runners invalidate these verdicts.** Every level call above
+  assumes GitHub-hosted runners; see [cross-cutting finding 4](#cross-cutting-findings).
+
+The rest of this document is the per-builder analysis behind those level
+calls. It uses two pieces of **internal analytical shorthand** —
+*L3-for-signing* (SLSA's "Provenance is Unforgeable") and
+*L3-for-build-platform* (SLSA's "Isolated") — to discuss the two L3
+requirements separately, because the per-builder gaps live entirely in the
+second. That shorthand is a tool for this audit only; **wrangle's
+user-facing docs do not use it** and should make a single Build L2 / Build L3
+claim per workflow (tracked as a [follow-up issue](#findings-and-recommendations)).
+
 ## Contents
 
 1. [Why this audit exists](#why-this-audit-exists)
@@ -138,10 +177,14 @@ built image. None of these are services *the build* opens; they are clients
 of services the dependency ecosystem or adopter-configured registry opens.
 The `externalParameters` carve-out is therefore not needed and not used.
 
-When wrangle's docs say "SLSA L3 provenance," they correctly describe the
-*signing-side* property. They do **not**, by themselves, claim L3-for-build-platform
-conformance. A reader who skims and conflates the two is misled — hence the
-adopter-facing framing tweak in [`docs/SPEC.md`](./SPEC.md#slsa-l3-claims-what-wrangle-asserts).
+When wrangle's docs today say "SLSA L3 provenance," that phrasing describes
+the *signing-side* property and does **not**, by itself, establish
+L3-for-build-platform conformance. A reader who skims and conflates the two
+is misled. The audit's recommended fix is **not** to teach adopters this
+two-halves distinction — it is for wrangle's user-facing docs to drop the
+unqualified "SLSA L3 provenance" phrasing and instead claim a single Build
+Track level per workflow, exactly as the [bottom-line table](#bottom-line-per-builder-build-track-level-today)
+above does (a [follow-up issue](#findings-and-recommendations)).
 
 ## The SLSA v1.2 L3 isolation requirement, verbatim
 
@@ -1456,9 +1499,17 @@ issue; treat it on par with Finding 1 and Finding 2 in priority despite the
 
 In addition to these three findings, the audit recommends:
 
-- A short framing section in [`docs/SPEC.md`](./SPEC.md#slsa-l3-claims-what-wrangle-asserts)
-  distinguishing **L3-for-signing** from **L3-for-build-platform**, with a
-  pointer to this audit.
+- **A single Build Track level claim per workflow in wrangle's user-facing
+  docs.** `docs/SPEC.md` and the build-type READMEs currently say "SLSA L3
+  provenance" unqualified, which conflates the signing-side property with
+  build-platform isolation. The audit recommends *against* exposing the
+  two-halves distinction to adopters — it is confusing — and instead
+  recommends that each workflow claim exactly **Build L2** or **Build L3**
+  per the [bottom-line table](#bottom-line-per-builder-build-track-level-today).
+  Under that vocabulary the container and python-uv workflows are Build L2
+  today and reach Build L3 once Findings 2 and 1 land. This audit does not
+  produce that doc change; spawn a doc-only issue covering `docs/SPEC.md`
+  and every README that asserts an "L3" claim.
 - A loud, explicit warning in build-type READMEs that wrangle's L3 guarantee
   is contingent on **reusable consumption** (calling wrangle's reusable
   workflow) and that **direct consumption** (calling the `build/actions/<type>`

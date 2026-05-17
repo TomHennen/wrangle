@@ -43,31 +43,6 @@ Wrangle covers the entire path from source to published artifact. Each stage has
 | **Publish** | Push artifact to registry, sign with Cosign | `build_and_publish_*.yml` | v0.1 (container) |
 | **Verify** | Generate SLSA L3 build provenance, verify attestations against policy (Ampel) | `build_and_publish_*.yml` / future | v0.1 (provenance), v0.2 (policy) |
 
-### SLSA L3 claims: what wrangle asserts
-
-When wrangle's documentation says "SLSA L3 provenance," that refers to the
-provenance attestation produced by `slsa-framework/slsa-github-generator`
-when wrangle's reusable workflows invoke it. SLSA v1.2 Build L3 has two
-related but distinct halves, and adopters benefit from the distinction:
-
-- **L3-for-signing (Provenance is Unforgeable).** The signing identity is
-  unreachable from the user-controlled build steps; provenance fields are
-  generated in the generator's trusted control plane. Wrangle satisfies this
-  by-construction by invoking `generator_generic_slsa3.yml` from a separate
-  job with `id-token: write` and `contents: write`, while the build composite
-  runs in a different job with only `contents: read`.
-- **L3-for-build-platform (Isolated).** The build environment producing the
-  bytes the generator signs over must itself be isolated — no cache poisoning,
-  no cross-build influence, no persistent state from a prior build. Wrangle's
-  composites determine this property per builder, and the situation differs
-  by build type. The full per-builder analysis lives in
-  [`SLSA_L3_AUDIT.md`](./SLSA_L3_AUDIT.md).
-
-When wrangle's READMEs say a build type produces SLSA L3 provenance, they
-correctly describe the signing-side property. The build-platform side is
-audited per-builder in `SLSA_L3_AUDIT.md`; consult it before claiming the
-"L3" badge for a specific build type means more than signing-side L3.
-
 ### What adopters get today (container project example)
 
 With two workflow files, a container project gets:
