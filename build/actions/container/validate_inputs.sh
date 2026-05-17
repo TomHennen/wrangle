@@ -7,20 +7,32 @@
 # imagename are checked here against narrow allowlists because they
 # are container-specific.
 #
-# Usage: build/actions/container/validate_inputs.sh <path> <registry> <imagename>
+# Usage: build/actions/container/validate_inputs.sh <path> <registry> <imagename> <cache>
 
 set -euo pipefail
 set -f  # disable globbing — processes external input
 
-if [[ $# -ne 3 ]]; then
-    printf 'Usage: %s <path> <registry> <imagename>\n' "$0" >&2
+if [[ $# -ne 4 ]]; then
+    printf 'Usage: %s <path> <registry> <imagename> <cache>\n' "$0" >&2
     exit 1
 fi
 
 INPUT_PATH="$1"
 INPUT_REGISTRY="$2"
 INPUT_IMAGENAME="$3"
+INPUT_CACHE="$4"
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+
+# Reject any cache value that is not the exact enabled|disabled allowlist.
+# This is load-bearing for SLSA L3: the reusable workflow passes
+# cache=disabled for release builds, and a typo there must fail the build
+# loudly rather than silently leave the BuildKit cache on (which would
+# downgrade the release build from Build L3 to Build L2). See
+# docs/SLSA_L3_AUDIT.md Finding 2.
+if [[ ! "$INPUT_CACHE" =~ ^(enabled|disabled)$ ]]; then
+    printf 'Error: invalid cache value: %s (expected "enabled" or "disabled")\n' "$INPUT_CACHE" >&2
+    exit 1
+fi
 
 "$SCRIPT_DIR/../../../lib/validate_path.sh" "$INPUT_PATH"
 

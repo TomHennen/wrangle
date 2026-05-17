@@ -102,6 +102,54 @@ setup() {
     [[ "$status" -eq 0 ]]
 }
 
+# --- Cache gating (SLSA L3 isolation, #224 / SLSA_L3_AUDIT.md Finding 1) ---
+
+@test "python: validate_inputs.sh accepts cache=enabled and cache=disabled" {
+    # validate_path.sh rejects absolute paths, so use a relative project
+    # dir: cd into a temp dir and pass the relative subdir name.
+    local tmp
+    tmp="$(mktemp -d)"
+    mkdir -p "$tmp/proj"
+    printf '[project]\nname = "x"\nversion = "0"\n' > "$tmp/proj/pyproject.toml"
+    cd "$tmp"
+    run "$ACTION_DIR/validate_inputs.sh" "proj" "enabled"
+    [[ "$status" -eq 0 ]]
+    run "$ACTION_DIR/validate_inputs.sh" "proj" "disabled"
+    [[ "$status" -eq 0 ]]
+    rm -rf "$tmp"
+}
+
+@test "python: validate_inputs.sh rejects an invalid cache value" {
+    # A typo must fail loudly — silently leaving the uv cache on would
+    # downgrade a release build from Build L3 to Build L2.
+    run "$ACTION_DIR/validate_inputs.sh" "." "enabledd"
+    [[ "$status" -ne 0 ]]
+    [[ "$output" == *"invalid cache value"* ]]
+}
+
+@test "python: validate_inputs.sh rejects a missing cache argument" {
+    run "$ACTION_DIR/validate_inputs.sh" "."
+    [[ "$status" -ne 0 ]]
+    [[ "$output" == *"Usage:"* ]]
+}
+
+@test "python: action.yml exposes a cache input" {
+    run grep -E '^  cache:' "$ACTION"
+    [[ "$status" -eq 0 ]]
+}
+
+@test "python: action.yml passes cache to validate_inputs.sh" {
+    run grep -E 'validate_inputs.sh.*INPUT_CACHE' "$ACTION"
+    [[ "$status" -eq 0 ]]
+}
+
+@test "python: action.yml gates setup-uv enable-cache on the cache input" {
+    # setup-uv's enable-cache must be conditional on inputs.cache so a
+    # release build (cache: disabled) passes enable-cache: false.
+    run grep -E 'enable-cache:.*inputs\.cache' "$ACTION"
+    [[ "$status" -eq 0 ]]
+}
+
 # --- Reusable workflow structural tests ---
 
 @test "python: workflow exists" {
@@ -141,6 +189,18 @@ setup() {
     run grep -E '^  gate:' "$WORKFLOW"
     [[ "$status" -eq 0 ]]
     run grep -E 'TomHennen/wrangle/actions/release_gate' "$WORKFLOW"
+    [[ "$status" -eq 0 ]]
+}
+
+@test "python: build job needs gate so it can read should-release" {
+    run bash -c "sed -n '/^  build:/,/^  [a-z]/p' \"$WORKFLOW\" | grep -E 'needs:.*gate'"
+    [[ "$status" -eq 0 ]]
+}
+
+@test "python: reusable workflow disables the uv cache for release builds" {
+    # The composite's cache input must be driven by should-release:
+    # 'disabled' on release, 'enabled' otherwise (SLSA_L3_AUDIT Finding 1).
+    run bash -c "grep -E \"cache:.*should-release.*'disabled'.*'enabled'\" \"$WORKFLOW\""
     [[ "$status" -eq 0 ]]
 }
 

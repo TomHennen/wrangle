@@ -19,6 +19,31 @@ inputs:
     description: "Whether to run pytest before building"
     required: false
     default: "true"
+  cache:
+    description: |
+      Whether the uv dependency cache (astral-sh/setup-uv's enable-cache)
+      is used on the uv sub-path. "enabled" (default) lets setup-uv restore
+      and save the shared uv cache; "disabled" passes enable-cache: false
+      so uv downloads every dependency fresh. Validated against the
+      enabled|disabled allowlist by validate_inputs.sh — any other value
+      fails the build.
+
+      This input only affects the uv sub-path (a project with uv.lock).
+      The pip sub-path never opts into actions/setup-python's cache, so
+      this input is a no-op there.
+
+      The reusable workflow (build_and_publish_python.yml) sets this to
+      "disabled" for release builds and "enabled" for PR builds. uv does
+      not re-verify cached files against the lockfile on cache hits, and
+      the uv cache is shared cross-build via GitHub's cache service, so a
+      release build that consumed it could attest poisoned bytes.
+      Disabling the cache for release builds keeps the uv path at SLSA
+      v1.2 Build L3 — see docs/SLSA_L3_AUDIT.md Finding 1.
+
+      Direct callers of this composite (not a supported L3 path) get
+      caching by default; they are not claiming L3 provenance.
+    required: false
+    default: "enabled"
 
 outputs:
   version:
@@ -41,9 +66,10 @@ runs:
       shell: bash
       env:
         INPUT_PATH: ${{ inputs.path }}
+        INPUT_CACHE: ${{ inputs.cache }}
       run: |
         set -euo pipefail
-        "${{ github.action_path }}/validate_inputs.sh" "$INPUT_PATH"
+        "${{ github.action_path }}/validate_inputs.sh" "$INPUT_PATH" "$INPUT_CACHE"
 
     - name: Setup Python
       uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5.6.0
@@ -69,6 +95,14 @@ runs:
     - name: Install uv
       if: steps.tooling.outputs.use_uv == 'true'
       uses: astral-sh/setup-uv@08807647e7069bb48b6ef5acd8ec9567f424441b # v8.1.0
+      with:
+        # Release builds (cache: disabled) pass enable-cache: false so the
+        # build consumes no shared uv cache — uv does not re-hash cached
+        # files on cache hits, so a poisoned entry could be attested.
+        # See docs/SLSA_L3_AUDIT.md Finding 1. validate_inputs.sh constrains
+        # `cache` to enabled|disabled, so this resolves to exactly
+        # true or false.
+        enable-cache: ${{ inputs.cache != 'disabled' }}
 
     - name: Install dependencies
       shell: bash

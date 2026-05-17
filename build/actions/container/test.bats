@@ -32,35 +32,94 @@ teardown() {
 }
 
 @test "container: validate_inputs.sh rejects absolute path" {
-    run "$ACTION_DIR/validate_inputs.sh" "/etc" "ghcr.io" "ghcr.io/owner/img"
+    run "$ACTION_DIR/validate_inputs.sh" "/etc" "ghcr.io" "ghcr.io/owner/img" "enabled"
     [[ "$status" -ne 0 ]]
     [[ "$output" == *"path must be relative"* ]]
 }
 
 @test "container: validate_inputs.sh rejects traversal" {
-    run "$ACTION_DIR/validate_inputs.sh" "../etc" "ghcr.io" "ghcr.io/owner/img"
+    run "$ACTION_DIR/validate_inputs.sh" "../etc" "ghcr.io" "ghcr.io/owner/img" "enabled"
     [[ "$status" -ne 0 ]]
     [[ "$output" == *"traversal"* ]]
 }
 
 @test "container: validate_inputs.sh rejects bad registry" {
-    run "$ACTION_DIR/validate_inputs.sh" "src" "BAD;REGISTRY" "ghcr.io/owner/img"
+    run "$ACTION_DIR/validate_inputs.sh" "src" "BAD;REGISTRY" "ghcr.io/owner/img" "enabled"
     [[ "$status" -ne 0 ]]
     [[ "$output" == *"invalid registry"* ]]
 }
 
 @test "container: validate_inputs.sh rejects bad imagename" {
-    run "$ACTION_DIR/validate_inputs.sh" "src" "ghcr.io" "BAD IMAGE"
+    run "$ACTION_DIR/validate_inputs.sh" "src" "ghcr.io" "BAD IMAGE" "enabled"
     [[ "$status" -ne 0 ]]
     [[ "$output" == *"invalid image name"* ]]
 }
 
 @test "container: validate_inputs.sh writes path/imagename/shortname to GITHUB_OUTPUT" {
-    run "$ACTION_DIR/validate_inputs.sh" "pkg/foo" "ghcr.io" "ghcr.io/owner/img"
+    run "$ACTION_DIR/validate_inputs.sh" "pkg/foo" "ghcr.io" "ghcr.io/owner/img" "enabled"
     [[ "$status" -eq 0 ]]
     grep -q '^path=pkg/foo$' "$GITHUB_OUTPUT"
     grep -q '^imagename=ghcr.io/owner/img$' "$GITHUB_OUTPUT"
     grep -q '^shortname=pkg_foo$' "$GITHUB_OUTPUT"
+}
+
+# --- Cache gating (SLSA L3 isolation, #224 / SLSA_L3_AUDIT.md Finding 2) ---
+
+@test "container: validate_inputs.sh accepts cache=enabled and cache=disabled" {
+    run "$ACTION_DIR/validate_inputs.sh" "src" "ghcr.io" "ghcr.io/owner/img" "enabled"
+    [[ "$status" -eq 0 ]]
+    run "$ACTION_DIR/validate_inputs.sh" "src" "ghcr.io" "ghcr.io/owner/img" "disabled"
+    [[ "$status" -eq 0 ]]
+}
+
+@test "container: validate_inputs.sh rejects an invalid cache value" {
+    # A typo must fail loudly — silently leaving the cache on would
+    # downgrade a release build from Build L3 to Build L2.
+    run "$ACTION_DIR/validate_inputs.sh" "src" "ghcr.io" "ghcr.io/owner/img" "disabeld"
+    [[ "$status" -ne 0 ]]
+    [[ "$output" == *"invalid cache value"* ]]
+}
+
+@test "container: validate_inputs.sh rejects a missing cache argument" {
+    run "$ACTION_DIR/validate_inputs.sh" "src" "ghcr.io" "ghcr.io/owner/img"
+    [[ "$status" -ne 0 ]]
+    [[ "$output" == *"Usage:"* ]]
+}
+
+@test "container: action.yml exposes a cache input" {
+    run grep -E '^  cache:' "$ACTION_DIR/action.yml"
+    [[ "$status" -eq 0 ]]
+}
+
+@test "container: action.yml passes cache to validate_inputs.sh" {
+    run grep -E 'validate_inputs.sh.*INPUT_CACHE' "$ACTION_DIR/action.yml"
+    [[ "$status" -eq 0 ]]
+}
+
+@test "container: action.yml gates cache-from/cache-to on the cache input" {
+    # Both BuildKit cache keys must be conditional on inputs.cache so a
+    # release build (cache: disabled) emits no type=gha cache.
+    run grep -E 'cache-from:.*inputs\.cache' "$ACTION_DIR/action.yml"
+    [[ "$status" -eq 0 ]]
+    run grep -E 'cache-to:.*inputs\.cache' "$ACTION_DIR/action.yml"
+    [[ "$status" -eq 0 ]]
+    # The unconditional type=gha cache config must be gone.
+    run grep -E '^[[:space:]]+cache-from:[[:space:]]*type=gha[[:space:]]*$' "$ACTION_DIR/action.yml"
+    [[ "$status" -ne 0 ]]
+}
+
+@test "container: build job needs gate so it can read should-release" {
+    local wf="$REPO_ROOT/.github/workflows/build_and_publish_container.yml"
+    run bash -c "sed -n '/^  build:/,/^  [a-z]/p' \"$wf\" | grep -E 'needs:.*gate'"
+    [[ "$status" -eq 0 ]]
+}
+
+@test "container: reusable workflow disables cache for release builds" {
+    # The composite's cache input must be driven by should-release:
+    # 'disabled' on release, 'enabled' otherwise.
+    local wf="$REPO_ROOT/.github/workflows/build_and_publish_container.yml"
+    run bash -c "grep -E \"cache:.*should-release.*'disabled'.*'enabled'\" \"$wf\""
+    [[ "$status" -eq 0 ]]
 }
 
 # --- Unified metadata layout assertions (#150) ---

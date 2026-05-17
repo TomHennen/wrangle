@@ -8,6 +8,17 @@ Build an npm or pnpm package (tarball via `npm pack` or `pnpm pack`), run tests,
 
 This action hardens *how* your artifact is produced. It does NOT scan your source — vulnerable deps in your lockfile, dangerous workflow triggers, or missing branch protection still slip through and would be faithfully L3-attested by wrangle as legitimately built. Pair this with wrangle's source-scan workflow ([`actions/scan/README.md`](../../../actions/scan/README.md)) to close that gap on every PR and push. The May 2026 Mini Shai-Hulud compromise of TanStack/router is the most recent example of why this matters — the build side wasn't the vulnerability; the source side was.
 
+## Build Track level
+
+Consumed through wrangle's reusable workflow (`build_and_publish_npm.yml`), the npm build meets **SLSA v1.2 Build L3** — for both the npm and the pnpm sub-path. You do not need to reason about individual SLSA L3 requirements to use this — the single Build Track level is the claim. Two conditions narrow it:
+
+- **Reusable consumption only.** Calling the `build/actions/npm` composite directly from a workflow you author yourself forfeits the build-vs-sign job separation and is **not** a supported L3 path.
+- **GitHub-hosted runners only.** Self-hosted runners invalidate the build-environment isolation the L3 verdict assumes.
+
+The npm sub-path keeps dependency caching on in both PR and release builds: `npm ci` re-verifies every cached tarball against `package-lock.json` on install, so the cache cannot poison the attested output (SLSA's "Isolated" requirement). The pnpm sub-path uses no cross-build cache at all (see [#205](https://github.com/TomHennen/wrangle/issues/205)). The full per-builder analysis is [`docs/SLSA_L3_AUDIT.md`](../../../docs/SLSA_L3_AUDIT.md).
+
+This Build Track level is wrangle's build-platform claim. It is distinct from — and additional to — the SLSA L2 in-CLI attestation that `npm publish --provenance` writes into the npm registry slot from your publish job; see ["SLSA provenance verification"](#slsa-provenance-verification-default-on-opt-out) below for how the two attestations relate.
+
 ## Before first use
 
 Complete these in order — step 1's bootstrap publish requires an `NPM_TOKEN`, which step 3 disallows.

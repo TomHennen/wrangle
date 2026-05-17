@@ -125,7 +125,10 @@ jobs:
           events: ${{ inputs.release-events }}
 
   build:
-    needs: [guard]
+    # needs `gate` so the build can read should-release and disable the
+    # uv cache for release builds (SLSA L3 isolation — see the `cache:`
+    # input below and docs/SLSA_L3_AUDIT.md Finding 1).
+    needs: [guard, gate]
     runs-on: ubuntu-latest
     permissions:
       contents: read    # minimal — no OIDC, no publish
@@ -148,6 +151,13 @@ jobs:
           path: ${{ inputs.path }}
           python-version: ${{ inputs.python-version }}
           run-tests: ${{ inputs.run-tests }}
+          # Disable the uv cache on release builds. should-release == 'true'
+          # means this event produces L3 provenance, so the build must not
+          # consume a shared, cross-build, unverified-on-hit cache — see
+          # docs/SLSA_L3_AUDIT.md Finding 1. PR builds keep the cache for
+          # fast iteration; they produce no provenance, so cache poisoning
+          # is not an L3 concern at that layer.
+          cache: ${{ needs.gate.outputs.should-release == 'true' && 'disabled' || 'enabled' }}
 
       # Namespace artifact names by the path-derived shortname so multiple
       # python builds in one workflow don't collide.
