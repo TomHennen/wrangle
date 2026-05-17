@@ -46,18 +46,18 @@ Two caveats narrow every Build L3 row above:
   assumes GitHub-hosted runners; see [cross-cutting finding 4](#cross-cutting-findings).
 
 The rest of this document is the per-builder analysis behind those level
-calls. It uses two pieces of **internal analytical shorthand** —
-*L3-for-signing* (SLSA's "Provenance is Unforgeable") and
-*L3-for-build-platform* (SLSA's "Isolated") — to discuss the two L3
-requirements separately, because the per-builder gaps live entirely in the
-second. That shorthand is a tool for this audit only; **wrangle's
-user-facing docs do not use it** and should make a single Build L2 / Build L3
-claim per workflow (tracked as a [follow-up issue](#findings-and-recommendations)).
+calls. It works through the SLSA v1.2 Build L3 requirements by their own
+spec names. Two of the five carry the analysis: **"Provenance is
+Unforgeable"** (satisfied by-construction — see below) and **"Isolated"**
+(where every per-builder gap lives). Wrangle's user-facing docs should not
+reproduce this requirement-by-requirement breakdown either; they should make
+a single Build L2 / Build L3 claim per workflow (tracked as a
+[follow-up issue](#findings-and-recommendations)).
 
 ## Contents
 
 1. [Why this audit exists](#why-this-audit-exists)
-2. [The central framing: L3-for-signing vs L3-for-build-platform](#the-central-framing-l3-for-signing-vs-l3-for-build-platform)
+2. [The two L3 requirements this audit turns on](#the-two-l3-requirements-this-audit-turns-on)
 3. [The SLSA v1.2 L3 isolation requirement, verbatim](#the-slsa-v12-l3-isolation-requirement-verbatim)
 4. [Coverage of the other L3 requirements](#coverage-of-the-other-l3-requirements)
 5. [Adopter consumption model (what isolation comes for free)](#adopter-consumption-model-what-isolation-comes-for-free)
@@ -99,23 +99,20 @@ This audit asks the same question of every builder wrangle ships: does the
 build environment that produces the bytes the generator signs over actually
 meet SLSA v1.2 Build L3 "Isolated"?
 
-## The central framing: L3-for-signing vs L3-for-build-platform
+## The two L3 requirements this audit turns on
 
-SLSA v1.2 Build L3 has two halves and adopters routinely conflate them.
+SLSA v1.2 Build L3 is the cumulative top of a five-requirement matrix in
+[`build-requirements.md`](https://github.com/slsa-framework/slsa/blob/releases/v1.2/spec/build-requirements.md).
+Two of those five requirements carry this audit's analysis — **"Provenance is
+Unforgeable"** and **"Isolated"** — and adopter-facing prose routinely
+conflates them ("we have SLSA L3 provenance" reads as a claim about both).
+The audit refers to each by its own SLSA spec name throughout. The other
+three L3 requirements (*"Provenance Exists"*, *"Provenance is Authentic"*,
+*"Hosted"*) are covered in
+[their own section below](#coverage-of-the-other-l3-requirements).
 
-The terms *"L3-for-signing"* and *"L3-for-build-platform"* are this audit's
-shorthand, not verbatim SLSA spec language. They map onto two of the five
-L3 requirements in [`build-requirements.md`](https://github.com/slsa-framework/slsa/blob/releases/v1.2/spec/build-requirements.md):
-the audit's "L3-for-signing" is SLSA's *"Provenance is Unforgeable"*, and the
-audit's "L3-for-build-platform" is SLSA's *"Isolated"*. The other three L3
-requirements (*"Provenance Exists"*, *"Provenance is Authentic"*, *"Hosted"*)
-are covered in [their own section below](#coverage-of-the-other-l3-requirements).
-The shorthand exists because the two halves are routinely conflated in
-adopter-facing prose ("we have SLSA L3 provenance" reads as both) and the
-audit needs to talk about them separately.
-
-**L3-for-signing** is the property of the workflow that emits the signed
-attestation. SLSA v1.2 calls this *"Provenance is Unforgeable"*
+**"Provenance is Unforgeable"** is the property of the workflow that emits the
+signed attestation
 ([build-requirements.md, "Provenance is Unforgeable"](https://github.com/slsa-framework/slsa/blob/releases/v1.2/spec/build-requirements.md)):
 
 > Provenance MUST be strongly resistant to forgery by tenants.
@@ -137,9 +134,8 @@ the signing step in wrangle's reusable workflows lives in a separate job
 ([`.github/workflows/build_and_publish_python.yml`:174–194](../.github/workflows/build_and_publish_python.yml)
 and parallels in npm/container) that the build job cannot influence.
 
-**L3-for-build-platform** is the property of the environment that produced the
-bytes being signed. SLSA v1.2 calls this *"Isolated"* (same page, "Isolation
-strength" → "Isolated"):
+**"Isolated"** is the property of the environment that produced the
+bytes being signed (same page, "Isolation strength" → "Isolated"):
 
 > The build platform ensured that the build steps ran in an isolated
 > environment, free of unintended external influence. … any external
@@ -177,11 +173,11 @@ built image. None of these are services *the build* opens; they are clients
 of services the dependency ecosystem or adopter-configured registry opens.
 The `externalParameters` carve-out is therefore not needed and not used.
 
-When wrangle's docs today say "SLSA L3 provenance," that phrasing describes
-the *signing-side* property and does **not**, by itself, establish
-L3-for-build-platform conformance. A reader who skims and conflates the two
-is misled. The audit's recommended fix is **not** to teach adopters this
-two-halves distinction — it is for wrangle's user-facing docs to drop the
+When wrangle's docs today say "SLSA L3 provenance," that phrasing speaks only
+to "Provenance is Unforgeable" and does **not**, by itself, establish that the
+build met "Isolated." A reader who skims and conflates the two is misled. The
+audit's recommended fix is **not** to teach adopters to reason about the two
+requirements separately — it is for wrangle's user-facing docs to drop the
 unqualified "SLSA L3 provenance" phrasing and instead claim a single Build
 Track level per workflow, exactly as the [bottom-line table](#bottom-line-per-builder-build-track-level-today)
 above does (a [follow-up issue](#findings-and-recommendations)).
@@ -220,8 +216,8 @@ That is a high bar — strictly read, *none* of the GitHub-Actions-native caches
 satisfy it on their own. They are content-keyed but not themselves L3-built,
 and the cache backend is not part of the SLSA generator's trust boundary. This
 puts the burden on the calling build to choose between (a) disabling the cache,
-(b) verifying at use, or (c) accepting that the build is not L3 for-build-platform
-even when the provenance is L3-for-signing.
+(b) verifying at use, or (c) accepting that the build does not meet "Isolated"
+even though the provenance is Unforgeable.
 
 **3. Assessment prompts.** From the `releases/v1.2` assessing-build-platforms
 page, [`assessing-build-platforms.md`](https://github.com/slsa-framework/slsa/blob/releases/v1.2/spec/assessing-build-platforms.md),
@@ -358,8 +354,8 @@ cache). The remainder of this document focuses there.
 ## Adopter consumption model (what isolation comes for free)
 
 Wrangle is published as both reusable workflows and composite actions. Each
-consumption surface produces a different L3-for-build-platform answer. This is
-the load-bearing distinction Tom flagged in
+consumption surface produces a different answer on "Isolated" (and on
+"Provenance is Unforgeable"). This is the load-bearing distinction Tom flagged in
 [issue #216's comment](https://github.com/TomHennen/wrangle/issues/216#issuecomment-4454952677)
 and worth surfacing first because it changes the verdict on later findings.
 
@@ -423,8 +419,8 @@ the reusable workflow provided is gone — a compromised build step can mint
 its own Sigstore certificate and forge provenance.
 
 > ⚠️ **WARNING — direct composite consumption is NOT a supported SLSA L3
-> path.** Every L3-for-build-platform verdict in this audit, and the
-> L3-for-signing ("Provenance is Unforgeable") verdict, assumes the adopter
+> path.** Every "Isolated" verdict in this audit, and the "Provenance is
+> Unforgeable" verdict, assumes the adopter
 > consumes wrangle through one of wrangle's **reusable workflows**. Calling
 > the `build/actions/<type>` composites directly places the build in an
 > adopter-authored job whose permissions wrangle cannot constrain; the
@@ -438,7 +434,7 @@ its own Sigstore certificate and forge provenance.
 > wrangle's L3 guarantees.
 
 The audit treats reusable consumption as the only supported L3 path, and the
-L3-for-build-platform conformance verdicts below assume it. The audit
+"Isolated" verdicts below assume it. The audit
 recommends a follow-up issue to carry this warning, loudly and explicitly,
 into the build-type READMEs rather than leaving it only here. See
 [Findings](#findings-and-recommendations).
@@ -448,10 +444,10 @@ into the build-type READMEs rather than leaving it only here. See
 Each builder is audited against the SLSA v1.2 "Isolated" requirement and
 the three cache-assessment prompts. Verdicts:
 
-- **MEETS** — no L3-for-build-platform gap.
+- **MEETS** — no "Isolated" gap.
 - **MEETS WITH PRECONDITION** — meets so long as a stated condition holds (e.g.,
   "if `npm ci` is the install command"); the precondition is enforced.
-- **GAP** — does not currently meet L3-for-build-platform; recommendation below.
+- **GAP** — does not currently meet "Isolated"; recommendation below.
 - **N/A** — builder does not produce L3 provenance (shell only).
 
 ### npm path (npm sub-path)
@@ -558,9 +554,8 @@ sets `python-version-file` but not `cache:`:
 
 Without `cache: 'pip'`, `setup-python` does not restore `~/.cache/pip` across
 runs. The pip cache that does exist within a single run is populated and
-consumed by pip in the same job; it is per-run, not cross-run. This is
-acceptable for L3-for-build-platform because the cache is ephemeral with the
-runner.
+consumed by pip in the same job; it is per-run, not cross-run. This satisfies
+"Isolated" because the cache is ephemeral with the runner.
 
 **Latent concern.** Wrangle's pip install command does not pass
 `--require-hashes`, and `pyproject.toml` does not encode dependency hashes in
@@ -967,7 +962,8 @@ SLSA ecosystem-specific builders follow.
 > Adopters who run wrangle's composites or reusable workflows on **self-hosted
 > runners** invalidate the cross-cutting "ephemeral build environment"
 > assumption every per-builder verdict in this audit depends on, and may
-> silently drop below SLSA L3-for-build-platform without any other change
+> silently fail SLSA's "Isolated" requirement — dropping the workflow to
+> Build L2 — without any other change
 > on their side. If your CI moves to self-hosted runners (whether for cost,
 > capacity, or hardware reasons), the L3 isolation analysis must be redone
 > against the runner-management posture you operate; the verdicts here do
@@ -990,8 +986,8 @@ container may be long-lived (state in `~/.cache/*`, the local Docker layer
 store, etc. persists across jobs in attacker-influenced ways), and depending
 on how the operator wires GitHub's cache service in, additional persistent
 surfaces may exist that this audit did not enumerate. Adopters using
-self-hosted runners take on additional build-platform-side responsibility;
-the adopter-facing doc should call this out explicitly.
+self-hosted runners take on the responsibility for meeting "Isolated"
+themselves; the adopter-facing doc should call this out explicitly.
 
 **5. Reusable consumption already separates build from sign.** Wrangle's
 reusable workflows give the build-vs-sign job separation that the SLSA
@@ -1106,7 +1102,7 @@ builder" is not an available option.
 | shell | n/a | Keep; no provenance produced. |
 
 **Conclusion: the generic-generator model remains the right choice across the
-board for v0.2.** The conformance gaps are L3-for-build-platform issues
+board for v0.2.** The conformance gaps are "Isolated" issues
 internal to wrangle's composites, not architectural problems with the
 generic-generator model as a whole.
 
@@ -1467,8 +1463,8 @@ workflow-command prefix with a per-run token before invoking the compile,
 neutralizing any attempt by the build tool (or a dependency's lifecycle hook)
 to inject workflow commands via stdout. Wrangle does not.
 
-**Severity.** Strictly speaking this is defense-in-depth rather than an
-L3-for-build-platform requirement (it does not appear in SLSA v1.2's
+**Severity.** Strictly speaking this is defense-in-depth rather than a
+SLSA v1.2 L3 requirement (it does not appear in the
 "Isolated" bullets). The audit elevates the recommendation because
 wrangle's threat model is unusually aligned with the attack class this
 defense addresses:
@@ -1501,10 +1497,11 @@ In addition to these three findings, the audit recommends:
 
 - **A single Build Track level claim per workflow in wrangle's user-facing
   docs.** `docs/SPEC.md` and the build-type READMEs currently say "SLSA L3
-  provenance" unqualified, which conflates the signing-side property with
-  build-platform isolation. The audit recommends *against* exposing the
-  two-halves distinction to adopters — it is confusing — and instead
-  recommends that each workflow claim exactly **Build L2** or **Build L3**
+  provenance" unqualified — phrasing that holds for "Provenance is
+  Unforgeable" but not necessarily for "Isolated." The audit recommends
+  *against* asking adopters to reason about individual L3 requirements at
+  all — that is the confusing part — and instead recommends that each
+  workflow claim exactly **Build L2** or **Build L3**
   per the [bottom-line table](#bottom-line-per-builder-build-track-level-today).
   Under that vocabulary the container and python-uv workflows are Build L2
   today and reach Build L3 once Findings 2 and 1 land. This audit does not
@@ -1541,7 +1538,7 @@ All on the `releases/v1.2` branch of `slsa-framework/slsa`, accessed 2026-05-14:
 ### Upstream SLSA builder / generator references
 
 - [`generator_generic_slsa3.yml`](https://github.com/slsa-framework/slsa-github-generator/blob/main/.github/workflows/generator_generic_slsa3.yml)
-  — the generic generator; wrangle's signing-side generator.
+  — the generic generator; the generator wrangle invokes to sign provenance.
 - [`builder_go_slsa3.yml`](https://github.com/slsa-framework/slsa-github-generator/blob/main/.github/workflows/builder_go_slsa3.yml)
   — ecosystem-specific builder for Go (stable). The `::stop-commands::`
   example lives at line 290.
