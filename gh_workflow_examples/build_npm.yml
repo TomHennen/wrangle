@@ -18,7 +18,7 @@
 # https://docs.npmjs.com/trusted-publishers/ (Troubleshooting)
 # https://github.com/npm/documentation/issues/1755
 #
-# Wrangle's reusable workflow generates SLSA L3 provenance AND verifies
+# Wrangle's reusable workflow generates SLSA provenance (Build L3) AND verifies
 # the just-built tarball against it before declaring success. If
 # verification fails, the workflow fails and `needs: [build]` blocks
 # publish — so adopters don't need to wire `slsa-verifier` into their

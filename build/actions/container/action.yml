@@ -17,6 +17,27 @@ inputs:
   github_token:
     description: "GitHub token with packages:write access"
     required: true
+  cache:
+    description: |
+      Whether the BuildKit GitHub Actions cache (cache-from / cache-to
+      type=gha) is used. "enabled" (default) restores and writes the
+      shared cross-build cache; "disabled" builds with no BuildKit cache
+      at all. Validated against the enabled|disabled allowlist by
+      validate_inputs.sh — any other value fails the build.
+
+      The reusable workflow (build_and_publish_container.yml) sets this to
+      "disabled" for release builds and "enabled" for PR builds. A release
+      build MUST NOT consume the shared cache: BuildKit's type=gha cache is
+      not re-verified on cache hits and is shared cross-build via GitHub's
+      branch-scoped cache service, so a poisoned entry could alter the
+      bytes the SLSA generator signs over. Skipping the cache for release
+      builds keeps the container path at SLSA v1.2 Build L3 — see
+      docs/SLSA_L3_AUDIT.md Finding 2.
+
+      Direct callers of this composite (not a supported L3 path) get
+      caching by default; they are not claiming L3 provenance.
+    required: false
+    default: "enabled"
 
 outputs:
   digest:
@@ -45,9 +66,10 @@ runs:
         INPUT_IMAGENAME: ${{ inputs.imagename }}
         INPUT_PATH: ${{ inputs.path }}
         INPUT_REGISTRY: ${{ inputs.registry }}
+        INPUT_CACHE: ${{ inputs.cache }}
       run: |
         set -euo pipefail
-        "${{ github.action_path }}/validate_inputs.sh" "$INPUT_PATH" "$INPUT_REGISTRY" "$INPUT_IMAGENAME"
+        "${{ github.action_path }}/validate_inputs.sh" "$INPUT_PATH" "$INPUT_REGISTRY" "$INPUT_IMAGENAME" "$INPUT_CACHE"
 
     - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
       with:
@@ -86,8 +108,20 @@ runs:
         push: true
         tags: ${{ steps.meta.outputs.tags }}
         labels: ${{ steps.meta.outputs.labels }}
-        cache-from: type=gha
-        cache-to: type=gha,mode=max
+        # BuildKit GHA cache, gated on the `cache` input. When cache is not
+        # 'enabled' both keys resolve to empty strings, which docker/
+        # build-push-action treats as "no cache" — release builds consume no
+        # shared cross-build state, so a poisoned cache entry cannot influence
+        # the bytes the SLSA generator signs over (SLSA v1.2 Build L3
+        # isolation — docs/SLSA_L3_AUDIT.md Finding 2). `inputs.cache` is
+        # validated to enabled|disabled by validate_inputs.sh and is only
+        # compared against a literal here (never expanded into a shell or
+        # into the image), so it carries no injection surface.
+        #
+        # The truthy branch MUST be on the `&&` side: GHA treats '' as
+        # falsy, so `cond && '' || 'type=gha'` would always yield 'type=gha'.
+        cache-from: ${{ inputs.cache == 'enabled' && 'type=gha' || '' }}
+        cache-to: ${{ inputs.cache == 'enabled' && 'type=gha,mode=max' || '' }}
         sbom: true
         provenance: mode=max
 

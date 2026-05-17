@@ -218,6 +218,19 @@ Why default-on. Verification belongs in wrangle as a default-on guarantee, not i
 
 Why opt-out exists. Some adopters run custom verification policies (different `--source-uri` constraints, custom cert identities, ratchet-style multi-tag-tolerance). For those cases the opt-out lets them keep wrangle's build/provenance/attestation while replacing the verify step. The contract becomes: wrangle still pushes/builds/attests, but the integrity-between-build-and-publish guarantee shifts to the adopter.
 
+### Build Track level
+
+Every wrangle build-type reusable workflow that produces provenance — `build_and_publish_npm.yml` (npm and pnpm), `build_and_publish_python.yml` (pip and uv), and `build_and_publish_container.yml` — meets **SLSA v1.2 Build L3**. `build_shell.yml` produces no artifact and no provenance, so no Build Track level applies to it.
+
+Wrangle's user-facing docs claim exactly **one** Build Track level per workflow — Build L2 or Build L3 — and never a finer-grained, requirement-by-requirement breakdown. An adopter should not have to reason about individual SLSA L3 requirements ("Provenance is Unforgeable" versus "Isolated") to know what a workflow delivers; the single Build Track level is the claim. The full per-builder analysis behind the L3 verdicts is [`docs/SLSA_L3_AUDIT.md`](SLSA_L3_AUDIT.md).
+
+Two conditions narrow every Build L3 claim:
+
+- **Reusable consumption only.** The verdict assumes the adopter consumes wrangle through one of wrangle's reusable workflows. Calling a `build/actions/<type>` composite directly from an adopter-authored job forfeits the build-vs-sign job separation and is **not** a supported L3 path.
+- **GitHub-hosted runners only.** Self-hosted runners invalidate the ephemeral-build-environment assumption the L3 verdicts depend on.
+
+**Cache isolation is part of the L3 claim.** SLSA v1.2's "Isolated" requirement states the output of a build MUST be identical whether or not a cache is used. Two of wrangle's cache surfaces — the container path's BuildKit `type=gha` cache and the python-uv sub-path's uv cache — are shared cross-build via GitHub's cache service and are not re-verified on cache hits, so a release build must not consume them. Each of those two workflows gates its build cache on the same `should-release` signal that gates provenance: release builds (`should-release == 'true'`) build cache-free; PR builds keep caching for fast iteration, since they produce no attested artifact. The npm sub-path keeps its cache in both contexts because `npm ci` re-verifies every cached tarball against the lockfile on install; the pnpm sub-path and the python-pip sub-path consume no cross-build cache at all. See [`docs/SLSA_L3_AUDIT.md`](SLSA_L3_AUDIT.md) Findings 1 and 2 and its "Release-vs-PR build asymmetry" section.
+
 ## Architecture
 
 ### Layers

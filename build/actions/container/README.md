@@ -1,12 +1,21 @@
 # Wrangle Build Container
 
-A GitHub composite action that builds and publishes a container image to GitHub Container Registry (ghcr.io), generates and extracts an SBOM, and (when wired into the reusable workflow) signs the image with Cosign and attaches SLSA L3 provenance.
+A GitHub composite action that builds and publishes a container image to GitHub Container Registry (ghcr.io), generates and extracts an SBOM, and (when wired into the reusable workflow) signs the image with Cosign and attaches SLSA provenance (Build L3).
 
 > **Note:** This README documents *currently-shipped* behavior. For the full design — including Cosign signing, SLSA L3 provenance, the release gate, failure contract, and trust model — see [`SPEC.md`](./SPEC.md). The spec is forward-looking; features described there but not yet implemented in `action.yml` will land in follow-up PRs, and this README will be updated in the same commit. The full structure this README must eventually cover (quick-start example, verification commands, failure runbook) is defined in [`SPEC.md` §"Required contents of `build/actions/container/README.md`"](./SPEC.md#required-contents-of-buildactionscontainerreadmemd).
 
 ## Recommended companion: source scan
 
 This action hardens *how* your container image is produced. It does NOT scan your source — vulnerable deps in your Dockerfile's base image or pinned packages, dangerous workflow triggers, or missing branch protection still slip through and would be faithfully L3-attested by wrangle as legitimately built. Pair this with wrangle's source-scan workflow ([`actions/scan/README.md`](../../../actions/scan/README.md)) to close that gap on every PR and push. Without it, an attacker who lands a malicious dep or workflow misconfiguration routes around the build-side hardening — the May 2026 Mini Shai-Hulud compromise of TanStack/router is the canonical recent example of why this matters.
+
+## Build Track level
+
+Consumed through wrangle's reusable workflow (`build_and_publish_container.yml`), the container build meets **SLSA v1.2 Build L3**. You do not need to reason about individual SLSA L3 requirements to use this — the single Build Track level is the claim. Two conditions narrow it:
+
+- **Reusable consumption only.** Calling the `build/actions/container` composite directly from a workflow you author yourself forfeits the build-vs-sign job separation and is **not** a supported L3 path.
+- **GitHub-hosted runners only.** Self-hosted runners invalidate the build-environment isolation the L3 verdict assumes.
+
+Release builds run with the BuildKit `type=gha` cache disabled, so the attested image cannot be influenced by a shared, cross-build cache that BuildKit does not re-verify on cache hits (SLSA's "Isolated" requirement). PR builds keep the cache for fast iteration — they produce no attested artifact. The full per-builder analysis is [`docs/SLSA_L3_AUDIT.md`](../../../docs/SLSA_L3_AUDIT.md) (Finding 2).
 
 ## What this action does today
 
