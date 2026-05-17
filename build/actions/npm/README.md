@@ -1,6 +1,6 @@
 # Wrangle Build npm
 
-Build an npm or pnpm package (tarball via `npm pack` or `pnpm pack`), run tests, generate an SBOM, and produce SLSA L3 build provenance via `slsa-github-generator`. Package manager is detected from the lockfile (`package-lock.json` / `npm-shrinkwrap.json` → npm; `pnpm-lock.yaml` → pnpm). The publish step itself runs in the adopter's own workflow because npm Trusted Publishing's OIDC token must come from the caller's workflow filename, not a reusable workflow ([npm/documentation#1755](https://github.com/npm/documentation/issues/1755)).
+Build an npm or pnpm package (tarball via `npm pack` or `pnpm pack`), run tests, generate an SBOM, and produce SLSA provenance (Build L3) via `slsa-github-generator`. Package manager is detected from the lockfile (`package-lock.json` / `npm-shrinkwrap.json` → npm; `pnpm-lock.yaml` → pnpm). The publish step itself runs in the adopter's own workflow because npm Trusted Publishing's OIDC token must come from the caller's workflow filename, not a reusable workflow ([npm/documentation#1755](https://github.com/npm/documentation/issues/1755)).
 
 > **Note:** This README documents *currently-shipped* behavior. For the full design — architecture, attestation model, full step sequence — see [`SPEC.md`](./SPEC.md). For npm workspaces support (multi-package monorepos), see [`WORKSPACES_PHASE_1.md`](./WORKSPACES_PHASE_1.md) — design only; not yet implemented.
 

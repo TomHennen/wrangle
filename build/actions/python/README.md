@@ -1,6 +1,6 @@
 # Wrangle Build Python
 
-Build a Python package (wheel + sdist), run tests, generate an SBOM, and produce SLSA L3 build provenance — composing PyPI Trusted Publishing (PEP 740 attestations) with `slsa-github-generator`. The publish step itself runs in the adopter's own workflow because PyPI Trusted Publishing's OIDC token must come from the caller, not a reusable workflow ([pypi/warehouse#11096](https://github.com/pypi/warehouse/issues/11096)).
+Build a Python package (wheel + sdist), run tests, generate an SBOM, and produce SLSA provenance (Build L3) — composing PyPI Trusted Publishing (PEP 740 attestations) with `slsa-github-generator`. The publish step itself runs in the adopter's own workflow because PyPI Trusted Publishing's OIDC token must come from the caller, not a reusable workflow ([pypi/warehouse#11096](https://github.com/pypi/warehouse/issues/11096)).
 
 > **Note:** This README documents *currently-shipped* behavior. For the full design — architecture, security model, full step sequence — see [`SPEC.md`](./SPEC.md).
 

@@ -1,6 +1,6 @@
 # Wrangle Build Container
 
-A GitHub composite action that builds and publishes a container image to GitHub Container Registry (ghcr.io), generates and extracts an SBOM, and (when wired into the reusable workflow) signs the image with Cosign and attaches SLSA L3 provenance.
+A GitHub composite action that builds and publishes a container image to GitHub Container Registry (ghcr.io), generates and extracts an SBOM, and (when wired into the reusable workflow) signs the image with Cosign and attaches SLSA provenance (Build L3).
 
 > **Note:** This README documents *currently-shipped* behavior. For the full design — including Cosign signing, SLSA L3 provenance, the release gate, failure contract, and trust model — see [`SPEC.md`](./SPEC.md). The spec is forward-looking; features described there but not yet implemented in `action.yml` will land in follow-up PRs, and this README will be updated in the same commit. The full structure this README must eventually cover (quick-start example, verification commands, failure runbook) is defined in [`SPEC.md` §"Required contents of `build/actions/container/README.md`"](./SPEC.md#required-contents-of-buildactionscontainerreadmemd).
 
