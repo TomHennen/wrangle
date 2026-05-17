@@ -27,7 +27,7 @@ Example vulnerability scan results:
 
 ## Python with GitHub Actions
 
-Build Python wheels and sdists, run pytest, generate an SPDX SBOM, and produce SLSA L3 provenance via `slsa-github-generator`. Publish to PyPI via Trusted Publishing (no API tokens required) with PEP 740 attestations.
+Build Python wheels and sdists, run pytest, generate an SPDX SBOM, and produce SLSA provenance (Build L3) via `slsa-github-generator`. Publish to PyPI via Trusted Publishing (no API tokens required) with PEP 740 attestations.
 
 * A reusable workflow that runs build + test + SBOM + SLSA provenance. [Example](/gh_workflow_examples/build_python.yml)
 * The composite [action](/build/actions/python/action.yml) for plugging into existing workflows (build + test + SBOM only).
