@@ -20,7 +20,7 @@ jobs:
     permissions: {}    # reads env only — no workspace, no API, no secrets
     steps:
       # TODO: replace with $/actions/preflight_guard when GitHub ships $/ syntax (#136)
-      - uses: TomHennen/wrangle/actions/preflight_guard@8f40e053e1423fb59008501f83126d7ff25fcae4 # claude/202-refuse-pull-request-target 2026-05-14
+      - uses: TomHennen/wrangle/actions/preflight_guard@2baa1821b4dea1c93faeb6b2b8adad8f5be50f9f # claude/202-refuse-pull-request-target 2026-05-17
 
   check-change:
     needs: [guard]
@@ -38,6 +38,6 @@ jobs:
       # action-pattern tools (zizmor, scorecard) via uses: internally.
       # TODO: replace with $/actions/scan when GitHub ships $/ syntax (#136)
       - name: Source scan
-        uses: TomHennen/wrangle/actions/scan@8f40e053e1423fb59008501f83126d7ff25fcae4 # claude/202-refuse-pull-request-target 2026-05-14
+        uses: TomHennen/wrangle/actions/scan@2baa1821b4dea1c93faeb6b2b8adad8f5be50f9f # claude/202-refuse-pull-request-target 2026-05-17
         with:
           tools: ${{ inputs.tools }}
