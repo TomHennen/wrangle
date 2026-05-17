@@ -55,7 +55,7 @@ runs:
     # TODO: replace with $/tools/zizmor when $/ syntax ships (#136, #137)
     - name: Zizmor
       if: always() && contains(inputs.tools, 'zizmor')
-      uses: TomHennen/wrangle/tools/zizmor@e858013837afec2c18c61d0d67249dca39efd225 # main 2026-04-22
+      uses: TomHennen/wrangle/tools/zizmor@68b1caea47c1dc2c3210d4313d6871eb5a631b12 # main 2026-05-17
 
     # Scorecard only runs on push events — it requires GITHUB_TOKEN scopes
     # that aren't available on PRs and uses Docker, which only mounts
@@ -63,7 +63,7 @@ runs:
     # TODO: replace with $/tools/scorecard when $/ syntax ships (#136, #137)
     - name: Scorecard
       if: always() && contains(inputs.tools, 'scorecard') && github.event_name != 'pull_request'
-      uses: TomHennen/wrangle/tools/scorecard@e858013837afec2c18c61d0d67249dca39efd225 # main 2026-04-22
+      uses: TomHennen/wrangle/tools/scorecard@68b1caea47c1dc2c3210d4313d6871eb5a631b12 # main 2026-05-17
 
     # Dependency Review is PR-only — the upstream action requires
     # github.event.pull_request.base.sha / head.sha to compute the diff.
@@ -75,7 +75,7 @@ runs:
     # (fail-on-severity: high, comment-summary-in-pr: never) apply.
     - name: Dependency Review
       if: always() && contains(inputs.tools, 'dependency-review') && github.event_name == 'pull_request'
-      uses: TomHennen/wrangle/tools/dependency-review@075238e9d9dc8b1548912e4b387d243674f47abf # claude/address-issue-209-X3JeP 2026-05-15
+      uses: TomHennen/wrangle/tools/dependency-review@68b1caea47c1dc2c3210d4313d6871eb5a631b12 # main 2026-05-17
 
     - name: Generate step summary
       if: always()
