@@ -789,11 +789,16 @@ the gap.
    structurally cheap (hash the bytes already on disk) and would close the
    gap for every uv user.
 
-**Verdict: GAP.** Recommendation: option (3) as a default for the release path
-inside the reusable workflow, with option (1) documented as the adopter-side
-opt-out for very high-assurance contexts. Option (2) is listed only to mark
-it as a trap — anyone reaching for "force refresh" as the obvious fix should
-find this paragraph rather than reach for `--refresh` and assume it works.
+**Verdict: GAP.** Recommendation: option (1) — disable the uv cache on the
+release path inside the reusable workflow. It is the safer lever: it removes
+the shared-cache surface entirely, so SLSA's "the output of the build MUST be
+identical whether or not the cache is used" holds *categorically*. Option (3)
+is a lighter-touch alternative, but its protection is *conditional* — it
+relies on `$RUNNER_TEMP` staying ephemeral and on no adopter `actions/cache`
+step rehydrating the path (see the option (3) caveat above) — so it is a
+fallback, not the default. Option (2) is listed only to mark it as a trap —
+anyone reaching for "force refresh" as the obvious fix should find this
+paragraph rather than reach for `--refresh` and assume it works.
 
 ### Container path
 
@@ -1193,9 +1198,9 @@ Alternative simpler shape: pass empty strings for `cache-from`/`cache-to`
 when release; `docker/build-push-action` treats empty as "don't cache."
 One step instead of two, less duplication, slightly more magic.
 
-**Python uv path.** Same plumbing, different lever — set
-`UV_CACHE_DIR=$RUNNER_TEMP/uv-cache` for release builds (ephemeral cache,
-disappears with the runner) and leave the default in place for PR builds:
+**Python uv path.** Same plumbing — disable the uv cache on the release path
+by passing `enable-cache: false` to `setup-uv` (option (1) from the uv
+[mitigation menu](#python-path-uv-sub-path)), and leave caching on for PR builds:
 
 ```yaml
 - name: Install uv
@@ -1205,9 +1210,10 @@ disappears with the runner) and leave the default in place for PR builds:
     enable-cache: ${{ inputs.cache != 'disabled' }}
 ```
 
-Or simpler: always set `UV_CACHE_DIR=$RUNNER_TEMP/uv-cache` in the build job's
-env on release. Either closes the [Finding 1](#finding-1-uv-cache-integrity-gap-on-the-python-uv-sub-path)
-gap.
+This closes the [Finding 1](#finding-1-uv-cache-integrity-gap-on-the-python-uv-sub-path)
+gap categorically — a release build consumes no uv cache at all. Pinning
+`UV_CACHE_DIR=$RUNNER_TEMP/uv-cache` (option (3)) is a lighter-touch fallback
+only; its protection is conditional on `$RUNNER_TEMP` ephemerality.
 
 **Python pip path.** Already L3-clean; no change needed. (PR caching could be
 *added* for speed using `setup-python`'s `cache: 'pip'` input gated the same
@@ -1413,14 +1419,19 @@ that context.
 
 **Recommendation (preferred): release-vs-PR cache asymmetry.** See
 [Release-vs-PR build asymmetry](#release-vs-pr-build-asymmetry-a-structural-remediation-pattern).
-Disable the uv cache only when `gate.outputs.should-release == 'true'`; keep
-the default behavior for PR builds. Composes with wrangle's existing release
-vocabulary and closes the gap without slowing PR iteration.
+Disable the uv cache (option (1) from the uv
+[mitigation menu](#python-path-uv-sub-path) — `enable-cache: false`) when
+`gate.outputs.should-release == 'true'`; keep caching on for PR builds.
+Composes with wrangle's existing release vocabulary and closes the gap
+without slowing PR iteration. Option (1) is the safer lever: a release build
+then consumes no uv cache at all, rather than relying on an ephemeral cache
+location holding.
 
 **Recommendation (fallback, if release-gate plumbing is deferred).** Pin
-`UV_CACHE_DIR=$RUNNER_TEMP/uv-cache` unconditionally so the cache is ephemeral
-per job (cheap, no network cost). Cheaper to implement; slower PR builds.
-Spawn a follow-up issue tracking whichever path is chosen.
+`UV_CACHE_DIR=$RUNNER_TEMP/uv-cache` unconditionally (option (3)) so the cache
+is ephemeral per job (cheap, no network cost). Cheaper to implement; slower PR
+builds; protection is conditional on `$RUNNER_TEMP` ephemerality. Spawn a
+follow-up issue tracking whichever path is chosen.
 
 ### Finding 2: BuildKit GHA cache integrity gap on the container path
 
