@@ -9,7 +9,7 @@ inputs:
       are dispatched to run.sh; action-pattern tools are invoked via
       their uses: steps.
     required: false
-    default: "osv zizmor scorecard:info"
+    default: "osv zizmor scorecard:info dependency-review"
 
 runs:
   using: "composite"
@@ -65,6 +65,18 @@ runs:
       if: always() && contains(inputs.tools, 'scorecard') && github.event_name != 'pull_request'
       uses: TomHennen/wrangle/tools/scorecard@e858013837afec2c18c61d0d67249dca39efd225 # main 2026-04-22
 
+    # Dependency Review is PR-only — the upstream action requires
+    # github.event.pull_request.base.sha / head.sha to compute the diff.
+    # See tools/dependency-review/SPEC.md.
+    # TODO: replace with $/tools/dependency-review when $/ syntax ships (#136, #137)
+    # Per-tool configuration (fail-on-severity, comment-summary-in-pr) is
+    # intentionally NOT plumbed through actions/scan — see #221 for the
+    # planned native per-tool config-file approach. The wrapper's defaults
+    # (fail-on-severity: high, comment-summary-in-pr: never) apply.
+    - name: Dependency Review
+      if: always() && contains(inputs.tools, 'dependency-review') && github.event_name == 'pull_request'
+      uses: TomHennen/wrangle/tools/dependency-review@075238e9d9dc8b1548912e4b387d243674f47abf # claude/address-issue-209-X3JeP 2026-05-15
+
     - name: Generate step summary
       if: always()
       shell: bash
@@ -119,6 +131,14 @@ runs:
       with:
         sarif_file: ${{ github.workspace }}/.wrangle/metadata/scorecard/output.sarif
         category: wrangle/scorecard
+
+    - name: Upload Dependency Review SARIF
+      if: always() && contains(inputs.tools, 'dependency-review') && github.event_name == 'pull_request'
+      uses: github/codeql-action/upload-sarif@95e58e9a2cdfd71adc6e0353d5c52f41a045d225 # v4.35.2
+      continue-on-error: true
+      with:
+        sarif_file: ${{ github.workspace }}/.wrangle/metadata/dependency-review/output.sarif
+        category: wrangle/dependency-review
 
     - name: Upload scan results artifact
       if: always()

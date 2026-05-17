@@ -1,6 +1,6 @@
 # Wrangle Source Scan
 
-Run wrangle's bundled source-stage security scanners (OSV-Scanner, Zizmor, Scorecard) against your repo on every PR and on push to main. The companion to wrangle's build/publish reusable workflows: build/publish hardens *how* your artifact is produced; source scan covers *what was checked into the repo you're building from*.
+Run wrangle's bundled source-stage security scanners (OSV-Scanner, Zizmor, Scorecard, Dependency Review) against your repo on every PR and on push to main. The companion to wrangle's build/publish reusable workflows: build/publish hardens *how* your artifact is produced; source scan covers *what was checked into the repo you're building from*.
 
 > **Note:** This README documents currently-shipped behavior. For the design and adoption philosophy, see [`../../docs/SPEC.md`](../../docs/SPEC.md).
 
@@ -13,6 +13,7 @@ This scan composite closes that gap on every PR and push to main:
 - **[OSV-Scanner](https://github.com/google/osv-scanner)** against your lockfiles. Catches known-vulnerable dependencies before they ship.
 - **[Zizmor](https://github.com/woodruffw/zizmor)** static analysis over `.github/workflows/`. Flags dangerous-trigger patterns like the `pull_request_target` + fork-head checkout combination that initiated Mini Shai-Hulud, plus expression injection, unpinned actions, and other known workflow footguns.
 - **[Scorecard](https://github.com/ossf/scorecard)** against your repo configuration. Surfaces missing branch protection, code-review requirements, signed-commits, and similar repo-config gaps.
+- **[Dependency Review](https://github.com/actions/dependency-review-action)** on PRs that touch lockfiles. Blocks a merge when the PR introduces a known-vulnerable dependency at or above the configured severity (default: `high`). Complements OSV — OSV is the periodic, whole-lockfile scan; dependency-review is the PR-time gate that fires only on what's being added.
 
 Without source scan, an attacker who lands a malicious dep in your lockfile or introduces a dangerous workflow trigger can route around wrangle's build-side hardening — wrangle will then faithfully L3-sign the malicious output, because the build itself *was* legitimate.
 
@@ -42,13 +43,15 @@ That's it. Findings appear in the Security tab; the workflow run's step summary 
 
 ## Customizing which tools run
 
-The `tools` input is a space-separated list. Default: `"osv zizmor scorecard:info"`. Suffix a tool with `:info` to make its findings informational (non-blocking).
+The `tools` input is a space-separated list. Default: `"osv zizmor scorecard:info dependency-review"`. Suffix a tool with `:info` to make its findings informational (non-blocking).
 
 ```yaml
 uses: TomHennen/wrangle/.github/workflows/check_source_change.yml@<version>
 with:
-  tools: "osv zizmor"   # skip Scorecard (e.g., on forks where it doesn't apply)
+  tools: "osv zizmor"   # skip Scorecard and dependency-review
 ```
+
+`dependency-review` only runs on `pull_request` events (the upstream action needs the PR diff). On `push` events it is silently skipped, the same way `scorecard` is silently skipped on PRs. It defaults to `fail-on-severity: high` and posts no PR comment. Per-tool configuration is not exposed through `actions/scan` or `check_source_change.yml` yet — it is deferred to the native per-tool config-file design in [#221](https://github.com/TomHennen/wrangle/issues/221).
 
 ## What this composite does NOT do (yet)
 
@@ -59,7 +62,7 @@ with:
 ## Roadmap
 
 - **[#201](https://github.com/TomHennen/wrangle/issues/201)** — SLSA Source Track integration via `source-tool`. Per-commit source provenance attestations + level-aware status reporting in this same workflow.
-- **[#194](https://github.com/TomHennen/wrangle/issues/194)** — npm-specific source-scan tools (ESLint, `tsc --noEmit`, dep-review).
+- **[#194](https://github.com/TomHennen/wrangle/issues/194)** — npm-specific source-scan tools (ESLint, `tsc --noEmit`). (`dependency-review` already ships ecosystem-agnostic.)
 - **[#203](https://github.com/TomHennen/wrangle/issues/203)** — Surface Scorecard findings as actionable remediations rather than informational warnings.
 - **[#202](https://github.com/TomHennen/wrangle/issues/202)** — Refuse `pull_request_target` invocations in wrangle's reusable workflows as defense-in-depth alongside Zizmor's static check.
 
