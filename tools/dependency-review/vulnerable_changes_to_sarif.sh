@@ -79,7 +79,8 @@ fi
 #     than `== "added"` so it fails safe: change_type is currently
 #     enum(added, removed), but should the upstream schema gain a new
 #     value, a vulnerable change of that type is still surfaced rather
-#     than silently dropped. A missing change_type defaults to "added".
+#     than silently dropped. A missing or null change_type is likewise
+#     not "removed", so it too is surfaced.
 # Empty advisory_url / advisory_summary are omitted (SARIF requires
 # helpUri to be a valid URI when present; empty strings fail strict
 # validators).
@@ -102,7 +103,7 @@ SARIF_FILTER='
     end;
 
   [ .[]
-    | select((.change_type // "added") != "removed") as $c
+    | select(.change_type != "removed") as $c
     | ($c.vulnerabilities // [])[]
     | {change: $c, vuln: .}
   ] as $pairs
