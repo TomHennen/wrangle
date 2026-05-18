@@ -78,7 +78,7 @@ case "${1:-}" in
             exit 1
         fi
         if [[ -z "${GITHUB_OUTPUT:-}" ]]; then
-            printf 'Error: begin requires $GITHUB_OUTPUT to be set\n' >&2
+            printf 'Error: begin requires GITHUB_OUTPUT to be set\n' >&2
             exit 1
         fi
         token="$(generate_token)"
