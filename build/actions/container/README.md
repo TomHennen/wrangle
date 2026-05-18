@@ -47,6 +47,32 @@ with:
 
 Note: `release-events` currently scopes the SLSA provenance and verify jobs. The docker push happens mid-composite and is gated by your workflow's own trigger configuration (see [`SPEC.md` §"Trigger restriction"](./SPEC.md#trigger-restriction)).
 
+## Controlling the PR build cache
+
+Release builds always run cache-free. BuildKit's `type=gha` cache is not re-verified on cache hits and is shared cross-build via GitHub's branch-scoped cache service, so an L3-attested release build must not consume it ([`docs/SLSA_L3_AUDIT.md`](../../../docs/SLSA_L3_AUDIT.md) Finding 2). That is not configurable — it is what keeps the container path at Build L3.
+
+**PR / non-release builds** keep the cache by default, for fast iteration. They produce no attested artifact, so cache poisoning is not a SLSA L3 concern at that layer — but it is still a CI-hygiene concern. A malicious PR that obtains code execution in its build step (a poisoned `Dockerfile`, an exploited build-tool vulnerability) can write a poisoned entry to the shared GitHub Actions cache that a *later* PR build reads; the later build's "tests pass" and SBOM signals can then be quietly wrong. This is **PR-to-PR cache poisoning** — [Cacheract](https://adnanthekhan.com/2024/12/21/cacheract-the-monster-in-your-build-cache/) demonstrates poisoned entries surviving in the cache for the full eviction window.
+
+The reusable workflow's `pr-cache` input tunes the PR-build cache, trading PR-build speed against this exposure. It never affects release builds — those are cache-free unconditionally.
+
+| `pr-cache` | PR build behavior | When to use |
+|------------|-------------------|-------------|
+| `enabled` (default) | Shares the cross-branch BuildKit cache. Fastest. | Trusted-contributor repos where PR authors are vetted. |
+| `isolated` | Each PR gets its own cache scope; PR A cannot write entries PR B reads. Rebuilds within a PR still hit cache. | Repos taking PRs from a wider contributor pool. |
+| `read-only` | PR builds read the shared cache (fast first build off main's entries) but never write it, so a PR cannot poison it. | Same, when fast first builds still matter. |
+| `disabled` | PR builds also run cache-free. Strictest, slowest. | Strict-isolation contexts (regulated, government), or repos that treat every PR as untrusted. |
+
+```yaml
+uses: TomHennen/wrangle/.github/workflows/build_and_publish_container.yml@v0.2.0
+with:
+  path: .
+  imagename: ghcr.io/<owner>/<repo>
+  registry: ghcr.io
+  pr-cache: isolated   # per-PR cache scope; PRs cannot poison each other
+```
+
+> **Never invoke this workflow from a `pull_request_target` trigger.** Such workflows run in the base-repo context with base-repo cache *write* access, which makes a fork PR the highest-risk cache-poisoning vector. Wrangle's reusable workflows refuse `pull_request_target` ([#202](https://github.com/TomHennen/wrangle/issues/202)); do not work around that refusal.
+
 ## SLSA attestation verification (default-on, opt-out)
 
 After the SLSA generator emits the provenance attestation, wrangle's reusable workflow runs `cosign verify-attestation --type slsaprovenance` against the just-pushed image digest before declaring the workflow successful. This catches the "registry served bytes that don't match what wrangle pushed" attack window. If verification fails, the workflow fails — and any downstream release-time job that depends on it via `needs:` is blocked.
