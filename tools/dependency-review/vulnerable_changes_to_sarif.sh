@@ -14,6 +14,7 @@ set -f  # disable globbing — processes external tool output
 #       "ecosystem": "<eco>",
 #       "name": "<pkg>",
 #       "version": "<ver>",
+#       "scope": "runtime" | "development" | "unknown",
 #       "package_url": "<purl>",
 #       "vulnerabilities": [
 #         {
@@ -26,6 +27,14 @@ set -f  # disable globbing — processes external tool output
 #     },
 #     ...
 #   ]
+#
+# Scope policy: a vulnerable change is converted regardless of its
+# `scope` — a vulnerable development/build-time dependency is flagged
+# exactly like a runtime one. This is deliberate: the default policy is
+# to block on any introduced vulnerability, and "flag, don't guess" is
+# the conservative choice. If wrangle later wants scope-aware policy
+# (e.g. don't block on dev-only deps, like dependency-review-action's
+# `fail-on-scopes`), `scope` is the field to branch on.
 #
 # Usage: vulnerable_changes_to_sarif.sh <json_file>
 # Output: SARIF 2.1.0 JSON to stdout.
@@ -64,9 +73,13 @@ fi
 #     output is surfaced rather than silently mapped to a high level.
 #   - rules: one per unique GHSA id
 #   - results: one per (change, vulnerability)
-#   - only change_type "added" entries are converted. A "removed"
-#     entry means the PR drops a vulnerable dependency — that must not
-#     block the PR. A missing change_type defaults to "added".
+#   - every change EXCEPT change_type "removed" is converted. A
+#     "removed" entry means the PR drops a vulnerable dependency —
+#     that must not block the PR. The test is `!= "removed"` rather
+#     than `== "added"` so it fails safe: change_type is currently
+#     enum(added, removed), but should the upstream schema gain a new
+#     value, a vulnerable change of that type is still surfaced rather
+#     than silently dropped. A missing change_type defaults to "added".
 # Empty advisory_url / advisory_summary are omitted (SARIF requires
 # helpUri to be a valid URI when present; empty strings fail strict
 # validators).
@@ -89,7 +102,7 @@ SARIF_FILTER='
     end;
 
   [ .[]
-    | select((.change_type // "added") == "added") as $c
+    | select((.change_type // "added") != "removed") as $c
     | ($c.vulnerabilities // [])[]
     | {change: $c, vuln: .}
   ] as $pairs
