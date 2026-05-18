@@ -97,6 +97,27 @@ runs:
         username: ${{ github.actor }}
         password: ${{ inputs.github_token }}
 
+    # Suspend GitHub Actions workflow-command processing for the docker
+    # build below. docker/build-push-action streams BuildKit's build
+    # output (every `RUN` layer's stdout) to the step log; a malicious
+    # Dockerfile could otherwise print a `::add-mask::` / `::add-path::` /
+    # `::set-output::` line and hijack the build job. `begin` emits
+    # `::stop-commands::<token>` with a per-run random token the docker
+    # build cannot read (it is never exported into the build environment),
+    # so the build cannot re-enable commands itself. The re-enable step
+    # below closes the guard. See docs/SLSA_L3_AUDIT.md Finding 3.
+    #
+    # The guard spans two steps (not one `run:` wrapper) because the
+    # docker build is a `uses:` step. This is sound: the runner's
+    # stop-commands state is job-scoped, so `::stop-commands::` emitted
+    # here stays in effect through the build step until the re-enable.
+    - name: Suspend workflow commands for the docker build
+      id: stopcmd
+      shell: bash
+      run: |
+        set -euo pipefail
+        "${{ github.action_path }}/../../../lib/stop_commands_guard.sh" begin
+
     # TODO(#123): Investigate whether docker/build-push-action can accept
     # context via env, or whether zizmor will support marking validated step
     # outputs as safe, to eliminate the need for this suppression.
@@ -124,6 +145,21 @@ runs:
         cache-to: ${{ inputs.cache == 'enabled' && 'type=gha,mode=max' || '' }}
         sbom: true
         provenance: mode=max
+
+    # Re-enable workflow-command processing suspended by the `stopcmd`
+    # step. `if: always()` is mandatory: stop-commands is job-scoped in
+    # the runner, so a failed docker build that left commands suspended
+    # would silently disable `::add-mask::` secret redaction for every
+    # later step in the job. `end` is a no-op when the token is empty
+    # (the `stopcmd` step was skipped by an earlier-step failure).
+    - name: Re-enable workflow commands after the docker build
+      if: always()
+      shell: bash
+      env:
+        STOP_COMMANDS_TOKEN: ${{ steps.stopcmd.outputs.stop-commands-token }}
+      run: |
+        set -euo pipefail
+        "${{ github.action_path }}/../../../lib/stop_commands_guard.sh" end "$STOP_COMMANDS_TOKEN"
 
     # Create the metadata directory and emit its path BEFORE SBOM extraction.
     # If a later step fails (build, push, SBOM extract), the `if: always()`

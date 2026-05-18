@@ -104,6 +104,12 @@ runs:
         # true or false.
         enable-cache: ${{ inputs.cache != 'disabled' }}
 
+    # install_deps.sh and run_tests.sh run ecosystem build tooling
+    # (uv sync / pip install, pytest) that executes arbitrary build
+    # backends, dependency hooks, and project test code. stop_commands_guard.sh
+    # wraps each invocation so a malicious dependency or test printing a
+    # `::add-mask::` / `::set-output::` workflow command to stdout cannot
+    # hijack the build job — see docs/SLSA_L3_AUDIT.md Finding 3.
     - name: Install dependencies
       shell: bash
       env:
@@ -111,7 +117,8 @@ runs:
         USE_UV: ${{ steps.tooling.outputs.use_uv }}
       run: |
         set -euo pipefail
-        "${{ github.action_path }}/install_deps.sh" "$INPUT_PATH" "$USE_UV"
+        "${{ github.action_path }}/../../../lib/stop_commands_guard.sh" run \
+          "${{ github.action_path }}/install_deps.sh" "$INPUT_PATH" "$USE_UV"
 
     - name: Run tests
       if: inputs.run-tests == 'true'
@@ -121,7 +128,8 @@ runs:
         USE_UV: ${{ steps.tooling.outputs.use_uv }}
       run: |
         set -euo pipefail
-        "${{ github.action_path }}/run_tests.sh" "$INPUT_PATH" "$USE_UV"
+        "${{ github.action_path }}/../../../lib/stop_commands_guard.sh" run \
+          "${{ github.action_path }}/run_tests.sh" "$INPUT_PATH" "$USE_UV"
 
     - name: Build package
       shell: bash

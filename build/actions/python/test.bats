@@ -348,3 +348,27 @@ setup() {
     run grep -E 'contents: write' "$REPO_ROOT/build/actions/python/README.md"
     [[ "$status" -eq 0 ]]
 }
+
+# --- Workflow-command-injection guard (#225 / SLSA_L3_AUDIT.md Finding 3) ---
+
+@test "python: stop-commands guard helper exists and is executable" {
+    [[ -x "$REPO_ROOT/lib/stop_commands_guard.sh" ]]
+}
+
+@test "python: install_deps.sh runs under the stop-commands guard" {
+    # install_deps.sh runs ecosystem build tooling (uv sync / pip install)
+    # that executes build backends and dependency hooks. The
+    # ::stop-commands:: guard neutralizes workflow-command injection via
+    # their stdout. See docs/SLSA_L3_AUDIT.md Finding 3.
+    run grep -E 'lib/stop_commands_guard\.sh" run' "$ACTION"
+    [[ "$status" -eq 0 ]]
+    run bash -c "grep -A1 'stop_commands_guard.sh\" run' \"$ACTION\" | grep -F install_deps.sh"
+    [[ "$status" -eq 0 ]]
+}
+
+@test "python: run_tests.sh runs under the stop-commands guard" {
+    # pytest executes arbitrary project test code; the guard neutralizes
+    # workflow-command injection via its stdout.
+    run bash -c "grep -A1 'stop_commands_guard.sh\" run' \"$ACTION\" | grep -F run_tests.sh"
+    [[ "$status" -eq 0 ]]
+}

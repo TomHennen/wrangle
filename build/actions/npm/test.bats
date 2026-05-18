@@ -453,3 +453,22 @@ setup() {
     run bash -c "sed -n '/^  publish:/,/^[a-z]/p' \"$EXAMPLE\" | grep 'id-token: write'"
     [[ "$status" -eq 0 ]]
 }
+
+# --- Workflow-command-injection guard (#225 / SLSA_L3_AUDIT.md Finding 3) ---
+
+@test "npm: stop-commands guard helper exists and is executable" {
+    [[ -x "$REPO_ROOT/lib/stop_commands_guard.sh" ]]
+}
+
+@test "npm: build_and_pack.sh runs under the stop-commands guard" {
+    # build_and_pack.sh runs ecosystem build tooling and arbitrary
+    # package.json / transitive-dependency lifecycle scripts. The
+    # ::stop-commands:: guard neutralizes workflow-command injection via
+    # their stdout (a hook printing `::add-mask::` / `::set-output::`).
+    # See docs/SLSA_L3_AUDIT.md Finding 3.
+    run grep -E 'lib/stop_commands_guard\.sh" run' "$ACTION"
+    [[ "$status" -eq 0 ]]
+    # The guarded command (on the line after `... run`) must be build_and_pack.sh.
+    run bash -c "grep -A1 'stop_commands_guard.sh\" run' \"$ACTION\" | grep -F build_and_pack.sh"
+    [[ "$status" -eq 0 ]]
+}
