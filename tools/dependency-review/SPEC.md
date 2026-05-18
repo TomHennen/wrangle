@@ -38,7 +38,9 @@ Severity mapping:
 
 With the default `fail-on-severity: high`, the upstream action only emits `high` / `critical` advisories, so in practice only the `error`-level rows occur; the `moderate` / `low` rows apply when an adopter lowers `fail-on-severity`. Either way, every advisory that reaches the converter blocks the PR — the SARIF `level` affects only how the GitHub Security tab renders a finding, not the `check_results.sh` gate.
 
-Only `change_type: "added"` entries are converted. A `"removed"` entry means the PR drops a vulnerable dependency, which must not block the PR.
+Every change except `change_type: "removed"` is converted — a `"removed"` entry means the PR drops a vulnerable dependency, which must not block the PR. The filter tests `!= "removed"` rather than `== "added"` so it fails safe: `change_type` is currently a two-value enum (`added`, `removed`), but if the upstream schema ever gains a new value, a vulnerable change of that type is still surfaced rather than silently dropped.
+
+A vulnerable change is converted regardless of its `scope` — a vulnerable `development`/build-time dependency is flagged exactly like a `runtime` one. That is deliberate and matches the default policy of blocking on any introduced vulnerability; scope-aware policy (à la dependency-review-action's `fail-on-scopes`) would belong with the per-tool configuration design in [#221](https://github.com/TomHennen/wrangle/issues/221).
 
 ## Known limitations
 

@@ -282,6 +282,25 @@ EOF
     printf '%s' "$output" | jq -e '[.runs[].results[]] | length == 1' >/dev/null
 }
 
+@test "converter: unrecognized change_type is surfaced (fail-safe vs schema drift)" {
+    # change_type is currently enum(added, removed). The filter tests
+    # `!= "removed"` rather than `== "added"`, so a vulnerable change
+    # carrying a value the upstream schema might add later is still
+    # flagged rather than silently dropped.
+    cat > "$TMP_DIR/in.json" <<'EOF'
+[
+  { "change_type": "future-unknown-type", "manifest": "package.json", "ecosystem": "npm", "name": "p", "version": "1",
+    "vulnerabilities": [
+      { "severity": "high", "advisory_ghsa_id": "GHSA-drift", "advisory_summary": "s", "advisory_url": "u" }
+    ]
+  }
+]
+EOF
+    run "$TOOL_DIR/vulnerable_changes_to_sarif.sh" "$TMP_DIR/in.json"
+    [ "$status" -eq 0 ]
+    printf '%s' "$output" | jq -e '[.runs[].results[]] | length == 1' >/dev/null
+}
+
 @test "collect_outputs: empty env -> output.sarif + output.md, zero results" {
     META="$TMP_DIR/meta-empty"
     VULNERABLE_CHANGES='' run "$TOOL_DIR/collect_outputs.sh" "$META"
