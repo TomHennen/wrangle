@@ -1490,6 +1490,15 @@ executes in base-repo context.
 
 ### Finding 3 (highly recommended): `::stop-commands::` guard around build/test invocations
 
+> **Resolved by [PR #230](https://github.com/TomHennen/wrangle/pull/230)**
+> (issue [#225](https://github.com/TomHennen/wrangle/issues/225)). Every
+> wrangle build composite that runs ecosystem build tooling now wraps the
+> build/test invocation in a `::stop-commands::` guard
+> (`lib/stop_commands_guard.sh`, a per-run random token): the npm
+> `build_and_pack.sh` call, the python `install_deps.sh` and `run_tests.sh`
+> calls, and the container `docker/build-push-action` step. The analysis
+> that follows is retained as the historical record.
+
 **Summary.** The SLSA ecosystem-specific Go builder shadows the `::`
 workflow-command prefix with a per-run token before invoking the compile,
 neutralizing any attempt by the build tool (or a dependency's lifecycle hook)
