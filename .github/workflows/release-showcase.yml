@@ -1,0 +1,59 @@
+name: Release Showcase
+
+# On every change to wrangle's reusable workflows, composite actions,
+# or orchestrator code on `main`, push a tracking tag to the companion
+# repo so its showcase.yml runs end-to-end against the new code. The
+# tag name encodes the date and short SHA (`vYYYYMMDD-<sha>`); the
+# companion repo treats anything that isn't pure semver as a tracking
+# tag and marks the resulting Release as a pre-release.
+#
+# This replaces the previous cron-driven nightly: freshness now tracks
+# actual wrangle changes instead of the wall clock, and a no-op week
+# stops producing redundant runs. Curated `vX.Y.Z` showcase tags are
+# still pushed by hand for adopter-facing docs.
+#
+# A PAT is required: tags pushed by GITHUB_TOKEN do not trigger
+# downstream `on: push: tags` workflows (GitHub's recursion guard).
+# TEST_REPO_PAT is the same fine-grained token integration-test.yml
+# already uses (contents:write on the companion repo, no other scopes).
+
+on:
+  push:
+    branches: [main]
+    # Limit to paths that change the adopter contract: reusable
+    # workflows, composite actions, orchestrator code, tool adapters,
+    # and shared libs. Docs / examples / tests do not need to refresh
+    # the showcase.
+    paths:
+      - ".github/workflows/build_*.yml"
+      - ".github/workflows/check_source_change.yml"
+      - ".github/workflows/compute_slsa_source.yml"
+      - "actions/**"
+      - "build/**"
+      - "lib/**"
+      - "tools/**"
+      - "run.sh"
+  workflow_dispatch:
+
+concurrency:
+  group: release-showcase
+  cancel-in-progress: false
+
+permissions: {}
+
+jobs:
+  push-tag:
+    runs-on: ubuntu-latest
+    environment: integration-test
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+
+      - name: Push tracking tag to companion repo
+        env:
+          GH_TOKEN: ${{ secrets.TEST_REPO_PAT }}
+          WRANGLE_SHA: ${{ github.sha }}
+        run: ./test/integration/push_showcase_tag.sh "$WRANGLE_SHA"
