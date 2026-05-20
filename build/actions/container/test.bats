@@ -253,3 +253,48 @@ teardown() {
     run grep 'github.repository' "$wf"
     [[ "$status" -eq 0 ]]
 }
+
+# --- Workflow-command-injection guard (#225 / SLSA_L3_AUDIT.md Finding 3) ---
+
+@test "container: stop-commands guard helper exists and is executable" {
+    [[ -x "$REPO_ROOT/lib/stop_commands_guard.sh" ]]
+}
+
+@test "container: docker build is bracketed by the stop-commands guard" {
+    # docker/build-push-action streams BuildKit's per-RUN-layer output to
+    # the step log; a malicious Dockerfile could otherwise inject a
+    # `::add-mask::` / `::set-output::` workflow command via stdout. The
+    # guard's begin/end subcommands bracket the build step.
+    # See docs/SLSA_L3_AUDIT.md Finding 3.
+    run grep -E 'stop_commands_guard\.sh" begin' "$ACTION_DIR/action.yml"
+    [[ "$status" -eq 0 ]]
+    run grep -E 'stop_commands_guard\.sh" end' "$ACTION_DIR/action.yml"
+    [[ "$status" -eq 0 ]]
+    # The begin step must carry id: stopcmd — the end step reads the token
+    # from steps.stopcmd.outputs to close the same guard.
+    run bash -c "sed -n '/name: Suspend workflow commands/,/run:/p' \"$ACTION_DIR/action.yml\" | grep -F 'id: stopcmd'"
+    [[ "$status" -eq 0 ]]
+}
+
+@test "container: stop-commands begin precedes the build and end follows it" {
+    # begin → docker build → end ordering is what makes the guard cover
+    # the build. A reordering would silently leave the build unguarded.
+    run bash -c "awk '/stop_commands_guard.sh\" begin/{b=NR} /uses: docker\\/build-push-action/{d=NR} /stop_commands_guard.sh\" end/{e=NR} END{exit !(b && d && e && b<d && d<e)}' \"$ACTION_DIR/action.yml\""
+    [[ "$status" -eq 0 ]]
+}
+
+@test "container: the stop-commands re-enable step runs with if: always()" {
+    # stop-commands is job-scoped in the runner: a failed docker build
+    # that left commands suspended would disable ::add-mask:: secret
+    # redaction for every later step. The re-enable MUST be unconditional.
+    run bash -c "sed -n '/name: Re-enable workflow commands/,/run:/p' \"$ACTION_DIR/action.yml\" | grep -F 'if: always()'"
+    [[ "$status" -eq 0 ]]
+}
+
+@test "container: re-enable step passes the token through env, not run interpolation" {
+    # The token is a step output; interpolating it directly into a run:
+    # block would trip zizmor's template-injection audit. It must flow
+    # through env: per CLAUDE.md's expression-injection rule.
+    run grep -F 'STOP_COMMANDS_TOKEN: ${{ steps.stopcmd.outputs.stop-commands-token }}' "$ACTION_DIR/action.yml"
+    [[ "$status" -eq 0 ]]
+}
