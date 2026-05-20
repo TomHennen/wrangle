@@ -1,35 +1,16 @@
 # Wrangle Build
 
-This folder contains all the tools and actions for dealing with building packages.
+Build types live here. Each produces a signed artifact with an SBOM and SLSA provenance.
 
-Wrangle will have customized build methods for each supported artifact type/destination.
-
-Currently supported build types:
-- **Containers** — see below.
-- **Python** — see [`actions/python/README.md`](actions/python/README.md).
-- **Shell** — see the [example workflow](/gh_workflow_examples/build_shell.yml).
+| Build type | README | Example workflow |
+|-----------|--------|------------------|
+| npm / pnpm | [`actions/npm/README.md`](actions/npm/README.md) | [`build_npm.yml`](/gh_workflow_examples/build_npm.yml) |
+| Python (pip / uv) | [`actions/python/README.md`](actions/python/README.md) | [`build_python.yml`](/gh_workflow_examples/build_python.yml) |
+| Container | [`actions/container/README.md`](actions/container/README.md) | [`build_and_publish_containers.yml`](/gh_workflow_examples/build_and_publish_containers.yml) |
+| Shell | (no artifact — shellcheck + bats only) | [`build_shell.yml`](/gh_workflow_examples/build_shell.yml) |
 
 ## Build Track level
 
-Every wrangle build-type reusable workflow that produces provenance — npm, pnpm, pip, uv, and container — meets **SLSA v1.2 Build L3** when consumed through wrangle's reusable workflow on GitHub-hosted runners. Shell produces no artifact and no provenance, so no Build Track level applies to it. Each build type's README states its level and the conditions that narrow it; the source-of-truth discussion is [`docs/SPEC.md` §"Build Track level"](../docs/SPEC.md) and the full per-builder analysis is [`docs/SLSA_L3_AUDIT.md`](../docs/SLSA_L3_AUDIT.md).
+Every build type that produces an artifact (npm, pnpm, pip, uv, container) meets **SLSA v1.2 Build L3** when consumed through wrangle's reusable workflow on GitHub-hosted runners. Shell produces no artifact, so no Build Track level applies. Each build type's README states the conditions that narrow its claim; see [`docs/SPEC.md` §"Build Track level"](../docs/SPEC.md) and [`docs/SLSA_L3_AUDIT.md`](../docs/SLSA_L3_AUDIT.md) for the full analysis.
 
-## Containers with GitHub Actions
-
-### User Instructions
-
-Wrangle supports building containers with GitHub actions in two ways:
-
-* A reusable workflow that handles everything, SBOM generation, vuln scanning, and provenance generation. [Example](/gh_workflow_examples/build_and_publish_containers.yml)
-* An [action](/build/actions/container/action.yml) that you can plug into your existing workflow.  Handles SBOM generation and vuln scanning.
-
-Example vulnerability scan results:
 ![Wrangle Build Container Summary showing vulns found by OSV](/assets/images/osv_sbom_summary.png)
-
-## Python with GitHub Actions
-
-Build Python wheels and sdists, run pytest, generate an SPDX SBOM, and produce SLSA provenance (Build L3) via `slsa-github-generator`. Publish to PyPI via Trusted Publishing (no API tokens required) with PEP 740 attestations.
-
-* A reusable workflow that runs build + test + SBOM + SLSA provenance. [Example](/gh_workflow_examples/build_python.yml)
-* The composite [action](/build/actions/python/action.yml) for plugging into existing workflows (build + test + SBOM only).
-
-The example workflow demonstrates the recommended pattern of verifying SLSA provenance before publish — adopters can keep or remove that step. See [`actions/python/README.md`](actions/python/README.md) for full details.

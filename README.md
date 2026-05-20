@@ -1,11 +1,6 @@
 # wrangle
 
-Wrangle is a toy project where I try to figure out if we can easily
-integrate best practices and all the various tools available for
-users without them needing to know all the details.
-
-NOTE: I've never really used GitHub for professional development
-before, so this is a bit of a learning process too.
+A composable CI/CD security framework for GitHub Actions. Adopters get source scanning, signed builds, SBOMs, and SLSA L3 provenance out of the box — by referencing wrangle's reusable workflows. Maintainers can update the tooling without adopters touching their repos.
 
 ## Quick Start
 
@@ -28,34 +23,14 @@ jobs:
     uses: TomHennen/wrangle/.github/workflows/check_source_change.yml@v0.1.0
 ```
 
-This runs OSV-Scanner, Zizmor, and OSSF Scorecard on every PR. Results appear in the Actions step summary and the Security tab.
+Runs OSV-Scanner, Zizmor, OSSF Scorecard, and dependency-review on every PR. Findings appear in the Security tab and the Actions step summary.
 
-For shell and container build types, see the [workflow examples](gh_workflow_examples/README.md).
-
-## Goals
-
-### Project Owners
-
-Project owners should be able to easily find the documentation and tools for how they can write, build, and publish their software easily.
-
-Once adopted project owners should get, for free, industry leading best practices for how software should be developed within that ecosystem.
-
-Project owners should be able to focus, exclusively, on the features they want to develop for their project.  They should not have to worry
-about the various details of the tooling used under the hood unless they really want to.
-
-### Security Folks
-
-Security professionals should be able to easily tweak existing tools and integrations and add new tools to Wrangle. These tools should then
-be adopted transparently by all of Wrangle's users without those users needing to take any action beyond bumping their integrations to the
-next version of Wrangle.
+For build/publish — npm, Python, container, shell — see the [workflow examples](gh_workflow_examples/README.md).
 
 ## Pieces
 
-Wrangle is composed of a few pieces:
-
-
-- [Workflow examples](gh_workflow_examples/README.md) — starter workflows for adopting wrangle
-- [Reusable workflows](.github/workflows/README.md) — the workflows adopters call via `uses:`
-- [Composite actions](actions/) — scan orchestration and tool wrappers
-- [Build actions](build/) — build types (shell, container)
-- [Spec](docs/SPEC.md) — architecture, contracts, and security model
+- [Workflow examples](gh_workflow_examples/README.md) — copy-paste starting points
+- [Reusable workflows](.github/workflows/) — what adopters call via `uses:`
+- [Source scan action](actions/scan/README.md) — OSV, Zizmor, Scorecard, dependency-review orchestration
+- [Build actions](build/) — npm, python, container, shell
+- [Spec](docs/SPEC.md) — architecture, contracts, threat model
