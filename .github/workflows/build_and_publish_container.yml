@@ -35,6 +35,31 @@ on:
         required: false
         type: string
         default: non-pull-request
+      pr-cache:
+        description: |
+          BuildKit cache policy for PR / non-release builds. Release builds
+          always run cache-free regardless of this input — they produce
+          SLSA L3 provenance and MUST NOT consume the shared, unverified-
+          on-hit BuildKit type=gha cache (docs/SLSA_L3_AUDIT.md Finding 2).
+
+          This input only tunes the PR / dev-build path, trading PR-build
+          speed against PR-to-PR cache-poisoning exposure (a malicious PR
+          poisoning a shared cache entry that a later PR build reads — see
+          docs/SLSA_L3_AUDIT.md "Should wrangle care about PR-to-PR cache
+          poisoning?"). One of:
+            - isolated (default): each PR gets its own cache scope, keyed
+              by the GitHub-assigned PR number. PR A cannot write entries
+              PR B reads; rebuilds within a PR still hit cache. Safe
+              default — closes PR-to-PR poisoning without disabling cache.
+            - enabled: PR builds share the cross-branch BuildKit cache.
+              Fastest; a malicious PR can poison entries that later PR
+              builds read.
+            - read-only: PR builds read the shared cache but never write
+              it. PRs consume entries but cannot poison them.
+            - disabled: PR builds also run cache-free.
+        required: false
+        type: string
+        default: isolated
       verify-image:
         description: |
           When true (default), wrangle runs `cosign verify-attestation`
@@ -119,13 +144,14 @@ jobs:
         imagename: ${{ inputs.imagename }}
         registry: ${{ inputs.registry }}
         github_token: ${{ secrets.GITHUB_TOKEN }}
-        # Disable the BuildKit GHA cache on release builds. should-release
-        # == 'true' means this event produces L3 provenance, so the build
-        # must not consume a shared, cross-build, unverified-on-hit cache —
-        # see docs/SLSA_L3_AUDIT.md Finding 2. PR builds keep the cache for
-        # fast iteration; they produce no provenance, so cache poisoning is
-        # not an L3 concern at that layer.
-        cache: ${{ needs.gate.outputs.should-release == 'true' && 'disabled' || 'enabled' }}
+        # Release builds (should-release == 'true') always run cache-free:
+        # they produce L3 provenance, so the build must not consume a
+        # shared, cross-build, unverified-on-hit cache — see
+        # docs/SLSA_L3_AUDIT.md Finding 2. PR builds get the adopter's
+        # `pr-cache` policy, which defaults to "isolated" (per-PR scope,
+        # so PRs cannot poison each other) and can be widened to a fully
+        # shared cache or tightened to read-only / disabled.
+        cache: ${{ needs.gate.outputs.should-release == 'true' && 'disabled' || inputs.pr-cache }}
 
   provenance:
     # Gated on release-events (default: non-pull-request) so adopters can

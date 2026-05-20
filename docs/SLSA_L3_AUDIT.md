@@ -1268,6 +1268,20 @@ recommendation.
 
 ### Should wrangle care about PR-to-PR cache poisoning?
 
+> **Resolved by [PR #231](https://github.com/TomHennen/wrangle/pull/231)**
+> (issue [#225](https://github.com/TomHennen/wrangle/issues/225)). The
+> container build now exposes an adopter-tunable `pr-cache` knob
+> (`enabled` | `isolated` | `read-only` | `disabled`). The implementation
+> goes one step stricter than the original recommendation below: the
+> default is **`isolated`** (per-PR scope keyed by the GitHub-assigned PR
+> number), not the original "default unchanged" — secure-by-default fits
+> wrangle's supply-chain positioning, and `isolated` keeps in-PR cache
+> hits so the developer-experience cost is small. The per-PR scope is
+> keyed by `github.event.pull_request.number` rather than `head_ref` so
+> two PRs with the same source branch name (e.g. both `patch-1` from
+> different forks) do not collide in cache namespace. The analysis below
+> is retained as the historical record.
+
 This is a judgment call, not a SLSA-spec lookup. The audit's recommendation:
 **yes, proportionately** — not as a default-on lockdown, but as a documented
 adopter-tunable knob, with a stricter posture on wrangle's own repo where

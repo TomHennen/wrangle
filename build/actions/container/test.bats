@@ -65,11 +65,11 @@ teardown() {
 
 # --- Cache gating (SLSA L3 isolation, #224 / SLSA_L3_AUDIT.md Finding 2) ---
 
-@test "container: validate_inputs.sh accepts cache=enabled and cache=disabled" {
-    run "$ACTION_DIR/validate_inputs.sh" "src" "ghcr.io" "ghcr.io/owner/img" "enabled"
-    [[ "$status" -eq 0 ]]
-    run "$ACTION_DIR/validate_inputs.sh" "src" "ghcr.io" "ghcr.io/owner/img" "disabled"
-    [[ "$status" -eq 0 ]]
+@test "container: validate_inputs.sh accepts every cache policy value" {
+    for mode in enabled disabled isolated read-only; do
+        run "$ACTION_DIR/validate_inputs.sh" "src" "ghcr.io" "ghcr.io/owner/img" "$mode"
+        [[ "$status" -eq 0 ]]
+    done
 }
 
 @test "container: validate_inputs.sh rejects an invalid cache value" {
@@ -96,17 +96,17 @@ teardown() {
     [[ "$status" -eq 0 ]]
 }
 
-@test "container: action.yml gates cache-from/cache-to on the cache input" {
-    # Pin the full expression — operator and operands. A loose
-    # 'mentions inputs.cache' regex would still pass if the condition
-    # were inverted (!= instead of ==), which turns caching ON for
-    # release builds: the exact Build L3 downgrade this gating prevents.
-    run grep -F "cache-from: \${{ inputs.cache == 'enabled' && 'type=gha' || '' }}" "$ACTION_DIR/action.yml"
+@test "container: build-push reads cache-from/cache-to from the cacheflags step" {
+    # The flags are resolved by the cacheflags step (resolve_cache.sh), not
+    # by an inline GHA expression. A regressed action that hard-coded
+    # `cache-from: type=gha` would turn caching ON for release builds —
+    # the exact Build L3 downgrade the release gating prevents.
+    run grep -F 'cache-from: ${{ steps.cacheflags.outputs.cache-from }}' "$ACTION_DIR/action.yml"
     [[ "$status" -eq 0 ]]
-    run grep -F "cache-to: \${{ inputs.cache == 'enabled' && 'type=gha,mode=max' || '' }}" "$ACTION_DIR/action.yml"
+    run grep -F 'cache-to: ${{ steps.cacheflags.outputs.cache-to }}' "$ACTION_DIR/action.yml"
     [[ "$status" -eq 0 ]]
-    # The unconditional type=gha cache config must be gone.
-    run grep -E '^[[:space:]]+cache-from:[[:space:]]*type=gha[[:space:]]*$' "$ACTION_DIR/action.yml"
+    # No unconditional type=gha cache config may creep back.
+    run grep -E '^[[:space:]]+cache-(from|to):[[:space:]]*type=gha' "$ACTION_DIR/action.yml"
     [[ "$status" -ne 0 ]]
 }
 
@@ -116,11 +116,116 @@ teardown() {
     [[ "$status" -eq 0 ]]
 }
 
-@test "container: reusable workflow disables cache for release builds" {
-    # The composite's cache input must be driven by should-release:
-    # 'disabled' on release, 'enabled' otherwise.
+@test "container: reusable workflow forces cache disabled for release builds" {
+    # Release builds MUST be cache-free: 'disabled' when should-release is
+    # true, otherwise the adopter's pr-cache policy.
     local wf="$REPO_ROOT/.github/workflows/build_and_publish_container.yml"
-    run bash -c "grep -E \"cache:.*should-release.*'disabled'.*'enabled'\" \"$wf\""
+    run bash -c "grep -E \"cache:.*should-release.*'disabled'.*inputs.pr-cache\" \"$wf\""
+    [[ "$status" -eq 0 ]]
+}
+
+# --- Adopter PR-to-PR cache knobs (#225 / SLSA_L3_AUDIT.md PR-to-PR section) ---
+
+@test "container: resolve_cache.sh exists and is executable" {
+    [[ -x "$ACTION_DIR/resolve_cache.sh" ]]
+}
+
+@test "container: resolve_cache.sh disables globbing with set -f" {
+    # The scope argument is external (a branch name); CLAUDE.md requires set -f.
+    run grep -E '^set -f' "$ACTION_DIR/resolve_cache.sh"
+    [[ "$status" -eq 0 ]]
+}
+
+@test "container: resolve_cache.sh maps enabled to cache-from + cache-to" {
+    run "$ACTION_DIR/resolve_cache.sh" "enabled" "main"
+    [[ "$status" -eq 0 ]]
+    grep -q '^cache-from=type=gha$' "$GITHUB_OUTPUT"
+    grep -q '^cache-to=type=gha,mode=max$' "$GITHUB_OUTPUT"
+}
+
+@test "container: resolve_cache.sh maps disabled to empty flags" {
+    run "$ACTION_DIR/resolve_cache.sh" "disabled" "main"
+    [[ "$status" -eq 0 ]]
+    grep -q '^cache-from=$' "$GITHUB_OUTPUT"
+    grep -q '^cache-to=$' "$GITHUB_OUTPUT"
+}
+
+@test "container: resolve_cache.sh maps read-only to cache-from only (no cache-to)" {
+    run "$ACTION_DIR/resolve_cache.sh" "read-only" "main"
+    [[ "$status" -eq 0 ]]
+    grep -q '^cache-from=type=gha$' "$GITHUB_OUTPUT"
+    # cache-to must be empty: a read-only PR build never writes the cache.
+    grep -q '^cache-to=$' "$GITHUB_OUTPUT"
+}
+
+@test "container: resolve_cache.sh maps isolated to a per-PR scope" {
+    run "$ACTION_DIR/resolve_cache.sh" "isolated" "feature-x"
+    [[ "$status" -eq 0 ]]
+    grep -q '^cache-from=type=gha,scope=feature-x$' "$GITHUB_OUTPUT"
+    grep -q '^cache-to=type=gha,mode=max,scope=feature-x$' "$GITHUB_OUTPUT"
+}
+
+@test "container: resolve_cache.sh sanitizes the scope against cache-config injection" {
+    # The scope is a PR-author-controlled branch name flowing into a
+    # comma-delimited cache config string. A comma/equals must not survive
+    # to inject an extra cache option (e.g. ,type=registry,ref=evil).
+    run "$ACTION_DIR/resolve_cache.sh" "isolated" 'x,type=registry,ref=evil/img'
+    [[ "$status" -eq 0 ]]
+    run grep -E '^cache-from=' "$GITHUB_OUTPUT"
+    [[ "$output" != *",type=registry,"* ]]
+    [[ "$output" != *"ref=evil"* ]]
+}
+
+@test "container: resolve_cache.sh rejects an invalid cache mode" {
+    run "$ACTION_DIR/resolve_cache.sh" "bogus" "main"
+    [[ "$status" -ne 0 ]]
+    [[ "$output" == *"invalid cache mode"* ]]
+}
+
+@test "container: action.yml resolves cache flags via resolve_cache.sh" {
+    run grep -F 'resolve_cache.sh' "$ACTION_DIR/action.yml"
+    [[ "$status" -eq 0 ]]
+    # The cacheflags step must run before the docker build.
+    run bash -c "awk '/id: cacheflags/{c=NR} /uses: docker\\/build-push-action/{d=NR} END{exit !(c && d && c<d)}' \"$ACTION_DIR/action.yml\""
+    [[ "$status" -eq 0 ]]
+}
+
+@test "container: reusable workflow exposes the pr-cache input (default isolated)" {
+    # Default is `isolated`, not `enabled`: a secure-by-default posture
+    # that closes PR-to-PR cache poisoning out of the box while keeping
+    # in-PR cache hits. Flipping this default back to `enabled` re-opens
+    # the PR-to-PR poisoning vector for every adopter.
+    local wf="$REPO_ROOT/.github/workflows/build_and_publish_container.yml"
+    run grep -E '^      pr-cache:' "$wf"
+    [[ "$status" -eq 0 ]]
+    run bash -c "sed -n '/^      pr-cache:/,/^      [a-z]/p' \"$wf\" | grep -E 'default:[[:space:]]*isolated'"
+    [[ "$status" -eq 0 ]]
+}
+
+@test "container: composite cache input defaults to isolated" {
+    # Direct callers of the composite (not a supported L3 path, but a
+    # valid use) should also get the secure-by-default isolated scope.
+    run bash -c "sed -n '/^  cache:/,/^  [a-z]/p' \"$ACTION_DIR/action.yml\" | grep -E 'default:[[:space:]]*\"isolated\"'"
+    [[ "$status" -eq 0 ]]
+}
+
+@test "container: isolated scope is keyed by PR number, not branch name" {
+    # Branch names are PR-author-controlled and can collide across forks
+    # (two PRs from different forks both using `patch-1` would otherwise
+    # share a cache scope). Keying on the GitHub-assigned PR number gives
+    # each PR a unique, unforgeable scope. The non-PR fallback (push /
+    # workflow_dispatch) is ref_name.
+    run grep -F "github.event.pull_request.number && format('pr-{0}', github.event.pull_request.number) || github.ref_name" "$ACTION_DIR/action.yml"
+    [[ "$status" -eq 0 ]]
+    # The old head_ref-only form must not creep back.
+    run grep -F 'github.head_ref || github.ref_name' "$ACTION_DIR/action.yml"
+    [[ "$status" -ne 0 ]]
+}
+
+@test "container: README documents the pr-cache knob and the PR-to-PR threat" {
+    run grep -F 'pr-cache' "$ACTION_DIR/README.md"
+    [[ "$status" -eq 0 ]]
+    run grep -iF 'PR-to-PR cache poisoning' "$ACTION_DIR/README.md"
     [[ "$status" -eq 0 ]]
 }
 
