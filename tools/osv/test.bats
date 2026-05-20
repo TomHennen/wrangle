@@ -163,6 +163,20 @@ teardown() {
     [ -f "$TEST_DIR/output/output.md" ]
 }
 
+# Regression test for #197: when osv-scanner produces SARIF with findings,
+# output.md must list those findings (it previously reported zero because
+# the adapter ran osv-scanner a second time for markdown and the markdown
+# formatter under-reported).
+@test "osv adapter: markdown output reflects SARIF findings" {
+    export OSV_MOCK_MODE="findings"
+    run "$ORIG_DIR/tools/osv/adapter.sh" "$TEST_DIR/src" "$TEST_DIR/output"
+
+    [ "$status" -eq 1 ]
+    [ -f "$TEST_DIR/output/output.md" ]
+    # The finding's ruleId from the mock SARIF should appear in the summary.
+    grep -q "GHSA-1234-5678-abcd" "$TEST_DIR/output/output.md"
+}
+
 # --- install.sh tests ---
 
 @test "osv install: sources download_verify library" {
