@@ -105,7 +105,7 @@ jobs:
     permissions: {}    # reads env only — no workspace, no API, no secrets
     steps:
       # TODO: replace with $/actions/preflight_guard when GitHub ships $/ syntax (#136)
-      - uses: TomHennen/wrangle/actions/preflight_guard@f0a0b4acbd065ba47dfae170341ce4340bc18b72 # main 2026-05-20
+      - uses: TomHennen/wrangle/actions/preflight_guard@9e5b9359a972679b5e457a5a0c3d0e69f8c7b86d # main 2026-05-20
 
   gate:
     needs: [guard]
@@ -116,7 +116,7 @@ jobs:
     steps:
       # No checkout: release_gate resolves via ${{ github.action_path }}.
       # TODO: replace with $/actions/release_gate when GitHub ships $/ syntax (#136)
-      - uses: TomHennen/wrangle/actions/release_gate@f0a0b4acbd065ba47dfae170341ce4340bc18b72 # main 2026-05-20
+      - uses: TomHennen/wrangle/actions/release_gate@9e5b9359a972679b5e457a5a0c3d0e69f8c7b86d # main 2026-05-20
         id: gate
         with:
           events: ${{ inputs.release-events }}
@@ -138,7 +138,7 @@ jobs:
     # TODO: replace with $/build/actions/container when GitHub ships $/ syntax (#136)
     - name: "build and publish"
       id: build
-      uses: TomHennen/wrangle/build/actions/container@f0a0b4acbd065ba47dfae170341ce4340bc18b72 # main 2026-05-20
+      uses: TomHennen/wrangle/build/actions/container@9e5b9359a972679b5e457a5a0c3d0e69f8c7b86d # main 2026-05-20
       with:
         path: ${{ inputs.path }}
         imagename: ${{ inputs.imagename }}
