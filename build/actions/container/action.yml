@@ -22,11 +22,13 @@ inputs:
       BuildKit GitHub Actions cache policy. One of (validated against this
       allowlist by validate_inputs.sh — any other value fails the build):
 
-        enabled   (default) cache-from + cache-to against the shared,
-                  cross-branch type=gha scope.
+        isolated  (default) cache-from + cache-to namespaced by a per-PR
+                  scope (the GitHub-assigned PR number), so one PR cannot
+                  write entries another PR reads. Rebuilds within a PR
+                  still hit cache.
+        enabled   cache-from + cache-to against the shared, cross-branch
+                  type=gha scope.
         disabled  no BuildKit cache at all.
-        isolated  cache-from + cache-to namespaced by a per-PR scope, so
-                  one PR cannot write entries another PR reads.
         read-only cache-from only — the build consumes the shared cache
                   but never writes it, so it cannot poison later builds.
 
@@ -41,12 +43,12 @@ inputs:
       signs over. Skipping the cache for release builds keeps the container
       path at SLSA v1.2 Build L3 — see docs/SLSA_L3_AUDIT.md Finding 2. For
       PR builds the reusable workflow passes its adopter-facing `pr-cache`
-      input straight through, defaulting to "enabled".
+      input straight through, defaulting to "isolated".
 
-      Direct callers of this composite (not a supported L3 path) get
-      caching by default; they are not claiming L3 provenance.
+      Direct callers of this composite (not a supported L3 path) get the
+      same isolated default; they are not claiming L3 provenance.
     required: false
-    default: "enabled"
+    default: "isolated"
 
 outputs:
   digest:
@@ -108,19 +110,23 @@ runs:
 
     # Resolve the BuildKit cache-from / cache-to flags from the `cache`
     # policy. Done in a script (not a nested GHA expression) so the
-    # per-PR scope can be sanitized — the scope is a PR-author-controlled
-    # branch name flowing into a comma-delimited cache config string. See
-    # resolve_cache.sh and docs/SLSA_L3_AUDIT.md "Should wrangle care about
-    # PR-to-PR cache poisoning?".
+    # per-PR scope can be sanitized before reaching the comma-delimited
+    # cache config string. See resolve_cache.sh and docs/SLSA_L3_AUDIT.md
+    # "Should wrangle care about PR-to-PR cache poisoning?".
     - name: Resolve BuildKit cache flags
       id: cacheflags
       shell: bash
       env:
         INPUT_CACHE: ${{ inputs.cache }}
-        # head_ref is set on pull_request events (the PR's source branch);
-        # ref_name covers branch/tag pushes. Only used by the `isolated`
-        # policy, and sanitized by resolve_cache.sh before use.
-        CACHE_SCOPE: ${{ github.head_ref || github.ref_name }}
+        # Per-PR scope source — only consulted by the `isolated` policy.
+        # On a pull_request event we key on `github.event.pull_request.number`
+        # (GitHub-assigned, monotonically unique per PR, unforgeable by the
+        # PR author), so two PRs that happen to share a source branch name
+        # (e.g. both `patch-1` from different forks) get distinct scopes.
+        # On non-PR events the PR number is empty and we fall back to
+        # `ref_name` (a branch or tag name). Sanitized by resolve_cache.sh
+        # before it reaches the BuildKit config.
+        CACHE_SCOPE: ${{ github.event.pull_request.number && format('pr-{0}', github.event.pull_request.number) || github.ref_name }}
       run: |
         set -euo pipefail
         "${{ github.action_path }}/resolve_cache.sh" "$INPUT_CACHE" "$CACHE_SCOPE"

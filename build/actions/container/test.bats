@@ -190,12 +190,36 @@ teardown() {
     [[ "$status" -eq 0 ]]
 }
 
-@test "container: reusable workflow exposes the pr-cache input (default enabled)" {
+@test "container: reusable workflow exposes the pr-cache input (default isolated)" {
+    # Default is `isolated`, not `enabled`: a secure-by-default posture
+    # that closes PR-to-PR cache poisoning out of the box while keeping
+    # in-PR cache hits. Flipping this default back to `enabled` re-opens
+    # the PR-to-PR poisoning vector for every adopter.
     local wf="$REPO_ROOT/.github/workflows/build_and_publish_container.yml"
     run grep -E '^      pr-cache:' "$wf"
     [[ "$status" -eq 0 ]]
-    run bash -c "sed -n '/^      pr-cache:/,/^      [a-z]/p' \"$wf\" | grep -E 'default:[[:space:]]*enabled'"
+    run bash -c "sed -n '/^      pr-cache:/,/^      [a-z]/p' \"$wf\" | grep -E 'default:[[:space:]]*isolated'"
     [[ "$status" -eq 0 ]]
+}
+
+@test "container: composite cache input defaults to isolated" {
+    # Direct callers of the composite (not a supported L3 path, but a
+    # valid use) should also get the secure-by-default isolated scope.
+    run bash -c "sed -n '/^  cache:/,/^  [a-z]/p' \"$ACTION_DIR/action.yml\" | grep -E 'default:[[:space:]]*\"isolated\"'"
+    [[ "$status" -eq 0 ]]
+}
+
+@test "container: isolated scope is keyed by PR number, not branch name" {
+    # Branch names are PR-author-controlled and can collide across forks
+    # (two PRs from different forks both using `patch-1` would otherwise
+    # share a cache scope). Keying on the GitHub-assigned PR number gives
+    # each PR a unique, unforgeable scope. The non-PR fallback (push /
+    # workflow_dispatch) is ref_name.
+    run grep -F "github.event.pull_request.number && format('pr-{0}', github.event.pull_request.number) || github.ref_name" "$ACTION_DIR/action.yml"
+    [[ "$status" -eq 0 ]]
+    # The old head_ref-only form must not creep back.
+    run grep -F 'github.head_ref || github.ref_name' "$ACTION_DIR/action.yml"
+    [[ "$status" -ne 0 ]]
 }
 
 @test "container: README documents the pr-cache knob and the PR-to-PR threat" {
