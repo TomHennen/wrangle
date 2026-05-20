@@ -63,6 +63,16 @@ SARIF
         fi
         exit 1
         ;;
+    real-findings)
+        # Mock emits a real osv-scanner SARIF captured from the upstream
+        # project's snapshot tests (see testdata/real_osv_findings.sarif).
+        # This exercises the adapter end-to-end with the actual SARIF
+        # structure osv-scanner produces, not a hand-rolled stub.
+        if [[ "$format" == "sarif" ]]; then
+            cp "$OSV_REAL_SARIF" "$output_file"
+        fi
+        exit 1
+        ;;
     no-sources)
         exit 128
         ;;
@@ -175,6 +185,25 @@ teardown() {
     [ -f "$TEST_DIR/output/output.md" ]
     # The finding's ruleId from the mock SARIF should appear in the summary.
     grep -q "GHSA-1234-5678-abcd" "$TEST_DIR/output/output.md"
+}
+
+# Regression test for #197 using a real osv-scanner SARIF fixture captured
+# from osv-scanner's own snapshot tests
+# (internal/output/__snapshots__/sarif_test.snap @ v2.3.5). Confirms the
+# adapter's markdown summary surfaces actual osv-scanner findings end-to-end
+# with the SARIF structure the tool really produces.
+@test "osv adapter: markdown output reflects findings from real osv-scanner SARIF" {
+    export OSV_MOCK_MODE="real-findings"
+    export OSV_REAL_SARIF="$ORIG_DIR/tools/osv/testdata/real_osv_findings.sarif"
+    run "$ORIG_DIR/tools/osv/adapter.sh" "$TEST_DIR/src" "$TEST_DIR/output"
+
+    [ "$status" -eq 1 ]
+    [ -f "$TEST_DIR/output/output.md" ]
+    # Both unique CVE ruleIds in the fixture must appear in the summary.
+    grep -q "CVE-2022-24713" "$TEST_DIR/output/output.md"
+    grep -q "CVE-2021-3121" "$TEST_DIR/output/output.md"
+    # And the package mentioned in the SARIF message must be surfaced.
+    grep -q "regex@1.5.1" "$TEST_DIR/output/output.md"
 }
 
 # --- install.sh tests ---
