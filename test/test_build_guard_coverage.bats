@@ -84,9 +84,12 @@ is_exempt() {
 @test "build-guard-coverage: every build composite test.bats pins guard coverage" {
     # A per-composite assertion that its action.yml actually wraps the
     # ecosystem invocation (not just imports the helper somewhere
-    # inert). Each composite's test.bats MUST mention the guard at
-    # least once, so a future maintainer who silently drops the wrap
-    # but leaves an import comment behind still trips a test.
+    # inert). Each composite's test.bats MUST reference the literal
+    # helper filename `stop_commands_guard.sh` — which is what an
+    # actual assertion grep'ing the action.yml looks like, not what
+    # pure prose would say. A maintainer dropping the assertion and
+    # leaving a section-header comment that reads "stop-commands guard"
+    # alone does NOT satisfy this check.
     local missing=()
     while IFS= read -r -d '' action_yml; do
         local composite_dir composite_name test_bats
@@ -101,7 +104,7 @@ is_exempt() {
             missing+=("$composite_name (no test.bats)")
             continue
         fi
-        if ! grep -qE 'stop_commands_guard|stop-commands guard' "$test_bats"; then
+        if ! grep -qF 'stop_commands_guard.sh' "$test_bats"; then
             missing+=("$composite_name")
         fi
     done < <(find "$REPO_ROOT/build/actions" -mindepth 2 -maxdepth 2 \

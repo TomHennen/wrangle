@@ -168,15 +168,38 @@ setup() {
     [[ "$status" -eq 0 ]]
 }
 
-@test "npm: build step asserts exactly one tarball in dist/ (not tail-n1)" {
+@test "npm: build_and_pack.sh asserts exactly one tarball in dist/ (not tail-n1)" {
     # Channel-free output: derives the tarball name from a glob over
     # dist/*.tgz and asserts the count is exactly 1 — catches surprise
     # multi-build scenarios (e.g., a future workspace change) explicitly,
     # instead of non-deterministically picking via `tail -n1`.
-    run grep -E 'expected exactly 1 tarball' "$ACTION"
+    #
+    # Discovery lives in build_and_pack.sh (not in the action.yml run:
+    # block) so that the count-check error printf — which echoes
+    # filenames — runs INSIDE stop_commands_guard.sh. An unguarded
+    # post-script discovery would let a hostile postinstall plant
+    # `dist/::add-mask::evil.tgz` and inject a workflow command via the
+    # error path's stderr.
+    run grep -E 'expected exactly 1 tarball' "$ACTION_DIR/build_and_pack.sh"
     [[ "$status" -eq 0 ]]
     # And verify we are not relying on tail -n1 for the tarball capture.
-    run grep -E 'tarball=.*tail' "$ACTION"
+    run grep -E 'tarball=.*tail' "$ACTION_DIR/build_and_pack.sh"
+    [[ "$status" -ne 0 ]]
+    # The action.yml MUST NOT do its own post-script discovery — that
+    # would put the filename-echoing error printf outside the guard.
+    run grep -E 'expected exactly 1 tarball' "$ACTION"
+    [[ "$status" -ne 0 ]]
+}
+
+@test "npm: build_and_pack.sh writes tarball=<name> to GITHUB_OUTPUT" {
+    # The tarball-name output is consumed by the workflow's metadata-
+    # artifact-name output and by the step summary. Discovery moved into
+    # the script (see test above) means the GITHUB_OUTPUT write moves
+    # too — both happen inside the guard.
+    run grep -E 'tarball=.*GITHUB_OUTPUT' "$ACTION_DIR/build_and_pack.sh"
+    [[ "$status" -eq 0 ]]
+    # The action.yml's run: block must NOT also write tarball=...
+    run bash -c "sed -n '/name: Build and pack/,/name: /p' \"$ACTION\" | grep -E 'tarball=.*GITHUB_OUTPUT'"
     [[ "$status" -ne 0 ]]
 }
 

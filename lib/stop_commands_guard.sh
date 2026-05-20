@@ -62,14 +62,26 @@ case "${1:-}" in
             printf 'Usage: %s run <command> [args...]\n' "$0" >&2
             exit 1
         fi
+        # An EXIT trap re-emits the re-enable line on every code path:
+        # explicit exit, set -e abort, or an unexpected signal. The
+        # explicit `printf '::%s::\n' "$token"` after `"$@"` could fail
+        # (closed stdout — rare on GHA but possible) and set -e would
+        # then exit before the line was emitted; the trap closes that
+        # window. `[[ -n "$token" ]]` skips the trap body when
+        # generate_token failed before we suspended anything (no
+        # suspension to close), and `|| true` keeps a trap-time printf
+        # failure from masking the exit status the wrapped command
+        # already established. Initializing `token=""` BEFORE setting
+        # the trap prevents a `set -u` reference-time error if the trap
+        # fires before the token assignment runs.
+        token=""
+        trap '[[ -n "$token" ]] && printf "::%s::\n" "$token" 2>/dev/null || true' EXIT
         token="$(generate_token)"
         printf '::stop-commands::%s\n' "$token"
         # `|| status=$?` makes the wrapped command a tested command, so
-        # `set -e` does not abort here on a non-zero exit — the re-enable
-        # line below MUST be reached on every code path.
+        # `set -e` does not abort here on a non-zero exit.
         status=0
         "$@" || status=$?
-        printf '::%s::\n' "$token"
         exit "$status"
         ;;
     begin)

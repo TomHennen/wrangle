@@ -105,6 +105,30 @@ teardown() {
     [[ "$output" == *"token=[UNSET]"* ]]
 }
 
+@test "stop_commands_guard: run uses an EXIT trap so re-enable runs even on script abort" {
+    # Stop-commands is job-scoped — leaving it suspended would disable
+    # ::add-mask:: secret redaction for the rest of the job. The explicit
+    # re-enable printf could in principle fail (closed stdout) and set -e
+    # would then exit before the line was emitted. An EXIT trap closes
+    # that window. Structural assertion: a trap on EXIT must exist in the
+    # `run` path, and the trap body must reference the token variable.
+    run grep -E '^[[:space:]]*trap.*EXIT' "$SCRIPT"
+    [[ "$status" -eq 0 ]]
+    [[ "$output" == *'"$token"'* ]]
+}
+
+@test "stop_commands_guard: run trap re-enables even when generate_token has not yet run" {
+    # Belt-and-suspenders: if anything aborted the script BEFORE the
+    # token was generated, the trap must not itself fail (and must not
+    # emit a malformed `::::` re-enable). Verified indirectly: the trap
+    # guards on [[ -n "$token" ]], and token is initialized to "" before
+    # the trap is installed.
+    run grep -F 'token=""' "$SCRIPT"
+    [[ "$status" -eq 0 ]]
+    run grep -F '[[ -n "$token" ]] && printf' "$SCRIPT"
+    [[ "$status" -eq 0 ]]
+}
+
 # --- begin ---
 
 @test "stop_commands_guard: begin writes the token to GITHUB_OUTPUT and emits stop-commands" {

@@ -115,6 +115,10 @@ Every build composite MUST wrap its ecosystem invocations (compile, install, tes
 
 This requirement is enforced by `test/test_build_guard_coverage.bats`, which enumerates every `build/actions/*/action.yml` and fails if a composite has no reference to the guard. A new build type cannot be added without either wiring in the guard or adding the composite to the explicit allowlist in that test (which requires a written rationale — today the list is empty).
 
+The guarded window MUST also cover any post-script logic in the composite's `run:` block that echoes content derived from the build's output (a glob of build artifacts, an error message including filenames, etc.). The pattern is to push that logic INTO the guarded script (writing results to `$GITHUB_OUTPUT`, a file-based channel that stop-commands does not affect) rather than running it in the composite's `run:` block after the guard returns. An unguarded post-script `printf '%s\n' "${tarballs[@]}"` over attacker-influenced filenames is a workflow-command injection path that the guard around the build itself does NOT close.
+
+**Adopter-visible side effect.** GitHub workflow commands intentionally emitted by wrapped build tools — e.g., `printf '::warning::version mismatch\n'` from an npm script, an `::error::` line from a pytest test, an `::notice::` from a `Dockerfile RUN` — are suppressed under the guard: they appear in the step log as plain text rather than surfacing as PR-level annotations. The trade is deliberate (an attacker cannot use a malicious dependency to call `::add-mask::` / `::add-path::` / `::set-output::`); adopters who want PR-level annotations from their build should emit them from a wrangle-controlled step (e.g., the source-scan workflow's SARIF upload) rather than from within their build script.
+
 ### Unified metadata layout
 
 Every build type publishes its build outputs to **two complementary places**:

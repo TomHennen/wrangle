@@ -109,21 +109,24 @@ runs:
         pnpm --version
 
     # Run install (npm ci or pnpm install --frozen-lockfile), optional
-    # build, optional test, pack into dist/. The script does not emit
-    # the tarball name on stdout — instead this step globs dist/*.tgz
-    # after the script returns and asserts exactly one match. Channel-
-    # free output prevents a future stray stdout-bound printf from
-    # silently breaking the capture, and the explicit count check turns
-    # "unexpected multiple tarballs" (e.g., from a workspace change)
-    # into a clear error rather than a non-deterministic pick.
+    # build, optional test, pack into dist/, and discover the produced
+    # tarball. Everything — including the dist/ glob, the count check,
+    # and the tarball=<name> emit to $GITHUB_OUTPUT — runs inside
+    # build_and_pack.sh so it all happens under stop_commands_guard.sh.
+    # The script does not emit the tarball name on stdout; it writes
+    # to $GITHUB_OUTPUT (a file the runner reads), which is unaffected
+    # by the stop-commands suspension. Keeping discovery inside the
+    # guard closes the "malicious hook plants dist/::add-mask::evil.tgz,
+    # the post-script error printf echoes the filename, runner
+    # interprets it as a workflow command" path that an unguarded
+    # post-script discovery in this run: block would leave open.
     #
     # build_and_pack.sh runs ecosystem build tooling (npm/pnpm install,
-    # build, test, pack) that executes arbitrary package.json scripts and
-    # transitive dependency lifecycle hooks. stop_commands_guard.sh wraps
-    # it so a malicious hook printing a `::add-mask::` / `::set-output::`
-    # workflow command to stdout cannot hijack the build job — see
-    # docs/SLSA_L3_AUDIT.md Finding 3. The guard re-enables command
-    # processing before this step's tarball-capture logic runs.
+    # build, test, pack) that executes arbitrary package.json scripts
+    # and transitive dependency lifecycle hooks. stop_commands_guard.sh
+    # wraps the whole thing so a malicious hook printing a `::add-mask::`
+    # / `::set-output::` workflow command cannot hijack the build job —
+    # see docs/SLSA_L3_AUDIT.md Finding 3.
     - name: Build and pack
       id: build
       shell: bash
@@ -135,15 +138,6 @@ runs:
         set -euo pipefail
         "${{ github.action_path }}/../../../lib/stop_commands_guard.sh" run \
           "${{ github.action_path }}/build_and_pack.sh" "$INPUT_PATH" "$RUN_TESTS" "$IGNORE_SCRIPTS"
-        cd "$INPUT_PATH/dist"
-        shopt -s nullglob
-        tarballs=(*.tgz)
-        if (( ${#tarballs[@]} != 1 )); then
-            printf 'Error: expected exactly 1 tarball in dist/, found %d:\n' "${#tarballs[@]}" >&2
-            printf '  %s\n' "${tarballs[@]}" >&2
-            exit 1
-        fi
-        printf 'tarball=%s\n' "${tarballs[0]}" >> "$GITHUB_OUTPUT"
 
     - name: Extract package metadata
       id: metadata
