@@ -13,6 +13,53 @@ setup() {
     ACTION="$ACTION_DIR/action.yml"
     WORKFLOW="$REPO_ROOT/.github/workflows/build_and_publish_python.yml"
     EXAMPLE="$REPO_ROOT/gh_workflow_examples/build_python.yml"
+    TMP_DIR="$(mktemp -d "${TMPDIR:-/tmp}/python-bats-XXXXXX")"
+    GITHUB_OUTPUT="$TMP_DIR/github_output"
+    : > "$GITHUB_OUTPUT"
+    export GITHUB_OUTPUT
+}
+
+teardown() {
+    if [[ -n "${TMP_DIR:-}" && -d "$TMP_DIR" ]]; then
+        rm -rf "$TMP_DIR"
+    fi
+}
+
+# Helper: stub `pytest`, `python`, and `uv` on PATH so the build action's
+# helper scripts execute without needing real interpreters. Each shim
+# records its argv on stdout, which the test then asserts on. The python
+# shim implements just enough of `python -m pytest` / `python -m pip ...`
+# to keep run_tests.sh and install_deps.sh happy in unit tests.
+install_python_shims() {
+    mkdir -p "$TMP_DIR/shim"
+    cat > "$TMP_DIR/shim/python" <<'SHIM'
+#!/bin/bash
+printf 'python'; for a in "$@"; do printf ' %s' "$a"; done; printf '\n'
+# Default: succeed. Override per-test via PYTHON_EXIT_<MODULE> env vars
+# (e.g., PYTHON_EXIT_PIP=1) to simulate failure paths.
+mod=""
+if [[ "${1:-}" == "-m" && $# -ge 2 ]]; then
+    mod="${2^^}"
+    mod="${mod//-/_}"
+fi
+if [[ -n "$mod" ]]; then
+    var="PYTHON_EXIT_${mod}"
+    exit "${!var:-0}"
+fi
+exit 0
+SHIM
+    cat > "$TMP_DIR/shim/pytest" <<'SHIM'
+#!/bin/bash
+printf 'pytest'; for a in "$@"; do printf ' %s' "$a"; done; printf '\n'
+exit 0
+SHIM
+    cat > "$TMP_DIR/shim/uv" <<'SHIM'
+#!/bin/bash
+printf 'uv'; for a in "$@"; do printf ' %s' "$a"; done; printf '\n'
+exit 0
+SHIM
+    chmod +x "$TMP_DIR/shim/python" "$TMP_DIR/shim/pytest" "$TMP_DIR/shim/uv"
+    PATH="$TMP_DIR/shim:$PATH"
 }
 
 # --- Composite action structural tests ---
@@ -45,23 +92,6 @@ setup() {
 
 @test "python: action.yml delegates test run to run_tests.sh" {
     run grep 'run_tests.sh' "$ACTION"
-    [[ "$status" -eq 0 ]]
-}
-
-@test "python: validate_inputs.sh checks for pyproject.toml" {
-    run grep 'pyproject.toml' "$ACTION_DIR/validate_inputs.sh"
-    [[ "$status" -eq 0 ]]
-}
-
-@test "python: install_deps.sh supports both uv and pip paths" {
-    run grep -E 'uv sync|uv build' "$ACTION_DIR/install_deps.sh"
-    [[ "$status" -eq 0 ]]
-    run grep 'pip install' "$ACTION_DIR/install_deps.sh"
-    [[ "$status" -eq 0 ]]
-}
-
-@test "python: run_tests.sh runs pytest" {
-    run grep -E 'uv run pytest|python -m pytest' "$ACTION_DIR/run_tests.sh"
     [[ "$status" -eq 0 ]]
 }
 
@@ -136,6 +166,19 @@ setup() {
     [[ "$output" == *"Usage:"* ]]
 }
 
+@test "python: validate_inputs.sh rejects a project with no pyproject.toml" {
+    # PEP 621 is required: action.yml uses setup-python's
+    # python-version-file pointing at pyproject.toml, so a setup.py-only
+    # project would otherwise fail later with a confusing error. Catch it
+    # here instead.
+    local proj="$TMP_DIR/proj"
+    mkdir -p "$proj"
+    cd "$TMP_DIR"
+    run "$ACTION_DIR/validate_inputs.sh" "proj" "enabled"
+    [[ "$status" -ne 0 ]]
+    [[ "$output" == *"no pyproject.toml"* ]]
+}
+
 @test "python: action.yml exposes a cache input" {
     run grep -E '^  cache:' "$ACTION"
     [[ "$status" -eq 0 ]]
@@ -153,6 +196,141 @@ setup() {
     # release builds: the exact Build L3 downgrade this gating prevents.
     run grep -F "enable-cache: \${{ inputs.cache != 'disabled' }}" "$ACTION"
     [[ "$status" -eq 0 ]]
+}
+
+# --- run_tests.sh behavioral tests ---
+
+write_pyproject() {
+    # $1: project dir, $2: optional extra TOML appended to the file
+    local dir="$1" extra="${2:-}"
+    mkdir -p "$dir"
+    {
+        printf '[project]\nname = "x"\nversion = "0.1.0"\n'
+        printf '%s' "$extra"
+    } > "$dir/pyproject.toml"
+}
+
+@test "python: run_tests.sh runs python -m pytest when tests/ directory exists" {
+    install_python_shims
+    local proj="$TMP_DIR/proj"
+    write_pyproject "$proj"
+    mkdir -p "$proj/tests"
+    PATH="$PATH" run "$ACTION_DIR/run_tests.sh" "$proj" "false"
+    [[ "$status" -eq 0 ]]
+    grep -qE '^python -m pytest$' <<<"$output"
+}
+
+@test "python: run_tests.sh accepts a test/ directory (pytest's default singular form)" {
+    install_python_shims
+    local proj="$TMP_DIR/proj"
+    write_pyproject "$proj"
+    mkdir -p "$proj/test"
+    PATH="$PATH" run "$ACTION_DIR/run_tests.sh" "$proj" "false"
+    [[ "$status" -eq 0 ]]
+    grep -qE '^python -m pytest$' <<<"$output"
+}
+
+@test "python: run_tests.sh runs pytest when only [tool.pytest] config is in pyproject.toml" {
+    # A project that stores tests outside tests/ or test/ should still
+    # have its suite run, provided pyproject.toml configures pytest.
+    install_python_shims
+    local proj="$TMP_DIR/proj"
+    write_pyproject "$proj" $'\n[tool.pytest.ini_options]\ntestpaths = ["mytests"]\n'
+    PATH="$PATH" run "$ACTION_DIR/run_tests.sh" "$proj" "false"
+    [[ "$status" -eq 0 ]]
+    grep -qE '^python -m pytest$' <<<"$output"
+}
+
+@test "python: run_tests.sh skips pytest cleanly when no tests/ and no [tool.pytest] config" {
+    # No tests is not an error — same behavior as the shell build skipping
+    # when no .bats files exist. The message helps adopters discover that
+    # tests in a non-standard location need [tool.pytest].
+    install_python_shims
+    local proj="$TMP_DIR/proj"
+    write_pyproject "$proj"
+    PATH="$PATH" run "$ACTION_DIR/run_tests.sh" "$proj" "false"
+    [[ "$status" -eq 0 ]]
+    ! grep -qE '^pytest' <<<"$output"
+    ! grep -qE '^python -m pytest$' <<<"$output"
+    [[ "$output" == *"skipping pytest"* ]]
+}
+
+@test "python: run_tests.sh uses 'uv run pytest' when use_uv=true" {
+    install_python_shims
+    local proj="$TMP_DIR/proj"
+    write_pyproject "$proj"
+    mkdir -p "$proj/tests"
+    PATH="$PATH" run "$ACTION_DIR/run_tests.sh" "$proj" "true"
+    [[ "$status" -eq 0 ]]
+    grep -qE '^uv run pytest$' <<<"$output"
+    ! grep -qE '^python -m pytest$' <<<"$output"
+}
+
+@test "python: run_tests.sh usage error with wrong arg count" {
+    run "$ACTION_DIR/run_tests.sh" "x"
+    [[ "$status" -ne 0 ]]
+    [[ "$output" == *"Usage:"* ]]
+}
+
+# --- install_deps.sh behavioral tests ---
+
+@test "python: install_deps.sh uses 'uv sync' on the uv path" {
+    install_python_shims
+    local proj="$TMP_DIR/proj"
+    write_pyproject "$proj"
+    PATH="$PATH" run "$ACTION_DIR/install_deps.sh" "$proj" "true"
+    [[ "$status" -eq 0 ]]
+    grep -qE '^uv sync$' <<<"$output"
+}
+
+@test "python: install_deps.sh uses 'pip install -e .[test]' first on the pip path" {
+    install_python_shims
+    local proj="$TMP_DIR/proj"
+    write_pyproject "$proj"
+    PATH="$PATH" run "$ACTION_DIR/install_deps.sh" "$proj" "false"
+    [[ "$status" -eq 0 ]]
+    grep -qE '^python -m pip install -e \.\[test\]$' <<<"$output"
+    [[ "$output" == *"Installed with [test] extra"* ]]
+}
+
+@test "python: install_deps.sh falls back through [dev] to bare install on the pip path" {
+    # When [test] and [dev] both fail (here, simulated by a pip shim that
+    # exits 1 for the first two installs), the bare `pip install -e .`
+    # path must still run — that's the contract for projects without
+    # extras.
+    install_python_shims
+    # Replace the pip shim with one that fails the first two install -e
+    # invocations and succeeds on the third (the bare install).
+    cat > "$TMP_DIR/shim/python" <<'SHIM'
+#!/bin/bash
+printf 'python'; for a in "$@"; do printf ' %s' "$a"; done; printf '\n'
+case "${COUNTER_FILE:-/tmp/missing}" in /tmp/missing) ;; *) ;; esac
+state="$TMP_DIR/pip_calls"
+if [[ "${1:-}" == "-m" && "${2:-}" == "pip" && "${3:-}" == "install" ]]; then
+    count=$(($(cat "$state" 2>/dev/null || echo 0) + 1))
+    echo "$count" > "$state"
+    # First two "install -e .[...]" calls fail; third (bare) succeeds.
+    # The very first call (pip install --upgrade pip) must still succeed.
+    if [[ "${4:-}" == "--upgrade" ]]; then exit 0; fi
+    case "$count" in
+        2|3) exit 1 ;;
+        *) exit 0 ;;
+    esac
+fi
+exit 0
+SHIM
+    chmod +x "$TMP_DIR/shim/python"
+    local proj="$TMP_DIR/proj"
+    write_pyproject "$proj"
+    TMP_DIR="$TMP_DIR" PATH="$PATH" run "$ACTION_DIR/install_deps.sh" "$proj" "false"
+    [[ "$status" -eq 0 ]]
+    [[ "$output" == *"Installed without test extras"* ]]
+}
+
+@test "python: install_deps.sh usage error with wrong arg count" {
+    run "$ACTION_DIR/install_deps.sh" "x"
+    [[ "$status" -ne 0 ]]
+    [[ "$output" == *"Usage:"* ]]
 }
 
 # --- Reusable workflow structural tests ---
