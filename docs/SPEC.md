@@ -109,6 +109,12 @@ The reusable workflow that wraps a build action (e.g., `.github/workflows/build_
 
 If `SPEC.md` describes behavior that hasn't shipped yet, `README.md` MUST NOT present it as available. Keeping the two in sync during implementation is part of landing a feature, not a follow-up.
 
+### Workflow-command-injection guard for build composites
+
+Every build composite MUST wrap its ecosystem invocations (compile, install, test, lint — anything that runs caller-controlled code or echoes caller-controlled content to the step log) in `lib/stop_commands_guard.sh`. GitHub Actions interprets any line on a step's output stream beginning with `::` as a workflow command (`::add-mask::`, `::add-path::`, `::set-output::`); without the guard a malicious dependency lifecycle hook, test, build backend, or `Dockerfile RUN` can hijack the build job just by printing such a line. See `docs/SLSA_L3_AUDIT.md` Finding 3 for the threat model and `lib/stop_commands_guard.sh` for the two supported wrap shapes (`run` for inline `run:` blocks, `begin` / `end` for `uses:` build steps).
+
+This requirement is enforced by `test/test_build_guard_coverage.bats`, which enumerates every `build/actions/*/action.yml` and fails if a composite has no reference to the guard. A new build type cannot be added without either wiring in the guard or adding the composite to the explicit allowlist in that test (which requires a written rationale — today the list is empty).
+
 ### Unified metadata layout
 
 Every build type publishes its build outputs to **two complementary places**:

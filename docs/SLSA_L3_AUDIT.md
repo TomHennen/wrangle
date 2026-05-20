@@ -1496,8 +1496,14 @@ executes in base-repo context.
 > build/test invocation in a `::stop-commands::` guard
 > (`lib/stop_commands_guard.sh`, a per-run random token): the npm
 > `build_and_pack.sh` call, the python `install_deps.sh` and `run_tests.sh`
-> calls, and the container `docker/build-push-action` step. The analysis
-> that follows is retained as the historical record.
+> calls, the container `docker/build-push-action` step, and the shell
+> composite's `shellcheck` and `bats` invocations. New build composites
+> are kept honest by `test/test_build_guard_coverage.bats`, which
+> enumerates `build/actions/*/action.yml` and fails if a composite
+> ships without the guard (or without a written allowlist entry). The
+> SPEC requirement is in `docs/SPEC.md` "Workflow-command-injection
+> guard for build composites". The analysis that follows is retained
+> as the historical record.
 
 **Summary.** The SLSA ecosystem-specific Go builder shadows the `::`
 workflow-command prefix with a per-run token before invoking the compile,
