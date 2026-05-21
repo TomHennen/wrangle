@@ -49,6 +49,13 @@
 # emits nothing after the guard returns. Tarball name still does not
 # reach stdout (it goes to $GITHUB_OUTPUT, a file the runner reads).
 #
+# The decision functions (`detect_pm`, `has_build_script`,
+# `has_real_test_script`, `find_one_tarball`) are split out so test.bats
+# can exercise the branches as pure args-in → stdout-out functions, no
+# npm/pnpm shim required. The main() function glues them to the install/
+# build/test/pack invocations against real npm/pnpm — that integration
+# strand still needs shimming, but the decision logic does not.
+#
 # Usage: build/actions/npm/build_and_pack.sh <path> <run_tests> <ignore_scripts>
 #   path:            project directory (already validated)
 #   run_tests:       "true" to run the test script if a non-default test
@@ -61,102 +68,147 @@
 
 set -euo pipefail
 
-if [[ $# -ne 3 ]]; then
-    printf 'Usage: %s <path> <run_tests> <ignore_scripts>\n' "$0" >&2
-    exit 1
-fi
-
-INPUT_PATH="$1"
-RUN_TESTS="$2"
-IGNORE_SCRIPTS="$3"
-
-cd "$INPUT_PATH"
-
-# Detect package manager from lockfile. validate_inputs.sh already
-# ensured exactly one of the supported lockfiles is present (and that
-# yarn.lock is not, and that both npm + pnpm lockfiles aren't present).
-if [[ -f "pnpm-lock.yaml" ]]; then
-    PM=pnpm
-else
-    PM=npm
-fi
-printf 'Package manager: %s\n' "$PM"
-
-ignore_scripts_args=()
-if [[ "$IGNORE_SCRIPTS" == "true" ]]; then
-    ignore_scripts_args=(--ignore-scripts)
-    printf 'ignore-scripts=true: all package.json scripts will be skipped\n'
-fi
-
-if [[ "$PM" == "pnpm" ]]; then
-    printf 'Installing dependencies (pnpm install --frozen-lockfile)...\n'
-    pnpm install --frozen-lockfile "${ignore_scripts_args[@]}"
-else
-    printf 'Installing dependencies (npm ci)...\n'
-    npm ci "${ignore_scripts_args[@]}"
-fi
-
-if [[ "$IGNORE_SCRIPTS" == "true" ]]; then
-    printf 'Skipping %s run build and %s test (ignore-scripts=true)\n' "$PM" "$PM"
-else
-    # Reflect on package.json to decide whether to run build/test scripts.
-    # Using jq rather than catching `<pm> run`'s "missing script" exit code
-    # keeps the logs clear — the action shouldn't print error output for
-    # scripts that simply don't exist. `(.scripts // {})` keeps the path
-    # safe when `scripts` is missing or explicitly null.
-    HAS_BUILD="$(jq -r '(.scripts // {}) | has("build")' package.json)"
-    HAS_TEST_SCRIPT="$(jq -r '(.scripts // {}) | has("test")' package.json)"
-    TEST_CMD="$(jq -r '.scripts.test // ""' package.json)"
-
-    if [[ "$HAS_BUILD" == "true" ]]; then
-        printf 'Running %s run build...\n' "$PM"
-        "$PM" run build
+# Pure function: detects which package manager to use, based on the
+# project's lockfile. validate_inputs.sh has already ensured exactly one
+# supported lockfile is present.
+#
+# Args: <project_dir>
+# Prints: "npm" or "pnpm"
+detect_pm() {
+    local path="$1"
+    if [[ -f "$path/pnpm-lock.yaml" ]]; then
+        printf 'pnpm\n'
     else
-        printf 'No build script in package.json — skipping build step\n'
+        printf 'npm\n'
+    fi
+}
+
+# Pure function: returns 0 if package.json declares a `build` script.
+# Null-safe against `"scripts": null` or a missing `scripts` field.
+#
+# Args: <project_dir>
+has_build_script() {
+    local path="$1"
+    [[ "$(jq -r '(.scripts // {}) | has("build")' "$path/package.json")" == "true" ]]
+}
+
+# Pure function: returns 0 if package.json declares a `test` script AND
+# that script is not the npm-default `no test specified` stub. Substring
+# match against the default phrase so minor wording tweaks in future
+# npm/pnpm releases don't accidentally re-enable the no-op.
+#
+# Args: <project_dir>
+has_real_test_script() {
+    local path="$1"
+    local has_test test_cmd
+    has_test="$(jq -r '(.scripts // {}) | has("test")' "$path/package.json")"
+    [[ "$has_test" == "true" ]] || return 1
+    test_cmd="$(jq -r '.scripts.test // ""' "$path/package.json")"
+    [[ "$test_cmd" != *'no test specified'* ]]
+}
+
+# Pure function: asserts exactly one *.tgz tarball exists in $1/dist/
+# and prints its filename (without the dist/ prefix). Exits non-zero
+# if the count is anything other than 1.
+#
+# nullglob makes `*.tgz` expand to nothing rather than the literal
+# pattern when dist/ is empty, so the count check works in both cases.
+# The filename printf is the only place an attacker-controlled name
+# could enter the step log; main() ensures this runs inside the
+# stop_commands_guard.sh wrap, so a hostile `::add-mask::evil.tgz`
+# planted by a postinstall hook cannot inject workflow commands.
+#
+# Args: <project_dir>
+find_one_tarball() {
+    local path="$1"
+    local tarballs
+    (
+        cd "$path"
+        shopt -s nullglob
+        tarballs=(dist/*.tgz)
+        if (( ${#tarballs[@]} != 1 )); then
+            printf 'Error: expected exactly 1 tarball in dist/, found %d:\n' "${#tarballs[@]}" >&2
+            printf '  %s\n' "${tarballs[@]}" >&2
+            exit 1
+        fi
+        # Strip the dist/ prefix so the output matches the action.yml's
+        # previous `cd "$INPUT_PATH/dist"; tarball=*.tgz` contract —
+        # downstream steps (hash, SBOM, attach) expect a bare filename
+        # relative to dist/.
+        printf '%s\n' "${tarballs[0]#dist/}"
+    )
+}
+
+main() {
+    if [[ $# -ne 3 ]]; then
+        printf 'Usage: %s <path> <run_tests> <ignore_scripts>\n' "$0" >&2
+        exit 1
     fi
 
-    if [[ "$RUN_TESTS" == "true" ]]; then
-        # Substring match against the npm-default no-op script. Catches
-        # `echo "Error: no test specified" && exit 1` and tolerates minor
-        # wording changes in future npm/pnpm versions.
-        if [[ "$HAS_TEST_SCRIPT" == "true" ]] && [[ "$TEST_CMD" != *'no test specified'* ]]; then
-            printf 'Running %s test...\n' "$PM"
-            "$PM" test
+    local input_path="$1"
+    local run_tests="$2"
+    local ignore_scripts="$3"
+
+    local pm
+    pm="$(detect_pm "$input_path")"
+    printf 'Package manager: %s\n' "$pm"
+
+    cd "$input_path"
+
+    local -a ignore_scripts_args=()
+    if [[ "$ignore_scripts" == "true" ]]; then
+        ignore_scripts_args=(--ignore-scripts)
+        printf 'ignore-scripts=true: all package.json scripts will be skipped\n'
+    fi
+
+    if [[ "$pm" == "pnpm" ]]; then
+        printf 'Installing dependencies (pnpm install --frozen-lockfile)...\n'
+        pnpm install --frozen-lockfile "${ignore_scripts_args[@]}"
+    else
+        printf 'Installing dependencies (npm ci)...\n'
+        npm ci "${ignore_scripts_args[@]}"
+    fi
+
+    if [[ "$ignore_scripts" == "true" ]]; then
+        printf 'Skipping %s run build and %s test (ignore-scripts=true)\n' "$pm" "$pm"
+    else
+        if has_build_script "$input_path"; then
+            printf 'Running %s run build...\n' "$pm"
+            "$pm" run build
         else
-            printf 'No non-default test script in package.json — skipping tests\n'
+            printf 'No build script in package.json — skipping build step\n'
+        fi
+
+        if [[ "$run_tests" == "true" ]]; then
+            if has_real_test_script "$input_path"; then
+                printf 'Running %s test...\n' "$pm"
+                "$pm" test
+            else
+                printf 'No non-default test script in package.json — skipping tests\n'
+            fi
         fi
     fi
-fi
 
-printf 'Packing tarball into dist/ (%s pack)...\n' "$PM"
-mkdir -p dist
-# `<pm> pack --pack-destination dist` writes the tarball to dist/.
-# --ignore-scripts (when set) suppresses prepack/postpack/prepare on
-# the pack side too for both npm and pnpm.
-"$PM" pack --pack-destination dist "${ignore_scripts_args[@]}"
+    printf 'Packing tarball into dist/ (%s pack)...\n' "$pm"
+    mkdir -p dist
+    # `<pm> pack --pack-destination dist` writes the tarball to dist/.
+    # --ignore-scripts (when set) suppresses prepack/postpack/prepare on
+    # the pack side too for both npm and pnpm.
+    "$pm" pack --pack-destination dist "${ignore_scripts_args[@]}"
 
-# Discover the tarball. Done in this script (inside the caller's
-# stop_commands_guard.sh wrap) rather than in action.yml so the count-
-# check error path's stderr printf cannot leak a malicious filename
-# (e.g., `dist/::add-mask::SECRET.tgz` planted by a hostile postinstall
-# hook) past the guard and into the runner's workflow-command parser.
-# nullglob expands `*.tgz` to nothing rather than the literal pattern
-# when dist/ is empty, so the count check works cleanly in both cases.
-shopt -s nullglob
-tarballs=(dist/*.tgz)
-if (( ${#tarballs[@]} != 1 )); then
-    printf 'Error: expected exactly 1 tarball in dist/, found %d:\n' "${#tarballs[@]}" >&2
-    printf '  %s\n' "${tarballs[@]}" >&2
-    exit 1
-fi
+    local tarball
+    tarball="$(find_one_tarball "$input_path")"
 
-# Strip the dist/ prefix so the output matches the action.yml's previous
-# `cd "$INPUT_PATH/dist"; tarball=*.tgz` contract — downstream steps
-# (hash, SBOM, attach) expect a bare filename relative to dist/.
-TARBALL="${tarballs[0]#dist/}"
+    if [[ -n "${GITHUB_OUTPUT:-}" ]]; then
+        # File-based output (not the ::set-output:: stdout command), so this
+        # write is unaffected by the stop-commands suspension.
+        printf 'tarball=%s\n' "$tarball" >> "$GITHUB_OUTPUT"
+    fi
+}
 
-if [[ -n "${GITHUB_OUTPUT:-}" ]]; then
-    # File-based output (not the ::set-output:: stdout command), so this
-    # write is unaffected by the stop-commands suspension.
-    printf 'tarball=%s\n' "$TARBALL" >> "$GITHUB_OUTPUT"
+# Sourcing guard: tests source this file to call detect_pm,
+# has_build_script, has_real_test_script, and find_one_tarball directly
+# without running the install/build/test/pack pipeline.
+if [[ "${BASH_SOURCE[0]}" == "${0}" ]]; then
+    main "$@"
 fi

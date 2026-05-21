@@ -1,11 +1,64 @@
 #!/usr/bin/env bats
 
-# Structural tests for the Python build action and reusable workflow.
+# Tests for the Python build action and reusable workflow.
 #
-# Many tests below are simple greps. They verify that the action's wiring
-# and supply-chain rules (no curl|sh, no /usr/local/bin, SHA-pinned actions,
-# SBOM upload) are still in place. They do not invoke the action end-to-end —
-# that's covered by the integration test in the wrangle-test companion repo.
+# Three test layers, in increasing order of cost:
+#   1. Pure-function tests that source run_tests.sh and call its
+#      should_run_pytest decision function directly. No shims required.
+#   2. Behavioral tests that invoke validate_inputs.sh end-to-end against
+#      fixture project directories. validate_inputs.sh has no external
+#      dependencies beyond lib/validate_path.sh.
+#   3. Integration tests for run_tests.sh and install_deps.sh that drive
+#      the actual orchestration through PATH shims for `python`, `pytest`,
+#      and `uv` (the test container doesn't ship a real Python toolchain).
+# Plus a thin layer of structural greps preserved as supply-chain guard
+# rails (no curl|sh, no /usr/local/bin, SHA-pinned actions, inputs flow
+# through env:, action.yml delegates to the scripts the behavioral tests
+# cover). End-to-end exercise lives in the wrangle-test companion repo.
+
+setup_file() {
+    ACTION_DIR="$(cd "$(dirname "$BATS_TEST_FILENAME")" && pwd)"
+    export ACTION_DIR
+    # PATH shims for python, pytest, and uv used by the integration tests.
+    # Each shim echoes its argv (so tests can assert which command ran);
+    # the python shim additionally branches on a `WRANGLE_TEST_PIP_FAILS`
+    # env var that listed install attempts should fail, used to exercise
+    # install_deps.sh's [test] → [dev] → bare fallback chain. Built once
+    # per file because the shims are immutable.
+    mkdir -p "$BATS_FILE_TMPDIR/shim"
+    cat > "$BATS_FILE_TMPDIR/shim/python" <<'SHIM'
+#!/bin/bash
+printf 'python'; for a in "$@"; do printf ' %s' "$a"; done; printf '\n'
+# `pip install` invocations: WRANGLE_TEST_PIP_FAILS is a comma-delimited
+# list of pip-install call indices that should fail (1-based, counting
+# only `pip install` invocations — `pip install --upgrade pip` is
+# skipped). Default: every install succeeds.
+if [[ "${1:-}" == "-m" && "${2:-}" == "pip" && "${3:-}" == "install" ]]; then
+    if [[ "${4:-}" != "--upgrade" ]]; then
+        counter="${WRANGLE_TEST_PIP_COUNTER:-/dev/null}"
+        n=$(($(cat "$counter" 2>/dev/null || echo 0) + 1))
+        printf '%d' "$n" > "$counter" 2>/dev/null || true
+        fails=",${WRANGLE_TEST_PIP_FAILS:-},"
+        if [[ "$fails" == *",$n,"* ]]; then exit 1; fi
+    fi
+fi
+exit 0
+SHIM
+    cat > "$BATS_FILE_TMPDIR/shim/pytest" <<'SHIM'
+#!/bin/bash
+printf 'pytest'; for a in "$@"; do printf ' %s' "$a"; done; printf '\n'
+exit 0
+SHIM
+    cat > "$BATS_FILE_TMPDIR/shim/uv" <<'SHIM'
+#!/bin/bash
+printf 'uv'; for a in "$@"; do printf ' %s' "$a"; done; printf '\n'
+exit 0
+SHIM
+    chmod +x "$BATS_FILE_TMPDIR/shim/python" \
+        "$BATS_FILE_TMPDIR/shim/pytest" \
+        "$BATS_FILE_TMPDIR/shim/uv"
+    export SHIM_DIR="$BATS_FILE_TMPDIR/shim"
+}
 
 setup() {
     ACTION_DIR="$(cd "$(dirname "$BATS_TEST_FILENAME")" && pwd)"
@@ -13,53 +66,9 @@ setup() {
     ACTION="$ACTION_DIR/action.yml"
     WORKFLOW="$REPO_ROOT/.github/workflows/build_and_publish_python.yml"
     EXAMPLE="$REPO_ROOT/gh_workflow_examples/build_python.yml"
-    TMP_DIR="$(mktemp -d "${TMPDIR:-/tmp}/python-bats-XXXXXX")"
-    GITHUB_OUTPUT="$TMP_DIR/github_output"
+    GITHUB_OUTPUT="$BATS_TEST_TMPDIR/github_output"
     : > "$GITHUB_OUTPUT"
     export GITHUB_OUTPUT
-}
-
-teardown() {
-    if [[ -n "${TMP_DIR:-}" && -d "$TMP_DIR" ]]; then
-        rm -rf "$TMP_DIR"
-    fi
-}
-
-# Helper: stub `pytest`, `python`, and `uv` on PATH so the build action's
-# helper scripts execute without needing real interpreters. Each shim
-# records its argv on stdout, which the test then asserts on. The python
-# shim implements just enough of `python -m pytest` / `python -m pip ...`
-# to keep run_tests.sh and install_deps.sh happy in unit tests.
-install_python_shims() {
-    mkdir -p "$TMP_DIR/shim"
-    cat > "$TMP_DIR/shim/python" <<'SHIM'
-#!/bin/bash
-printf 'python'; for a in "$@"; do printf ' %s' "$a"; done; printf '\n'
-# Default: succeed. Override per-test via PYTHON_EXIT_<MODULE> env vars
-# (e.g., PYTHON_EXIT_PIP=1) to simulate failure paths.
-mod=""
-if [[ "${1:-}" == "-m" && $# -ge 2 ]]; then
-    mod="${2^^}"
-    mod="${mod//-/_}"
-fi
-if [[ -n "$mod" ]]; then
-    var="PYTHON_EXIT_${mod}"
-    exit "${!var:-0}"
-fi
-exit 0
-SHIM
-    cat > "$TMP_DIR/shim/pytest" <<'SHIM'
-#!/bin/bash
-printf 'pytest'; for a in "$@"; do printf ' %s' "$a"; done; printf '\n'
-exit 0
-SHIM
-    cat > "$TMP_DIR/shim/uv" <<'SHIM'
-#!/bin/bash
-printf 'uv'; for a in "$@"; do printf ' %s' "$a"; done; printf '\n'
-exit 0
-SHIM
-    chmod +x "$TMP_DIR/shim/python" "$TMP_DIR/shim/pytest" "$TMP_DIR/shim/uv"
-    PATH="$TMP_DIR/shim:$PATH"
 }
 
 # --- Composite action structural tests ---
@@ -198,7 +207,12 @@ SHIM
     [[ "$status" -eq 0 ]]
 }
 
-# --- run_tests.sh behavioral tests ---
+# --- run_tests.sh pure-function tests ---
+#
+# run_tests.sh's test-discovery decision lives in `should_run_pytest`,
+# a pure function. The tests below source the script and call that
+# function directly with fixture project directories — no pytest/uv
+# shim needed for any of these.
 
 write_pyproject() {
     # $1: project dir, $2: optional extra TOML appended to the file
@@ -210,60 +224,87 @@ write_pyproject() {
     } > "$dir/pyproject.toml"
 }
 
-@test "python: run_tests.sh runs python -m pytest when tests/ directory exists" {
-    install_python_shims
-    local proj="$TMP_DIR/proj"
+@test "python: should_run_pytest: true when tests/ directory exists" {
+    local proj="$BATS_TEST_TMPDIR/proj"
     write_pyproject "$proj"
     mkdir -p "$proj/tests"
-    PATH="$PATH" run "$ACTION_DIR/run_tests.sh" "$proj" "false"
+    run bash -c 'source "$1"; should_run_pytest "$2"' -- \
+        "$ACTION_DIR/run_tests.sh" "$proj"
     [[ "$status" -eq 0 ]]
-    grep -qE '^python -m pytest$' <<<"$output"
 }
 
-@test "python: run_tests.sh accepts a test/ directory (pytest's default singular form)" {
-    install_python_shims
-    local proj="$TMP_DIR/proj"
+@test "python: should_run_pytest: true for pytest's default singular test/ form" {
+    local proj="$BATS_TEST_TMPDIR/proj"
     write_pyproject "$proj"
     mkdir -p "$proj/test"
-    PATH="$PATH" run "$ACTION_DIR/run_tests.sh" "$proj" "false"
+    run bash -c 'source "$1"; should_run_pytest "$2"' -- \
+        "$ACTION_DIR/run_tests.sh" "$proj"
     [[ "$status" -eq 0 ]]
-    grep -qE '^python -m pytest$' <<<"$output"
 }
 
-@test "python: run_tests.sh runs pytest when only [tool.pytest] config is in pyproject.toml" {
+@test "python: should_run_pytest: true when [tool.pytest.*] config is in pyproject.toml" {
     # A project that stores tests outside tests/ or test/ should still
     # have its suite run, provided pyproject.toml configures pytest.
-    install_python_shims
-    local proj="$TMP_DIR/proj"
+    local proj="$BATS_TEST_TMPDIR/proj"
     write_pyproject "$proj" $'\n[tool.pytest.ini_options]\ntestpaths = ["mytests"]\n'
-    PATH="$PATH" run "$ACTION_DIR/run_tests.sh" "$proj" "false"
+    run bash -c 'source "$1"; should_run_pytest "$2"' -- \
+        "$ACTION_DIR/run_tests.sh" "$proj"
     [[ "$status" -eq 0 ]]
-    grep -qE '^python -m pytest$' <<<"$output"
 }
 
-@test "python: run_tests.sh skips pytest cleanly when no tests/ and no [tool.pytest] config" {
+@test "python: should_run_pytest: false when no tests/ and no [tool.pytest] config" {
     # No tests is not an error — same behavior as the shell build skipping
-    # when no .bats files exist. The message helps adopters discover that
-    # tests in a non-standard location need [tool.pytest].
-    install_python_shims
-    local proj="$TMP_DIR/proj"
+    # when no .bats files exist.
+    local proj="$BATS_TEST_TMPDIR/proj"
     write_pyproject "$proj"
-    PATH="$PATH" run "$ACTION_DIR/run_tests.sh" "$proj" "false"
+    run bash -c 'source "$1"; should_run_pytest "$2"' -- \
+        "$ACTION_DIR/run_tests.sh" "$proj"
+    [[ "$status" -ne 0 ]]
+}
+
+@test "python: should_run_pytest: NOT triggered by literal '[tool.pytest' inside a string value" {
+    # The original `grep -qF '[tool.pytest'` was a fixed-substring match
+    # that would match anywhere in the file — even inside a description
+    # string. The anchored grep restricts to start-of-line TOML headers
+    # so a description like 'A guide to [tool.pytest configuration]'
+    # doesn't accidentally turn on test discovery.
+    local proj="$BATS_TEST_TMPDIR/proj"
+    write_pyproject "$proj" $'description = "Notes on [tool.pytest configuration]"\n'
+    run bash -c 'source "$1"; should_run_pytest "$2"' -- \
+        "$ACTION_DIR/run_tests.sh" "$proj"
+    [[ "$status" -ne 0 ]]
+}
+
+# --- run_tests.sh integration tests (shim) ---
+
+@test "python: run_tests.sh end-to-end: invokes python -m pytest on the pip path" {
+    local proj="$BATS_TEST_TMPDIR/proj"
+    write_pyproject "$proj"
+    mkdir -p "$proj/tests"
+    PATH="$SHIM_DIR:$PATH" run "$ACTION_DIR/run_tests.sh" "$proj" "false"
+    [[ "$status" -eq 0 ]]
+    grep -qE '^python -m pytest$' <<<"$output"
+    ! grep -qE '^uv ' <<<"$output"
+}
+
+@test "python: run_tests.sh end-to-end: invokes 'uv run pytest' on the uv path" {
+    local proj="$BATS_TEST_TMPDIR/proj"
+    write_pyproject "$proj"
+    mkdir -p "$proj/tests"
+    PATH="$SHIM_DIR:$PATH" run "$ACTION_DIR/run_tests.sh" "$proj" "true"
+    [[ "$status" -eq 0 ]]
+    grep -qE '^uv run pytest$' <<<"$output"
+    ! grep -qE '^python -m pytest$' <<<"$output"
+}
+
+@test "python: run_tests.sh end-to-end: prints skipping message when no tests detected" {
+    local proj="$BATS_TEST_TMPDIR/proj"
+    write_pyproject "$proj"
+    PATH="$SHIM_DIR:$PATH" run "$ACTION_DIR/run_tests.sh" "$proj" "false"
     [[ "$status" -eq 0 ]]
     ! grep -qE '^pytest' <<<"$output"
     ! grep -qE '^python -m pytest$' <<<"$output"
     [[ "$output" == *"skipping pytest"* ]]
-}
-
-@test "python: run_tests.sh uses 'uv run pytest' when use_uv=true" {
-    install_python_shims
-    local proj="$TMP_DIR/proj"
-    write_pyproject "$proj"
-    mkdir -p "$proj/tests"
-    PATH="$PATH" run "$ACTION_DIR/run_tests.sh" "$proj" "true"
-    [[ "$status" -eq 0 ]]
-    grep -qE '^uv run pytest$' <<<"$output"
-    ! grep -qE '^python -m pytest$' <<<"$output"
 }
 
 @test "python: run_tests.sh usage error with wrong arg count" {
@@ -273,57 +314,65 @@ write_pyproject() {
 }
 
 # --- install_deps.sh behavioral tests ---
+#
+# install_deps.sh is a thin orchestration script that shells out to
+# `uv sync` or to a 4-call pip sequence (`pip install --upgrade pip`,
+# then `[test]` → `[dev]` → bare). It has no pure decision functions
+# worth extracting; the value of behavioral tests here is exercising
+# the fallback chain. Pip-exit-code simulation is driven by the
+# WRANGLE_TEST_PIP_FAILS env var the python shim reads.
 
 @test "python: install_deps.sh uses 'uv sync' on the uv path" {
-    install_python_shims
-    local proj="$TMP_DIR/proj"
+    local proj="$BATS_TEST_TMPDIR/proj"
     write_pyproject "$proj"
-    PATH="$PATH" run "$ACTION_DIR/install_deps.sh" "$proj" "true"
+    PATH="$SHIM_DIR:$PATH" run "$ACTION_DIR/install_deps.sh" "$proj" "true"
     [[ "$status" -eq 0 ]]
     grep -qE '^uv sync$' <<<"$output"
+    ! grep -qE '^python -m pip ' <<<"$output"
 }
 
-@test "python: install_deps.sh uses 'pip install -e .[test]' first on the pip path" {
-    install_python_shims
-    local proj="$TMP_DIR/proj"
+@test "python: install_deps.sh tries 'pip install -e .[test]' first on the pip path" {
+    local proj="$BATS_TEST_TMPDIR/proj"
     write_pyproject "$proj"
-    PATH="$PATH" run "$ACTION_DIR/install_deps.sh" "$proj" "false"
+    WRANGLE_TEST_PIP_COUNTER="$BATS_TEST_TMPDIR/pip_calls" \
+        PATH="$SHIM_DIR:$PATH" run "$ACTION_DIR/install_deps.sh" "$proj" "false"
     [[ "$status" -eq 0 ]]
     grep -qE '^python -m pip install -e \.\[test\]$' <<<"$output"
     [[ "$output" == *"Installed with [test] extra"* ]]
+    # Bare install must NOT have run.
+    ! grep -qE '^python -m pip install -e \.$' <<<"$output"
 }
 
-@test "python: install_deps.sh falls back through [dev] to bare install on the pip path" {
-    # When [test] and [dev] both fail (here, simulated by a pip shim that
-    # exits 1 for the first two installs), the bare `pip install -e .`
-    # path must still run — that's the contract for projects without
-    # extras.
-    install_python_shims
-    # Replace the pip shim with one that fails the first two install -e
-    # invocations and succeeds on the third (the bare install).
-    cat > "$TMP_DIR/shim/python" <<'SHIM'
-#!/bin/bash
-printf 'python'; for a in "$@"; do printf ' %s' "$a"; done; printf '\n'
-case "${COUNTER_FILE:-/tmp/missing}" in /tmp/missing) ;; *) ;; esac
-state="$TMP_DIR/pip_calls"
-if [[ "${1:-}" == "-m" && "${2:-}" == "pip" && "${3:-}" == "install" ]]; then
-    count=$(($(cat "$state" 2>/dev/null || echo 0) + 1))
-    echo "$count" > "$state"
-    # First two "install -e .[...]" calls fail; third (bare) succeeds.
-    # The very first call (pip install --upgrade pip) must still succeed.
-    if [[ "${4:-}" == "--upgrade" ]]; then exit 0; fi
-    case "$count" in
-        2|3) exit 1 ;;
-        *) exit 0 ;;
-    esac
-fi
-exit 0
-SHIM
-    chmod +x "$TMP_DIR/shim/python"
-    local proj="$TMP_DIR/proj"
+@test "python: install_deps.sh falls back to '[dev]' when '[test]' fails" {
+    # WRANGLE_TEST_PIP_FAILS=1 -> the first counted pip install (the
+    # [test] one; `pip install --upgrade pip` is uncounted) fails.
+    # install_deps must then try [dev], which succeeds, and the bare
+    # install must NOT run.
+    local proj="$BATS_TEST_TMPDIR/proj"
     write_pyproject "$proj"
-    TMP_DIR="$TMP_DIR" PATH="$PATH" run "$ACTION_DIR/install_deps.sh" "$proj" "false"
+    WRANGLE_TEST_PIP_COUNTER="$BATS_TEST_TMPDIR/pip_calls" \
+        WRANGLE_TEST_PIP_FAILS="1" \
+        PATH="$SHIM_DIR:$PATH" run "$ACTION_DIR/install_deps.sh" "$proj" "false"
     [[ "$status" -eq 0 ]]
+    grep -qE '^python -m pip install -e \.\[test\]$' <<<"$output"
+    grep -qE '^python -m pip install -e \.\[dev\]$' <<<"$output"
+    [[ "$output" == *"Installed with [dev] extra"* ]]
+    ! grep -qE '^python -m pip install -e \.$' <<<"$output"
+}
+
+@test "python: install_deps.sh falls all the way through to bare install when both extras fail" {
+    # WRANGLE_TEST_PIP_FAILS=1,2 -> [test] (call 1) and [dev] (call 2)
+    # both fail; the bare install (call 3) succeeds. Asserts the full
+    # cascade — closes the gap the original test left open in the middle.
+    local proj="$BATS_TEST_TMPDIR/proj"
+    write_pyproject "$proj"
+    WRANGLE_TEST_PIP_COUNTER="$BATS_TEST_TMPDIR/pip_calls" \
+        WRANGLE_TEST_PIP_FAILS="1,2" \
+        PATH="$SHIM_DIR:$PATH" run "$ACTION_DIR/install_deps.sh" "$proj" "false"
+    [[ "$status" -eq 0 ]]
+    grep -qE '^python -m pip install -e \.\[test\]$' <<<"$output"
+    grep -qE '^python -m pip install -e \.\[dev\]$' <<<"$output"
+    grep -qE '^python -m pip install -e \.$' <<<"$output"
     [[ "$output" == *"Installed without test extras"* ]]
 }
 
