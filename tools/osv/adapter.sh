@@ -63,12 +63,15 @@ if ! jq empty "$SARIF_FILE" 2>/dev/null; then
     exit 2
 fi
 
-# Generate markdown summary from the SARIF we just produced.
-# Using the shared helper (rather than a second osv-scanner invocation with
+# Generate markdown summary from the SARIF we just produced. Using a local
+# render_md.sh (rather than a second osv-scanner invocation with
 # --format markdown) guarantees the summary and the SARIF-based check report
 # the same findings — osv-scanner's markdown formatter has been observed
-# reporting zero findings while the SARIF contains results.
-"$SCRIPT_DIR/../../lib/sarif_to_md.sh" "$SARIF_FILE" > "$MD_FILE"
+# reporting zero findings while the SARIF contains results (issue #197).
+# Best-effort: a failure here loses the summary but must not fail the
+# scan, since the SARIF (which the gating check consults) is already written.
+"$SCRIPT_DIR/render_md.sh" "$SARIF_FILE" > "$MD_FILE" 2>/dev/null || \
+    printf 'wrangle/osv: failed to render markdown summary (SARIF still valid)\n' > "$MD_FILE"
 
 # Determine exit code from SARIF results
 if ! num_findings="$(jq '[.runs[].results[]] | length' "$SARIF_FILE" 2>/dev/null)"; then

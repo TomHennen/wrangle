@@ -44,8 +44,6 @@ case "${OSV_MOCK_MODE:-clean}" in
   "runs": [{"tool": {"driver": {"name": "osv-scanner", "version": "2.3.5"}}, "results": []}]
 }
 SARIF
-        elif [[ "$format" == "markdown" ]]; then
-            echo "No vulnerabilities found." > "$output_file"
         fi
         exit 0
         ;;
@@ -55,11 +53,9 @@ SARIF
 {
   "version": "2.1.0",
   "$schema": "https://raw.githubusercontent.com/oasis-tcs/sarif-spec/main/sarif-2.1/schema/sarif-schema-2.1.0.json",
-  "runs": [{"tool": {"driver": {"name": "osv-scanner", "version": "2.3.5", "rules": [{"id": "GHSA-1234-5678-abcd", "shortDescription": {"text": "Test vulnerability"}}]}}, "results": [{"ruleId": "GHSA-1234-5678-abcd", "level": "error", "message": {"text": "Package foo@1.0.0 is affected by GHSA-1234-5678-abcd"}, "locations": [{"physicalLocation": {"artifactLocation": {"uri": "package-lock.json"}, "region": {"startLine": 1}}}]}]}]
+  "runs": [{"tool": {"driver": {"name": "osv-scanner", "version": "2.3.5", "rules": [{"id": "GHSA-1234-5678-abcd", "shortDescription": {"text": "Test vulnerability"}}]}}, "results": [{"ruleId": "GHSA-1234-5678-abcd", "level": "error", "message": {"text": "Package 'foo@1.0.0' is vulnerable to 'GHSA-1234-5678-abcd'."}, "locations": [{"physicalLocation": {"artifactLocation": {"uri": "package-lock.json"}, "region": {"startLine": 1}}}]}]}]
 }
 SARIF
-        elif [[ "$format" == "markdown" ]]; then
-            echo "| Package | Version | Vulnerability |" > "$output_file"
         fi
         exit 1
         ;;
@@ -165,12 +161,15 @@ teardown() {
     [ "$status" -eq 2 ]
 }
 
-@test "osv adapter: generates markdown output on clean scan" {
+@test "osv adapter: clean scan produces a non-empty output.md" {
     export OSV_MOCK_MODE="clean"
     run "$ORIG_DIR/tools/osv/adapter.sh" "$TEST_DIR/src" "$TEST_DIR/output"
 
     [ "$status" -eq 0 ]
     [ -f "$TEST_DIR/output/output.md" ]
+    # Empty-SARIF path must still produce content for the step summary.
+    [ -s "$TEST_DIR/output/output.md" ]
+    grep -qi "no known vulnerabilities" "$TEST_DIR/output/output.md"
 }
 
 # Regression test for #197: when osv-scanner produces SARIF with findings,
@@ -202,8 +201,48 @@ teardown() {
     # Both unique CVE ruleIds in the fixture must appear in the summary.
     grep -q "CVE-2022-24713" "$TEST_DIR/output/output.md"
     grep -q "CVE-2021-3121" "$TEST_DIR/output/output.md"
-    # And the package mentioned in the SARIF message must be surfaced.
+    # Vulnerable package version (not the fixed one) must be surfaced.
     grep -q "regex@1.5.1" "$TEST_DIR/output/output.md"
+    # Fixed version from rule.help.markdown must be surfaced.
+    grep -q "regex@1.5.5" "$TEST_DIR/output/output.md"
+    # CVSS 7.5 on CVE-2022-24713 must render as HIGH, not MEDIUM.
+    grep -q "HIGH" "$TEST_DIR/output/output.md"
+    # file:// prefix must be stripped from locations.
+    ! grep -q "file://" "$TEST_DIR/output/output.md"
+    # Count parity: every unique ruleId in the SARIF gets exactly one row.
+    # This is the literal #197 symptom (SARIF=N, MD=0). Markdown rows start
+    # with "| " and exclude the header (which contains "Severity") and
+    # divider rows. The fixture has 2 unique ruleIds across 3 results.
+    unique_rules=$(jq -r '[.runs[].results[].ruleId] | unique | length' \
+        "$TEST_DIR/output/output.sarif")
+    md_rows=$(grep -cE '^\| (CRITICAL|HIGH|MEDIUM|LOW|UNKNOWN) \|' \
+        "$TEST_DIR/output/output.md")
+    [ "$md_rows" -eq "$unique_rules" ]
+}
+
+# Best-effort render: a render_md.sh failure must NOT fail the adapter,
+# since the SARIF (consulted by the gating check) is already valid.
+@test "osv adapter: render failure does not fail the adapter" {
+    export OSV_MOCK_MODE="real-findings"
+    export OSV_REAL_SARIF="$ORIG_DIR/tools/osv/testdata/real_osv_findings.sarif"
+    # Shadow render_md.sh with one that always fails by pointing PATH at a
+    # broken jq. Simpler: replace render_md.sh itself for this test.
+    cp "$ORIG_DIR/tools/osv/render_md.sh" "$TEST_DIR/render_md.sh.bak"
+    cat > "$ORIG_DIR/tools/osv/render_md.sh" <<'BROKEN'
+#!/bin/bash
+exit 99
+BROKEN
+    chmod +x "$ORIG_DIR/tools/osv/render_md.sh"
+
+    run "$ORIG_DIR/tools/osv/adapter.sh" "$TEST_DIR/src" "$TEST_DIR/output"
+    rc=$status
+
+    # Restore before asserting so a failure here doesn't leave the repo dirty.
+    cp "$TEST_DIR/render_md.sh.bak" "$ORIG_DIR/tools/osv/render_md.sh"
+
+    [ "$rc" -eq 1 ]                                     # findings → exit 1
+    [ -f "$TEST_DIR/output/output.md" ]                 # placeholder written
+    [ -s "$TEST_DIR/output/output.sarif" ]              # SARIF intact
 }
 
 # --- install.sh tests ---
