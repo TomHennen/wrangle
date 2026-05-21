@@ -4,29 +4,9 @@ Build a Python package (wheel + sdist), run pytest, generate an SBOM, and produc
 
 ## Quick-start
 
-Most adopters want the reusable workflow:
+Copy [`gh_workflow_examples/build_python.yml`](../../../gh_workflow_examples/build_python.yml) into your repo at `.github/workflows/`. The example wires the required permissions (`contents: write` for the SLSA generator's upload-assets job, `id-token: write` for Sigstore, `actions: read`) and includes the publish job with verify-before-publish. Most adopters only need to set the `path` input.
 
-```yaml
-jobs:
-  build:
-    permissions:
-      contents: write   # SLSA generator's upload-assets job
-      id-token: write   # OIDC for Sigstore signing
-      actions: read     # SLSA generator detects the GitHub Actions environment
-    uses: TomHennen/wrangle/.github/workflows/build_and_publish_python.yml@v0.2.0
-    with:
-      path: "."
-```
-
-Then add a publish job — see [`gh_workflow_examples/build_python.yml`](../../../gh_workflow_examples/build_python.yml) for the template (includes verify-before-publish). Pair with [`check_source_change.yml`](../../../actions/scan/README.md) for source-side coverage.
-
-Or use the composite directly (build + test + SBOM only; you wire your own provenance and publish):
-
-```yaml
-- uses: TomHennen/wrangle/build/actions/python@v0.2.0
-  with:
-    path: "."
-```
+Pair with [source scan](../../../actions/scan/README.md) for source-side coverage. For the composite-only path (build + test + SBOM, you wire your own provenance and publish), `uses: TomHennen/wrangle/build/actions/python@v0.2.0`.
 
 This README documents shipped behavior. For architecture and the full step sequence, see [`SPEC.md`](./SPEC.md).
 

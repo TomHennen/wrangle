@@ -21,7 +21,7 @@ jobs:
       actions: read
       contents: read
       security-events: write   # SARIF upload to the Security tab
-    uses: TomHennen/wrangle/.github/workflows/check_source_change.yml@<version>
+    uses: TomHennen/wrangle/.github/workflows/check_source_change.yml@v0.1.0
 ```
 
 Findings appear in the Security tab; the run's step summary shows an overview. Pair with whichever build/publish workflow your project uses.
@@ -35,7 +35,9 @@ Findings appear in the Security tab; the run's step summary shows an overview. P
 
 ## Why pair with build/publish
 
-Wrangle's build workflows produce signed SLSA L3 provenance over the bytes they ship — that attests *how* the build ran, not whether the source was trustworthy. Without source scan, an attacker who lands a malicious dep or a dangerous workflow trigger routes around the build-side hardening, and wrangle will faithfully L3-sign the malicious output because the build itself *was* legitimate. The May 2026 Mini Shai-Hulud compromise of TanStack/router is the canonical example: a `pull_request_target` workflow with checkout of PR-head SHA let attacker code execute in the privileged base context, poison the GitHub Actions cache, and pollute legitimate downstream builds. The build was honest; the source side was the gap.
+Wrangle's build workflows produce signed SLSA L3 provenance over the bytes they ship — that attests *how* the build ran, not whether the source was trustworthy. Without source scan, an attacker who lands a malicious dep or a dangerous workflow trigger routes around the build-side hardening, and wrangle will faithfully L3-sign the malicious output because the build itself *was* legitimate.
+
+The May 2026 Mini Shai-Hulud compromise of TanStack/router is the canonical example: a `pull_request_target` workflow with checkout of PR-head SHA let attacker code execute in the privileged base context, poison the GitHub Actions cache, and pollute legitimate downstream builds. The build was honest; the source side was the gap.
 
 ## Customizing which tools run
 

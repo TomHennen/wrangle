@@ -4,22 +4,15 @@ Build and publish a container image to ghcr.io with an SBOM, Cosign signature, a
 
 ## Quick-start
 
-```yaml
-jobs:
-  build:
-    permissions:
-      contents: write   # SLSA generator's upload-assets job
-      id-token: write   # OIDC for Sigstore signing
-      packages: write   # push to ghcr.io
-      actions: read
-    uses: TomHennen/wrangle/.github/workflows/build_and_publish_container.yml@v0.2.0
-    with:
-      path: .
-      imagename: ghcr.io/<owner>/<repo>
-      registry: ghcr.io
-```
+Copy [`gh_workflow_examples/build_and_publish_containers.yml`](../../../gh_workflow_examples/build_and_publish_containers.yml) into your repo at `.github/workflows/` and fill in:
 
-Pair with [`check_source_change.yml`](../../../actions/scan/README.md) — build hardens *how*, source scan covers *what was committed*.
+| Input | Value |
+|-------|-------|
+| `path` | path to the folder containing your `Dockerfile` |
+| `imagename` | `ghcr.io/<owner>/<repo>/<image>` |
+| `registry` | `ghcr.io` |
+
+The example wires in the required permissions and `gh_token` secret. Pair with [source scan](../../../actions/scan/README.md) — build hardens *how*, source scan covers *what was committed*.
 
 For the full design (failure contract, trust model, planned signing/provenance steps in the composite), see [`SPEC.md`](./SPEC.md). This README only describes shipped behavior.
 
@@ -42,10 +35,9 @@ The reusable workflow `build_and_publish_container.yml` adds `slsa-github-genera
 
 ## Controlling when provenance is generated
 
-The reusable workflow's `release-events` input controls which events trigger SLSA provenance generation. Default: `non-pull-request`. Other shorthands: `tag-only`, `main-and-tags`. A comma-separated `github.event_name` list is also accepted. See [`docs/SPEC.md`](../../../docs/SPEC.md) "Release-events gating" for the full vocabulary.
+The reusable workflow's `release-events` input controls which events trigger SLSA provenance generation. Default: `non-pull-request`. Other shorthands: `tag-only`, `main-and-tags`. A comma-separated `github.event_name` list is also accepted — see [`docs/SPEC.md`](../../../docs/SPEC.md) "Release-events gating".
 
 ```yaml
-uses: TomHennen/wrangle/.github/workflows/build_and_publish_container.yml@v0.2.0
 with:
   path: .
   imagename: ghcr.io/<owner>/<repo>
@@ -53,17 +45,17 @@ with:
   release-events: tag-only   # only tag pushes mint provenance
 ```
 
-Note: `release-events` currently scopes the SLSA provenance and verify jobs. The docker push happens mid-composite and is gated by your workflow's own trigger configuration (see [`SPEC.md` §"Trigger restriction"](./SPEC.md#trigger-restriction)).
+`release-events` currently scopes the SLSA provenance and verify jobs. The docker push happens mid-composite and is gated by your workflow's own trigger configuration (see [`SPEC.md` §"Trigger restriction"](./SPEC.md#trigger-restriction)).
 
 ## Controlling the PR build cache
 
 Release builds always run cache-free — BuildKit's `type=gha` cache isn't re-verified on hits and is shared cross-build, which would violate SLSA's "Isolated" requirement ([`docs/SLSA_L3_AUDIT.md`](../../../docs/SLSA_L3_AUDIT.md) Finding 2). Not configurable.
 
-**PR builds** default to a per-PR isolated cache. PR builds produce no attested artifact, so cache poisoning isn't an L3 concern at that layer — but it's still a CI-hygiene concern: a malicious PR with code execution can poison cache entries a *later* PR reads, silently corrupting that build's "tests pass" and SBOM signals ([Cacheract](https://adnanthekhan.com/2024/12/21/cacheract-the-monster-in-your-build-cache/)). The `pr-cache` input tunes the trade-off:
+**PR builds** default to a per-PR isolated cache. PR builds produce no attested artifact, so cache poisoning isn't an L3 concern at that layer — but it's still a CI-hygiene concern: a malicious PR with code execution can poison cache entries a *later* PR reads (PR-to-PR cache poisoning), silently corrupting that build's "tests pass" and SBOM signals ([Cacheract](https://adnanthekhan.com/2024/12/21/cacheract-the-monster-in-your-build-cache/)). The `pr-cache` input tunes the trade-off:
 
 | `pr-cache` | PR build behavior | When to use |
 |------------|-------------------|-------------|
-| `isolated` (default) | Per-PR cache scope, keyed by PR number. PR A cannot write entries PR B reads; rebuilds within a PR still hit cache. | Safe default — closes PR-to-PR poisoning, keeps in-PR speedup. |
+| `isolated` (default) | Per-PR cache scope, keyed by PR number. PR A cannot write entries PR B reads; rebuilds within a PR still hit cache. | Safe default — closes PR-to-PR cache poisoning, keeps in-PR speedup. |
 | `enabled` | Shares the cross-branch cache. Fastest first build, but a malicious PR can poison later PR builds. | Trusted-contributor repos. |
 | `read-only` | PR builds read the shared cache but never write it. | Shared-cache reads, no PR write path. |
 | `disabled` | PR builds also run cache-free. | Strict-isolation contexts. |

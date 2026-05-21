@@ -4,29 +4,9 @@ Build an npm or pnpm package (`npm pack` / `pnpm pack`), run tests, generate an 
 
 ## Quick-start
 
-Most adopters want the reusable workflow:
+Copy [`gh_workflow_examples/build_npm.yml`](../../../gh_workflow_examples/build_npm.yml) into your repo at `.github/workflows/`. The example wires the required permissions (`contents: write` for the SLSA generator's upload-assets job, `id-token: write` for Sigstore, `actions: read`) and includes the publish job. Most adopters only need to set the `path` input.
 
-```yaml
-jobs:
-  build:
-    permissions:
-      contents: write   # SLSA generator's upload-assets job
-      id-token: write   # OIDC for Sigstore signing
-      actions: read     # SLSA generator detects the GitHub Actions environment
-    uses: TomHennen/wrangle/.github/workflows/build_and_publish_npm.yml@v0.2.0
-    with:
-      path: "."
-```
-
-Then add a publish job — see [`gh_workflow_examples/build_npm.yml`](../../../gh_workflow_examples/build_npm.yml) for the template. Pair with [`check_source_change.yml`](../../../actions/scan/README.md) for source-side coverage.
-
-Or use the composite directly (build + test + SBOM only; you wire your own provenance and publish):
-
-```yaml
-- uses: TomHennen/wrangle/build/actions/npm@v0.2.0
-  with:
-    path: "."
-```
+Pair with [source scan](../../../actions/scan/README.md) for source-side coverage. For the composite-only path (build + test + SBOM, you wire your own provenance and publish), `uses: TomHennen/wrangle/build/actions/npm@v0.2.0`.
 
 This README documents shipped behavior. For the full design (attestation model, step sequence), see [`SPEC.md`](./SPEC.md); workspaces support is designed in [`WORKSPACES_PHASE_1.md`](./WORKSPACES_PHASE_1.md) but not yet implemented.
 
@@ -34,7 +14,7 @@ This README documents shipped behavior. For the full design (attestation model, 
 
 Complete in order — step 1 requires an `NPM_TOKEN` that step 3 then disallows.
 
-1. **Bootstrap v0.0.1 manually.** npm Trusted Publishing can't publish a package's *first* version ([npm/cli#8544](https://github.com/npm/cli/issues/8544)). Run `npm publish` once from a maintainer's terminal with an `NPM_TOKEN`. Skip this and the first workflow run fails with a non-obvious "package not found".
+1. **Bootstrap the first version manually.** npm Trusted Publishing can't publish a package's *first* version ([npm/cli#8544](https://github.com/npm/cli/issues/8544)). Run `npm publish` once from a maintainer's terminal with an `NPM_TOKEN` to mint v0.0.1 (or whatever your initial version is). Skip this and the first workflow run fails with a non-obvious "package not found".
 2. **Configure the trusted publisher.** npmjs.com → your package → Settings → Trusted publishing. Pin: GitHub repo, workflow filename (`build_npm.yml`), optionally an environment.
 3. **Enable "Require two-factor authentication and disallow tokens"** on the package (Settings → Publishing access). This blocks all classic / granular publish tokens, leaving Trusted Publishing's OIDC flow as the only publish path. **Without this, a stolen token bypasses your CI entirely** — the attack vector behind the May 2026 mistralai / guardrails-ai and December 2024 ultralytics compromises, where attackers shipped malware by pushing directly to the registry, never triggering the legitimate workflow. After enabling, revoke the bootstrap `NPM_TOKEN`.
 
