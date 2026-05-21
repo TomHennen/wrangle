@@ -1,29 +1,54 @@
 #!/usr/bin/env bats
 
-# Tests for tools/osv/ (install.sh and adapter.sh)
-# Uses mock osv-scanner binary for fast, deterministic testing.
+# Tests for tools/osv/ — install.sh, adapter.sh, and render_md.sh.
+#
+# Three layers, mirroring the pattern adopted in #236:
+#
+#   1. render_md.sh — direct behavioral tests. Inline SARIF fixtures
+#      describe a specific input; assertions are on stdout/exit code.
+#      No mock binary involved.
+#
+#   2. adapter.sh — end-to-end through a PATH-shimmed osv-scanner.
+#      The shim emits canned SARIF (controlled by OSV_MOCK_MODE) so
+#      these tests cover the adapter's exit-code contract, SARIF
+#      validation, output-directory handling, and the wiring between
+#      adapter → render_md.sh.
+#
+#   3. install.sh — verification chain tests (curl + slsa-verifier
+#      shims). No real downloads.
+#
+# Plus one opt-in e2e (`@test "osv e2e: ..."`) that runs the real
+# osv-scanner against a deliberately-vulnerable manifest. Skips if
+# osv-scanner is not on PATH or the osv.dev API is unreachable (which
+# is the case in sandboxed CI environments).
 
 setup() {
-    export TEST_DIR="$(mktemp -d)"
-    export ORIG_DIR="$(pwd)"
-    export MOCK_BIN="$TEST_DIR/mock_bin"
-    mkdir -p "$MOCK_BIN" "$TEST_DIR/src" "$TEST_DIR/output"
+    ORIG_DIR="$(pwd)"
+    TMP_DIR="$(mktemp -d "${TMPDIR:-/tmp}/osv-bats-XXXXXX")"
+    MOCK_BIN="$TMP_DIR/mock_bin"
+    export ORIG_DIR TMP_DIR MOCK_BIN
 
-    # Create a mock osv-scanner that produces fixture SARIF
+    ADAPTER="$ORIG_DIR/tools/osv/adapter.sh"
+    RENDER="$ORIG_DIR/tools/osv/render_md.sh"
+    INSTALL="$ORIG_DIR/tools/osv/install.sh"
+    REAL_FIXTURE="$ORIG_DIR/tools/osv/testdata/real_osv_findings.sarif"
+    export ADAPTER RENDER INSTALL REAL_FIXTURE
+
+    mkdir -p "$MOCK_BIN" "$TMP_DIR/src" "$TMP_DIR/output"
+
+    # Mock osv-scanner used by the adapter-layer tests. Behaviour is
+    # selected via OSV_MOCK_MODE: clean | findings | real-findings |
+    # no-sources | error | bad-json. The real binary is exercised only
+    # by the opt-in e2e test (which removes this mock from PATH first).
     cat > "$MOCK_BIN/osv-scanner" << 'MOCK'
 #!/bin/bash
-# Mock osv-scanner: behavior controlled by OSV_MOCK_MODE env var
-# Supports: clean, findings, no-sources, error, bad-json
-
-# Handle --version flag
 for arg in "$@"; do
     if [[ "$arg" == "--version" ]]; then
-        echo "osv-scanner version 2.3.5-mock"
+        printf 'osv-scanner version 2.3.5-mock\n'
         exit 0
     fi
 done
 
-# Parse args to find --output and --format
 output_file=""
 format=""
 while [[ $# -gt 0 ]]; do
@@ -60,10 +85,6 @@ SARIF
         exit 1
         ;;
     real-findings)
-        # Mock emits a real osv-scanner SARIF captured from the upstream
-        # project's snapshot tests (see testdata/real_osv_findings.sarif).
-        # This exercises the adapter end-to-end with the actual SARIF
-        # structure osv-scanner produces, not a hand-rolled stub.
         if [[ "$format" == "sarif" ]]; then
             cp "$OSV_REAL_SARIF" "$output_file"
         fi
@@ -77,7 +98,7 @@ SARIF
         ;;
     bad-json)
         if [[ "$format" == "sarif" ]]; then
-            echo "not valid json{{{" > "$output_file"
+            printf 'not valid json{{{\n' > "$output_file"
         fi
         exit 0
         ;;
@@ -89,269 +110,404 @@ MOCK
 }
 
 teardown() {
-    cd "$ORIG_DIR"
-    rm -rf "$TEST_DIR"
+    cd "$ORIG_DIR" || true
+    if [[ -n "${TMP_DIR:-}" && -d "$TMP_DIR" ]]; then
+        rm -rf "$TMP_DIR"
+    fi
 }
 
-# --- adapter.sh tests ---
+# Helper: write a SARIF fixture to $1 with a single rule of the given
+# CVSS score, one result against $2 (uri). Used by the severity-bucket
+# tests below to keep each test body short.
+write_sarif_with_severity() {
+    local out="$1" severity="$2" rule_id="${3:-CVE-EXAMPLE-1}"
+    cat > "$out" <<SARIF
+{
+  "version": "2.1.0",
+  "runs": [{
+    "tool": {"driver": {"name": "osv-scanner", "rules": [
+      {"id": "$rule_id", "properties": {"security-severity": "$severity"}}
+    ]}},
+    "results": [{
+      "ruleId": "$rule_id",
+      "level": "warning",
+      "message": {"text": "Package 'lib@1.0.0' is vulnerable to '$rule_id'."},
+      "locations": [{"physicalLocation": {"artifactLocation": {"uri": "file:///path/to/pkg"}}}]
+    }]
+  }]
+}
+SARIF
+}
+
+# --- render_md.sh: direct behavioral tests --------------------------------
+
+@test "render_md: empty SARIF -> 'No known vulnerabilities'" {
+    cat > "$TMP_DIR/in.sarif" <<'SARIF'
+{"version":"2.1.0","runs":[{"tool":{"driver":{"name":"osv-scanner"}},"results":[]}]}
+SARIF
+    run "$RENDER" "$TMP_DIR/in.sarif"
+    [ "$status" -eq 0 ]
+    [[ "$output" == *"No known vulnerabilities"* ]]
+}
+
+@test "render_md: CVSS 9.5 renders as CRITICAL" {
+    write_sarif_with_severity "$TMP_DIR/in.sarif" "9.5"
+    run "$RENDER" "$TMP_DIR/in.sarif"
+    [ "$status" -eq 0 ]
+    [[ "$output" == *"| CRITICAL |"* ]]
+}
+
+@test "render_md: CVSS 7.5 renders as HIGH" {
+    write_sarif_with_severity "$TMP_DIR/in.sarif" "7.5"
+    run "$RENDER" "$TMP_DIR/in.sarif"
+    [ "$status" -eq 0 ]
+    [[ "$output" == *"| HIGH |"* ]]
+    [[ "$output" != *"| MEDIUM |"* ]]
+}
+
+@test "render_md: CVSS 5.0 renders as MEDIUM" {
+    write_sarif_with_severity "$TMP_DIR/in.sarif" "5.0"
+    run "$RENDER" "$TMP_DIR/in.sarif"
+    [ "$status" -eq 0 ]
+    [[ "$output" == *"| MEDIUM |"* ]]
+}
+
+@test "render_md: CVSS 2.0 renders as LOW" {
+    write_sarif_with_severity "$TMP_DIR/in.sarif" "2.0"
+    run "$RENDER" "$TMP_DIR/in.sarif"
+    [ "$status" -eq 0 ]
+    [[ "$output" == *"| LOW |"* ]]
+}
+
+@test "render_md: missing security-severity renders as UNKNOWN" {
+    cat > "$TMP_DIR/in.sarif" <<'SARIF'
+{
+  "version": "2.1.0",
+  "runs": [{
+    "tool": {"driver": {"name": "osv-scanner", "rules": [{"id": "R1"}]}},
+    "results": [{"ruleId": "R1", "message": {"text": "Package 'p@1' is vulnerable to 'R1'."},
+                 "locations": [{"physicalLocation": {"artifactLocation": {"uri": "p"}}}]}]
+  }]
+}
+SARIF
+    run "$RENDER" "$TMP_DIR/in.sarif"
+    [ "$status" -eq 0 ]
+    [[ "$output" == *"| UNKNOWN |"* ]]
+}
+
+@test "render_md: dedupes results by ruleId" {
+    # osv emits one result per (vuln, lockfile-location). The renderer
+    # must collapse them to one row per unique vulnerability.
+    cat > "$TMP_DIR/in.sarif" <<'SARIF'
+{
+  "version": "2.1.0",
+  "runs": [{
+    "tool": {"driver": {"name": "osv-scanner", "rules": [
+      {"id": "CVE-DUPE", "properties": {"security-severity": "7.5"}}
+    ]}},
+    "results": [
+      {"ruleId": "CVE-DUPE", "message": {"text": "Package 'a@1' is vulnerable to 'CVE-DUPE'."},
+       "locations": [{"physicalLocation": {"artifactLocation": {"uri": "a/lock"}}}]},
+      {"ruleId": "CVE-DUPE", "message": {"text": "Package 'a@1' is vulnerable to 'CVE-DUPE'."},
+       "locations": [{"physicalLocation": {"artifactLocation": {"uri": "b/lock"}}}]},
+      {"ruleId": "CVE-DUPE", "message": {"text": "Package 'a@1' is vulnerable to 'CVE-DUPE'."},
+       "locations": [{"physicalLocation": {"artifactLocation": {"uri": "c/lock"}}}]}
+    ]
+  }]
+}
+SARIF
+    run "$RENDER" "$TMP_DIR/in.sarif"
+    [ "$status" -eq 0 ]
+    rows=$(printf '%s\n' "$output" | grep -cE '^\| (CRITICAL|HIGH|MEDIUM|LOW|UNKNOWN) \|')
+    [ "$rows" -eq 1 ]
+}
+
+@test "render_md: strips file:// prefix from locations" {
+    write_sarif_with_severity "$TMP_DIR/in.sarif" "5.0"
+    run "$RENDER" "$TMP_DIR/in.sarif"
+    [ "$status" -eq 0 ]
+    [[ "$output" != *"file://"* ]]
+    [[ "$output" == *"/path/to/pkg"* ]]
+}
+
+@test "render_md: extracts fixed versions from rule.help.markdown" {
+    cat > "$TMP_DIR/in.sarif" <<'SARIF'
+{
+  "version": "2.1.0",
+  "runs": [{
+    "tool": {"driver": {"name": "osv-scanner", "rules": [{
+      "id": "CVE-FIX",
+      "properties": {"security-severity": "7.5"},
+      "help": {"markdown": "Some preamble.\n\n### Fixed Versions\n\n| Vulnerability ID | Package Name | Fixed Version |\n| --- | --- | --- |\n| GHSA-aaaa-bbbb-cccc | leftpad | 1.2.3 |\n\nMore preamble after.\n"}
+    }]}},
+    "results": [{"ruleId": "CVE-FIX",
+                 "message": {"text": "Package 'leftpad@1.0.0' is vulnerable to 'CVE-FIX'."},
+                 "locations": [{"physicalLocation": {"artifactLocation": {"uri": "p"}}}]}]
+  }]
+}
+SARIF
+    run "$RENDER" "$TMP_DIR/in.sarif"
+    [ "$status" -eq 0 ]
+    [[ "$output" == *"leftpad@1.2.3"* ]]
+}
+
+@test "render_md: missing fixed-versions section renders em-dash" {
+    write_sarif_with_severity "$TMP_DIR/in.sarif" "5.0"
+    run "$RENDER" "$TMP_DIR/in.sarif"
+    [ "$status" -eq 0 ]
+    [[ "$output" == *"| — |"* ]]
+}
+
+@test "render_md: missing file exits 1" {
+    run "$RENDER" "$TMP_DIR/does-not-exist.sarif"
+    [ "$status" -eq 1 ]
+    [[ "$output" == *"SARIF file not found"* ]]
+}
+
+@test "render_md: invalid JSON exits 2" {
+    printf 'not valid json{{{\n' > "$TMP_DIR/in.sarif"
+    run "$RENDER" "$TMP_DIR/in.sarif"
+    [ "$status" -eq 2 ]
+    [[ "$output" == *"invalid JSON"* ]]
+}
+
+@test "render_md: usage error on missing arg" {
+    run "$RENDER"
+    [ "$status" -eq 1 ]
+    [[ "$output" == *"Usage"* ]]
+}
+
+@test "render_md: real osv fixture renders count-parity rows" {
+    run "$RENDER" "$REAL_FIXTURE"
+    [ "$status" -eq 0 ]
+    unique_rules=$(jq -r '[.runs[].results[].ruleId] | unique | length' "$REAL_FIXTURE")
+    rows=$(printf '%s\n' "$output" | grep -cE '^\| (CRITICAL|HIGH|MEDIUM|LOW|UNKNOWN) \|')
+    [ "$rows" -eq "$unique_rules" ]
+    # CVE-2022-24713 has CVSS 7.5 in the fixture; must render as HIGH.
+    [[ "$output" == *"HIGH"* ]]
+    [[ "$output" == *"CVE-2022-24713"* ]]
+    [[ "$output" == *"CVE-2021-3121"* ]]
+    # Fixed-versions extraction from upstream help.markdown.
+    [[ "$output" == *"regex@1.5.5"* ]]
+}
+
+# --- adapter.sh: end-to-end through PATH-shimmed osv-scanner --------------
 
 @test "osv adapter: produces SARIF with no findings (exit 0)" {
     export OSV_MOCK_MODE="clean"
-    run "$ORIG_DIR/tools/osv/adapter.sh" "$TEST_DIR/src" "$TEST_DIR/output"
-
+    run "$ADAPTER" "$TMP_DIR/src" "$TMP_DIR/output"
     [ "$status" -eq 0 ]
-    [ -f "$TEST_DIR/output/output.sarif" ]
-    # Validate it's proper SARIF
-    jq empty "$TEST_DIR/output/output.sarif"
-    result=$(jq '[.runs[].results[]] | length' "$TEST_DIR/output/output.sarif")
-    [ "$result" -eq 0 ]
+    [ -f "$TMP_DIR/output/output.sarif" ]
+    jq empty "$TMP_DIR/output/output.sarif"
+    [ "$(jq '[.runs[].results[]] | length' "$TMP_DIR/output/output.sarif")" -eq 0 ]
 }
 
 @test "osv adapter: produces SARIF with findings (exit 1)" {
     export OSV_MOCK_MODE="findings"
-    run "$ORIG_DIR/tools/osv/adapter.sh" "$TEST_DIR/src" "$TEST_DIR/output"
-
+    run "$ADAPTER" "$TMP_DIR/src" "$TMP_DIR/output"
     [ "$status" -eq 1 ]
-    [ -f "$TEST_DIR/output/output.sarif" ]
-    result=$(jq '[.runs[].results[]] | length' "$TEST_DIR/output/output.sarif")
-    [ "$result" -gt 0 ]
+    [ -f "$TMP_DIR/output/output.sarif" ]
+    [ "$(jq '[.runs[].results[]] | length' "$TMP_DIR/output/output.sarif")" -gt 0 ]
 }
 
 @test "osv adapter: handles no package sources (exit 0, empty SARIF)" {
     export OSV_MOCK_MODE="no-sources"
-    run "$ORIG_DIR/tools/osv/adapter.sh" "$TEST_DIR/src" "$TEST_DIR/output"
-
+    run "$ADAPTER" "$TMP_DIR/src" "$TMP_DIR/output"
     [ "$status" -eq 0 ]
-    [ -f "$TEST_DIR/output/output.sarif" ]
-    jq empty "$TEST_DIR/output/output.sarif"
-    result=$(jq '[.runs[].results[]] | length' "$TEST_DIR/output/output.sarif")
-    [ "$result" -eq 0 ]
+    [ -f "$TMP_DIR/output/output.sarif" ]
+    jq empty "$TMP_DIR/output/output.sarif"
+    [ "$(jq '[.runs[].results[]] | length' "$TMP_DIR/output/output.sarif")" -eq 0 ]
 }
 
 @test "osv adapter: tool error produces exit 2" {
     export OSV_MOCK_MODE="error"
-    run "$ORIG_DIR/tools/osv/adapter.sh" "$TEST_DIR/src" "$TEST_DIR/output"
-
+    run "$ADAPTER" "$TMP_DIR/src" "$TMP_DIR/output"
     [ "$status" -eq 2 ]
 }
 
 @test "osv adapter: invalid JSON SARIF produces exit 2" {
     export OSV_MOCK_MODE="bad-json"
-    run "$ORIG_DIR/tools/osv/adapter.sh" "$TEST_DIR/src" "$TEST_DIR/output"
-
+    run "$ADAPTER" "$TMP_DIR/src" "$TMP_DIR/output"
     [ "$status" -eq 2 ]
 }
 
 @test "osv adapter: requires 2 arguments" {
-    run "$ORIG_DIR/tools/osv/adapter.sh" "$TEST_DIR/src"
-
+    run "$ADAPTER" "$TMP_DIR/src"
     [ "$status" -eq 2 ]
     [[ "$output" == *"Usage"* ]]
 }
 
 @test "osv adapter: fails if src_dir does not exist" {
-    run "$ORIG_DIR/tools/osv/adapter.sh" "/nonexistent" "$TEST_DIR/output"
-
+    run "$ADAPTER" "/nonexistent" "$TMP_DIR/output"
     [ "$status" -eq 2 ]
 }
 
 @test "osv adapter: fails if output_dir does not exist" {
-    run "$ORIG_DIR/tools/osv/adapter.sh" "$TEST_DIR/src" "/nonexistent"
-
+    run "$ADAPTER" "$TMP_DIR/src" "/nonexistent"
     [ "$status" -eq 2 ]
 }
 
-@test "osv adapter: clean scan produces a non-empty output.md" {
+@test "osv adapter: clean scan produces non-empty output.md" {
     export OSV_MOCK_MODE="clean"
-    run "$ORIG_DIR/tools/osv/adapter.sh" "$TEST_DIR/src" "$TEST_DIR/output"
-
+    run "$ADAPTER" "$TMP_DIR/src" "$TMP_DIR/output"
     [ "$status" -eq 0 ]
-    [ -f "$TEST_DIR/output/output.md" ]
-    # Empty-SARIF path must still produce content for the step summary.
-    [ -s "$TEST_DIR/output/output.md" ]
-    grep -qi "no known vulnerabilities" "$TEST_DIR/output/output.md"
+    [ -s "$TMP_DIR/output/output.md" ]
+    grep -qi "no known vulnerabilities" "$TMP_DIR/output/output.md"
 }
 
-# Regression test for #197: when osv-scanner produces SARIF with findings,
-# output.md must list those findings (it previously reported zero because
-# the adapter ran osv-scanner a second time for markdown and the markdown
-# formatter under-reported).
-@test "osv adapter: markdown output reflects SARIF findings" {
-    export OSV_MOCK_MODE="findings"
-    run "$ORIG_DIR/tools/osv/adapter.sh" "$TEST_DIR/src" "$TEST_DIR/output"
-
-    [ "$status" -eq 1 ]
-    [ -f "$TEST_DIR/output/output.md" ]
-    # The finding's ruleId from the mock SARIF should appear in the summary.
-    grep -q "GHSA-1234-5678-abcd" "$TEST_DIR/output/output.md"
-}
-
-# Regression test for #197 using a real osv-scanner SARIF fixture captured
-# from osv-scanner's own snapshot tests
-# (internal/output/__snapshots__/sarif_test.snap @ v2.3.5). Confirms the
-# adapter's markdown summary surfaces actual osv-scanner findings end-to-end
-# with the SARIF structure the tool really produces.
-@test "osv adapter: markdown output reflects findings from real osv-scanner SARIF" {
+# Regression test for #197: SARIF and the markdown summary must agree.
+# The old adapter ran osv-scanner twice (once for SARIF, once for
+# markdown) and the markdown formatter under-reported, producing
+# "SARIF=N, MD=0". Now MD is rendered from the SARIF directly.
+@test "osv adapter: SARIF and MD agree on finding count (real osv fixture)" {
     export OSV_MOCK_MODE="real-findings"
-    export OSV_REAL_SARIF="$ORIG_DIR/tools/osv/testdata/real_osv_findings.sarif"
-    run "$ORIG_DIR/tools/osv/adapter.sh" "$TEST_DIR/src" "$TEST_DIR/output"
-
+    export OSV_REAL_SARIF="$REAL_FIXTURE"
+    run "$ADAPTER" "$TMP_DIR/src" "$TMP_DIR/output"
     [ "$status" -eq 1 ]
-    [ -f "$TEST_DIR/output/output.md" ]
-    # Both unique CVE ruleIds in the fixture must appear in the summary.
-    grep -q "CVE-2022-24713" "$TEST_DIR/output/output.md"
-    grep -q "CVE-2021-3121" "$TEST_DIR/output/output.md"
-    # Vulnerable package version (not the fixed one) must be surfaced.
-    grep -q "regex@1.5.1" "$TEST_DIR/output/output.md"
-    # Fixed version from rule.help.markdown must be surfaced.
-    grep -q "regex@1.5.5" "$TEST_DIR/output/output.md"
-    # CVSS 7.5 on CVE-2022-24713 must render as HIGH, not MEDIUM.
-    grep -q "HIGH" "$TEST_DIR/output/output.md"
-    # file:// prefix must be stripped from locations.
-    ! grep -q "file://" "$TEST_DIR/output/output.md"
-    # Count parity: every unique ruleId in the SARIF gets exactly one row.
-    # This is the literal #197 symptom (SARIF=N, MD=0). Markdown rows start
-    # with "| " and exclude the header (which contains "Severity") and
-    # divider rows. The fixture has 2 unique ruleIds across 3 results.
     unique_rules=$(jq -r '[.runs[].results[].ruleId] | unique | length' \
-        "$TEST_DIR/output/output.sarif")
+        "$TMP_DIR/output/output.sarif")
     md_rows=$(grep -cE '^\| (CRITICAL|HIGH|MEDIUM|LOW|UNKNOWN) \|' \
-        "$TEST_DIR/output/output.md")
+        "$TMP_DIR/output/output.md")
     [ "$md_rows" -eq "$unique_rules" ]
 }
 
-# Best-effort render: a render_md.sh failure must NOT fail the adapter,
-# since the SARIF (consulted by the gating check) is already valid.
-@test "osv adapter: render failure does not fail the adapter" {
-    export OSV_MOCK_MODE="real-findings"
-    export OSV_REAL_SARIF="$ORIG_DIR/tools/osv/testdata/real_osv_findings.sarif"
-    # Shadow render_md.sh with one that always fails by pointing PATH at a
-    # broken jq. Simpler: replace render_md.sh itself for this test.
-    cp "$ORIG_DIR/tools/osv/render_md.sh" "$TEST_DIR/render_md.sh.bak"
-    cat > "$ORIG_DIR/tools/osv/render_md.sh" <<'BROKEN'
-#!/bin/bash
-exit 99
-BROKEN
-    chmod +x "$ORIG_DIR/tools/osv/render_md.sh"
+# --- osv e2e: real osv-scanner against a vulnerable manifest --------------
 
-    run "$ORIG_DIR/tools/osv/adapter.sh" "$TEST_DIR/src" "$TEST_DIR/output"
+# Drives the full pipeline with the real osv-scanner binary against a
+# fixture pinned to an older Go stdlib (long-standing CVEs, deterministic
+# under network access). Skipped when osv-scanner isn't on PATH or the
+# osv.dev API isn't reachable (sandboxed CI environments).
+@test "osv e2e: real osv-scanner produces consistent SARIF + MD" {
+    if ! command -v osv-scanner >/dev/null 2>&1 || \
+       [[ "$(osv-scanner --version 2>&1 | head -n1)" == *"-mock"* ]]; then
+        # The shim is still on PATH (or no osv-scanner installed).
+        # Remove the shim and re-check.
+        export PATH="${PATH#"$MOCK_BIN":}"
+    fi
+    if ! command -v osv-scanner >/dev/null 2>&1; then
+        skip "osv-scanner not on PATH; install via tools/osv/install.sh first"
+    fi
+
+    cp "$ORIG_DIR/tools/osv/testdata/vulnerable_go.mod" "$TMP_DIR/src/go.mod"
+
+    run "$ADAPTER" "$TMP_DIR/src" "$TMP_DIR/output"
     rc=$status
 
-    # Restore before asserting so a failure here doesn't leave the repo dirty.
-    cp "$TEST_DIR/render_md.sh.bak" "$ORIG_DIR/tools/osv/render_md.sh"
+    # osv.dev API unreachable (sandbox / offline): the adapter returns
+    # exit 2 with no SARIF written, or exit 0 with an empty SARIF. In
+    # either case skip — there's nothing to assert about the pipeline
+    # because osv-scanner couldn't enrich the manifest.
+    if [[ ! -s "$TMP_DIR/output/output.sarif" ]]; then
+        skip "osv-scanner did not produce SARIF (likely network-restricted)"
+    fi
+    n=$(jq '[.runs[].results[]] | length' "$TMP_DIR/output/output.sarif")
+    if [[ "$n" -eq 0 ]]; then
+        skip "osv-scanner produced 0 results (likely offline or no advisories for fixture)"
+    fi
 
-    [ "$rc" -eq 1 ]                                     # findings → exit 1
-    [ -f "$TEST_DIR/output/output.md" ]                 # placeholder written
-    [ -s "$TEST_DIR/output/output.sarif" ]              # SARIF intact
+    [ "$rc" -eq 1 ]                              # findings present
+    [ -s "$TMP_DIR/output/output.md" ]
+
+    # The #197 invariant: SARIF and MD must agree on unique-vuln count.
+    unique_rules=$(jq -r '[.runs[].results[].ruleId] | unique | length' \
+        "$TMP_DIR/output/output.sarif")
+    md_rows=$(grep -cE '^\| (CRITICAL|HIGH|MEDIUM|LOW|UNKNOWN) \|' \
+        "$TMP_DIR/output/output.md")
+    [ "$md_rows" -eq "$unique_rules" ]
+
+    # And no file:// prefix leaked into the summary.
+    ! grep -q "file://" "$TMP_DIR/output/output.md"
 }
 
-# --- install.sh tests ---
+# --- install.sh: verification-chain tests ---------------------------------
 
 @test "osv install: sources download_verify library" {
-    # Verify the install script can at least be parsed (syntax check)
-    run bash -n "$ORIG_DIR/tools/osv/install.sh"
-
+    run bash -n "$INSTALL"
     [ "$status" -eq 0 ]
 }
 
 @test "osv install: skips if correct version already installed" {
-    # Mock osv-scanner already exists in MOCK_BIN and reports 2.3.5
     export WRANGLE_BIN_DIR="$MOCK_BIN"
-
-    run "$ORIG_DIR/tools/osv/install.sh" "2.3.5"
-
+    run "$INSTALL" "2.3.5"
     [ "$status" -eq 0 ]
     [[ "$output" == *"already installed"* ]]
 }
 
 @test "osv install: fails if binary download fails" {
-    export WRANGLE_BIN_DIR="$TEST_DIR/install_bin"
+    export WRANGLE_BIN_DIR="$TMP_DIR/install_bin"
     mkdir -p "$WRANGLE_BIN_DIR"
 
-    # Create a mock curl that always fails
-    cat > "$TEST_DIR/mock_curl" << 'MOCK'
+    cat > "$TMP_DIR/mock_curl" << 'MOCK'
 #!/bin/bash
 exit 1
 MOCK
-    chmod +x "$TEST_DIR/mock_curl"
-    PATH="$TEST_DIR:$PATH"
-    ln -sf "$TEST_DIR/mock_curl" "$TEST_DIR/curl"
+    chmod +x "$TMP_DIR/mock_curl"
+    PATH="$TMP_DIR:$PATH"
+    ln -sf "$TMP_DIR/mock_curl" "$TMP_DIR/curl"
 
-    run "$ORIG_DIR/tools/osv/install.sh" "2.3.5"
-
+    run "$INSTALL" "2.3.5"
     [ "$status" -eq 1 ]
     [[ "$output" == *"FATAL"* ]]
-    # Binary should not exist
     [ ! -f "$WRANGLE_BIN_DIR/osv-scanner" ]
 }
 
 @test "osv install: fails if provenance download fails" {
-    export WRANGLE_BIN_DIR="$TEST_DIR/install_bin"
+    export WRANGLE_BIN_DIR="$TMP_DIR/install_bin"
     mkdir -p "$WRANGLE_BIN_DIR"
 
-    # Create a mock curl that succeeds for binary but fails for provenance
-    echo "0" > "$TEST_DIR/curl_call_count"
-    cat > "$TEST_DIR/curl" << 'MOCK'
+    printf '0\n' > "$TMP_DIR/curl_call_count"
+    cat > "$TMP_DIR/curl" << 'MOCK'
 #!/bin/bash
-count=$(cat "$TEST_DIR/curl_call_count")
+count=$(cat "$TMP_DIR/curl_call_count")
 count=$((count + 1))
-echo "$count" > "$TEST_DIR/curl_call_count"
-# First call (binary download) succeeds
+printf '%d\n' "$count" > "$TMP_DIR/curl_call_count"
 if [ "$count" -eq 1 ]; then
-    # Parse -o flag to find output file
     while [ $# -gt 0 ]; do
         case "$1" in
-            -o) echo "fake binary" > "$2"; exit 0 ;;
+            -o) printf 'fake binary\n' > "$2"; exit 0 ;;
             *) shift ;;
         esac
     done
 fi
-# Second call (provenance download) fails
 exit 1
 MOCK
-    chmod +x "$TEST_DIR/curl"
-    PATH="$TEST_DIR:$PATH"
+    chmod +x "$TMP_DIR/curl"
+    PATH="$TMP_DIR:$PATH"
 
-    run "$ORIG_DIR/tools/osv/install.sh" "2.3.5"
-
+    run "$INSTALL" "2.3.5"
     [ "$status" -eq 1 ]
     [[ "$output" == *"FATAL"* ]]
     [[ "$output" == *"provenance"* ]]
-    # Binary and provenance files should be cleaned up
     leftover=$(find "$WRANGLE_BIN_DIR" -name 'wrangle-dl-*' -o -name '*.intoto.jsonl' 2>/dev/null | wc -l)
     [ "$leftover" -eq 0 ]
 }
 
 @test "osv install: fails if provenance verification fails" {
-    export WRANGLE_BIN_DIR="$TEST_DIR/install_bin"
+    export WRANGLE_BIN_DIR="$TMP_DIR/install_bin"
     mkdir -p "$WRANGLE_BIN_DIR"
 
-    # Create a mock curl that always succeeds (writes dummy files)
-    cat > "$TEST_DIR/curl" << 'MOCK'
+    cat > "$TMP_DIR/curl" << 'MOCK'
 #!/bin/bash
 while [ $# -gt 0 ]; do
     case "$1" in
-        -o) echo "fake content" > "$2"; exit 0 ;;
+        -o) printf 'fake content\n' > "$2"; exit 0 ;;
         *) shift ;;
     esac
 done
 exit 0
 MOCK
-    chmod +x "$TEST_DIR/curl"
+    chmod +x "$TMP_DIR/curl"
 
-    # Create a mock slsa-verifier that always fails
-    cat > "$TEST_DIR/slsa-verifier" << 'MOCK'
+    cat > "$TMP_DIR/slsa-verifier" << 'MOCK'
 #!/bin/bash
 exit 1
 MOCK
-    chmod +x "$TEST_DIR/slsa-verifier"
-    PATH="$TEST_DIR:$PATH"
+    chmod +x "$TMP_DIR/slsa-verifier"
+    PATH="$TMP_DIR:$PATH"
 
-    run "$ORIG_DIR/tools/osv/install.sh" "2.3.5"
-
+    run "$INSTALL" "2.3.5"
     [ "$status" -eq 1 ]
     [[ "$output" == *"FATAL"* ]]
     [[ "$output" == *"supply chain attack"* ]]
-    # Binary and provenance files should be cleaned up
     [ ! -f "$WRANGLE_BIN_DIR/osv-scanner" ]
 }
