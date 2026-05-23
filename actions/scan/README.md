@@ -44,7 +44,7 @@ The May 2026 Mini Shai-Hulud compromise of TanStack/router is the canonical exam
 The `tools` input is a space-separated list. Default: `"osv zizmor scorecard:info dependency-review"`. Suffix with `:info` to make a tool's findings non-blocking.
 
 ```yaml
-uses: TomHennen/wrangle/.github/workflows/check_source_change.yml@<version>
+uses: TomHennen/wrangle/.github/workflows/check_source_change.yml@v0.1.0
 with:
   tools: "osv zizmor"   # skip Scorecard and dependency-review
 ```
