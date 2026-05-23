@@ -8,6 +8,8 @@ set -f  # disable globbing — adapter processes external input paths
 # Usage: adapter.sh <src_dir> <output_dir>
 # Exit: 0 = no findings, 1 = findings found, 2 = tool error
 
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+
 if [[ $# -ne 2 ]]; then
     printf 'Usage: adapter.sh <src_dir> <output_dir>\n' >&2
     exit 2
@@ -61,8 +63,15 @@ if ! jq empty "$SARIF_FILE" 2>/dev/null; then
     exit 2
 fi
 
-# Generate markdown output (best-effort, non-fatal)
-osv-scanner scan --format markdown --output "$MD_FILE" -r "$SRC_DIR" 2>/dev/null || true
+# Generate markdown summary from the SARIF we just produced. Using a local
+# render_md.sh (rather than a second osv-scanner invocation with
+# --format markdown) guarantees the summary and the SARIF-based check report
+# the same findings — osv-scanner's markdown formatter has been observed
+# reporting zero findings while the SARIF contains results (issue #197).
+# Best-effort: a failure here loses the summary but must not fail the
+# scan, since the SARIF (which the gating check consults) is already written.
+"$SCRIPT_DIR/render_md.sh" "$SARIF_FILE" > "$MD_FILE" 2>/dev/null || \
+    printf 'wrangle/osv: failed to render markdown summary (SARIF still valid)\n' > "$MD_FILE"
 
 # Determine exit code from SARIF results
 if ! num_findings="$(jq '[.runs[].results[]] | length' "$SARIF_FILE" 2>/dev/null)"; then
