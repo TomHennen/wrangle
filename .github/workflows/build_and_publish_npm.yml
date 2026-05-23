@@ -1,32 +1,52 @@
-name: "Build and test a Python package with best practices."
+name: "Build and test an npm package with best practices."
 
 # Build + SLSA provenance reusable workflow. Publishing is NOT included
-# because PyPI Trusted Publishing does not support reusable workflows —
-# the OIDC token's workflow_ref must point to the adopter's own workflow.
-# See: https://github.com/pypi/warehouse/issues/11096
+# because npm Trusted Publishing's OIDC token's workflow_ref claim is
+# bound to the caller workflow's filename — a reusable workflow does
+# not satisfy that constraint. See:
+# https://docs.npmjs.com/trusted-publishers/ (Troubleshooting)
+# https://github.com/npm/documentation/issues/1755
 #
 # Adopters add a publish job in their own calling workflow. Verifying
-# SLSA provenance before publish is recommended (and is the pattern
-# shown in gh_workflow_examples/build_python.yml) but optional.
+# wrangle's L3 SLSA provenance before publish is recommended (and is
+# the pattern shown in gh_workflow_examples/build_npm.yml) but optional.
 
 on:
   workflow_call:
     inputs:
       path:
-        description: "Relative path to the directory containing pyproject.toml"
+        description: "Relative path to the directory containing package.json"
         required: false
         type: string
         default: "."
-      python-version:
-        description: "Python version override. If empty, detected from pyproject.toml."
+      node-version:
+        description: |
+          Node.js version override. If empty, detected from .nvmrc, then
+          package.json's engines.node, then a wrangle-default LTS (currently
+          Node 22). Adopters who care about a specific version should set
+          one of the first three explicitly rather than rely on the fallback.
         required: false
         type: string
         default: ""
       run-tests:
-        description: "Whether to run pytest before building"
+        description: "Whether to run `npm test` if a non-default test script is declared"
         required: false
         type: boolean
         default: true
+      ignore-scripts:
+        description: |
+          When true, no package.json script runs: --ignore-scripts is
+          passed to npm ci AND npm pack (suppressing prepare/prepack/
+          postpack/install lifecycle hooks, including those in transitive
+          dev-deps), AND `npm run build` / `npm test` are skipped outright.
+          Opt-in hardening for adopters who want the L3 attestation to bind
+          to "what npm pack produces with no script execution at all."
+          Defaults to false because common ecosystem tools (husky,
+          prebuild-install) rely on these hooks and most adopters expect
+          their declared build/test to run.
+        required: false
+        type: boolean
+        default: false
       release-events:
         description: |
           Which events should trigger release-time actions (SLSA provenance,
@@ -58,14 +78,12 @@ on:
       verify-provenance:
         description: |
           When true (default), wrangle runs `slsa-verifier verify-artifact`
-          against the just-built dist before declaring the workflow
+          against the just-built tarball before declaring the workflow
           successful. If verification fails, the workflow fails — and the
           caller's publish job is blocked via standard `needs:` propagation,
-          so a tampered dist between build and publish cannot be released.
+          so a tampered tarball between build and publish cannot be released.
           Set to false to skip wrangle's verification (e.g., adopters with
-          a custom verification flow). Skipping makes the dist's integrity
-          between wrangle's build and the caller's publish an
-          adopter-managed concern.
+          a custom verification flow).
         required: false
         type: boolean
         default: true
@@ -76,6 +94,9 @@ on:
       version:
         description: "The package version that was built"
         value: ${{ jobs.build.outputs.version }}
+      tarball:
+        description: "Filename of the produced .tgz (relative to the dist/ artifact root)"
+        value: ${{ jobs.build.outputs.tarball }}
       dist-artifact-name:
         description: "Name of the uploaded dist/ artifact (download with this name to publish)"
         value: ${{ jobs.build.outputs.dist-artifact-name }}
@@ -83,7 +104,7 @@ on:
         description: "Name of the SLSA provenance workflow artifact (= the provenance filename). Empty when should-release is false."
         value: ${{ jobs.provenance.outputs.provenance-name }}
       metadata-artifact-name:
-        description: "Name of the workflow artifact (a zip of `metadata/python/<shortname>/`'s contents) containing the SBOM and metadata. Format: `python-metadata-<shortname>`. Adopters fetch via `actions/download-artifact` — the metadata files land at the top level of the configured `path:`, not under `metadata/python/<shortname>/`. See docs/SPEC.md \"Unified metadata layout\"."
+        description: "Name of the workflow artifact (a zip of `metadata/npm/<shortname>/`'s contents) containing the SBOM. Format: `npm-metadata-<shortname>`. Adopters fetch via `actions/download-artifact` — the metadata files land at the top level of the configured `path:`, not under `metadata/npm/<shortname>/`."
         value: ${{ jobs.build.outputs.metadata-artifact-name }}
       should-release:
         description: |
@@ -106,10 +127,6 @@ jobs:
       # TODO: replace with $/actions/preflight_guard when GitHub ships $/ syntax (#136)
       - uses: TomHennen/wrangle/actions/preflight_guard@f0a0b4acbd065ba47dfae170341ce4340bc18b72 # main 2026-05-20
 
-  # Decide whether release-time actions (provenance, publish) should run
-  # for this event. Cheap separate job so the result is available to
-  # both the provenance job below and the caller's publish job via
-  # outputs.should-release.
   gate:
     needs: [guard]
     runs-on: ubuntu-latest
@@ -125,16 +142,14 @@ jobs:
           events: ${{ inputs.release-events }}
 
   build:
-    # needs `gate` so the build can read should-release and disable the
-    # uv cache for release builds (SLSA L3 isolation — see the `cache:`
-    # input below and docs/SLSA_L3_AUDIT.md Finding 1).
-    needs: [guard, gate]
+    needs: [guard]
     runs-on: ubuntu-latest
     permissions:
       contents: read    # minimal — no OIDC, no publish
     outputs:
       hashes: ${{ steps.build.outputs.hashes }}
       version: ${{ steps.build.outputs.version }}
+      tarball: ${{ steps.build.outputs.tarball }}
       shortname: ${{ steps.build.outputs.shortname }}
       dist-artifact-name: ${{ steps.names.outputs.dist }}
       metadata-artifact-name: ${{ steps.names.outputs.metadata }}
@@ -144,31 +159,25 @@ jobs:
           persist-credentials: false
           ref: ${{ inputs.ref || '' }}
 
-      # TODO: replace with $/build/actions/python when GitHub ships $/ syntax (#136)
-      - uses: TomHennen/wrangle/build/actions/python@f0a0b4acbd065ba47dfae170341ce4340bc18b72 # main 2026-05-20
+      # TODO: replace with $/build/actions/npm when GitHub ships $/ syntax (#136)
+      - uses: TomHennen/wrangle/build/actions/npm@f0a0b4acbd065ba47dfae170341ce4340bc18b72 # main 2026-05-20
         id: build
         with:
           path: ${{ inputs.path }}
-          python-version: ${{ inputs.python-version }}
+          node-version: ${{ inputs.node-version }}
           run-tests: ${{ inputs.run-tests }}
-          # Disable the uv cache on release builds. should-release == 'true'
-          # means this event produces L3 provenance, so the build must not
-          # consume a shared, cross-build, unverified-on-hit cache — see
-          # docs/SLSA_L3_AUDIT.md Finding 1. PR builds keep the cache for
-          # fast iteration; they produce no provenance, so cache poisoning
-          # is not an L3 concern at that layer.
-          cache: ${{ needs.gate.outputs.should-release == 'true' && 'disabled' || 'enabled' }}
+          ignore-scripts: ${{ inputs.ignore-scripts }}
 
       # Namespace artifact names by the path-derived shortname so multiple
-      # python builds in one workflow don't collide.
+      # npm builds in one workflow don't collide.
       - id: names
         shell: bash
         env:
           SHORTNAME: ${{ steps.build.outputs.shortname }}
         run: |
           set -euo pipefail
-          printf 'dist=python-dist-%s\n' "$SHORTNAME" >> "$GITHUB_OUTPUT"
-          printf 'metadata=python-metadata-%s\n' "$SHORTNAME" >> "$GITHUB_OUTPUT"
+          printf 'dist=npm-dist-%s\n' "$SHORTNAME" >> "$GITHUB_OUTPUT"
+          printf 'metadata=npm-metadata-%s\n' "$SHORTNAME" >> "$GITHUB_OUTPUT"
 
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
@@ -190,11 +199,7 @@ jobs:
   # contents: write is required because the generator's upload-assets
   # job declares it. GitHub validates every called job's permissions
   # at startup regardless of the job's `if:` condition, so granting
-  # write is mandatory even when upload-assets is false. Since the
-  # write permission is unavoidable, we use it: upload-assets is
-  # enabled on tag pushes so provenance and dist are attached as
-  # release assets (permanent, discoverable). Off-tag the generator
-  # only uploads provenance as a workflow artifact (90-day retention).
+  # write is mandatory even when upload-assets is false.
   provenance:
     if: ${{ needs.gate.outputs.should-release == 'true' }}
     needs: [guard, gate, build]
@@ -207,23 +212,16 @@ jobs:
     uses: slsa-framework/slsa-github-generator/.github/workflows/generator_generic_slsa3.yml@v2.1.0 # zizmor: ignore[unpinned-uses] tag required by SLSA generator's OIDC verification
     with:
       base64-subjects: ${{ needs.build.outputs.hashes }}
-      # Namespace the provenance filename by shortname so multiple python
-      # builds in one workflow don't collide on the default `multiple.intoto.jsonl`.
-      # actions/download-artifact picks non-deterministically when two artifacts
-      # share a name in the same run, and the verify job below would download
-      # the wrong build's provenance. The README documents that the actual
-      # filename is exposed via `provenance-artifact-name` so adopters don't
-      # need to reconstruct the convention themselves.
-      provenance-name: python-${{ needs.build.outputs.shortname }}.intoto.jsonl
+      # Namespace the provenance filename by shortname so multiple npm
+      # builds in one workflow don't collide on the default name.
+      provenance-name: npm-${{ needs.build.outputs.shortname }}.intoto.jsonl
       upload-assets: ${{ startsWith(github.ref, 'refs/tags/') }}
 
-  # Verify the just-built dist matches the just-generated provenance.
-  # Catches "dist tampered with after build, before publish" — the same
-  # guarantee the example workflow used to provide via per-adopter
-  # boilerplate, now owned by wrangle. Failing here fails the workflow,
-  # which (via standard `needs:` propagation) blocks the caller's
-  # publish job. Adopters with custom verification flows pass
-  # `verify-provenance: false` and wire their own.
+  # Verify the just-built tarball matches the just-generated provenance.
+  # Catches "tarball tampered with after build, before publish". Failing
+  # here fails the workflow, which (via standard `needs:` propagation)
+  # blocks the caller's publish job. Adopters with custom verification
+  # flows pass `verify-provenance: false` and wire their own.
   verify:
     if: ${{ needs.gate.outputs.should-release == 'true' && inputs.verify-provenance }}
     needs: [guard, gate, build, provenance]

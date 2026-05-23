@@ -19,7 +19,20 @@ on:
         default: ""
 
 jobs:
+  # Refuse trigger patterns known to expose this workflow to supply-chain
+  # attack classes (pull_request_target, workflow_run via pull_request_target).
+  # The guard MUST stay first under `jobs:`; every other job lists `guard`
+  # in its `needs:` so a refused invocation skips the entire workflow.
+  # Full trigger contract: docs/SPEC.md#trigger-model.
+  guard:
+    runs-on: ubuntu-latest
+    permissions: {}    # reads env only — no workspace, no API, no secrets
+    steps:
+      # TODO: replace with $/actions/preflight_guard when GitHub ships $/ syntax (#136)
+      - uses: TomHennen/wrangle/actions/preflight_guard@f0a0b4acbd065ba47dfae170341ce4340bc18b72 # main 2026-05-20
+
   shell-build:
+    needs: [guard]
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -30,7 +43,7 @@ jobs:
 
       - name: Run shell build
         # TODO: replace with $/build/actions/shell when GitHub ships $/ syntax (#136)
-        uses: TomHennen/wrangle/build/actions/shell@367a4a446a24307a11844b710c40770cd4f4f6a7 # add-release-verify 2026-04-26
+        uses: TomHennen/wrangle/build/actions/shell@f0a0b4acbd065ba47dfae170341ce4340bc18b72 # main 2026-05-20
         with:
           scan-path: ${{ inputs.scan-path }}
           bats-path: ${{ inputs.bats-path }}

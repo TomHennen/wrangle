@@ -17,6 +17,38 @@ inputs:
   github_token:
     description: "GitHub token with packages:write access"
     required: true
+  cache:
+    description: |
+      BuildKit GitHub Actions cache policy. One of (validated against this
+      allowlist by validate_inputs.sh — any other value fails the build):
+
+        isolated  (default) cache-from + cache-to namespaced by a per-PR
+                  scope (the GitHub-assigned PR number), so one PR cannot
+                  write entries another PR reads. Rebuilds within a PR
+                  still hit cache.
+        enabled   cache-from + cache-to against the shared, cross-branch
+                  type=gha scope.
+        disabled  no BuildKit cache at all.
+        read-only cache-from only — the build consumes the shared cache
+                  but never writes it, so it cannot poison later builds.
+
+      resolve_cache.sh maps the value to the docker/build-push-action
+      cache-from / cache-to flags.
+
+      The reusable workflow (build_and_publish_container.yml) forces
+      "disabled" for release builds: a release build MUST NOT consume the
+      shared cache, because BuildKit's type=gha cache is not re-verified on
+      cache hits and is shared cross-build via GitHub's branch-scoped cache
+      service, so a poisoned entry could alter the bytes the SLSA generator
+      signs over. Skipping the cache for release builds keeps the container
+      path at SLSA v1.2 Build L3 — see docs/SLSA_L3_AUDIT.md Finding 2. For
+      PR builds the reusable workflow passes its adopter-facing `pr-cache`
+      input straight through, defaulting to "isolated".
+
+      Direct callers of this composite (not a supported L3 path) get the
+      same isolated default; they are not claiming L3 provenance.
+    required: false
+    default: "isolated"
 
 outputs:
   digest:
@@ -45,9 +77,10 @@ runs:
         INPUT_IMAGENAME: ${{ inputs.imagename }}
         INPUT_PATH: ${{ inputs.path }}
         INPUT_REGISTRY: ${{ inputs.registry }}
+        INPUT_CACHE: ${{ inputs.cache }}
       run: |
         set -euo pipefail
-        "${{ github.action_path }}/validate_inputs.sh" "$INPUT_PATH" "$INPUT_REGISTRY" "$INPUT_IMAGENAME"
+        "${{ github.action_path }}/validate_inputs.sh" "$INPUT_PATH" "$INPUT_REGISTRY" "$INPUT_IMAGENAME" "$INPUT_CACHE"
 
     - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
       with:
@@ -75,6 +108,50 @@ runs:
         username: ${{ github.actor }}
         password: ${{ inputs.github_token }}
 
+    # Resolve the BuildKit cache-from / cache-to flags from the `cache`
+    # policy. Done in a script (not a nested GHA expression) so the
+    # per-PR scope can be sanitized before reaching the comma-delimited
+    # cache config string. See resolve_cache.sh and docs/SLSA_L3_AUDIT.md
+    # "Should wrangle care about PR-to-PR cache poisoning?".
+    - name: Resolve BuildKit cache flags
+      id: cacheflags
+      shell: bash
+      env:
+        INPUT_CACHE: ${{ inputs.cache }}
+        # Per-PR scope source — only consulted by the `isolated` policy.
+        # On a pull_request event we key on `github.event.pull_request.number`
+        # (GitHub-assigned, monotonically unique per PR, unforgeable by the
+        # PR author), so two PRs that happen to share a source branch name
+        # (e.g. both `patch-1` from different forks) get distinct scopes.
+        # On non-PR events the PR number is empty and we fall back to
+        # `ref_name` (a branch or tag name). Sanitized by resolve_cache.sh
+        # before it reaches the BuildKit config.
+        CACHE_SCOPE: ${{ github.event.pull_request.number && format('pr-{0}', github.event.pull_request.number) || github.ref_name }}
+      run: |
+        set -euo pipefail
+        "${{ github.action_path }}/resolve_cache.sh" "$INPUT_CACHE" "$CACHE_SCOPE"
+
+    # Suspend GitHub Actions workflow-command processing for the docker
+    # build below. docker/build-push-action streams BuildKit's build
+    # output (every `RUN` layer's stdout) to the step log; a malicious
+    # Dockerfile could otherwise print a `::add-mask::` / `::add-path::` /
+    # `::set-output::` line and hijack the build job. `begin` emits
+    # `::stop-commands::<token>` with a per-run random token the docker
+    # build cannot read (it is never exported into the build environment),
+    # so the build cannot re-enable commands itself. The re-enable step
+    # below closes the guard. See docs/SLSA_L3_AUDIT.md Finding 3.
+    #
+    # The guard spans two steps (not one `run:` wrapper) because the
+    # docker build is a `uses:` step. This is sound: the runner's
+    # stop-commands state is job-scoped, so `::stop-commands::` emitted
+    # here stays in effect through the build step until the re-enable.
+    - name: Suspend workflow commands for the docker build
+      id: stopcmd
+      shell: bash
+      run: |
+        set -euo pipefail
+        "${{ github.action_path }}/../../../lib/stop_commands_guard.sh" begin
+
     # TODO(#123): Investigate whether docker/build-push-action can accept
     # context via env, or whether zizmor will support marking validated step
     # outputs as safe, to eliminate the need for this suppression.
@@ -86,10 +163,34 @@ runs:
         push: true
         tags: ${{ steps.meta.outputs.tags }}
         labels: ${{ steps.meta.outputs.labels }}
-        cache-from: type=gha
-        cache-to: type=gha,mode=max
+        # BuildKit GHA cache flags, resolved from the `cache` policy by the
+        # cacheflags step (resolve_cache.sh). A release build receives the
+        # 'disabled' policy from the reusable workflow, so both flags are
+        # empty strings — docker/build-push-action treats empty as "no
+        # cache", and the release build consumes no shared cross-build
+        # state that could influence the bytes the SLSA generator signs
+        # over (SLSA v1.2 Build L3 isolation — docs/SLSA_L3_AUDIT.md
+        # Finding 2). The per-PR scope inside these strings is sanitized by
+        # resolve_cache.sh.
+        cache-from: ${{ steps.cacheflags.outputs.cache-from }}
+        cache-to: ${{ steps.cacheflags.outputs.cache-to }}
         sbom: true
         provenance: mode=max
+
+    # Re-enable workflow-command processing suspended by the `stopcmd`
+    # step. `if: always()` is mandatory: stop-commands is job-scoped in
+    # the runner, so a failed docker build that left commands suspended
+    # would silently disable `::add-mask::` secret redaction for every
+    # later step in the job. `end` is a no-op when the token is empty
+    # (the `stopcmd` step was skipped by an earlier-step failure).
+    - name: Re-enable workflow commands after the docker build
+      if: always()
+      shell: bash
+      env:
+        STOP_COMMANDS_TOKEN: ${{ steps.stopcmd.outputs.stop-commands-token }}
+      run: |
+        set -euo pipefail
+        "${{ github.action_path }}/../../../lib/stop_commands_guard.sh" end "$STOP_COMMANDS_TOKEN"
 
     # Create the metadata directory and emit its path BEFORE SBOM extraction.
     # If a later step fails (build, push, SBOM extract), the `if: always()`

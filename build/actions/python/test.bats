@@ -96,9 +96,62 @@ setup() {
     [[ "$status" -eq 1 ]]
 }
 
-@test "python: validate_inputs.sh disables globbing via lib/validate_path.sh" {
-    # External input flows through validate_path.sh; CLAUDE.md requires set -f there.
+@test "python: validate_inputs.sh and validate_path.sh disable globbing with set -f" {
+    # Both process external input (validate_inputs.sh now also takes the
+    # cache arg); CLAUDE.md requires set -f in scripts that do.
+    run grep '^set -f' "$ACTION_DIR/validate_inputs.sh"
+    [[ "$status" -eq 0 ]]
     run grep '^set -f' "$REPO_ROOT/lib/validate_path.sh"
+    [[ "$status" -eq 0 ]]
+}
+
+# --- Cache gating (SLSA L3 isolation, #224 / SLSA_L3_AUDIT.md Finding 1) ---
+
+@test "python: validate_inputs.sh accepts cache=enabled and cache=disabled" {
+    # validate_path.sh rejects absolute paths, so use a relative project
+    # dir: cd into a temp dir and pass the relative subdir name.
+    local tmp
+    tmp="$(mktemp -d)"
+    mkdir -p "$tmp/proj"
+    printf '[project]\nname = "x"\nversion = "0"\n' > "$tmp/proj/pyproject.toml"
+    cd "$tmp"
+    run "$ACTION_DIR/validate_inputs.sh" "proj" "enabled"
+    [[ "$status" -eq 0 ]]
+    run "$ACTION_DIR/validate_inputs.sh" "proj" "disabled"
+    [[ "$status" -eq 0 ]]
+    rm -rf "$tmp"
+}
+
+@test "python: validate_inputs.sh rejects an invalid cache value" {
+    # A typo must fail loudly — silently leaving the uv cache on would
+    # downgrade a release build from Build L3 to Build L2.
+    run "$ACTION_DIR/validate_inputs.sh" "." "enabledd"
+    [[ "$status" -ne 0 ]]
+    [[ "$output" == *"invalid cache value"* ]]
+}
+
+@test "python: validate_inputs.sh rejects a missing cache argument" {
+    run "$ACTION_DIR/validate_inputs.sh" "."
+    [[ "$status" -ne 0 ]]
+    [[ "$output" == *"Usage:"* ]]
+}
+
+@test "python: action.yml exposes a cache input" {
+    run grep -E '^  cache:' "$ACTION"
+    [[ "$status" -eq 0 ]]
+}
+
+@test "python: action.yml passes cache to validate_inputs.sh" {
+    run grep -E 'validate_inputs.sh.*INPUT_CACHE' "$ACTION"
+    [[ "$status" -eq 0 ]]
+}
+
+@test "python: action.yml gates setup-uv enable-cache on the cache input" {
+    # Pin the full expression — operator and operand. A loose
+    # 'mentions inputs.cache' regex would still pass if the condition
+    # were inverted (== instead of !=), which turns the uv cache ON for
+    # release builds: the exact Build L3 downgrade this gating prevents.
+    run grep -F "enable-cache: \${{ inputs.cache != 'disabled' }}" "$ACTION"
     [[ "$status" -eq 0 ]]
 }
 
@@ -141,6 +194,18 @@ setup() {
     run grep -E '^  gate:' "$WORKFLOW"
     [[ "$status" -eq 0 ]]
     run grep -E 'TomHennen/wrangle/actions/release_gate' "$WORKFLOW"
+    [[ "$status" -eq 0 ]]
+}
+
+@test "python: build job needs gate so it can read should-release" {
+    run bash -c "sed -n '/^  build:/,/^  [a-z]/p' \"$WORKFLOW\" | grep -E 'needs:.*gate'"
+    [[ "$status" -eq 0 ]]
+}
+
+@test "python: reusable workflow disables the uv cache for release builds" {
+    # The composite's cache input must be driven by should-release:
+    # 'disabled' on release, 'enabled' otherwise (SLSA_L3_AUDIT Finding 1).
+    run bash -c "grep -E \"cache:.*should-release.*'disabled'.*'enabled'\" \"$WORKFLOW\""
     [[ "$status" -eq 0 ]]
 }
 
@@ -281,5 +346,29 @@ setup() {
     # Same bug surface as the example workflow; if a user copies from the
     # README they should also see the correct permission set.
     run grep -E 'contents: write' "$REPO_ROOT/build/actions/python/README.md"
+    [[ "$status" -eq 0 ]]
+}
+
+# --- Workflow-command-injection guard (#225 / SLSA_L3_AUDIT.md Finding 3) ---
+
+@test "python: stop-commands guard helper exists and is executable" {
+    [[ -x "$REPO_ROOT/lib/stop_commands_guard.sh" ]]
+}
+
+@test "python: install_deps.sh runs under the stop-commands guard" {
+    # install_deps.sh runs ecosystem build tooling (uv sync / pip install)
+    # that executes build backends and dependency hooks. The
+    # ::stop-commands:: guard neutralizes workflow-command injection via
+    # their stdout. See docs/SLSA_L3_AUDIT.md Finding 3.
+    run grep -E 'lib/stop_commands_guard\.sh" run' "$ACTION"
+    [[ "$status" -eq 0 ]]
+    run bash -c "grep -A1 'stop_commands_guard.sh\" run' \"$ACTION\" | grep -F install_deps.sh"
+    [[ "$status" -eq 0 ]]
+}
+
+@test "python: run_tests.sh runs under the stop-commands guard" {
+    # pytest executes arbitrary project test code; the guard neutralizes
+    # workflow-command injection via its stdout.
+    run bash -c "grep -A1 'stop_commands_guard.sh\" run' \"$ACTION\" | grep -F run_tests.sh"
     [[ "$status" -eq 0 ]]
 }

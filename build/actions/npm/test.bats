@@ -1,0 +1,497 @@
+#!/usr/bin/env bats
+
+# Structural tests for the npm build action and reusable workflow.
+#
+# Many tests below are simple greps. They verify that the action's wiring
+# and supply-chain rules (no curl|sh, no /usr/local/bin, SHA-pinned actions,
+# SBOM upload) are still in place. They do not invoke the action end-to-end —
+# that's covered by the integration test in the wrangle-test companion repo.
+
+setup() {
+    ACTION_DIR="$(cd "$(dirname "$BATS_TEST_FILENAME")" && pwd)"
+    REPO_ROOT="$(cd "$ACTION_DIR/../../.." && pwd)"
+    ACTION="$ACTION_DIR/action.yml"
+    WORKFLOW="$REPO_ROOT/.github/workflows/build_and_publish_npm.yml"
+    EXAMPLE="$REPO_ROOT/gh_workflow_examples/build_npm.yml"
+}
+
+# --- Composite action structural tests ---
+
+@test "npm: action.yml exists" {
+    [[ -f "$ACTION" ]]
+}
+
+@test "npm: validate_inputs.sh exists and is executable" {
+    [[ -x "$ACTION_DIR/validate_inputs.sh" ]]
+}
+
+@test "npm: build_and_pack.sh exists and is executable" {
+    [[ -x "$ACTION_DIR/build_and_pack.sh" ]]
+}
+
+@test "npm: detect_tooling.sh exists and is executable" {
+    [[ -x "$ACTION_DIR/detect_tooling.sh" ]]
+}
+
+@test "npm: action.yml delegates input validation to validate_inputs.sh" {
+    run grep 'validate_inputs.sh' "$ACTION"
+    [[ "$status" -eq 0 ]]
+}
+
+@test "npm: action.yml delegates tooling detection to detect_tooling.sh" {
+    run grep 'detect_tooling.sh' "$ACTION"
+    [[ "$status" -eq 0 ]]
+}
+
+@test "npm: action.yml delegates build/pack to build_and_pack.sh" {
+    run grep 'build_and_pack.sh' "$ACTION"
+    [[ "$status" -eq 0 ]]
+}
+
+@test "npm: validate_inputs.sh checks for package.json" {
+    run grep 'package.json' "$ACTION_DIR/validate_inputs.sh"
+    [[ "$status" -eq 0 ]]
+}
+
+@test "npm: validate_inputs.sh requires a lockfile" {
+    run grep 'package-lock.json' "$ACTION_DIR/validate_inputs.sh"
+    [[ "$status" -eq 0 ]]
+}
+
+@test "npm: validate_inputs.sh accepts pnpm-lock.yaml (v0.2 addition)" {
+    # v0.2 supports pnpm-lock.yaml. The lockfile must be in the accept
+    # path, NOT the reject path.
+    run grep -E 'pnpm-lock.yaml' "$ACTION_DIR/validate_inputs.sh"
+    [[ "$status" -eq 0 ]]
+    # Must NOT have a "pnpm is not supported" error string anymore.
+    run grep -E 'pnpm is not supported' "$ACTION_DIR/validate_inputs.sh"
+    [[ "$status" -ne 0 ]]
+}
+
+@test "npm: validate_inputs.sh rejects yarn.lock" {
+    # Yarn is still a follow-on; reject explicitly.
+    run grep -E 'yarn.lock' "$ACTION_DIR/validate_inputs.sh"
+    [[ "$status" -eq 0 ]]
+    run grep -E 'Yarn is not supported' "$ACTION_DIR/validate_inputs.sh"
+    [[ "$status" -eq 0 ]]
+}
+
+@test "npm: validate_inputs.sh rejects ambiguous lockfile state (npm + pnpm)" {
+    # Both package-lock.json AND pnpm-lock.yaml present is ambiguous —
+    # wrangle can't infer which manager the adopter intends. Reject.
+    run grep -E 'both npm and pnpm lockfiles' "$ACTION_DIR/validate_inputs.sh"
+    [[ "$status" -eq 0 ]]
+}
+
+@test "npm: build_and_pack.sh runs npm ci or pnpm install (lockfile-faithful)" {
+    # Lockfile-faithful install paths for both managers.
+    run grep -E 'npm ci' "$ACTION_DIR/build_and_pack.sh"
+    [[ "$status" -eq 0 ]]
+    run grep -E 'pnpm install --frozen-lockfile' "$ACTION_DIR/build_and_pack.sh"
+    [[ "$status" -eq 0 ]]
+}
+
+@test "npm: build_and_pack.sh detects package manager from lockfile" {
+    # Branch on pnpm-lock.yaml presence — npm fallback otherwise.
+    run grep -E '\-f "pnpm-lock.yaml"' "$ACTION_DIR/build_and_pack.sh"
+    [[ "$status" -eq 0 ]]
+}
+
+@test "npm: build_and_pack.sh runs pack via the detected package manager" {
+    # Pack is invoked via "$PM" pack to use whichever manager was detected.
+    run grep -E '"\$PM" pack' "$ACTION_DIR/build_and_pack.sh"
+    [[ "$status" -eq 0 ]]
+}
+
+@test "npm: build_and_pack.sh detects scripts.build via jq, not by catching missing-script errors" {
+    run grep -E 'jq.*scripts.*build' "$ACTION_DIR/build_and_pack.sh"
+    [[ "$status" -eq 0 ]]
+}
+
+@test "npm: build_and_pack.sh skips npm's default no-op test script" {
+    run grep -F 'no test specified' "$ACTION_DIR/build_and_pack.sh"
+    [[ "$status" -eq 0 ]]
+}
+
+@test "npm: build_and_pack.sh writes tarball to dist/" {
+    run grep -E 'pack-destination dist|mkdir -p dist' "$ACTION_DIR/build_and_pack.sh"
+    [[ "$status" -eq 0 ]]
+}
+
+@test "npm: action.yml uses actions/setup-node" {
+    run grep 'actions/setup-node@' "$ACTION"
+    [[ "$status" -eq 0 ]]
+}
+
+@test "npm: detect_tooling.sh sets a fallback Node version when no version source is present" {
+    # Without this, setup-node fails with a confusing "no version found"
+    # error for projects that pin neither .nvmrc nor engines.node.
+    run grep -E 'WRANGLE_DEFAULT_NODE' "$ACTION_DIR/detect_tooling.sh"
+    [[ "$status" -eq 0 ]]
+}
+
+@test "npm: setup-node caching is conditional on package manager" {
+    # Cache is driven dynamically by the tooling step's `cache` output.
+    # The npm path emits `cache=npm`; the pnpm path emits `cache=` (empty)
+    # so setup-node skips caching entirely. This is the load-bearing
+    # protection against pnpm-store cache poisoning (issue #205).
+    run grep -E "cache: \\\$\\{\\{ steps\\.tooling\\.outputs\\.cache \\}\\}" "$ACTION"
+    [[ "$status" -eq 0 ]]
+    # The action must NOT hard-code `cache: 'npm'` (or any literal cache
+    # value) — that would re-enable caching for the pnpm path.
+    run grep -E "^[[:space:]]*cache:[[:space:]]*['\"]?(npm|pnpm|yarn)['\"]?\$" "$ACTION"
+    [[ "$status" -ne 0 ]]
+}
+
+@test "npm: action.yml does NOT enable pnpm-store cache anywhere" {
+    # pnpm-store cache is the Mini Shai-Hulud / TanStack May 2026 cache-
+    # poisoning vector. Wrangle must never enable it. See issue #205.
+    # Pattern is anchored to the start of the line so prose in comments
+    # that references the avoided `cache: 'pnpm'` pattern doesn't trip
+    # the test that enforces it.
+    run grep -E "^[[:space:]]*cache:[[:space:]]*['\"]?pnpm['\"]?[[:space:]]*\$" "$ACTION"
+    [[ "$status" -ne 0 ]]
+}
+
+@test "npm: action.yml emits package-manager output for downstream visibility" {
+    run grep -E 'package-manager:' "$ACTION"
+    [[ "$status" -eq 0 ]]
+}
+
+@test "npm: action.yml conditionally enables Corepack for pnpm" {
+    # Corepack provides pnpm on the runner. The step must be gated on
+    # the detected package manager being pnpm so it doesn't run on
+    # npm-only adopters.
+    run grep -E "if: steps.tooling.outputs.package-manager == 'pnpm'" "$ACTION"
+    [[ "$status" -eq 0 ]]
+    run grep -E 'corepack enable' "$ACTION"
+    [[ "$status" -eq 0 ]]
+}
+
+@test "npm: build_and_pack.sh asserts exactly one tarball in dist/ (not tail-n1)" {
+    # Channel-free output: derives the tarball name from a glob over
+    # dist/*.tgz and asserts the count is exactly 1 — catches surprise
+    # multi-build scenarios (e.g., a future workspace change) explicitly,
+    # instead of non-deterministically picking via `tail -n1`.
+    #
+    # Discovery lives in build_and_pack.sh (not in the action.yml run:
+    # block) so that the count-check error printf — which echoes
+    # filenames — runs INSIDE stop_commands_guard.sh. An unguarded
+    # post-script discovery would let a hostile postinstall plant
+    # `dist/::add-mask::evil.tgz` and inject a workflow command via the
+    # error path's stderr.
+    run grep -E 'expected exactly 1 tarball' "$ACTION_DIR/build_and_pack.sh"
+    [[ "$status" -eq 0 ]]
+    # And verify we are not relying on tail -n1 for the tarball capture.
+    run grep -E 'tarball=.*tail' "$ACTION_DIR/build_and_pack.sh"
+    [[ "$status" -ne 0 ]]
+    # The action.yml MUST NOT do its own post-script discovery — that
+    # would put the filename-echoing error printf outside the guard.
+    run grep -E 'expected exactly 1 tarball' "$ACTION"
+    [[ "$status" -ne 0 ]]
+}
+
+@test "npm: build_and_pack.sh writes tarball=<name> to GITHUB_OUTPUT" {
+    # The tarball-name output is consumed by the workflow's metadata-
+    # artifact-name output and by the step summary. Discovery moved into
+    # the script (see test above) means the GITHUB_OUTPUT write moves
+    # too — both happen inside the guard.
+    run grep -E 'tarball=.*GITHUB_OUTPUT' "$ACTION_DIR/build_and_pack.sh"
+    [[ "$status" -eq 0 ]]
+    # The action.yml's run: block must NOT also write tarball=...
+    run bash -c "sed -n '/name: Build and pack/,/name: /p' \"$ACTION\" | grep -E 'tarball=.*GITHUB_OUTPUT'"
+    [[ "$status" -ne 0 ]]
+}
+
+@test "npm: action.yml computes artifact hashes for SLSA" {
+    run grep -E 'sha256sum|base64' "$ACTION"
+    [[ "$status" -eq 0 ]]
+}
+
+@test "npm: action.yml generates SBOM via syft (SPDX)" {
+    # Switched from `npm sbom --sbom-format=spdx` to syft because npm
+    # sbom's SPDX/CycloneDX conformance was publicly criticized; syft is
+    # OWASP-known-conformant and already in wrangle's tool inventory.
+    run grep -E 'syft.*-o spdx-json' "$ACTION"
+    [[ "$status" -eq 0 ]]
+    # Should NOT regress to npm sbom — that path was abandoned.
+    run grep -E 'npm sbom' "$ACTION"
+    [[ "$status" -ne 0 ]]
+}
+
+@test "npm: action installs cosign before syft (signature verification)" {
+    # syft install via tools/syft/install.sh uses Cosign keyless verify;
+    # cosign-installer must run before the syft install step so the
+    # cosign binary is on PATH when syft's install script runs.
+    run bash -c "awk '/sigstore\\/cosign-installer/{c=NR} /tools\\/syft\\/install.sh/{s=NR} END{exit !(c && s && c<s)}' \"$ACTION\""
+    [[ "$status" -eq 0 ]]
+}
+
+@test "npm: action installs syft via tools/syft (not curl | sh)" {
+    run grep -E 'curl[^|]*\| *sh|/usr/local/bin' "$ACTION"
+    [[ "$status" -ne 0 ]]
+    run grep 'tools/syft/install.sh' "$ACTION"
+    [[ "$status" -eq 0 ]]
+}
+
+@test "npm: action.yml exposes ignore-scripts input (default false)" {
+    run grep -E '^  ignore-scripts:' "$ACTION"
+    [[ "$status" -eq 0 ]]
+    # Default must be false — ecosystem norm is hooks-on, and turning
+    # them off would break husky/prebuild-install for typical adopters.
+    run bash -c "sed -n '/^  ignore-scripts:/,/^  [a-z]/p' \"$ACTION\" | grep -E 'default:.*\"false\"'"
+    [[ "$status" -eq 0 ]]
+}
+
+@test "npm: build_and_pack.sh threads ignore-scripts through to install AND pack" {
+    run grep -E 'ignore_scripts_args' "$ACTION_DIR/build_and_pack.sh"
+    [[ "$status" -eq 0 ]]
+    # Must appear on both install lines and the pack line.
+    run bash -c "grep -E 'npm ci|pnpm install' \"$ACTION_DIR/build_and_pack.sh\" | grep ignore_scripts_args"
+    [[ "$status" -eq 0 ]]
+    run bash -c "grep -E '\\\$PM\" pack|npm pack|pnpm pack' \"$ACTION_DIR/build_and_pack.sh\" | grep ignore_scripts_args"
+    [[ "$status" -eq 0 ]]
+}
+
+@test "npm: build_and_pack.sh skips run-build and test when ignore-scripts is true" {
+    # ignore-scripts: true must mean "no package.json script runs" — not
+    # just suppressing transitive hooks.
+    run grep -E 'Skipping %s run build and %s test' "$ACTION_DIR/build_and_pack.sh"
+    [[ "$status" -eq 0 ]]
+}
+
+@test "npm: build_and_pack.sh uses null-safe jq for scripts.build/test detection" {
+    # `(.scripts // {}) | has(...)` survives `"scripts": null` (or missing).
+    run grep -E '\(\.scripts // \{\}\) \| has\("build"\)' "$ACTION_DIR/build_and_pack.sh"
+    [[ "$status" -eq 0 ]]
+    run grep -E '\(\.scripts // \{\}\) \| has\("test"\)' "$ACTION_DIR/build_and_pack.sh"
+    [[ "$status" -eq 0 ]]
+}
+
+@test "npm: validate_inputs.sh rejects package.json with workspaces field" {
+    # Workspaces support tracked in #208. v0.2 still single-package only.
+    run grep -E 'workspaces' "$ACTION_DIR/validate_inputs.sh"
+    [[ "$status" -eq 0 ]]
+    run grep -E 'issues/208' "$ACTION_DIR/validate_inputs.sh"
+    [[ "$status" -eq 0 ]]
+}
+
+@test "npm: reusable workflow exposes ignore-scripts input that flows to composite" {
+    # Workflow declares the input.
+    run grep -E '^      ignore-scripts:' "$WORKFLOW"
+    [[ "$status" -eq 0 ]]
+    # And forwards `inputs.ignore-scripts` through to the composite.
+    run grep -E 'ignore-scripts:[[:space:]]*\$\{\{[[:space:]]*inputs\.ignore-scripts' "$WORKFLOW"
+    [[ "$status" -eq 0 ]]
+}
+
+@test "npm: passes inputs through env not interpolation" {
+    # Walks both single-line `run: <cmd>` declarations and block-form
+    # `run: |` / `run: >` bodies, and fails if ${{ inputs.* }} appears
+    # inside either. github.action_path is allowed (it's not user input).
+    run awk '
+        BEGIN { in_run = 0; run_col = -1; bad = 0 }
+        /^[[:space:]]*run:[[:space:]]+[^|>]/ && /\$\{\{[[:space:]]*inputs\./ {
+            printf "FAIL inline run, line %d: %s\n", NR, $0
+            bad = 1
+        }
+        /^[[:space:]]*run:[[:space:]]*([|>]|$)/ {
+            match($0, /^ */); run_col = RLENGTH
+            in_run = 1; next
+        }
+        in_run {
+            if ($0 !~ /[^[:space:]]/) next
+            match($0, /^ */); col = RLENGTH
+            if (col <= run_col) { in_run = 0 }
+            else if (/\$\{\{[[:space:]]*inputs\./) {
+                printf "FAIL run-block body, line %d: %s\n", NR, $0
+                bad = 1
+            }
+        }
+        END { exit bad }
+    ' "$ACTION"
+    [[ "$status" -eq 0 ]]
+}
+
+@test "npm: validate_inputs.sh disables globbing via lib/validate_path.sh" {
+    # External input flows through validate_path.sh; CLAUDE.md requires set -f there.
+    run grep '^set -f' "$REPO_ROOT/lib/validate_path.sh"
+    [[ "$status" -eq 0 ]]
+}
+
+@test "npm: hashes step strips ./ prefix for slsa-verifier" {
+    # sha256sum ./* yields ./<file>; sha256sum -- * (after cd) yields <file>.
+    run grep -E 'cd .*dist.* && sha256sum' "$ACTION"
+    [[ "$status" -eq 0 ]]
+}
+
+# --- Reusable workflow structural tests ---
+
+@test "npm: workflow exists" {
+    [[ -f "$WORKFLOW" ]]
+}
+
+@test "npm: workflow has build job with minimal permissions" {
+    run grep -A2 'build:' "$WORKFLOW"
+    [[ "$status" -eq 0 ]]
+    # Build job should only have contents: read
+    run bash -c "sed -n '/^  build:/,/^  [a-z]/p' \"$WORKFLOW\" | grep 'id-token'"
+    [[ "$status" -eq 1 ]]
+}
+
+@test "npm: workflow has no publish job (Trusted Publishing OIDC constraint)" {
+    # Publish must be in the adopter's workflow because npm's Trusted
+    # Publishing validates the OIDC token's workflow_ref against the
+    # caller's filename, not the reusable workflow's path.
+    run grep '^  publish:' "$WORKFLOW"
+    [[ "$status" -eq 1 ]]
+}
+
+@test "npm: workflow has provenance job calling slsa-github-generator" {
+    run grep '^  provenance:' "$WORKFLOW"
+    [[ "$status" -eq 0 ]]
+    run grep 'slsa-github-generator' "$WORKFLOW"
+    [[ "$status" -eq 0 ]]
+}
+
+@test "npm: provenance job is gated on release-gate output" {
+    run bash -c "sed -n '/^  provenance:/,/^[a-z]/p' \"$WORKFLOW\" | grep -E \"if:.*should-release\""
+    [[ "$status" -eq 0 ]]
+}
+
+@test "npm: workflow has gate job calling release_gate" {
+    run grep -E '^  gate:' "$WORKFLOW"
+    [[ "$status" -eq 0 ]]
+    run grep -E 'TomHennen/wrangle/actions/release_gate' "$WORKFLOW"
+    [[ "$status" -eq 0 ]]
+}
+
+@test "npm: workflow exposes release-events input" {
+    run grep -E '^      release-events:' "$WORKFLOW"
+    [[ "$status" -eq 0 ]]
+}
+
+@test "npm: workflow exposes should-release output" {
+    run grep -E '^      should-release:' "$WORKFLOW"
+    [[ "$status" -eq 0 ]]
+}
+
+@test "npm: workflow exports hashes, provenance-artifact-name, metadata-artifact-name outputs" {
+    run grep 'hashes:' "$WORKFLOW"
+    [[ "$status" -eq 0 ]]
+    run grep 'provenance-artifact-name:' "$WORKFLOW"
+    [[ "$status" -eq 0 ]]
+    run grep 'metadata-artifact-name:' "$WORKFLOW"
+    [[ "$status" -eq 0 ]]
+}
+
+@test "npm: workflow documents Trusted Publishing reusable workflow limitation" {
+    run grep -E 'docs.npmjs.com/trusted-publishers|Trusted Publishing.*workflow_ref' "$WORKFLOW"
+    [[ "$status" -eq 0 ]]
+}
+
+@test "npm: workflow pins actions to SHAs except SLSA generator" {
+    run bash -c "grep 'uses:.*@' \"$WORKFLOW\" | grep -v 'slsa-github-generator' | grep -v -P '@[0-9a-f]{40}'"
+    [[ "$status" -eq 1 ]]
+}
+
+@test "npm: workflow uploads SBOM/metadata, not just dist" {
+    run grep -E 'metadata-dir|npm-metadata' "$WORKFLOW"
+    [[ "$status" -eq 0 ]]
+}
+
+@test "npm: workflow namespaces artifacts by shortname" {
+    run grep 'npm-dist-' "$WORKFLOW"
+    [[ "$status" -eq 0 ]]
+}
+
+@test "npm: reusable workflow has verify job calling slsa-verifier" {
+    run grep -E '^  verify:' "$WORKFLOW"
+    [[ "$status" -eq 0 ]]
+    run grep 'slsa-verifier/actions/installer' "$WORKFLOW"
+    [[ "$status" -eq 0 ]]
+    run grep 'slsa-verifier verify-artifact' "$WORKFLOW"
+    [[ "$status" -eq 0 ]]
+}
+
+@test "npm: verify job is gated on should-release AND verify-provenance" {
+    run bash -c "sed -n '/^  verify:/,/^[a-z]/p' \"$WORKFLOW\" | grep -E \"if:.*should-release.*verify-provenance\""
+    [[ "$status" -eq 0 ]]
+}
+
+@test "npm: workflow exposes verify-provenance input (default true)" {
+    run grep -E '^      verify-provenance:' "$WORKFLOW"
+    [[ "$status" -eq 0 ]]
+    run bash -c "sed -n '/^      verify-provenance:/,/^      [a-z]/p' \"$WORKFLOW\" | grep -E 'default:[[:space:]]*true'"
+    [[ "$status" -eq 0 ]]
+}
+
+@test "npm: provenance job passes namespaced provenance-name to SLSA generator" {
+    run bash -c "sed -n '/^  provenance:/,/^[a-z]/p' \"$WORKFLOW\" | grep -E 'provenance-name:.*shortname'"
+    [[ "$status" -eq 0 ]]
+}
+
+@test "npm: build job exposes shortname output" {
+    run bash -c "sed -n '/^  build:/,/^  [a-z]/p' \"$WORKFLOW\" | grep -E '^[[:space:]]*shortname:'"
+    [[ "$status" -eq 0 ]]
+}
+
+@test "npm: verify job depends on provenance and downloads its artifact" {
+    run bash -c "sed -n '/^  verify:/,/^[a-z]/p' \"$WORKFLOW\" | grep -E 'needs:.*provenance'"
+    [[ "$status" -eq 0 ]]
+    run bash -c "sed -n '/^  verify:/,/^[a-z]/p' \"$WORKFLOW\" | grep 'needs.provenance.outputs.provenance-name'"
+    [[ "$status" -eq 0 ]]
+}
+
+# --- Example workflow tests ---
+
+@test "npm: example workflow does NOT install slsa-verifier (verification owned by reusable workflow)" {
+    run grep 'slsa-verifier/actions/installer' "$EXAMPLE"
+    [[ "$status" -ne 0 ]]
+    run grep 'slsa-verifier verify-artifact' "$EXAMPLE"
+    [[ "$status" -ne 0 ]]
+}
+
+@test "npm: example workflow does NOT call SLSA generator (moved to reusable)" {
+    run grep 'slsa-github-generator' "$EXAMPLE"
+    [[ "$status" -ne 0 ]]
+}
+
+@test "npm: example workflow grants contents: write to build job" {
+    # The SLSA generator's upload-assets job declares contents: write; GitHub
+    # validates that the caller of wrangle's reusable workflow grants the same
+    # at workflow startup.
+    run grep -E 'contents: write' "$EXAMPLE"
+    [[ "$status" -eq 0 ]]
+}
+
+@test "npm: example workflow publishes with --provenance for the L2 in-CLI attestation" {
+    run grep -E 'npm publish.*--provenance' "$EXAMPLE"
+    [[ "$status" -eq 0 ]]
+}
+
+@test "npm: example workflow's publish job grants id-token: write for Trusted Publishing" {
+    # Trusted Publishing requires id-token: write on the caller's publish job
+    # so the npm CLI can exchange the OIDC token for a publish credential.
+    run bash -c "sed -n '/^  publish:/,/^[a-z]/p' \"$EXAMPLE\" | grep 'id-token: write'"
+    [[ "$status" -eq 0 ]]
+}
+
+# --- Workflow-command-injection guard (#225 / SLSA_L3_AUDIT.md Finding 3) ---
+
+@test "npm: stop-commands guard helper exists and is executable" {
+    [[ -x "$REPO_ROOT/lib/stop_commands_guard.sh" ]]
+}
+
+@test "npm: build_and_pack.sh runs under the stop-commands guard" {
+    # build_and_pack.sh runs ecosystem build tooling and arbitrary
+    # package.json / transitive-dependency lifecycle scripts. The
+    # ::stop-commands:: guard neutralizes workflow-command injection via
+    # their stdout (a hook printing `::add-mask::` / `::set-output::`).
+    # See docs/SLSA_L3_AUDIT.md Finding 3.
+    run grep -E 'lib/stop_commands_guard\.sh" run' "$ACTION"
+    [[ "$status" -eq 0 ]]
+    # The guarded command (on the line after `... run`) must be build_and_pack.sh.
+    run bash -c "grep -A1 'stop_commands_guard.sh\" run' \"$ACTION\" | grep -F build_and_pack.sh"
+    [[ "$status" -eq 0 ]]
+}

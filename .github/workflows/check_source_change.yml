@@ -7,10 +7,23 @@ on:
         description: "Space-separated list of tools to run (suffix :info for informational)"
         required: false
         type: string
-        default: "osv zizmor scorecard:info"
+        default: "osv zizmor scorecard:info dependency-review"
 
 jobs:
+  # Refuse trigger patterns known to expose this workflow to supply-chain
+  # attack classes (pull_request_target, workflow_run via pull_request_target).
+  # The guard MUST stay first under `jobs:`; every other job lists `guard`
+  # in its `needs:` so a refused invocation skips the entire workflow.
+  # Full trigger contract: docs/SPEC.md#trigger-model.
+  guard:
+    runs-on: ubuntu-latest
+    permissions: {}    # reads env only — no workspace, no API, no secrets
+    steps:
+      # TODO: replace with $/actions/preflight_guard when GitHub ships $/ syntax (#136)
+      - uses: TomHennen/wrangle/actions/preflight_guard@f0a0b4acbd065ba47dfae170341ce4340bc18b72 # main 2026-05-20
+
   check-change:
+    needs: [guard]
     permissions:
       actions: read
       contents: read
@@ -25,6 +38,6 @@ jobs:
       # action-pattern tools (zizmor, scorecard) via uses: internally.
       # TODO: replace with $/actions/scan when GitHub ships $/ syntax (#136)
       - name: Source scan
-        uses: TomHennen/wrangle/actions/scan@367a4a446a24307a11844b710c40770cd4f4f6a7 # add-release-verify 2026-04-26
+        uses: TomHennen/wrangle/actions/scan@f0a0b4acbd065ba47dfae170341ce4340bc18b72 # main 2026-05-20
         with:
           tools: ${{ inputs.tools }}

@@ -109,6 +109,16 @@ The reusable workflow that wraps a build action (e.g., `.github/workflows/build_
 
 If `SPEC.md` describes behavior that hasn't shipped yet, `README.md` MUST NOT present it as available. Keeping the two in sync during implementation is part of landing a feature, not a follow-up.
 
+### Workflow-command-injection guard for build composites
+
+Every build composite MUST wrap its ecosystem invocations (compile, install, test, lint — anything that runs caller-controlled code or echoes caller-controlled content to the step log) in `lib/stop_commands_guard.sh`. GitHub Actions interprets any line on a step's output stream beginning with `::` as a workflow command (`::add-mask::`, `::add-path::`, `::set-output::`); without the guard a malicious dependency lifecycle hook, test, build backend, or `Dockerfile RUN` can hijack the build job just by printing such a line. See `docs/SLSA_L3_AUDIT.md` Finding 3 for the threat model and `lib/stop_commands_guard.sh` for the two supported wrap shapes (`run` for inline `run:` blocks, `begin` / `end` for `uses:` build steps).
+
+This requirement is enforced by `test/test_build_guard_coverage.bats`, which enumerates every `build/actions/*/action.yml` and fails if a composite has no reference to the guard. A new build type cannot be added without either wiring in the guard or adding the composite to the explicit allowlist in that test (which requires a written rationale — today the list is empty).
+
+The guarded window MUST also cover any post-script logic in the composite's `run:` block that echoes content derived from the build's output (a glob of build artifacts, an error message including filenames, etc.). The pattern is to push that logic INTO the guarded script (writing results to `$GITHUB_OUTPUT`, a file-based channel that stop-commands does not affect) rather than running it in the composite's `run:` block after the guard returns. An unguarded post-script `printf '%s\n' "${tarballs[@]}"` over attacker-influenced filenames is a workflow-command injection path that the guard around the build itself does NOT close.
+
+**Adopter-visible side effect.** GitHub workflow commands intentionally emitted by wrapped build tools — e.g., `printf '::warning::version mismatch\n'` from an npm script, an `::error::` line from a pytest test, an `::notice::` from a `Dockerfile RUN` — are suppressed under the guard: they appear in the step log as plain text rather than surfacing as PR-level annotations. The trade is deliberate (an attacker cannot use a malicious dependency to call `::add-mask::` / `::add-path::` / `::set-output::`); adopters who want PR-level annotations from their build should emit them from a wrangle-controlled step (e.g., the source-scan workflow's SARIF upload) rather than from within their build script.
+
 ### Unified metadata layout
 
 Every build type publishes its build outputs to **two complementary places**:
@@ -217,6 +227,19 @@ Each build type's verify job:
 Why default-on. Verification belongs in wrangle as a default-on guarantee, not in adopter examples as a "recommended" step that they might forget. Without wrangle-owned verification, the "tampered between build and publish" attack window has no defender — the SLSA generator's provenance/attestation only covers what it built, not what the registry serves on subsequent reads. Owning verification is what makes wrangle's "build → release" contract end-to-end rather than per-step.
 
 Why opt-out exists. Some adopters run custom verification policies (different `--source-uri` constraints, custom cert identities, ratchet-style multi-tag-tolerance). For those cases the opt-out lets them keep wrangle's build/provenance/attestation while replacing the verify step. The contract becomes: wrangle still pushes/builds/attests, but the integrity-between-build-and-publish guarantee shifts to the adopter.
+
+### Build Track level
+
+Every wrangle build-type reusable workflow that produces provenance — `build_and_publish_npm.yml` (npm and pnpm), `build_and_publish_python.yml` (pip and uv), and `build_and_publish_container.yml` — meets **SLSA v1.2 Build L3**. `build_shell.yml` produces no artifact and no provenance, so no Build Track level applies to it.
+
+Wrangle's user-facing docs claim exactly **one** Build Track level per workflow — Build L2 or Build L3 — and never a finer-grained, requirement-by-requirement breakdown. An adopter should not have to reason about individual SLSA L3 requirements ("Provenance is Unforgeable" versus "Isolated") to know what a workflow delivers; the single Build Track level is the claim. The full per-builder analysis behind the L3 verdicts is [`docs/SLSA_L3_AUDIT.md`](SLSA_L3_AUDIT.md).
+
+Two conditions narrow every Build L3 claim:
+
+- **Reusable consumption only.** The verdict assumes the adopter consumes wrangle through one of wrangle's reusable workflows. Calling a `build/actions/<type>` composite directly from an adopter-authored job forfeits the build-vs-sign job separation and is **not** a supported L3 path.
+- **GitHub-hosted runners only.** Self-hosted runners invalidate the ephemeral-build-environment assumption the L3 verdicts depend on.
+
+**Cache isolation is part of the L3 claim.** SLSA v1.2's "Isolated" requirement states the output of a build MUST be identical whether or not a cache is used. Two of wrangle's cache surfaces — the container path's BuildKit `type=gha` cache and the python-uv sub-path's uv cache — are shared cross-build via GitHub's cache service and are not re-verified on cache hits, so a release build must not consume them. Each of those two workflows gates its build cache on the same `should-release` signal that gates provenance: release builds (`should-release == 'true'`) build cache-free; PR builds keep caching for fast iteration, since they produce no attested artifact. The npm sub-path keeps its cache in both contexts because `npm ci` re-verifies every cached tarball against the lockfile on install; the pnpm sub-path and the python-pip sub-path consume no cross-build cache at all. See [`docs/SLSA_L3_AUDIT.md`](SLSA_L3_AUDIT.md) Findings 1 and 2 and its "Release-vs-PR build asymmetry" section.
 
 ## Architecture
 
@@ -618,6 +641,7 @@ This is the entire file an adopter needs. No secrets, no configuration, no depen
 | [OSV-Scanner](https://github.com/google/osv-scanner) | Adapter | Scans dependencies against the OSV database |
 | [Zizmor](https://github.com/zizmorcore/zizmor) | Action (wraps `zizmorcore/zizmor-action`) | Security-focused linting of GitHub Actions workflows |
 | [OSSF Scorecard](https://scorecard.dev/) | Action (wraps `ossf/scorecard-action`) | Assesses repo security health across 18+ categories |
+| [Dependency Review](https://github.com/actions/dependency-review-action) | Action (wraps `actions/dependency-review-action`) | PR-time gate: blocks PRs that introduce known-vulnerable dependencies. Runs on `pull_request` events only |
 
 ### Two Tool Patterns
 
@@ -684,6 +708,7 @@ Each tool's detailed specification lives in `tools/<name>/SPEC.md` alongside the
 | OSV-Scanner | Adapter | `:fail` | [`tools/osv/SPEC.md`](../tools/osv/SPEC.md) |
 | Zizmor | Action | `:fail` | [`tools/zizmor/SPEC.md`](../tools/zizmor/SPEC.md) |
 | OSSF Scorecard | Action | `:info` | [`tools/scorecard/SPEC.md`](../tools/scorecard/SPEC.md) |
+| Dependency Review | Action | `:fail` | [`tools/dependency-review/SPEC.md`](../tools/dependency-review/SPEC.md) |
 
 ### Metadata Directory
 
@@ -759,6 +784,44 @@ Wrangle runs security tools on behalf of adopting repositories. This makes it a 
 2. **Compromised wrangle itself** — an attacker gains commit access to the wrangle repo
 3. **Malicious adapter inputs** — attacker-controlled data flows into shell commands
 4. **Tool misbehavior** — a tool writes outside its output directory, exfiltrates data, or produces malicious SARIF
+5. **Adopter trigger misconfiguration** — an adopter wires wrangle's reusable workflows under a GitHub Actions trigger that runs attacker-influenced code in the base repo's privileged context. See "Trigger Model" below.
+
+### Trigger Model
+
+Every wrangle reusable workflow runs a `guard` job at the head of `jobs:` (the [`actions/preflight_guard`](../actions/preflight_guard/action.yml) composite action). Refusal fails the workflow; every other job declares `needs: [guard]` so a refused invocation skips the entire run — no OIDC tokens minted, no privileged actions executed, no docker push, no provenance generation.
+
+**Triggers wrangle's reusable workflows are designed for:**
+
+- `push` to `main`, release branches, or tags.
+- `push` to integration test branches (e.g., `integration/**` used by `test/integration/dispatch.sh`).
+- `workflow_dispatch` (manual).
+- `workflow_call` (when one wrangle reusable workflow wraps another internally).
+
+**Triggers `preflight_guard` refuses:**
+
+- `pull_request_target` — runs in the **base** repo's privileged context with the base repo's secrets, while a checkout of `${{ github.event.pull_request.head.sha }}` brings in PR-author code. This is the "pwn request" vector: attacker code executes with secrets it shouldn't have. The TanStack/router Mini Shai-Hulud compromise (May 2026) is the most-cited recent exploitation.
+- `workflow_run` triggered by `pull_request_target` — indirect form of the same vector. The outer event (`github.event.workflow_run.event`) is checked, not just `github.event_name`.
+
+**Triggers `preflight_guard` does NOT (currently) refuse but adopters should still be careful about:**
+
+- `pull_request` from a fork that the workflow then `checkout`s with `ref: ${{ github.event.pull_request.head.sha }}` — this is the same untrusted-checkout pattern but without base-repo privileges, so the blast radius is smaller. `actions/scan`'s `zizmor` runs in wrangle's source-scan path catches this finding for adopters.
+- `workflow_dispatch` chains where an upstream workflow was itself `pull_request_target`-triggered — GitHub flattens the event chain to `workflow_dispatch` and the guard sees only that. Out of scope; the `workflow_run`-via-`pull_request_target` check covers the most common indirect vector.
+
+**Guard vs. gate — two preflight check shapes:**
+
+Wrangle's reusable workflows have two kinds of checks that sit at workflow start. Different mechanisms, different jobs to gate downstream on:
+
+| | `actions/preflight_guard` | `actions/release_gate` |
+|---|---|---|
+| **What it does** | Refuses the workflow run if the trigger is unsafe | Decides whether release-time actions should run this event/ref |
+| **Mechanism** | Fails (`exit 1`) on a refused trigger | Outputs `should-release: true/false` |
+| **Downstream uses it as** | `needs: [guard]` — fail propagation | `if: needs.gate.outputs.should-release == 'true'` — signal branching |
+| **What happens on a "no"** | Whole workflow fails; everything skips | Workflow succeeds; non-release jobs (build, test) still run; release-time jobs (provenance, publish) skip |
+| **Why this shape** | A green ✅ with everything skipped would hide the misconfiguration — fail-loud is the security-relevant property | Legit non-release events (PR builds) should still run build/test, just not provenance/publish |
+
+The `_guard` / `_gate` suffix is the name's contract: `_guard` = abort on fail, `_gate` = signal and let downstream branch.
+
+**Adding refusal categories:** add the check to `actions/preflight_guard/preflight_guard.sh`, add a matching row to the "refuses" list above, and add a structural assertion to `actions/preflight_guard/test.bats`.
 
 ### Integrity Verification
 

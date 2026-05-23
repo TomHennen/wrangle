@@ -43,6 +43,29 @@ EOF
     ! grep -q "@aaaa" .github/workflows/a.yml
 }
 
+@test "bump_action_pins: replaces entire trailing comment when branch name contains 'n'/'r'/'\\\\'" {
+    # Regression test. Earlier drafts used `[^\\r\\n]*` to match the
+    # trailing comment, which BSD sed (macOS) reads as `[^\\rn]*` —
+    # the character class stops at the first literal 'r', 'n', or '\\'.
+    # On a branch like `claude/implement-npm-build-type-draft` the
+    # script would replace `claude/impleme` and leave
+    # `nt-npm-build-type-draft <date>` behind in the line. `.*` is
+    # portable because sed's pattern space is one line at a time,
+    # so `.` is naturally bounded.
+    cat > .github/workflows/a.yml <<EOF
+jobs:
+  build:
+    uses: TomHennen/wrangle/build/actions/python@aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa # claude/implement-npm-build-type-draft 2026-05-11
+EOF
+    run "$SCRIPT" "$NEW_SHA"
+    [[ "$status" -eq 0 ]]
+    grep -q "@${NEW_SHA} # test-branch 2099-12-31" .github/workflows/a.yml
+    # No fragment of the old comment may survive — these substrings
+    # are what leaked through under BSD sed before the fix.
+    ! grep -q "implement-npm-build-type-draft" .github/workflows/a.yml
+    ! grep -q "2026-05-11" .github/workflows/a.yml
+}
+
 @test "bump_action_pins: adds comment when pin lacks one" {
     cat > .github/workflows/a.yml <<EOF
 jobs:
