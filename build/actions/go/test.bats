@@ -421,6 +421,21 @@ write_goreleaser() {
     [[ "$status" -eq 0 ]]
 }
 
+@test "go: verify reads its artifact list from checksums.txt, not by globbing dist/" {
+    # Goreleaser writes goreleaser-internal metadata files alongside the
+    # artifacts (artifacts.json, config.yaml, metadata.json). Those
+    # aren't in checksums.txt and aren't provenance subjects — globbing
+    # dist/ would include them, and slsa-verifier would fail with
+    # "artifact hash does not match provenance subject". Parse the
+    # filenames from checksums.txt instead.
+    run grep -E 'awk .*checksums\.txt|< dist/checksums\.txt' "$WORKFLOW"
+    [[ "$status" -eq 0 ]]
+    # The previous (buggy) shape was `find dist ... ! -name checksums.txt`.
+    # Make sure it didn't regress.
+    run grep -E 'find dist .*-name checksums\.txt' "$WORKFLOW"
+    [[ "$status" -ne 0 ]]
+}
+
 @test "go: workflow disables cache on release builds (L3 isolation)" {
     # The build job passes cache: disabled when should-release is true.
     # Re-enabling cache on release builds would expose the build to

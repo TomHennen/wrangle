@@ -236,14 +236,26 @@ jobs:
           PROVENANCE_NAME: ${{ needs.provenance.outputs.provenance-name }}
         run: |
           set -euo pipefail
-          # Verify every artifact in dist/ EXCEPT checksums.txt. The
-          # provenance's subjects are the binary/archive files (whose
-          # hashes are listed inside checksums.txt); checksums.txt
-          # itself is not one of the subjects, so verifying it would
-          # fail.
-          mapfile -t artifacts < <(find dist -mindepth 1 -maxdepth 1 -type f ! -name checksums.txt)
+          # Build the verification list FROM dist/checksums.txt, not
+          # by globbing dist/. Goreleaser writes several metadata
+          # files alongside the artifacts (artifacts.json, config.yaml,
+          # metadata.json) that aren't listed in checksums.txt and
+          # aren't provenance subjects — globbing dist/ would include
+          # them and slsa-verifier would fail with "artifact hash does
+          # not match provenance subject". checksums.txt is the
+          # authoritative subject list (it's what wrangle's hash step
+          # base64-encoded for the SLSA generator), so parse it.
+          #
+          # Each line is `<sha256>  <filename>` (two-space separator
+          # per sha256sum's default). awk grabs $2..end joined with
+          # space to be defensive against filenames with spaces — the
+          # tar.gz names goreleaser produces don't contain spaces but
+          # belt-and-braces.
+          mapfile -t artifacts < <(
+              awk '{ $1=""; sub(/^ +/, ""); print "dist/" $0 }' dist/checksums.txt
+          )
           if (( ${#artifacts[@]} == 0 )); then
-              printf 'Error: no artifacts to verify in dist/\n' >&2
+              printf 'Error: dist/checksums.txt is empty; nothing to verify\n' >&2
               exit 1
           fi
           slsa-verifier verify-artifact \
