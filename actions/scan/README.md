@@ -1,6 +1,6 @@
 # Wrangle Source Scan
 
-OSV-Scanner, Zizmor, Scorecard, and Dependency Review against your repo on every PR and push to main. The companion to wrangle's build/publish workflows: build hardens *how* your artifact is produced; source scan covers *what was checked into the repo you're building from*.
+Runs OSV-Scanner, Zizmor, Scorecard, and Dependency Review against your repo on every PR and push to main — catching vulnerable dependencies, workflow-config mistakes, and supply-chain gaps before they're merged. As wrangle adds new source-side tools over time, adopters get them automatically by bumping the version pin. The companion to wrangle's build/publish workflows: build hardens *how* your artifact is produced; source scan covers *what was checked into the repo you're building from*.
 
 ## Quick-start
 
@@ -35,9 +35,12 @@ Findings appear in the Security tab; the run's step summary shows an overview. P
 
 ## Why pair with build/publish
 
-Wrangle's build workflows produce signed SLSA L3 provenance over the bytes they ship — that attests *how* the build ran, not whether the source was trustworthy. Without source scan, an attacker who lands a malicious dep or a dangerous workflow trigger routes around the build-side hardening, and wrangle will faithfully L3-sign the malicious output because the build itself *was* legitimate.
+Source scan catches two distinct classes of problem the build side can't see:
 
-The May 2026 Mini Shai-Hulud compromise of TanStack/router is the canonical example: a `pull_request_target` workflow with checkout of PR-head SHA let attacker code execute in the privileged base context, poison the GitHub Actions cache, and pollute legitimate downstream builds. The build was honest; the source side was the gap.
+- **Honest mistakes that ship anyway.** A vulnerable dep in your lockfile, a `pull_request_target` workflow that grants too much, a missing branch-protection rule — wrangle's build path will faithfully L3-sign whatever you point it at, including code that introduced these issues by accident. Source scan flags them at PR time, before they reach a release.
+- **Deliberate attacks the build side authenticates as legitimate.** Wrangle's build workflows produce signed SLSA L3 provenance over the bytes they ship — that attests *how* the build ran, not whether the source was trustworthy. Without source scan, an attacker who lands a malicious dep or a dangerous workflow trigger routes around the build-side hardening, and wrangle will L3-sign the malicious output because the build itself *was* legitimate.
+
+The May 2026 Mini Shai-Hulud compromise of TanStack/router is the canonical example of the second case: a `pull_request_target` workflow with checkout of PR-head SHA let attacker code execute in the privileged base context, poison the GitHub Actions cache, and pollute legitimate downstream builds. The build was honest; the source side was the gap.
 
 ## Customizing which tools run
 

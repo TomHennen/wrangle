@@ -4,6 +4,8 @@ Build an npm or pnpm package (`npm pack` / `pnpm pack`), run tests, generate an 
 
 ## Quick-start
 
+Wrangle publishes via [npm Trusted Publishing](https://docs.npmjs.com/trusted-publishers/) — no `NPM_TOKEN` lives in your repo. You'll do a one-time setup on npmjs.com first; see [Before first use](#before-first-use). Then:
+
 Copy [`gh_workflow_examples/build_npm.yml`](../../../gh_workflow_examples/build_npm.yml) into your repo at `.github/workflows/`. The example wires the required permissions (`contents: write` for the SLSA generator's upload-assets job, `id-token: write` for Sigstore, `actions: read`) and includes the publish job. Most adopters only need to set the `path` input.
 
 Pair with [source scan](../../../actions/scan/README.md) for source-side coverage. For the composite-only path (build + test + SBOM, you wire your own provenance and publish), `uses: TomHennen/wrangle/build/actions/npm@v0.2.0`.
@@ -20,14 +22,14 @@ Complete in order — step 1 requires an `NPM_TOKEN` that step 3 then disallows.
 
 ## Build Track level
 
-Consumed through `build_and_publish_npm.yml`, the build meets **SLSA v1.2 Build L3** for both the npm and pnpm sub-paths. Two conditions narrow the claim:
+Consumed through `build_and_publish_npm.yml`, the build meets **SLSA v1.2 Build L3** for both the npm and pnpm sub-paths if both of these conditions hold:
 
 - **Reusable consumption only.** Calling the composite directly forfeits the build-vs-sign job separation — **not** a supported L3 path.
 - **GitHub-hosted runners only.** Self-hosted runners invalidate the build-environment isolation L3 assumes.
 
 The npm sub-path keeps dependency caching on: `npm ci` re-verifies every cached tarball's `integrity` against `package-lock.json`, so the cache cannot poison the attested output. The pnpm sub-path uses no cross-build cache — pnpm-store doesn't re-verify content-addressed paths at install time (the May 2026 Mini Shai-Hulud / TanStack cache-poisoning vector; see [#205](https://github.com/TomHennen/wrangle/issues/205)). Full analysis: [`docs/SLSA_L3_AUDIT.md`](../../../docs/SLSA_L3_AUDIT.md).
 
-The build-platform L3 claim is distinct from — and additional to — the SLSA L2 in-CLI attestation that `npm publish --provenance` writes into the npm registry slot. Both attestations share the Sigstore Public Good Instance; the L2-vs-L3 distinction is builder isolation, not crypto root.
+The build-platform L3 claim is distinct from — and additional to — the SLSA L2 in-CLI attestation that `npm publish --provenance` writes into the npm registry slot. Both attestations share the Sigstore Public Good Instance; the L2-vs-L3 distinction is that npm's in-CLI publish path lacks builder isolation, wrangle's reusable workflow does not.
 
 ## What this action does
 
@@ -47,12 +49,19 @@ The build-platform L3 claim is distinct from — and additional to — the SLSA 
 - `tarball` — `.tgz` filename relative to the dist artifact root. Scoped packages produce `scope-name-version.tgz`.
 - `provenance-artifact-name` — workflow-artifact name for the SLSA provenance (`npm-<shortname>.intoto.jsonl`; empty when `should-release` is false).
 - `metadata-artifact-name` — workflow-artifact name for the SBOM (`npm-metadata-<shortname>`).
-- `should-release` — `"true"` if the event matches `release-events`. Your publish job MUST gate on this.
+- `should-release` — `"true"` if the package should be released — today that's exactly "the event matched `release-events`", but the gate is the source of truth (future versions may apply additional checks). Your publish job MUST gate on this.
 - `hashes`, `version`.
 
 ## Controlling when releases happen
 
-`release-events` controls which events produce SLSA provenance. Shorthands: `non-pull-request` (default), `tag-only`, `main-and-tags`. A comma-separated `github.event_name` list is also accepted — see [`docs/SPEC.md`](../../../docs/SPEC.md) "Release-events gating".
+`release-events` controls which events produce SLSA provenance. Accepted values:
+
+- `non-pull-request` (default) — every event except `pull_request`.
+- `tag-only` — only `push` events to `refs/tags/*`.
+- `main-and-tags` — `push` to `refs/heads/main` or `refs/tags/*`.
+- A comma-separated `github.event_name` list (e.g., `push,workflow_dispatch`).
+
+See [`docs/SPEC.md`](../../../docs/SPEC.md) "Release-events gating" for the full vocabulary.
 
 > **Required wiring.** Your publish job MUST also gate on `should-release` — wrangle can't enforce this because publish lives in your workflow (npm's OIDC constraint). The canonical shape:
 >

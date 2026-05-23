@@ -18,7 +18,7 @@ For the full design (failure contract, trust model, planned signing/provenance s
 
 ## Build Track level
 
-Consumed through `build_and_publish_container.yml`, the container build meets **SLSA v1.2 Build L3**. Two conditions narrow the claim:
+Consumed through `build_and_publish_container.yml`, the container build meets **SLSA v1.2 Build L3** if both of these conditions hold:
 
 - **Reusable consumption only.** Calling the composite from your own workflow forfeits the build-vs-sign job separation and is **not** a supported L3 path.
 - **GitHub-hosted runners only.** Self-hosted runners invalidate the build-environment isolation L3 assumes.
@@ -31,11 +31,23 @@ Release builds run with the BuildKit `type=gha` cache disabled (BuildKit doesn't
 - Pushes to ghcr.io (other registries out of scope — see [`SPEC.md`](./SPEC.md#current-scope-ghcrio-only)).
 - Generates a BuildKit-native SBOM, attaches it to the image as an OCI attestation, and uploads it as a workflow artifact in SPDX JSON.
 
-The reusable workflow `build_and_publish_container.yml` adds `slsa-github-generator` for L3 provenance, `cosign verify-attestation` of that provenance against the just-pushed digest, and the release-gate job. Still planned (not yet wired into either layer): Cosign keyless signing of the image digest itself and OSV-Scanner against the SBOM (non-blocking) — see [`SPEC.md`](./SPEC.md).
+The reusable workflow `build_and_publish_container.yml` adds `slsa-github-generator` for L3 provenance, `cosign verify-attestation` of that provenance against the just-pushed digest, and the release-gate job.
+
+Two things from the spec aren't shipped yet in either the composite or the reusable workflow:
+
+- **Cosign keyless signing of the image digest itself.** The reusable workflow already pulls in `cosign-installer` for `verify-attestation`, but it does not yet run `cosign sign` against the digest. Verified via grep on this branch — no tracking issue today; please file one if you need it prioritized. Design: [`SPEC.md` §"Cosign image signing"](./SPEC.md#cosign-image-signing).
+- **OSV-Scanner against the produced SBOM (non-blocking).** The SBOM is generated and uploaded, but not yet scanned in the container path. No tracking issue today; same suggestion. Design: [`SPEC.md` §"Failure contract"](./SPEC.md#failure-contract).
 
 ## Controlling when provenance is generated
 
-The reusable workflow's `release-events` input controls which events trigger SLSA provenance generation. Default: `non-pull-request`. Other shorthands: `tag-only`, `main-and-tags`. A comma-separated `github.event_name` list is also accepted — see [`docs/SPEC.md`](../../../docs/SPEC.md) "Release-events gating".
+The reusable workflow's `release-events` input controls which events trigger SLSA provenance generation. Accepted values:
+
+- `non-pull-request` (default) — every event except `pull_request` (the common case: provenance on merges to main, tags, manual dispatches, etc.).
+- `tag-only` — only `push` events to `refs/tags/*`.
+- `main-and-tags` — `push` to `refs/heads/main` or `refs/tags/*`.
+- A comma-separated `github.event_name` list (e.g., `push,workflow_dispatch`).
+
+See [`docs/SPEC.md`](../../../docs/SPEC.md) "Release-events gating" for the full vocabulary.
 
 ```yaml
 with:
@@ -45,7 +57,7 @@ with:
   release-events: tag-only   # only tag pushes mint provenance
 ```
 
-`release-events` currently scopes the SLSA provenance and verify jobs. The docker push happens mid-composite and is gated by your workflow's own trigger configuration (see [`SPEC.md` §"Trigger restriction"](./SPEC.md#trigger-restriction)).
+This input gates only the SLSA provenance and verify jobs. The docker push happens earlier in the composite and is gated by your workflow's own `on:` triggers (see [`SPEC.md` §"Trigger restriction"](./SPEC.md#trigger-restriction)).
 
 ## Controlling the PR build cache
 
@@ -62,7 +74,7 @@ Release builds always run cache-free — BuildKit's `type=gha` cache isn't re-ve
 
 The scope is keyed by `github.event.pull_request.number` (a GitHub-assigned unique integer), not branch name — two PRs sharing a branch name from different forks get distinct scopes. On non-PR events the scope falls back to the ref name.
 
-> **Never invoke this workflow from `pull_request_target`.** That trigger runs in the base-repo context with cache write access, making a fork PR the highest-risk poisoning vector. Wrangle's reusable workflows refuse it ([#202](https://github.com/TomHennen/wrangle/issues/202)).
+> **Never invoke this workflow from `pull_request_target`.** That trigger runs in the base-repo context with cache write access, making a fork PR the highest-risk poisoning vector. Wrangle's reusable workflows will block any workflow that uses `pull_request_target` ([#202](https://github.com/TomHennen/wrangle/issues/202)).
 
 ## SLSA attestation verification (default-on, opt-out)
 

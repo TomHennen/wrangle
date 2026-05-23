@@ -33,4 +33,5 @@ For build/publish — npm, Python, container, shell — see the [workflow exampl
 - [Reusable workflows](.github/workflows/) — what adopters call via `uses:`
 - [Source scan action](actions/scan/README.md) — OSV, Zizmor, Scorecard, dependency-review orchestration
 - [Build actions](build/) — npm, python, container, shell
+- [Tools](tools/) — per-tool adapters and install scripts (OSV, Zizmor, Scorecard, Syft, dependency-review)
 - [Spec](docs/SPEC.md) — architecture, contracts, threat model

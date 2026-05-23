@@ -12,13 +12,15 @@ This README documents shipped behavior. For architecture and the full step seque
 
 ## Before first use
 
-1. **Configure a Trusted Publisher on PyPI.** Project → Publishing → Add a trusted publisher. Specify your GitHub repo, workflow filename (`build_python.yml`), and optionally an environment.
-2. **Disable legacy API token uploads on PyPI** (same page). **A stolen or leftover token bypasses your CI entirely**: an attacker can `twine upload` directly to the registry without ever triggering your trusted workflow — the attack vector behind the December 2024 ultralytics and May 2026 mistralai / guardrails-ai compromises. Wrangle can't enforce this; the toggle lives in PyPI's settings.
+1. **Configure a Trusted Publisher on PyPI.** Pin your GitHub repo, workflow filename (`build_python.yml`), and optionally an environment.
+   - **Migrating an existing project:** Project → Publishing → Add a trusted publisher.
+   - **Brand-new package (not yet on PyPI):** use PyPI's [pending publisher](https://docs.pypi.org/trusted-publishers/creating-a-project-through-oidc/) flow — Your projects → Publishing → Add a pending publisher. The first successful CI publish then creates the project. No manual bootstrap-publish needed (unlike npm).
+2. **Disable legacy API token uploads on PyPI** (Publishing settings). **A stolen or leftover token bypasses your CI entirely**: an attacker can `twine upload` directly to the registry without ever triggering your trusted workflow — the attack vector behind the December 2024 ultralytics and May 2026 mistralai / guardrails-ai compromises. Wrangle can't enforce this; the toggle lives in PyPI's settings. For brand-new packages there's no legacy token to revoke; just leave the toggle off from the start.
 3. **(Optional) Configure TestPyPI** with a separate Trusted Publisher for pre-release testing.
 
 ## Build Track level
 
-Consumed through `build_and_publish_python.yml`, the build meets **SLSA v1.2 Build L3** — for both the pip and the uv sub-path. Two conditions narrow the claim:
+Consumed through `build_and_publish_python.yml`, the build meets **SLSA v1.2 Build L3** — for both the pip and the uv sub-path — if both of these conditions hold:
 
 - **Reusable consumption only.** Calling the composite directly forfeits the build-vs-sign job separation and is **not** a supported L3 path.
 - **GitHub-hosted runners only.** Self-hosted runners invalidate the build-environment isolation L3 assumes.
@@ -39,12 +41,21 @@ On the uv sub-path, release builds disable `setup-uv`'s cache (uv doesn't re-ver
 - `dist-artifact-name` — workflow-artifact name to download with `actions/download-artifact` to retrieve the built wheel + sdist.
 - `provenance-artifact-name` — workflow-artifact name for the SLSA provenance (empty when `should-release` is false). Format: `python-<shortname>.intoto.jsonl` so multiple python builds in one workflow don't collide on the same artifact name. (When [#181](https://github.com/TomHennen/wrangle/issues/181) ships, consumers will see a single bundled `multiple.intoto.jsonl` on the release; the per-build namespaced files will become workflow-internal intermediates.)
 - `metadata-artifact-name` — workflow-artifact name for the SBOM and any scan output (`python-metadata-<shortname>`). See [`docs/SPEC.md`](../../../docs/SPEC.md) "Unified metadata layout."
-- `should-release` — `"true"` if the current event matches `release-events`. Your publish job MUST gate on this (see below).
+- `should-release` — `"true"` if the package should be released — today that's exactly "the current event matched `release-events`", but the gate is the source of truth (future versions may apply additional checks). Your publish job MUST gate on this (see below).
 - `hashes`, `version`.
+
+`<shortname>` is path-derived (`.` → `_`, `pkg/foo` → `pkg_foo`) so multiple python builds in one workflow don't collide on artifact names.
 
 ## Controlling when releases happen
 
-`release-events` controls which events produce SLSA provenance. Shorthands: `non-pull-request` (default), `tag-only`, `main-and-tags`. A comma-separated `github.event_name` list (e.g., `push,workflow_dispatch`) is also accepted — see [`docs/SPEC.md`](../../../docs/SPEC.md) "Release-events gating".
+`release-events` controls which events produce SLSA provenance. Accepted values:
+
+- `non-pull-request` (default) — every event except `pull_request`.
+- `tag-only` — only `push` events to `refs/tags/*`.
+- `main-and-tags` — `push` to `refs/heads/main` or `refs/tags/*`.
+- A comma-separated `github.event_name` list (e.g., `push,workflow_dispatch`).
+
+See [`docs/SPEC.md`](../../../docs/SPEC.md) "Release-events gating" for the full vocabulary.
 
 ```yaml
 with:
@@ -87,25 +98,6 @@ slsa-verifier verify-artifact \
 ```
 
 > **Tag-push only.** On non-tag publishes (e.g., `workflow_dispatch` from a branch) the provenance lives only as a 90-day workflow artifact and isn't retrievable by external consumers. [#181](https://github.com/TomHennen/wrangle/issues/181) tracks moving to a single bundled `multiple.intoto.jsonl` at the release layer.
-
-## What this action does
-
-- Detects `uv` (presence of `uv.lock`) vs PEP 517 tooling and routes dependencies, build, and tests accordingly.
-- Installs the project (`pip install -e ".[test]"` or `uv sync`).
-- Runs `pytest` if `tests/`, `test/`, or `[tool.pytest.ini_options]` is present in `pyproject.toml`.
-- Builds wheel + sdist (`python -m build` or `uv build`).
-- Generates an SPDX SBOM via `syft` (Cosign-keyless-verified install).
-- Computes SHA-256 hashes in the format `slsa-github-generator`'s `base64-subjects` expects.
-
-## Outputs from the reusable workflow
-
-- `dist-artifact-name` — workflow-artifact name for the wheel + sdist.
-- `provenance-artifact-name` — workflow-artifact name for the SLSA provenance (`python-<shortname>.intoto.jsonl`; empty when `should-release` is false).
-- `metadata-artifact-name` — workflow-artifact name for the SBOM (`python-metadata-<shortname>`).
-- `should-release` — `"true"` if the event matches `release-events`. Your publish job MUST gate on this.
-- `hashes`, `version`.
-
-`<shortname>` is path-derived (`.` → `_`, `pkg/foo` → `pkg_foo`) so multiple python builds in one workflow don't collide on artifact names.
 
 ## SBOM
 
