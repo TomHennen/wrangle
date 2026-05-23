@@ -3,6 +3,12 @@
 # manager + cache config wrangle should drive. Writes resolution to
 # GITHUB_OUTPUT for the composite action's downstream steps.
 #
+# The two decisions are split into pure functions — `resolve_node_version`
+# and `resolve_pm_cache` — so test.bats can exercise the branches directly
+# without staging GITHUB_OUTPUT or shimming any external tool. The
+# functions take their inputs as args and print their outputs on stdout;
+# the file's `main` glues them to the action's GITHUB_OUTPUT contract.
+#
 # Node.js version resolution order:
 #   1. node-version input override
 #   2. .nvmrc in the project directory
@@ -29,39 +35,74 @@
 
 set -euo pipefail
 
-if [[ $# -ne 2 ]]; then
-    printf 'Usage: %s <path> <node-version-input>\n' "$0" >&2
-    exit 1
-fi
-
-INPUT_PATH="$1"
-INPUT_NODE_VERSION="$2"
 WRANGLE_DEFAULT_NODE="22"
 
-if [[ -n "$INPUT_NODE_VERSION" ]]; then
-    printf 'effective-version=%s\n' "$INPUT_NODE_VERSION" >> "$GITHUB_OUTPUT"
-    printf 'effective-version-file=\n' >> "$GITHUB_OUTPUT"
-    printf 'Using node-version override: %s\n' "$INPUT_NODE_VERSION"
-elif [[ -f "$INPUT_PATH/.nvmrc" ]]; then
-    printf 'effective-version=\n' >> "$GITHUB_OUTPUT"
-    printf 'effective-version-file=%s/.nvmrc\n' "$INPUT_PATH" >> "$GITHUB_OUTPUT"
-    printf 'Using .nvmrc\n'
-elif [[ -n "$(jq -r '.engines.node // empty' "$INPUT_PATH/package.json")" ]]; then
-    printf 'effective-version=\n' >> "$GITHUB_OUTPUT"
-    printf 'effective-version-file=%s/package.json\n' "$INPUT_PATH" >> "$GITHUB_OUTPUT"
-    printf 'Using engines.node from package.json\n'
-else
-    printf 'effective-version=%s\n' "$WRANGLE_DEFAULT_NODE" >> "$GITHUB_OUTPUT"
-    printf 'effective-version-file=\n' >> "$GITHUB_OUTPUT"
-    printf 'No version hint in .nvmrc, engines.node, or node-version input — falling back to wrangle default Node %s\n' "$WRANGLE_DEFAULT_NODE"
-fi
+# Pure function: resolves which Node.js version source setup-node should
+# use. Prints exactly one line: "<effective-version>|<effective-version-file>|<reason>".
+# Either effective-version or effective-version-file is populated, never both.
+#
+# Args: <input_version> <project_dir>
+resolve_node_version() {
+    local input="$1" path="$2"
+    if [[ -n "$input" ]]; then
+        printf '%s||Using node-version override: %s\n' "$input" "$input"
+    elif [[ -f "$path/.nvmrc" ]]; then
+        printf '|%s/.nvmrc|Using .nvmrc\n' "$path"
+    elif [[ -n "$(jq -r '.engines.node // empty' "$path/package.json")" ]]; then
+        printf '|%s/package.json|Using engines.node from package.json\n' "$path"
+    else
+        printf '%s||No version hint in .nvmrc, engines.node, or node-version input — falling back to wrangle default Node %s\n' \
+            "$WRANGLE_DEFAULT_NODE" "$WRANGLE_DEFAULT_NODE"
+    fi
+}
 
-if [[ -f "$INPUT_PATH/pnpm-lock.yaml" ]]; then
-    printf 'package-manager=pnpm\n' >> "$GITHUB_OUTPUT"
-    printf 'cache=\n' >> "$GITHUB_OUTPUT"
-    printf 'Detected pnpm-lock.yaml; using pnpm. setup-node caching deliberately disabled (see issue #205).\n'
-else
-    printf 'package-manager=npm\n' >> "$GITHUB_OUTPUT"
-    printf 'cache=npm\n' >> "$GITHUB_OUTPUT"
-    printf 'Detected npm lockfile; using npm with cache=npm.\n'
+# Pure function: resolves package-manager and setup-node cache config from
+# the project's lockfile. Prints "<package-manager>|<cache>".
+#
+# The pnpm branch deliberately emits an empty cache value — see the header
+# comment and issue #205.
+#
+# Args: <project_dir>
+resolve_pm_cache() {
+    local path="$1"
+    if [[ -f "$path/pnpm-lock.yaml" ]]; then
+        printf 'pnpm|\n'
+    else
+        printf 'npm|npm\n'
+    fi
+}
+
+main() {
+    if [[ $# -ne 2 ]]; then
+        printf 'Usage: %s <path> <node-version-input>\n' "$0" >&2
+        exit 1
+    fi
+
+    local input_path="$1"
+    local input_node_version="$2"
+
+    local node_line version file reason
+    node_line="$(resolve_node_version "$input_node_version" "$input_path")"
+    IFS='|' read -r version file reason <<<"$node_line"
+    printf 'effective-version=%s\n' "$version" >> "$GITHUB_OUTPUT"
+    printf 'effective-version-file=%s\n' "$file" >> "$GITHUB_OUTPUT"
+    printf '%s\n' "$reason"
+
+    local pm_line pm cache
+    pm_line="$(resolve_pm_cache "$input_path")"
+    IFS='|' read -r pm cache <<<"$pm_line"
+    printf 'package-manager=%s\n' "$pm" >> "$GITHUB_OUTPUT"
+    printf 'cache=%s\n' "$cache" >> "$GITHUB_OUTPUT"
+    if [[ "$pm" == "pnpm" ]]; then
+        printf 'Detected pnpm-lock.yaml; using pnpm. setup-node caching deliberately disabled (see issue #205).\n'
+    else
+        printf 'Detected npm lockfile; using npm with cache=npm.\n'
+    fi
+}
+
+# Sourcing guard: when this file is invoked as a script, run main();
+# when sourced from a test (e.g., `bash -c 'source detect_tooling.sh; \
+# resolve_node_version ...'`), expose the functions without running main.
+if [[ "${BASH_SOURCE[0]}" == "${0}" ]]; then
+    main "$@"
 fi

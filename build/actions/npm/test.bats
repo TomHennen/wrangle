@@ -1,11 +1,58 @@
 #!/usr/bin/env bats
 
-# Structural tests for the npm build action and reusable workflow.
+# Tests for the npm build action and reusable workflow.
 #
-# Many tests below are simple greps. They verify that the action's wiring
-# and supply-chain rules (no curl|sh, no /usr/local/bin, SHA-pinned actions,
-# SBOM upload) are still in place. They do not invoke the action end-to-end —
-# that's covered by the integration test in the wrangle-test companion repo.
+# Three test layers, in increasing order of cost:
+#   1. Pure-function tests that source detect_tooling.sh or
+#      build_and_pack.sh and call their decision functions directly
+#      (resolve_node_version, resolve_pm_cache, detect_pm, has_build_script,
+#      has_real_test_script, find_one_tarball). Args in → stdout/exit out;
+#      no shims, no GITHUB_OUTPUT plumbing.
+#   2. Behavioral tests that invoke validate_inputs.sh end-to-end against
+#      fixture project directories. validate_inputs.sh has no externally-
+#      shimmed dependencies (just jq), so this layer needs no shims either.
+#   3. Integration tests that exercise build_and_pack.sh's main() pipeline
+#      via PATH shims for npm/pnpm — only the orchestration logic that
+#      cannot be expressed as a pure function.
+# Plus a thin layer of structural greps preserved only as supply-chain
+# guard rails (no curl|sh, no /usr/local/bin, SHA-pinned actions,
+# inputs flow through env:, action.yml delegates to the scripts the
+# behavioral tests cover). End-to-end exercise lives in the wrangle-test
+# companion repo.
+
+setup_file() {
+    ACTION_DIR="$(cd "$(dirname "$BATS_TEST_FILENAME")" && pwd)"
+    export ACTION_DIR
+    # PATH shims for npm/pnpm used by the integration tests. The shims
+    # echo their argv (so tests can assert which command ran) and, on
+    # `pack`, plant a single placeholder tarball in dist/ to satisfy the
+    # post-pack count check. Created once per file because they are
+    # immutable; tests that need a different shim behavior (e.g., the
+    # zero-tarball case) just don't exercise the pack codepath.
+    mkdir -p "$BATS_FILE_TMPDIR/shim"
+    cat > "$BATS_FILE_TMPDIR/shim/npm" <<'SHIM'
+#!/bin/bash
+printf 'npm'; for a in "$@"; do printf ' %s' "$a"; done; printf '\n'
+for ((i=1; i<=$#; i++)); do
+    if [[ "${!i}" == "pack" ]]; then
+        : > "dist/x-1.0.0.tgz"
+        break
+    fi
+done
+SHIM
+    cat > "$BATS_FILE_TMPDIR/shim/pnpm" <<'SHIM'
+#!/bin/bash
+printf 'pnpm'; for a in "$@"; do printf ' %s' "$a"; done; printf '\n'
+for ((i=1; i<=$#; i++)); do
+    if [[ "${!i}" == "pack" ]]; then
+        : > "dist/x-1.0.0.tgz"
+        break
+    fi
+done
+SHIM
+    chmod +x "$BATS_FILE_TMPDIR/shim/npm" "$BATS_FILE_TMPDIR/shim/pnpm"
+    export SHIM_DIR="$BATS_FILE_TMPDIR/shim"
+}
 
 setup() {
     ACTION_DIR="$(cd "$(dirname "$BATS_TEST_FILENAME")" && pwd)"
@@ -13,6 +60,9 @@ setup() {
     ACTION="$ACTION_DIR/action.yml"
     WORKFLOW="$REPO_ROOT/.github/workflows/build_and_publish_npm.yml"
     EXAMPLE="$REPO_ROOT/gh_workflow_examples/build_npm.yml"
+    GITHUB_OUTPUT="$BATS_TEST_TMPDIR/github_output"
+    : > "$GITHUB_OUTPUT"
+    export GITHUB_OUTPUT
 }
 
 # --- Composite action structural tests ---
@@ -48,85 +98,8 @@ setup() {
     [[ "$status" -eq 0 ]]
 }
 
-@test "npm: validate_inputs.sh checks for package.json" {
-    run grep 'package.json' "$ACTION_DIR/validate_inputs.sh"
-    [[ "$status" -eq 0 ]]
-}
-
-@test "npm: validate_inputs.sh requires a lockfile" {
-    run grep 'package-lock.json' "$ACTION_DIR/validate_inputs.sh"
-    [[ "$status" -eq 0 ]]
-}
-
-@test "npm: validate_inputs.sh accepts pnpm-lock.yaml (v0.2 addition)" {
-    # v0.2 supports pnpm-lock.yaml. The lockfile must be in the accept
-    # path, NOT the reject path.
-    run grep -E 'pnpm-lock.yaml' "$ACTION_DIR/validate_inputs.sh"
-    [[ "$status" -eq 0 ]]
-    # Must NOT have a "pnpm is not supported" error string anymore.
-    run grep -E 'pnpm is not supported' "$ACTION_DIR/validate_inputs.sh"
-    [[ "$status" -ne 0 ]]
-}
-
-@test "npm: validate_inputs.sh rejects yarn.lock" {
-    # Yarn is still a follow-on; reject explicitly.
-    run grep -E 'yarn.lock' "$ACTION_DIR/validate_inputs.sh"
-    [[ "$status" -eq 0 ]]
-    run grep -E 'Yarn is not supported' "$ACTION_DIR/validate_inputs.sh"
-    [[ "$status" -eq 0 ]]
-}
-
-@test "npm: validate_inputs.sh rejects ambiguous lockfile state (npm + pnpm)" {
-    # Both package-lock.json AND pnpm-lock.yaml present is ambiguous —
-    # wrangle can't infer which manager the adopter intends. Reject.
-    run grep -E 'both npm and pnpm lockfiles' "$ACTION_DIR/validate_inputs.sh"
-    [[ "$status" -eq 0 ]]
-}
-
-@test "npm: build_and_pack.sh runs npm ci or pnpm install (lockfile-faithful)" {
-    # Lockfile-faithful install paths for both managers.
-    run grep -E 'npm ci' "$ACTION_DIR/build_and_pack.sh"
-    [[ "$status" -eq 0 ]]
-    run grep -E 'pnpm install --frozen-lockfile' "$ACTION_DIR/build_and_pack.sh"
-    [[ "$status" -eq 0 ]]
-}
-
-@test "npm: build_and_pack.sh detects package manager from lockfile" {
-    # Branch on pnpm-lock.yaml presence — npm fallback otherwise.
-    run grep -E '\-f "pnpm-lock.yaml"' "$ACTION_DIR/build_and_pack.sh"
-    [[ "$status" -eq 0 ]]
-}
-
-@test "npm: build_and_pack.sh runs pack via the detected package manager" {
-    # Pack is invoked via "$PM" pack to use whichever manager was detected.
-    run grep -E '"\$PM" pack' "$ACTION_DIR/build_and_pack.sh"
-    [[ "$status" -eq 0 ]]
-}
-
-@test "npm: build_and_pack.sh detects scripts.build via jq, not by catching missing-script errors" {
-    run grep -E 'jq.*scripts.*build' "$ACTION_DIR/build_and_pack.sh"
-    [[ "$status" -eq 0 ]]
-}
-
-@test "npm: build_and_pack.sh skips npm's default no-op test script" {
-    run grep -F 'no test specified' "$ACTION_DIR/build_and_pack.sh"
-    [[ "$status" -eq 0 ]]
-}
-
-@test "npm: build_and_pack.sh writes tarball to dist/" {
-    run grep -E 'pack-destination dist|mkdir -p dist' "$ACTION_DIR/build_and_pack.sh"
-    [[ "$status" -eq 0 ]]
-}
-
 @test "npm: action.yml uses actions/setup-node" {
     run grep 'actions/setup-node@' "$ACTION"
-    [[ "$status" -eq 0 ]]
-}
-
-@test "npm: detect_tooling.sh sets a fallback Node version when no version source is present" {
-    # Without this, setup-node fails with a confusing "no version found"
-    # error for projects that pin neither .nvmrc nor engines.node.
-    run grep -E 'WRANGLE_DEFAULT_NODE' "$ACTION_DIR/detect_tooling.sh"
     [[ "$status" -eq 0 ]]
 }
 
@@ -243,36 +216,11 @@ setup() {
     [[ "$status" -eq 0 ]]
 }
 
-@test "npm: build_and_pack.sh threads ignore-scripts through to install AND pack" {
-    run grep -E 'ignore_scripts_args' "$ACTION_DIR/build_and_pack.sh"
-    [[ "$status" -eq 0 ]]
-    # Must appear on both install lines and the pack line.
-    run bash -c "grep -E 'npm ci|pnpm install' \"$ACTION_DIR/build_and_pack.sh\" | grep ignore_scripts_args"
-    [[ "$status" -eq 0 ]]
-    run bash -c "grep -E '\\\$PM\" pack|npm pack|pnpm pack' \"$ACTION_DIR/build_and_pack.sh\" | grep ignore_scripts_args"
-    [[ "$status" -eq 0 ]]
-}
-
-@test "npm: build_and_pack.sh skips run-build and test when ignore-scripts is true" {
-    # ignore-scripts: true must mean "no package.json script runs" — not
-    # just suppressing transitive hooks.
-    run grep -E 'Skipping %s run build and %s test' "$ACTION_DIR/build_and_pack.sh"
-    [[ "$status" -eq 0 ]]
-}
-
 @test "npm: build_and_pack.sh uses null-safe jq for scripts.build/test detection" {
     # `(.scripts // {}) | has(...)` survives `"scripts": null` (or missing).
     run grep -E '\(\.scripts // \{\}\) \| has\("build"\)' "$ACTION_DIR/build_and_pack.sh"
     [[ "$status" -eq 0 ]]
     run grep -E '\(\.scripts // \{\}\) \| has\("test"\)' "$ACTION_DIR/build_and_pack.sh"
-    [[ "$status" -eq 0 ]]
-}
-
-@test "npm: validate_inputs.sh rejects package.json with workspaces field" {
-    # Workspaces support tracked in #208. v0.2 still single-package only.
-    run grep -E 'workspaces' "$ACTION_DIR/validate_inputs.sh"
-    [[ "$status" -eq 0 ]]
-    run grep -E 'issues/208' "$ACTION_DIR/validate_inputs.sh"
     [[ "$status" -eq 0 ]]
 }
 
@@ -323,6 +271,423 @@ setup() {
     # sha256sum ./* yields ./<file>; sha256sum -- * (after cd) yields <file>.
     run grep -E 'cd .*dist.* && sha256sum' "$ACTION"
     [[ "$status" -eq 0 ]]
+}
+
+# --- validate_inputs.sh behavioral tests ---
+
+# Helpers for fixture project directories.
+write_pkg_json() {
+    # $1: project dir, $2: optional extra JSON to merge into the base
+    local dir="$1"
+    local extra='{}'
+    if [[ $# -ge 2 ]]; then
+        extra="$2"
+    fi
+    mkdir -p "$dir"
+    jq -n --argjson extra "$extra" \
+        '{"name":"x","version":"1.0.0"} * $extra' > "$dir/package.json"
+}
+
+@test "npm: validate_inputs.sh accepts a package-lock.json project" {
+    local proj="$BATS_TEST_TMPDIR/proj"
+    write_pkg_json "$proj"
+    : > "$proj/package-lock.json"
+    cd "$BATS_TEST_TMPDIR"
+    run "$ACTION_DIR/validate_inputs.sh" "proj"
+    [[ "$status" -eq 0 ]]
+}
+
+@test "npm: validate_inputs.sh accepts an npm-shrinkwrap.json project" {
+    local proj="$BATS_TEST_TMPDIR/proj"
+    write_pkg_json "$proj"
+    : > "$proj/npm-shrinkwrap.json"
+    cd "$BATS_TEST_TMPDIR"
+    run "$ACTION_DIR/validate_inputs.sh" "proj"
+    [[ "$status" -eq 0 ]]
+}
+
+@test "npm: validate_inputs.sh accepts a pnpm-lock.yaml project (v0.2)" {
+    local proj="$BATS_TEST_TMPDIR/proj"
+    write_pkg_json "$proj"
+    : > "$proj/pnpm-lock.yaml"
+    cd "$BATS_TEST_TMPDIR"
+    run "$ACTION_DIR/validate_inputs.sh" "proj"
+    [[ "$status" -eq 0 ]]
+}
+
+@test "npm: validate_inputs.sh rejects missing package.json" {
+    local proj="$BATS_TEST_TMPDIR/proj"
+    mkdir -p "$proj"
+    : > "$proj/package-lock.json"
+    cd "$BATS_TEST_TMPDIR"
+    run "$ACTION_DIR/validate_inputs.sh" "proj"
+    [[ "$status" -ne 0 ]]
+    [[ "$output" == *"no package.json found"* ]]
+}
+
+@test "npm: validate_inputs.sh rejects missing lockfile with install hint" {
+    local proj="$BATS_TEST_TMPDIR/proj"
+    write_pkg_json "$proj"
+    cd "$BATS_TEST_TMPDIR"
+    run "$ACTION_DIR/validate_inputs.sh" "proj"
+    [[ "$status" -ne 0 ]]
+    [[ "$output" == *"no lockfile found"* ]]
+    [[ "$output" == *"npm install"* ]]
+}
+
+@test "npm: validate_inputs.sh rejects yarn.lock with a 'not supported' hint" {
+    # Yarn is a follow-on. A yarn-only project must fail loudly, not fall
+    # through to "no lockfile".
+    local proj="$BATS_TEST_TMPDIR/proj"
+    write_pkg_json "$proj"
+    : > "$proj/yarn.lock"
+    cd "$BATS_TEST_TMPDIR"
+    run "$ACTION_DIR/validate_inputs.sh" "proj"
+    [[ "$status" -ne 0 ]]
+    [[ "$output" == *"Yarn is not supported"* ]]
+}
+
+@test "npm: validate_inputs.sh rejects ambiguous npm + pnpm lockfile state" {
+    # Having both lockfiles is unresolvable — wrangle can't infer the
+    # adopter's intent. Picking one silently would silently determine
+    # what gets attested.
+    local proj="$BATS_TEST_TMPDIR/proj"
+    write_pkg_json "$proj"
+    : > "$proj/package-lock.json"
+    : > "$proj/pnpm-lock.yaml"
+    cd "$BATS_TEST_TMPDIR"
+    run "$ACTION_DIR/validate_inputs.sh" "proj"
+    [[ "$status" -ne 0 ]]
+    [[ "$output" == *"both npm and pnpm lockfiles"* ]]
+}
+
+@test "npm: validate_inputs.sh rejects a workspaces project with the #208 link" {
+    # Workspaces produce N tarballs; the single-tarball assertion in
+    # action.yml and the downstream hash/SBOM/provenance pipeline assume
+    # exactly 1. Reject before any of that runs.
+    local proj="$BATS_TEST_TMPDIR/proj"
+    write_pkg_json "$proj" '{"workspaces":["packages/*"]}'
+    : > "$proj/package-lock.json"
+    cd "$BATS_TEST_TMPDIR"
+    run "$ACTION_DIR/validate_inputs.sh" "proj"
+    [[ "$status" -ne 0 ]]
+    [[ "$output" == *"workspaces"* ]]
+    [[ "$output" == *"issues/208"* ]]
+}
+
+@test "npm: validate_inputs.sh usage error with no args" {
+    run "$ACTION_DIR/validate_inputs.sh"
+    [[ "$status" -ne 0 ]]
+    [[ "$output" == *"Usage:"* ]]
+}
+
+# --- detect_tooling.sh pure-function tests ---
+#
+# detect_tooling.sh splits its decision logic into resolve_node_version
+# and resolve_pm_cache. Both are pure (args in → stdout out). The tests
+# below source the script and call those functions directly, so they
+# need neither a stub `node`/`jq` on PATH nor a GITHUB_OUTPUT file.
+#
+# Calling pattern: `run bash -c 'source script.sh; func "$@"' -- arg1 arg2`.
+# The `--` placeholder makes "$0" inside bash -c a separator (bats convention),
+# so the trailing args show up as "$@" inside the sourced script.
+
+@test "npm: resolve_node_version: node-version input override wins over all other sources" {
+    local proj="$BATS_TEST_TMPDIR/proj"
+    write_pkg_json "$proj" '{"engines":{"node":">=20"}}'
+    printf '20\n' > "$proj/.nvmrc"
+    run bash -c 'source "$1"; resolve_node_version "$2" "$3"' -- \
+        "$ACTION_DIR/detect_tooling.sh" "22.5.1" "$proj"
+    [[ "$status" -eq 0 ]]
+    [[ "$output" == "22.5.1||Using node-version override: 22.5.1" ]]
+}
+
+@test "npm: resolve_node_version: uses .nvmrc when input is empty (preferred over engines.node)" {
+    local proj="$BATS_TEST_TMPDIR/proj"
+    write_pkg_json "$proj" '{"engines":{"node":">=20"}}'
+    printf '18.20.0\n' > "$proj/.nvmrc"
+    run bash -c 'source "$1"; resolve_node_version "$2" "$3"' -- \
+        "$ACTION_DIR/detect_tooling.sh" "" "$proj"
+    [[ "$status" -eq 0 ]]
+    [[ "$output" == "|$proj/.nvmrc|Using .nvmrc" ]]
+}
+
+@test "npm: resolve_node_version: uses engines.node when no .nvmrc and no input" {
+    local proj="$BATS_TEST_TMPDIR/proj"
+    write_pkg_json "$proj" '{"engines":{"node":">=20"}}'
+    run bash -c 'source "$1"; resolve_node_version "$2" "$3"' -- \
+        "$ACTION_DIR/detect_tooling.sh" "" "$proj"
+    [[ "$status" -eq 0 ]]
+    [[ "$output" == "|$proj/package.json|Using engines.node from package.json" ]]
+}
+
+@test "npm: resolve_node_version: falls back to wrangle default when no version source" {
+    # No .nvmrc, no engines.node, no input — setup-node would otherwise
+    # emit a confusing "no version found" error. The fallback prevents that.
+    local proj="$BATS_TEST_TMPDIR/proj"
+    write_pkg_json "$proj"
+    run bash -c 'source "$1"; resolve_node_version "$2" "$3"' -- \
+        "$ACTION_DIR/detect_tooling.sh" "" "$proj"
+    [[ "$status" -eq 0 ]]
+    # Format: "<version>||<reason mentioning the default>".
+    [[ "$output" == *"||"* ]]
+    [[ "$output" == *"falling back to wrangle default Node"* ]]
+    # The version field must be a bare integer (the WRANGLE_DEFAULT_NODE).
+    [[ "${output%%|*}" =~ ^[0-9]+$ ]]
+}
+
+@test "npm: resolve_pm_cache: npm-only project -> 'npm|npm' (cache safe with npm ci)" {
+    # npm ci re-validates cached tarball integrity on every install,
+    # so caching is safe.
+    local proj="$BATS_TEST_TMPDIR/proj"
+    write_pkg_json "$proj"
+    : > "$proj/package-lock.json"
+    run bash -c 'source "$1"; resolve_pm_cache "$2"' -- \
+        "$ACTION_DIR/detect_tooling.sh" "$proj"
+    [[ "$status" -eq 0 ]]
+    [[ "$output" == "npm|npm" ]]
+}
+
+@test "npm: resolve_pm_cache: pnpm project -> 'pnpm|' (cache deliberately EMPTY, issue #205)" {
+    # pnpm-store has no install-time integrity re-verification, so wrangle
+    # MUST NOT enable setup-node caching for the pnpm path — that's the
+    # Mini Shai-Hulud / TanStack May 2026 cache-poisoning vector. The
+    # empty second field tells setup-node to skip caching entirely.
+    local proj="$BATS_TEST_TMPDIR/proj"
+    write_pkg_json "$proj"
+    : > "$proj/pnpm-lock.yaml"
+    run bash -c 'source "$1"; resolve_pm_cache "$2"' -- \
+        "$ACTION_DIR/detect_tooling.sh" "$proj"
+    [[ "$status" -eq 0 ]]
+    [[ "$output" == "pnpm|" ]]
+    # Belt-and-braces: the second field must be empty, not any non-empty
+    # cache value. A regression to "pnpm|pnpm" would re-open issue #205.
+    [[ "${output#*|}" == "" ]]
+}
+
+# --- detect_tooling.sh end-to-end glue test ---
+
+@test "npm: detect_tooling.sh writes all four expected lines to GITHUB_OUTPUT" {
+    # One end-to-end test that the script wires the pure functions to
+    # GITHUB_OUTPUT correctly. The branches themselves are covered by
+    # the pure-function tests above; this just guards the glue.
+    local proj="$BATS_TEST_TMPDIR/proj"
+    write_pkg_json "$proj"
+    : > "$proj/package-lock.json"
+    run "$ACTION_DIR/detect_tooling.sh" "$proj" ""
+    [[ "$status" -eq 0 ]]
+    grep -qE '^effective-version=[0-9]+$' "$GITHUB_OUTPUT"
+    grep -qE '^effective-version-file=$' "$GITHUB_OUTPUT"
+    grep -qE '^package-manager=npm$' "$GITHUB_OUTPUT"
+    grep -qE '^cache=npm$' "$GITHUB_OUTPUT"
+}
+
+@test "npm: detect_tooling.sh usage error with wrong arg count" {
+    run "$ACTION_DIR/detect_tooling.sh"
+    [[ "$status" -ne 0 ]]
+    [[ "$output" == *"Usage:"* ]]
+}
+
+# --- build_and_pack.sh pure-function tests ---
+#
+# detect_pm, has_build_script, has_real_test_script, and find_one_tarball
+# are pure — args in → stdout/exit out. Tests source the script and call
+# them directly. No npm/pnpm shim needed for any of these.
+
+@test "npm: detect_pm: returns npm for a package-lock.json project" {
+    local proj="$BATS_TEST_TMPDIR/proj"
+    write_pkg_json "$proj"
+    : > "$proj/package-lock.json"
+    run bash -c 'source "$1"; detect_pm "$2"' -- \
+        "$ACTION_DIR/build_and_pack.sh" "$proj"
+    [[ "$status" -eq 0 ]]
+    [[ "$output" == "npm" ]]
+}
+
+@test "npm: detect_pm: returns pnpm for a pnpm-lock.yaml project" {
+    local proj="$BATS_TEST_TMPDIR/proj"
+    write_pkg_json "$proj"
+    : > "$proj/pnpm-lock.yaml"
+    run bash -c 'source "$1"; detect_pm "$2"' -- \
+        "$ACTION_DIR/build_and_pack.sh" "$proj"
+    [[ "$status" -eq 0 ]]
+    [[ "$output" == "pnpm" ]]
+}
+
+@test "npm: has_build_script: true when package.json declares scripts.build" {
+    local proj="$BATS_TEST_TMPDIR/proj"
+    write_pkg_json "$proj" '{"scripts":{"build":"true"}}'
+    run bash -c 'source "$1"; has_build_script "$2"' -- \
+        "$ACTION_DIR/build_and_pack.sh" "$proj"
+    [[ "$status" -eq 0 ]]
+}
+
+@test "npm: has_build_script: false when package.json has no scripts.build" {
+    local proj="$BATS_TEST_TMPDIR/proj"
+    write_pkg_json "$proj"
+    run bash -c 'source "$1"; has_build_script "$2"' -- \
+        "$ACTION_DIR/build_and_pack.sh" "$proj"
+    [[ "$status" -ne 0 ]]
+}
+
+@test "npm: has_build_script: false when scripts field is explicit null (null-safe jq)" {
+    # The `(.scripts // {})` guard protects against `"scripts": null`. A
+    # regression to `.scripts | has(...)` would crash on this fixture.
+    local proj="$BATS_TEST_TMPDIR/proj"
+    write_pkg_json "$proj" '{"scripts":null}'
+    run bash -c 'source "$1"; has_build_script "$2"' -- \
+        "$ACTION_DIR/build_and_pack.sh" "$proj"
+    [[ "$status" -ne 0 ]]
+}
+
+@test "npm: has_real_test_script: true for a custom test script" {
+    local proj="$BATS_TEST_TMPDIR/proj"
+    write_pkg_json "$proj" '{"scripts":{"test":"jest"}}'
+    run bash -c 'source "$1"; has_real_test_script "$2"' -- \
+        "$ACTION_DIR/build_and_pack.sh" "$proj"
+    [[ "$status" -eq 0 ]]
+}
+
+@test "npm: has_real_test_script: false for npm's default 'no test specified' stub" {
+    # The default stub exits 1 — an adopter who never ran `npm init` and
+    # has the default test must not have wrangle invoke it. Substring
+    # match so future-npm wording tweaks don't re-enable the no-op.
+    local proj="$BATS_TEST_TMPDIR/proj"
+    write_pkg_json "$proj" \
+        '{"scripts":{"test":"echo \"Error: no test specified\" && exit 1"}}'
+    run bash -c 'source "$1"; has_real_test_script "$2"' -- \
+        "$ACTION_DIR/build_and_pack.sh" "$proj"
+    [[ "$status" -ne 0 ]]
+}
+
+@test "npm: has_real_test_script: false when no test script is declared" {
+    local proj="$BATS_TEST_TMPDIR/proj"
+    write_pkg_json "$proj"
+    run bash -c 'source "$1"; has_real_test_script "$2"' -- \
+        "$ACTION_DIR/build_and_pack.sh" "$proj"
+    [[ "$status" -ne 0 ]]
+}
+
+@test "npm: find_one_tarball: prints the lone filename, stripped of dist/ prefix" {
+    local proj="$BATS_TEST_TMPDIR/proj"
+    mkdir -p "$proj/dist"
+    : > "$proj/dist/mypkg-2.3.4.tgz"
+    run bash -c 'source "$1"; find_one_tarball "$2"' -- \
+        "$ACTION_DIR/build_and_pack.sh" "$proj"
+    [[ "$status" -eq 0 ]]
+    [[ "$output" == "mypkg-2.3.4.tgz" ]]
+}
+
+@test "npm: find_one_tarball: errors when dist/ has zero tarballs" {
+    # The post-pack count check catches a regressed pack flag (e.g., a
+    # wrong --pack-destination) that lands the tarball outside dist/.
+    # Without it, the action would proceed to hash an empty set.
+    local proj="$BATS_TEST_TMPDIR/proj"
+    mkdir -p "$proj/dist"
+    run bash -c 'source "$1"; find_one_tarball "$2"' -- \
+        "$ACTION_DIR/build_and_pack.sh" "$proj"
+    [[ "$status" -ne 0 ]]
+    [[ "$output" == *"expected exactly 1 tarball"* ]]
+}
+
+@test "npm: find_one_tarball: errors when dist/ has more than one tarball" {
+    # Future-proofs against a workspaces regression (caught earlier by
+    # validate_inputs.sh, but defense in depth).
+    local proj="$BATS_TEST_TMPDIR/proj"
+    mkdir -p "$proj/dist"
+    : > "$proj/dist/a-1.0.0.tgz"
+    : > "$proj/dist/b-1.0.0.tgz"
+    run bash -c 'source "$1"; find_one_tarball "$2"' -- \
+        "$ACTION_DIR/build_and_pack.sh" "$proj"
+    [[ "$status" -ne 0 ]]
+    [[ "$output" == *"expected exactly 1 tarball"* ]]
+}
+
+# --- build_and_pack.sh integration tests (orchestration via PATH shim) ---
+#
+# Only the pipeline orchestration — what gets called, in what order, with
+# which flags — still needs an npm/pnpm shim. The branching logic is
+# covered above by the pure-function tests, so this layer is small.
+
+@test "npm: build_and_pack.sh end-to-end npm pipeline: ci → build → test → pack → tarball=" {
+    local proj="$BATS_TEST_TMPDIR/proj"
+    write_pkg_json "$proj" '{"scripts":{"build":"true","test":"jest"}}'
+    : > "$proj/package-lock.json"
+    PATH="$SHIM_DIR:$PATH" run "$ACTION_DIR/build_and_pack.sh" "$proj" "true" "false"
+    [[ "$status" -eq 0 ]]
+    # Anchored line-by-line check: the shim echoes its argv on its own
+    # line, so anchoring rules out matches inside status messages.
+    grep -qE '^npm ci$' <<<"$output"
+    grep -qE '^npm run build$' <<<"$output"
+    grep -qE '^npm test$' <<<"$output"
+    grep -qE '^npm pack --pack-destination dist$' <<<"$output"
+    # No pnpm invocations should leak into the npm path.
+    ! grep -qE '^pnpm ' <<<"$output"
+    grep -q '^tarball=x-1.0.0.tgz$' "$GITHUB_OUTPUT"
+}
+
+@test "npm: build_and_pack.sh end-to-end pnpm pipeline: install → build → test → pack" {
+    local proj="$BATS_TEST_TMPDIR/proj"
+    write_pkg_json "$proj" '{"scripts":{"build":"true","test":"vitest"}}'
+    : > "$proj/pnpm-lock.yaml"
+    PATH="$SHIM_DIR:$PATH" run "$ACTION_DIR/build_and_pack.sh" "$proj" "true" "false"
+    [[ "$status" -eq 0 ]]
+    grep -qE '^pnpm install --frozen-lockfile$' <<<"$output"
+    grep -qE '^pnpm run build$' <<<"$output"
+    grep -qE '^pnpm test$' <<<"$output"
+    grep -qE '^pnpm pack --pack-destination dist$' <<<"$output"
+    # No npm invocations should leak into the pnpm path.
+    ! grep -qE '^npm ' <<<"$output"
+}
+
+@test "npm: build_and_pack.sh works with a RELATIVE subdir path (regression: PR #236 cd-doubling)" {
+    # The original refactor of #236 called the pure helpers with
+    # $input_path AFTER `cd "$input_path"`, so jq looked for
+    # $input_path/$input_path/package.json. `set -e` does not propagate
+    # into command-substitution subshells, so has_*_script silently
+    # returned false — build and test were skipped and the action still
+    # exited 0. Absolute-path test fixtures hid the bug because
+    # `cd /abs/path` from any cwd resolves to the same place.
+    #
+    # This test invokes the script from a parent dir with the project
+    # as a RELATIVE subdir name, the same shape an adopter using
+    # `path: src` would hit.
+    local proj="$BATS_TEST_TMPDIR/parent/src"
+    write_pkg_json "$proj" '{"scripts":{"build":"true","test":"jest"}}'
+    : > "$proj/package-lock.json"
+    cd "$BATS_TEST_TMPDIR/parent"
+    PATH="$SHIM_DIR:$PATH" run "$ACTION_DIR/build_and_pack.sh" "src" "true" "false"
+    [[ "$status" -eq 0 ]]
+    # The smoking-gun symptoms: build and test must have actually run,
+    # and the jq path-not-found error must not appear.
+    grep -qE '^npm run build$' <<<"$output"
+    grep -qE '^npm test$' <<<"$output"
+    ! grep -qE 'Could not open file' <<<"$output"
+    [[ "$output" != *"No build script in package.json"* ]]
+    [[ "$output" != *"No non-default test script"* ]]
+    grep -q '^tarball=x-1.0.0.tgz$' "$GITHUB_OUTPUT"
+}
+
+@test "npm: build_and_pack.sh threads --ignore-scripts through install AND pack" {
+    # ignore-scripts means NO package.json script runs — not just transitive
+    # hooks. Both install and pack must carry the flag, and `run build` /
+    # `test` must be skipped entirely (no shim echo for either).
+    local proj="$BATS_TEST_TMPDIR/proj"
+    write_pkg_json "$proj" '{"scripts":{"build":"true","test":"jest"}}'
+    : > "$proj/package-lock.json"
+    PATH="$SHIM_DIR:$PATH" run "$ACTION_DIR/build_and_pack.sh" "$proj" "true" "true"
+    [[ "$status" -eq 0 ]]
+    grep -qE '^npm ci --ignore-scripts$' <<<"$output"
+    grep -qE '^npm pack --pack-destination dist --ignore-scripts$' <<<"$output"
+    ! grep -qE '^npm run build$' <<<"$output"
+    ! grep -qE '^npm test$' <<<"$output"
+    [[ "$output" == *"Skipping npm run build and npm test"* ]]
+}
+
+@test "npm: build_and_pack.sh usage error with wrong arg count" {
+    run "$ACTION_DIR/build_and_pack.sh"
+    [[ "$status" -ne 0 ]]
+    [[ "$output" == *"Usage:"* ]]
 }
 
 # --- Reusable workflow structural tests ---
