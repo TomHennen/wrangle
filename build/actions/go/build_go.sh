@@ -27,10 +27,19 @@
 #
 # Failure semantics:
 #   - gofmt/vet/test failures fail the build (these are quality gates).
-#   - govulncheck failures (reachable vulns) currently fail the build
-#     too. Adopters who want to opt out per-finding can use
-#     govulncheck's own -mode flag in their CI; wrangle's posture is
-#     block-by-default for security findings.
+#   - govulncheck findings (reachable vulns) are INFORMATIONAL: written
+#     to the metadata artifact and surfaced in the step summary, but do
+#     NOT fail the build. This matches OSV-Scanner's posture in
+#     actions/scan (also informational by default). Two reasons for
+#     this choice: (1) stdlib reachability findings are common and
+#     would force every adopter to chase Go patch releases on the same
+#     cadence wrangle bumps its own goreleaser pin, which is a real
+#     maintenance burden for a property orthogonal to the build's
+#     correctness; (2) consumers of the L3 attestation can re-scan the
+#     released bytes themselves — the SBOM and the source tree are
+#     enough for an out-of-band govulncheck run. Adopters who want a
+#     blocking gate can wire govulncheck in their own preflight or
+#     opt into the same posture in a future wrangle input.
 #
 # Output: writes govulncheck JSON to $METADATA_DIR/govulncheck.json so
 # adopters can see what was scanned without re-running.
@@ -94,22 +103,29 @@ go install "golang.org/x/vuln/cmd/govulncheck@${GOVULNCHECK_VERSION}"
 mkdir -p "$METADATA_DIR_ABS"
 GOVULN_OUT="$METADATA_DIR_ABS/govulncheck.json"
 
-# govulncheck exits non-zero when reachable vulns are found. -json
-# emits structured output for the metadata artifact; we tee to capture
-# both human-readable status (via the post-process) and the JSON.
-# `set -e` will trip on the non-zero exit, blocking the rest of the
-# step; that's the intended block-by-default posture.
+# govulncheck -json always exits 0 when the scan completes successfully
+# (findings or not); non-zero from -json means a tool error (network,
+# infra). Findings are detected by parsing the JSON for "finding"
+# entries. We deliberately do NOT block the build on findings (see
+# header comment) — only on tool errors.
 set +e
 "$GOBIN/govulncheck" -json ./... > "$GOVULN_OUT"
 status=$?
 set -e
 
 if (( status != 0 )); then
-    printf 'govulncheck reported reachable vulnerabilities (exit %d).\n' "$status"
-    printf 'JSON output: %s\n' "$GOVULN_OUT"
-    # shellcheck disable=SC2016 # backticks here are human-readable formatting, not command substitution
-    printf 'Re-run locally with `govulncheck ./...` for human-readable findings.\n'
+    printf 'govulncheck: tool error (exit %d). JSON output: %s\n' "$status" "$GOVULN_OUT" >&2
     exit "$status"
 fi
 
-printf 'govulncheck: no reachable vulnerabilities.\n'
+# Each finding emits a JSON object containing a `"finding"` key in
+# govulncheck's -json stream. Count them; report a summary.
+findings="$(grep -c '"finding"' "$GOVULN_OUT" 2>/dev/null || true)"
+if [[ -z "$findings" || "$findings" == "0" ]]; then
+    printf 'govulncheck: no reachable vulnerabilities.\n'
+else
+    printf 'govulncheck: %s reachable vulnerability finding(s) (informational; not failing the build).\n' "$findings"
+    printf 'JSON output: %s\n' "$GOVULN_OUT"
+    # shellcheck disable=SC2016 # backticks here are human-readable formatting, not command substitution
+    printf 'Re-run locally with `govulncheck ./...` for human-readable findings.\n'
+fi
