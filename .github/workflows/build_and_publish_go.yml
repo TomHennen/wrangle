@@ -168,7 +168,7 @@ jobs:
       # workflow update together per CLAUDE.md "Action Reference Pinning").
       # A follow-up "Bump self-ref pins" PR repoints to the squashed merge
       # SHA after this lands, matching #227 / #233.
-      - uses: TomHennen/wrangle/build/actions/go@75e9e50887c988fff5ba1bf4b775ebfc55327bc1 # PR #238 HEAD before this revision; bump-self-refs follow-up updates after merge
+      - uses: TomHennen/wrangle/build/actions/go@43e0d738c051cfdb668db474ebe2d43218a31db0 # PR #238 HEAD after Gemini review; bump-self-refs follow-up updates after merge
         id: build
         with:
           path: ${{ inputs.path }}
