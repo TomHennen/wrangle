@@ -97,7 +97,9 @@ with:
 
 ## SLSA provenance verification (default-on, opt-out)
 
-Wrangle's reusable workflow generates non-falsifiable SLSA L3 build provenance via `slsa-github-generator` and runs `slsa-verifier verify-artifact` against the just-built dist as a post-publish check. Verification runs **after** goreleaser's inline publish — the artifacts are already on the GitHub Release at this point, but the provenance attests content-addressed hashes, so verification still works the same way it would pre-publish. A failure here surfaces loudly in CI even if the bad bytes have already been uploaded; in practice it would mean the SLSA generator's hashes don't match the bytes wrangle handed it, which is a tooling regression worth flagging. To opt out (e.g., custom verification flow), pass `verify-provenance: false`.
+Wrangle's reusable workflow generates non-falsifiable SLSA L3 build provenance via `slsa-github-generator` and runs `slsa-verifier verify-artifact` against the just-built dist as a post-publish check.
+
+**The verify step is informational, not a gate.** Goreleaser has already created the GitHub Release by the time verify runs — verify failing does not retract the released artifacts. What verify catches is a tooling regression: a mismatch between the bytes the SLSA generator signed and the bytes goreleaser put on the release would surface here loudly, signaling that something in the pipeline (wrangle's hash step, the generator's signing flow, or goreleaser's archive step) drifted. In practice the hashes match because both branches operate on the same `dist/checksums.txt`. To opt out (e.g., custom verification flow), pass `verify-provenance: false`.
 
 The small window between goreleaser's publish and the provenance arriving on the release is the same trade wrangle's container build type makes (`docker push` then `slsa-github-generator` provenance). Consumers who download in the window can verify once the attestation lands; hashes are content-addressed, so the order of arrival doesn't change verification semantics.
 

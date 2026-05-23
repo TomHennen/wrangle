@@ -84,13 +84,20 @@ if [[ "$RUN_GOFMT" == "true" ]]; then
     # auto-skips those — adopters with generated code rarely need to
     # disable the gofmt check via run-gofmt-check: false.
     unformatted=""
+    # gofmt -l writes filenames to stdout. Errors (syntax errors in
+    # source files) go to stderr; we let those propagate to the step
+    # log rather than merging them into the filename stream, where
+    # they'd look like nonexistent files in the loop below and surface
+    # as a confusing "this file is not gofmt-clean" listing the
+    # syntax-error line. go vet (next) catches the syntax error itself
+    # with a clear message.
     while read -r f; do
         [[ -n "$f" ]] || continue
         if [[ -f "$f" ]] && head -3 "$f" 2>/dev/null | grep -qE '^// Code generated .* DO NOT EDIT\.$'; then
             continue
         fi
         unformatted+="$f"$'\n'
-    done < <(gofmt -l . 2>&1 || true)
+    done < <(gofmt -l . || true)
     # Trim the trailing newline so the empty-string check below is meaningful.
     unformatted="${unformatted%$'\n'}"
     if [[ -n "$unformatted" ]]; then
