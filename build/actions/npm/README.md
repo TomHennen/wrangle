@@ -14,11 +14,11 @@ This README documents shipped behavior. For the full design (attestation model, 
 
 ## Before first use
 
-Complete in order — step 1 requires an `NPM_TOKEN` that step 3 then disallows.
+Complete in order. Step 1 only applies to brand-new packages; migrating an existing package skips straight to step 2.
 
-1. **Bootstrap the first version manually.** npm Trusted Publishing can't publish a package's *first* version ([npm/cli#8544](https://github.com/npm/cli/issues/8544)). Run `npm publish` once from a maintainer's terminal with an `NPM_TOKEN` to mint v0.0.1 (or whatever your initial version is). Skip this and the first workflow run fails with a non-obvious "package not found".
+1. **Brand-new package — bootstrap the first version manually.** npm Trusted Publishing can't publish a package's *first* version ([npm/cli#8544](https://github.com/npm/cli/issues/8544)) — unlike PyPI, npm has no "pending publisher" flow. Run `npm publish` once from a maintainer's terminal with an `NPM_TOKEN` to mint v0.0.1 (or whatever your initial version is). Skip this and the first workflow run fails with a non-obvious "package not found". (If you're migrating an already-published package, skip this step.)
 2. **Configure the trusted publisher.** npmjs.com → your package → Settings → Trusted publishing. Pin: GitHub repo, workflow filename (`build_npm.yml`), optionally an environment.
-3. **Enable "Require two-factor authentication and disallow tokens"** on the package (Settings → Publishing access). This blocks all classic / granular publish tokens, leaving Trusted Publishing's OIDC flow as the only publish path. **Without this, a stolen token bypasses your CI entirely** — the attack vector behind the May 2026 mistralai / guardrails-ai and December 2024 ultralytics compromises, where attackers shipped malware by pushing directly to the registry, never triggering the legitimate workflow. After enabling, revoke the bootstrap `NPM_TOKEN`.
+3. **Enable "Require two-factor authentication and disallow tokens"** on the package (Settings → Publishing access). This blocks all classic / granular publish tokens, leaving Trusted Publishing's OIDC flow as the only publish path. **Without this, a stolen token bypasses your CI entirely** — the attack vector behind the May 2026 mistralai / guardrails-ai and December 2024 ultralytics compromises, where attackers shipped malware by pushing directly to the registry, never triggering the legitimate workflow. After enabling, revoke any token you used for step 1 (or any token migrating from your pre-Trusted-Publishing setup).
 
 ## Build Track level
 
