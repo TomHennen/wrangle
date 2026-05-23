@@ -74,7 +74,7 @@ The `build/actions/` directory is the extensibility point for different project 
 | Container | `build/actions/container/` | Docker build, SBOM, sign, push | v0.1 (exists) |
 | Python | `build/actions/python/` | Build wheel/sdist, generate SBOM, publish to PyPI | Future |
 | npm | `build/actions/npm/` | Build, generate SBOM, publish to npm registry | Future |
-| Go | `build/actions/go/` | Build binary, generate SBOM, publish to GitHub Releases | Future |
+| Go | `build/actions/go/` | Goreleaser-driven binary build, gofmt/vet/test/govulncheck, SBOM, publish to GitHub Releases (wrangle owns publish — no caller-bound OIDC constraint) | v0.2 |
 | Generic | `build/actions/generic/` | Run user-defined build command, generate SBOM | Future |
 
 Each build type follows the same pattern:
@@ -239,7 +239,7 @@ Two conditions narrow every Build L3 claim:
 - **Reusable consumption only.** The verdict assumes the adopter consumes wrangle through one of wrangle's reusable workflows. Calling a `build/actions/<type>` composite directly from an adopter-authored job forfeits the build-vs-sign job separation and is **not** a supported L3 path.
 - **GitHub-hosted runners only.** Self-hosted runners invalidate the ephemeral-build-environment assumption the L3 verdicts depend on.
 
-**Cache isolation is part of the L3 claim.** SLSA v1.2's "Isolated" requirement states the output of a build MUST be identical whether or not a cache is used. Two of wrangle's cache surfaces — the container path's BuildKit `type=gha` cache and the python-uv sub-path's uv cache — are shared cross-build via GitHub's cache service and are not re-verified on cache hits, so a release build must not consume them. Each of those two workflows gates its build cache on the same `should-release` signal that gates provenance: release builds (`should-release == 'true'`) build cache-free; PR builds keep caching for fast iteration, since they produce no attested artifact. The npm sub-path keeps its cache in both contexts because `npm ci` re-verifies every cached tarball against the lockfile on install; the pnpm sub-path and the python-pip sub-path consume no cross-build cache at all. See [`docs/SLSA_L3_AUDIT.md`](SLSA_L3_AUDIT.md) Findings 1 and 2 and its "Release-vs-PR build asymmetry" section.
+**Cache isolation is part of the L3 claim.** SLSA v1.2's "Isolated" requirement states the output of a build MUST be identical whether or not a cache is used. Three of wrangle's cache surfaces — the container path's BuildKit `type=gha` cache, the python-uv sub-path's uv cache, and the Go path's `actions/setup-go` module + build caches — are shared cross-build via GitHub's cache service and are not re-verified on cache hits in a way that defeats a cache-scope attacker, so a release build must not consume them. Each of those three workflows gates its build cache on the same `should-release` signal that gates provenance: release builds (`should-release == 'true'`) build cache-free; PR builds keep caching for fast iteration, since they produce no attested artifact. The npm sub-path keeps its cache in both contexts because `npm ci` re-verifies every cached tarball against the lockfile on install; the pnpm sub-path and the python-pip sub-path consume no cross-build cache at all. See [`docs/SLSA_L3_AUDIT.md`](SLSA_L3_AUDIT.md) Findings 1 and 2 and its "Release-vs-PR build asymmetry" section.
 
 ## Architecture
 

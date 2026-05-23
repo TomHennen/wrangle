@@ -63,11 +63,11 @@ The stale `cyclonedx-gomod` reference in [`docs/docker_best_practices.md`](../..
 
 GitHub's [`actions/attest@v4`](https://github.com/actions/attest) (used by [`goreleaser`'s own release workflow](https://github.com/goreleaser/goreleaser/blob/main/.github/workflows/release.yml), invoked twice — once over `dist/checksums.txt`, once over Docker digests) emits `slsa.dev/provenance/v1` predicates today, but lacks the L3-isolated-builder property and doesn't compose with wrangle's metadata layout — same reason wrangle's container, python, and npm specs don't use it.
 
-### Linting — `gofmt` + `golangci-lint` in source scans
+### Linting — `gofmt` + `golangci-lint` in source scans (tracked under #194; build-action stop-gap shipped)
 
 `gofmt` is mandatory (built into the Go toolchain); CI typically runs `gofmt -l .` and fails if the output is non-empty. [`golangci-lint`](https://golangci-lint.run/) is the canonical aggregator (vet, staticcheck, errcheck, ineffassign, unused, etc.), used by the goreleaser repo, slsa-verifier, oras, and most production Go projects.
 
-Lint runs in **wrangle's source-scan stage** (`actions/scan`), alongside OSV/Zizmor/Scorecard, not in the build action. This is the wrangle-wide convention — same placement npm picks, and python and container should adopt source-stage lint in the same iteration. Build-stage lint creates duplicated invocations and conflicts with PRs that intentionally block on lint at the source level.
+The wrangle-wide convention is **source-stage lint** (in `actions/scan` alongside OSV/Zizmor/Scorecard, not in the build action) — same placement npm picks. Wiring language-specific linters into `actions/scan` is tracked across the build types under [#194](https://github.com/TomHennen/wrangle/issues/194); Go fits the same shape (`gofmt` + `golangci-lint`) as the npm entry that issue currently scopes. Until #194 lands, the Go *build action* runs `gofmt -l .` (fail if non-empty) and `go vet ./...` as cheap toolchain-bundled gates — they don't produce SARIF and don't fold into the unified metadata layout, but they prevent the egregious "wrangle let unformatted code ship" failure mode that `go build` / `go test` / `goreleaser` would otherwise miss (none of those tools enforce `gofmt`). When source-stage lint lands, these build-action gates can be removed.
 
 ### Tests — `go test ./...` before build
 
@@ -86,6 +86,17 @@ Goreleaser exposes both via `builds.flags`; the wrangle action should set them b
 
 Under the generic generator (the pick) wrangle's test step and wrangle's hash step both run against the same bytes goreleaser produced in the same job, so reproducibility isn't needed to close a wrangle-vs-builder gap (the ecosystem-specific-builder gap doesn't apply here). The published artifact IS the binary consumers run — they don't typically rebuild from source. Reproducibility's primary value is **for security audits and SLSA verification chains** that want to confirm "the bytes the provenance attests came from this source," not for routine consumer use. The two zero-cost flags pay for themselves; cgo-disabling doesn't.
 
+### Cache isolation — release-vs-PR asymmetry applies to Go
+
+`actions/setup-go` enables two caches by default, both restored from GitHub's cache service with the standard branch-scoped rules. The two have different re-verification properties:
+
+- **`$GOPATH/pkg/mod` (module cache).** Holds downloaded module source. The Go toolchain re-verifies cached modules against the project's checked-in `go.sum` on every load — same trust model as `npm ci` re-verifying tarballs against `package-lock.json`. `go.sum` is in the source tree the SLSA generator is attesting, so a poisoned cache entry whose hash doesn't match `go.sum` is rejected at module load time. This is structurally npm-like ("MEETS WITH PRECONDITION" per the audit's terminology), **not** uv-like.
+- **`~/.cache/go-build` (build cache).** Holds compiled object files keyed by a content fingerprint over inputs (source files, compiler flags). If an attacker plants an entry with a legitimate fingerprint but malicious compiled output, the toolchain uses the cached output without re-deriving. There is no checked-in source-of-truth hash to compare against (unlike `go.sum` for modules), so the cache contents are trusted on hit. **This is the load-bearing GAP** — structurally the same shape as the uv-cache GAP in [`docs/SLSA_L3_AUDIT.md`](../../../docs/SLSA_L3_AUDIT.md) Finding 1: pre-stored compiled output is trusted on cache hits.
+
+The conservative posture for L3 isolation is the **release-vs-PR cache asymmetry pattern** established in #226: PR builds keep both caches enabled (fast iteration, no L3 attestation produced); release builds disable both via `actions/setup-go`'s `cache: false`, so the bytes the SLSA generator signs derive without consulting the unverified build cache. Disabling the module cache alongside is technically unnecessary for L3 (it re-verifies on use) but is cheap and avoids a setup-go knob that only disables one of the two — `cache: false` covers both. The Go build composite exposes a `cache: enabled|disabled` input that the reusable workflow flips on `should-release`, identical in shape to python's uv-cache gating. Direct callers of the composite (not a supported L3 path) get caching by default; they aren't claiming L3 provenance.
+
+This adds Go alongside python-uv and container as the third release-cache-disabled path; [`docs/SLSA_L3_AUDIT.md`](../../../docs/SLSA_L3_AUDIT.md) gets a per-builder verdict update when the Go implementation lands.
+
 ### Authentication — `GITHUB_TOKEN` only
 
 Publishing to GitHub Releases requires `contents: write` (the same permission `slsa-github-generator`'s `upload-assets` job requires anyway, and the same one python's caller already grants). No external registry credentials, no Trusted Publisher to configure, no API tokens. This is the simplest auth model of any artifact-producing build type.
@@ -94,16 +105,11 @@ The permission cascade lesson from python ([HOW_TO_ADD_A_BUILD_TYPE.md "Permissi
 
 `pkg.go.dev` indexing is automatic — `proxy.golang.org` discovers tags within minutes of `git push --tags`. No publish step, no auth.
 
-## Validation-only sub-shape (non-binary repos)
+## Validation-only sub-shape (non-binary repos) — deferred to v0.2.x
 
-Library-only modules and `go install`-pattern repos that don't produce a binary at release time are *not* out of scope. Wrangle still adds value: SBOM (`syft dir:.` against the source tree), `go test ./...`, vulnscan via `osv-scanner` against `go.sum` (or `govulncheck` as a Go-aware alternative), and lint (`gofmt`, `golangci-lint`). What it does NOT add is SLSA build provenance — there's no build artifact wrangle produces, so there's nothing to attest. `sum.golang.org`'s tlog already serves source integrity for `go install`-style consumers, and SLSA source-track attestations (a separate workstream) cover the orthogonal "this tag was reviewed/tested/scanned by my CI" property a future adopter might want.
+Library-only modules and `go install`-pattern repos that don't produce a binary at release time are *not* permanently out of scope. The value-add wrangle would offer them — SBOM (`syft dir:.` against the source tree), `go test ./...`, vulnscan via `osv-scanner` against `go.sum` (or `govulncheck` as a Go-aware alternative), and lint (`gofmt`, `golangci-lint`) — is real, and the surface is structurally similar to wrangle's existing `shell` build type (validation-only, no artifact, no provenance). What this sub-shape doesn't add is SLSA build provenance — there's no build artifact wrangle produces, so there's nothing to attest; `sum.golang.org`'s tlog already serves source integrity for `go install`-style consumers, and SLSA source-track attestations (a separate workstream) cover the "this tag was reviewed/tested/scanned by my CI" property orthogonally.
 
-This sub-shape is structurally similar to wrangle's existing `shell` build type — validation-only, no artifact, no provenance. The implementation could either:
-
-- Live as a `mode:` input on the Go build type (`mode: binary` vs. `mode: validate-only`, auto-detected from `.goreleaser.yml` presence), or
-- Live as a separate `build/actions/go-validate/` action.
-
-The first option is simpler and avoids a directory split for what's essentially the same set of source-stage checks. Recommend deciding in the implementation PR; either is workable.
+**v0.1 ships binary mode only.** `validate_inputs.sh` rejects any project without a `.goreleaser.yml` (or `.goreleaser.yaml`). Adopters who fit the validation-only shape need to wait or wire `syft`/`go test`/`osv-scanner` from their own workflow against the existing wrangle adapters in the meantime. Implementation of the sub-shape (likely a `mode:` input on the Go build type — `mode: binary` vs. `mode: validate-only`, auto-detected from `.goreleaser.yml` presence — rather than a sibling `build/actions/go-validate/` directory) is tracked for a v0.2.x point release. To be filed as a follow-up issue.
 
 ## ko / container builds
 
