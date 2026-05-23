@@ -640,6 +640,34 @@ write_pkg_json() {
     ! grep -qE '^npm ' <<<"$output"
 }
 
+@test "npm: build_and_pack.sh works with a RELATIVE subdir path (regression: PR #236 cd-doubling)" {
+    # The original refactor of #236 called the pure helpers with
+    # $input_path AFTER `cd "$input_path"`, so jq looked for
+    # $input_path/$input_path/package.json. `set -e` does not propagate
+    # into command-substitution subshells, so has_*_script silently
+    # returned false — build and test were skipped and the action still
+    # exited 0. Absolute-path test fixtures hid the bug because
+    # `cd /abs/path` from any cwd resolves to the same place.
+    #
+    # This test invokes the script from a parent dir with the project
+    # as a RELATIVE subdir name, the same shape an adopter using
+    # `path: src` would hit.
+    local proj="$BATS_TEST_TMPDIR/parent/src"
+    write_pkg_json "$proj" '{"scripts":{"build":"true","test":"jest"}}'
+    : > "$proj/package-lock.json"
+    cd "$BATS_TEST_TMPDIR/parent"
+    PATH="$SHIM_DIR:$PATH" run "$ACTION_DIR/build_and_pack.sh" "src" "true" "false"
+    [[ "$status" -eq 0 ]]
+    # The smoking-gun symptoms: build and test must have actually run,
+    # and the jq path-not-found error must not appear.
+    grep -qE '^npm run build$' <<<"$output"
+    grep -qE '^npm test$' <<<"$output"
+    ! grep -qE 'Could not open file' <<<"$output"
+    [[ "$output" != *"No build script in package.json"* ]]
+    [[ "$output" != *"No non-default test script"* ]]
+    grep -q '^tarball=x-1.0.0.tgz$' "$GITHUB_OUTPUT"
+}
+
 @test "npm: build_and_pack.sh threads --ignore-scripts through install AND pack" {
     # ignore-scripts means NO package.json script runs — not just transitive
     # hooks. Both install and pack must carry the flag, and `run build` /

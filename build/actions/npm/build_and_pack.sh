@@ -121,10 +121,10 @@ has_real_test_script() {
 # Args: <project_dir>
 find_one_tarball() {
     local path="$1"
-    local tarballs
     (
         cd "$path"
         shopt -s nullglob
+        local -a tarballs
         tarballs=(dist/*.tgz)
         if (( ${#tarballs[@]} != 1 )); then
             printf 'Error: expected exactly 1 tarball in dist/, found %d:\n' "${#tarballs[@]}" >&2
@@ -153,6 +153,22 @@ main() {
     pm="$(detect_pm "$input_path")"
     printf 'Package manager: %s\n' "$pm"
 
+    # Capture the build/test gating decisions BEFORE the cd so the pure
+    # helpers see the caller's-cwd-relative $input_path unambiguously.
+    # A relative path like `path: src` would otherwise resolve to
+    # `src/src/package.json` after the cd, jq would fail in a command-
+    # substitution subshell where `set -e` does not propagate, and
+    # has_*_script would silently return false — building and testing
+    # nothing while still attesting "we built this from src/". See
+    # PR #236 review for the reproduction.
+    local will_build=0 will_test=0
+    if [[ "$ignore_scripts" != "true" ]]; then
+        if has_build_script "$input_path"; then will_build=1; fi
+        if [[ "$run_tests" == "true" ]] && has_real_test_script "$input_path"; then
+            will_test=1
+        fi
+    fi
+
     cd "$input_path"
 
     local -a ignore_scripts_args=()
@@ -172,7 +188,7 @@ main() {
     if [[ "$ignore_scripts" == "true" ]]; then
         printf 'Skipping %s run build and %s test (ignore-scripts=true)\n' "$pm" "$pm"
     else
-        if has_build_script "$input_path"; then
+        if (( will_build )); then
             printf 'Running %s run build...\n' "$pm"
             "$pm" run build
         else
@@ -180,7 +196,7 @@ main() {
         fi
 
         if [[ "$run_tests" == "true" ]]; then
-            if has_real_test_script "$input_path"; then
+            if (( will_test )); then
                 printf 'Running %s test...\n' "$pm"
                 "$pm" test
             else
@@ -196,8 +212,11 @@ main() {
     # the pack side too for both npm and pnpm.
     "$pm" pack --pack-destination dist "${ignore_scripts_args[@]}"
 
+    # `.` rather than "$input_path": cwd is now the project, so the
+    # caller-relative $input_path would re-trigger the same path-doubling
+    # bug the build/test gating decisions avoid above.
     local tarball
-    tarball="$(find_one_tarball "$input_path")"
+    tarball="$(find_one_tarball ".")"
 
     if [[ -n "${GITHUB_OUTPUT:-}" ]]; then
         # File-based output (not the ::set-output:: stdout command), so this
