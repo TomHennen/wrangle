@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
 set -euo pipefail
+set -f  # disable globbing — processes external input (positional SHA arg)
 
 # Push a tracking tag to the companion repo so its showcase.yml runs
 # end-to-end against the current state of wrangle's main.
@@ -15,8 +16,10 @@ set -euo pipefail
 #   (b) the most recent tracking tag points at a wrangle commit identical
 #       to HEAD by `git diff` (no adopter-visible change since the last
 #       run; the showcase would produce identical output).
-# Together these replace the previous hand-maintained paths: allowlist
-# in the calling workflow.
+# Together these implement the gating contract: "if any wrangle source
+# changed since the last showcase run, refresh it." The caller workflow
+# carries no paths: filter — gating happens here so it stays correct
+# even when new adopter-facing surface is added.
 #
 # Naming asymmetry (documented loudly): the tag NAME embeds the wrangle
 # SHA, but the resulting showcase RUN exercises whatever
@@ -76,10 +79,10 @@ if gh api "repos/${COMPANION_REPO}/git/ref/tags/${TAG}" >/dev/null 2>&1; then
 fi
 
 # (b) Runtime diff: if there's a previous tracking tag and HEAD is
-# identical to its embedded wrangle SHA by `git diff`, skip. This is
-# the replacement for the previous paths: allowlist — the contract is
-# "if main moved at all (anywhere), refresh the showcase," which
-# self-documents instead of drifting.
+# identical to its embedded wrangle SHA by `git diff`, skip. The
+# contract is "if any wrangle source moved since the last tracking
+# tag, refresh the showcase" — gating computed against the actual
+# tree, with no hand-maintained path list to drift.
 LATEST_TRACKING_TAG=""
 LATEST_TRACKING_SHA=""
 if MATCHING_TAGS_JSON="$(gh api "repos/${COMPANION_REPO}/git/matching-refs/tags/v" 2>/dev/null)"; then

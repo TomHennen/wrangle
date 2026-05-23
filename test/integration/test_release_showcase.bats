@@ -153,13 +153,20 @@ _setup_workspace() {
     WORKSPACE="$(mktemp -d)"
     STUB_DIR="$(mktemp -d)"
 
-    # Tiny git repo so `git log` and `git diff` have something to chew on.
+    # Tiny git repo with two commits so `git log` works on either and
+    # `git diff PRIOR HEAD` is non-empty (exercises the "prior tag,
+    # tree moved" path).
     (
         cd "$WORKSPACE"
         git init -q -b main
         git -c user.email=t@t -c user.name=t -c commit.gpgsign=false \
-            commit -q --allow-empty -m init
+            commit -q --allow-empty -m prior
+        printf 'change\n' > changed.txt
+        git add changed.txt
+        git -c user.email=t@t -c user.name=t -c commit.gpgsign=false \
+            commit -q -m head
     )
+    PRIOR_SHA="$(cd "$WORKSPACE" && git rev-parse HEAD~1)"
     REAL_SHA="$(cd "$WORKSPACE" && git rev-parse HEAD)"
 
     # The gh stub dispatches off the first arg (api) and the path.
@@ -185,6 +192,13 @@ case "$2" in
                 # `git diff` will be empty -> exercises the runtime-diff
                 # short-circuit (the load-bearing new mechanism).
                 short="${GH_STUB_HEAD_SHA:0:7}"
+                printf '[{"ref":"refs/tags/v20260101-%s"}]' "$short"
+                ;;
+            prior-tag-different-sha)
+                # Tracking tag points at a real-but-older commit. The
+                # script's `git diff PRIOR HEAD` is non-empty so it must
+                # proceed and push a new tag (happy path).
+                short="${GH_STUB_PRIOR_SHA:0:7}"
                 printf '[{"ref":"refs/tags/v20260101-%s"}]' "$short"
                 ;;
             *) printf '[]' ;;
@@ -248,6 +262,20 @@ _teardown_workspace() {
     GH_STUB_MODE=no-prior-tags run bash -c "cd '$WORKSPACE' && '$SCRIPT' '$REAL_SHA'"
     [[ "$status" -eq 0 ]]
     [[ "$output" == *"bootstrapping"* ]]
+    [[ "$output" == *"Pushed"* ]]
+    [[ -f "$CREATED_MARKER" ]]
+    _teardown_workspace
+}
+
+@test "push_showcase_tag.sh creates the tag when a prior tracking tag exists but the tree has moved" {
+    # Complement of the diff-empty case: prior tracking tag points at an
+    # older commit, `git diff` against HEAD is non-empty, script proceeds.
+    _setup_workspace
+    GH_STUB_MODE=prior-tag-different-sha \
+        GH_STUB_PRIOR_SHA="$PRIOR_SHA" \
+        run bash -c "cd '$WORKSPACE' && '$SCRIPT' '$REAL_SHA'"
+    [[ "$status" -eq 0 ]]
+    [[ "$output" == *"Diff detected"* ]]
     [[ "$output" == *"Pushed"* ]]
     [[ -f "$CREATED_MARKER" ]]
     _teardown_workspace

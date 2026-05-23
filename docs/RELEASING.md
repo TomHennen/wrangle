@@ -83,9 +83,10 @@ release tag (`@vX.Y.Z`). Today these tags are cut manually:
 1. Update the version reference in
    [`AGENTS.md`](../AGENTS.md) and any pinned `uses:` examples in
    `gh_workflow_examples/`.
-2. Tag the release commit: `git tag vX.Y.Z && git push origin vX.Y.Z`.
-   (Or use the **Draft a new release** UI; either creates the tag and
-   fires any tag-listening workflows.)
+2. Tag the release commit via GitHub's **Draft a new release** UI
+   (pick the target commit, type `vX.Y.Z` as the tag, publish). Or
+   from the CLI: `git tag vX.Y.Z && git push origin vX.Y.Z`. Either
+   creates the tag and fires any tag-listening workflows.
 3. After the tag exists, update the companion's
    `showcase.yml` to repoint its `@main` pins to `@vX.Y.Z`
    ([`wrangle-test#10`](https://github.com/TomHennen/wrangle-test/issues/10)).
