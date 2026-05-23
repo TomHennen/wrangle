@@ -136,7 +136,11 @@ jobs:
           ref: ${{ inputs.ref || '' }}
 
       # TODO: replace with $/build/actions/go when GitHub ships $/ syntax (#136)
-      - uses: TomHennen/wrangle/build/actions/go@2510122c14f8503a43c6fef5e88394d29af43d1d # main 2026-05-23
+      # Pinned to this PR's own latest commit because build/actions/go/action.yml
+      # is introduced by this PR — main 2026-05-23 (2510122) predates it.
+      # A follow-up "Bump self-ref pins" PR will repoint to the squashed
+      # merge SHA after this lands, matching the convention from #227 / #233.
+      - uses: TomHennen/wrangle/build/actions/go@3251b457a8780d943377d9a7788b7d25a37f382e # PR #238 HEAD
         id: build
         with:
           path: ${{ inputs.path }}
