@@ -1,8 +1,11 @@
 module example.com/wrangle/osv-e2e-fixture
 
-// Intentionally pinned to an older Go toolchain so osv-scanner returns
-// non-zero stdlib advisories deterministically. This fixture is consumed
-// only by the opt-in osv-scanner e2e test in tools/osv/test.bats — it
-// exists to give that test a stable source of "vulnerable input" that
-// does not depend on the network state of a particular dependency.
+// Fixture for the opt-in osv-scanner e2e test in tools/osv/test.bats.
+// Pins a known-vulnerable, frozen package version so osv-scanner always
+// reports at least one advisory under network access — the CVE-2021-3121
+// disclosure against github.com/gogo/protobuf <1.3.2. Anchoring on a
+// dependency (rather than relying on Go stdlib advisories that shift
+// across releases) keeps the e2e assertion deterministic.
 go 1.20
+
+require github.com/gogo/protobuf v1.3.1

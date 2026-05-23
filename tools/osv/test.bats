@@ -374,9 +374,12 @@ SARIF
 # --- osv e2e: real osv-scanner against a vulnerable manifest --------------
 
 # Drives the full pipeline with the real osv-scanner binary against a
-# fixture pinned to an older Go stdlib (long-standing CVEs, deterministic
-# under network access). Skipped when osv-scanner isn't on PATH or the
-# osv.dev API isn't reachable (sandboxed CI environments).
+# fixture pinned to a known-vulnerable package version (CVE-2021-3121
+# against github.com/gogo/protobuf <1.3.2 — deterministic under network
+# access). Skipped when osv-scanner isn't on PATH or osv.dev is
+# unreachable (sandboxed dev environments); CI wires the test up in a
+# dedicated osv-e2e job in .github/workflows/test.yml so the assertions
+# actually run on every PR.
 @test "osv e2e: real osv-scanner produces consistent SARIF + MD" {
     if ! command -v osv-scanner >/dev/null 2>&1 || \
        [[ "$(osv-scanner --version 2>&1 | head -n1)" == *"-mock"* ]]; then
@@ -417,6 +420,12 @@ SARIF
 
     # And no file:// prefix leaked into the summary.
     ! grep -q "file://" "$TMP_DIR/output/output.md"
+
+    # Deterministic content check: the fixture pins gogo/protobuf v1.3.1
+    # which has had CVE-2021-3121 published since 2021. If this stops
+    # appearing, either the fixture, osv.dev, or the renderer has drifted —
+    # all worth a hard failure rather than a silent green.
+    grep -q "CVE-2021-3121" "$TMP_DIR/output/output.md"
 }
 
 # --- install.sh: verification-chain tests ---------------------------------
