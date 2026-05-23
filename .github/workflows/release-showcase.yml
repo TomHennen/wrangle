@@ -1,16 +1,23 @@
 name: Release Showcase
 
-# On every change to wrangle's reusable workflows, composite actions,
-# or orchestrator code on `main`, push a tracking tag to the companion
-# repo so its showcase.yml runs end-to-end against the new code. The
-# tag name encodes the date and short SHA (`vYYYYMMDD-<sha>`); the
-# companion repo treats anything that isn't pure semver as a tracking
+# On every push to `main`, push a tracking tag to the companion repo
+# so its showcase.yml runs end-to-end against the new code. The tag
+# name encodes the commit's date and short SHA (`vYYYYMMDD-<sha>`);
+# the companion treats anything that isn't pure semver as a tracking
 # tag and marks the resulting Release as a pre-release.
 #
-# This replaces the previous cron-driven nightly: freshness now tracks
-# actual wrangle changes instead of the wall clock, and a no-op week
-# stops producing redundant runs. Curated `vX.Y.Z` showcase tags are
-# still pushed by hand for adopter-facing docs.
+# Trigger is unconditional (no paths: filter) on purpose: an allowlist
+# silently drifts the day someone adds a new reusable workflow under a
+# path nobody updated. push_showcase_tag.sh implements the contract at
+# runtime — it short-circuits if the most recent tracking tag's
+# embedded SHA shows no `git diff` against HEAD. That means doc-only
+# commits trigger an evaluation but no tag/run; "no change since last
+# tracking tag" is the only signal we trust.
+#
+# This is the event-driven replacement for the cron-driven nightly.
+# Freshness tracks real wrangle changes; a quiet week produces no tags.
+# Curated `vX.Y.Z` showcase tags are still pushed by hand for stable
+# adopter-facing docs.
 #
 # A PAT is required: tags pushed by GITHUB_TOKEN do not trigger
 # downstream `on: push: tags` workflows (GitHub's recursion guard).
@@ -20,19 +27,6 @@ name: Release Showcase
 on:
   push:
     branches: [main]
-    # Limit to paths that change the adopter contract: reusable
-    # workflows, composite actions, orchestrator code, tool adapters,
-    # and shared libs. Docs / examples / tests do not need to refresh
-    # the showcase.
-    paths:
-      - ".github/workflows/build_*.yml"
-      - ".github/workflows/check_source_change.yml"
-      - ".github/workflows/compute_slsa_source.yml"
-      - "actions/**"
-      - "build/**"
-      - "lib/**"
-      - "tools/**"
-      - "run.sh"
   workflow_dispatch:
 
 concurrency:
@@ -44,12 +38,17 @@ permissions: {}
 jobs:
   push-tag:
     runs-on: ubuntu-latest
+    timeout-minutes: 5
     environment: integration-test
     permissions:
       contents: read
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
+          # Full history so push_showcase_tag.sh can `git diff` against
+          # the wrangle SHA embedded in the most recent tracking tag
+          # (potentially weeks back).
+          fetch-depth: 0
           persist-credentials: false
 
       - name: Push tracking tag to companion repo
