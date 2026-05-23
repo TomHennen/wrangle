@@ -1,6 +1,6 @@
 # Wrangle Build Go
 
-Build a Go project via [`goreleaser`](https://goreleaser.com/), run gofmt/vet/test/govulncheck, generate an SBOM, produce SLSA provenance (Build L3) via `slsa-github-generator`, and publish to GitHub Releases — all in a single `uses:` line. Go has no language-level package registry with a caller-bound OIDC publish constraint (the way PyPI and npm Trusted Publishing have), so publish is owned by wrangle's reusable workflow rather than the adopter — your integration is one job, not two.
+Build a Go project via [`goreleaser`](https://goreleaser.com/), run gofmt/vet/test/govulncheck, generate an SBOM, and produce SLSA provenance (Build L3) via `slsa-github-generator` — all in a single `uses:` line. Go has no language-level package registry with a caller-bound OIDC publish constraint (the way PyPI and npm Trusted Publishing have), so the publish path is goreleaser's own native one: on tag pushes goreleaser creates the GitHub Release, attaches archives + checksums, AND runs whatever downstream verbs the adopter's `.goreleaser.yml` configures (Docker pushes, Homebrew taps, deb/rpm/snap, announcements, etc.). The SLSA generator's `upload-assets` job appends the provenance file to the same release shortly after — "publish first, attest second," same shape as wrangle's container build type.
 
 > **Note:** This README documents *currently-shipped* behavior. For the full design — three release shapes, the ecosystem-specific-builder-vs-generic-generator pick, cache isolation analysis — see [`SPEC.md`](./SPEC.md).
 
@@ -70,7 +70,7 @@ See [`gh_workflow_examples/build_go.yml`](../../../gh_workflow_examples/build_go
 - Runs `go vet ./...` — toolchain-bundled static checks (printf arg mismatches, shadowed vars, unreachable code, etc.).
 - Runs `go test -race ./...` — full test suite with the race detector.
 - Runs `govulncheck ./...` — callgraph-based reachable-vuln scan from `golang.org/x/vuln`. Pinned version, installed via `go install` (sum.golang.org-verified). JSON output written to `metadata/go/<shortname>/govulncheck.json`. **Informational only**: findings are reported in the step summary but do not fail the build. This matches OSV-Scanner's posture in `actions/scan` and avoids forcing every adopter to chase Go patch releases for stdlib reachability findings on the same cadence wrangle bumps its goreleaser pin. Adopters who want a blocking gate can wire `govulncheck` into their own preflight or open an issue if they'd like wrangle to expose an opt-in.
-- Invokes goreleaser with `release --clean --skip=publish` (tag pushes) or `release --clean --snapshot --skip=publish` (non-tag events). `--skip=publish` is always set: wrangle's reusable workflow owns the GitHub Release upload, running AFTER verify, so the verify-before-publish invariant holds.
+- Invokes goreleaser with `release --clean` (tag pushes — native publish enabled; goreleaser creates the GitHub Release and runs every configured downstream verb) or `release --clean --snapshot --skip=publish` (non-tag events — no release exists to publish to).
 - Generates an SPDX SBOM via [`syft`](https://github.com/anchore/syft) (Cosign-keyless-verified install, same tool python and npm use) over the project source tree.
 - Computes SHA-256 hashes of the goreleaser-produced artifacts by base64-encoding `dist/checksums.txt` directly (already `sha256sum`-format).
 
@@ -97,7 +97,9 @@ with:
 
 ## SLSA provenance verification (default-on, opt-out)
 
-Wrangle's reusable workflow generates non-falsifiable SLSA L3 build provenance via `slsa-github-generator`, **then verifies the just-built dist against that provenance** before publishing to the GitHub Release. If verification fails, the workflow fails and the publish job is blocked via standard `needs:` propagation — so a tampered dist between build and publish cannot reach a GitHub Release. To opt out (e.g., custom verification flow), pass `verify-provenance: false`.
+Wrangle's reusable workflow generates non-falsifiable SLSA L3 build provenance via `slsa-github-generator` and runs `slsa-verifier verify-artifact` against the just-built dist as a post-publish check. Verification runs **after** goreleaser's inline publish — the artifacts are already on the GitHub Release at this point, but the provenance attests content-addressed hashes, so verification still works the same way it would pre-publish. A failure here surfaces loudly in CI even if the bad bytes have already been uploaded; in practice it would mean the SLSA generator's hashes don't match the bytes wrangle handed it, which is a tooling regression worth flagging. To opt out (e.g., custom verification flow), pass `verify-provenance: false`.
+
+The small window between goreleaser's publish and the provenance arriving on the release is the same trade wrangle's container build type makes (`docker push` then `slsa-github-generator` provenance). Consumers who download in the window can verify once the attestation lands; hashes are content-addressed, so the order of arrival doesn't change verification semantics.
 
 ## Verifying after install (downstream consumers)
 
@@ -117,7 +119,7 @@ slsa-verifier verify-artifact \
   <binary>-<version>-linux-amd64.tar.gz
 ```
 
-Provenance is attached to the GitHub Release on tag pushes (via wrangle's publish job). Non-tag events publish nothing — provenance lives only as a 90-day workflow artifact in that case.
+Provenance is attached to the GitHub Release on tag pushes (via the SLSA generator's upload-assets job). Non-tag events publish nothing — provenance lives only as a 90-day workflow artifact in that case.
 
 ## SBOM
 

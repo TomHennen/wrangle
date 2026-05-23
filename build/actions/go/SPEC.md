@@ -53,6 +53,21 @@ The stale `cyclonedx-gomod` reference in [`docs/docker_best_practices.md`](../..
 
 **Cosign `sign-blob` on top of SLSA — not picked.** Goreleaser's own release pipeline runs `cosign sign-blob` against each artifact in addition to producing SLSA provenance, and an earlier draft of this doc recommended the same. On second look the case doesn't hold up: SLSA provenance already attests the artifact's SHA-256 as the in-toto subject, so `slsa-verifier verify-artifact` is the strictly stronger check — it confirms "the bytes I'm holding match what the provenance signed" *and* binds workflow identity, commit, and builder. `cosign verify-blob` would give a downstream verifier the bytes claim only, and would do so via a separate signature, separate verification command, and separate failure mode. The only argument for shipping it is verifier-tool familiarity — a sigstore-literate consumer who runs `cosign verify` on container images can `cosign verify-blob` a Go binary without installing `slsa-verifier`. That is a UX argument, not a security argument; it does not justify the extra signing step, the extra signature artifact, or the second verifier surface to document. If adopters request `cosign verify-blob` ergonomics later, expose it as an opt-in input on the Go build action — but don't make it the default. Same posture as wrangle's other build types: one strong signature path, not two.
 
+#### Publish-first, attest-second (the picked sequence)
+
+Wrangle does NOT force goreleaser into `--skip=publish`. Doing so would neuter every downstream goreleaser verb — Docker pushes, Homebrew taps, deb/rpm/snap, AUR, Slack/Discord announcements, all the post-build distribution the adopter put in their `.goreleaser.yml`. For most adopters, those features are most of why they reach for goreleaser; wrangle taking over the publish would be a major UX regression.
+
+The sequence is therefore:
+
+1. **Goreleaser publishes natively** on tag push (`release --clean`, no `--skip=publish`). It creates the GitHub Release, attaches archives + checksums, and runs every adopter-configured downstream verb.
+2. **Wrangle hashes** `dist/checksums.txt`, hands the result to `generator_generic_slsa3.yml`.
+3. **The SLSA generator** signs and uploads the `.intoto.jsonl` to the same release via its `upload-assets: true` (gated on tag push).
+4. **Wrangle verifies** post-publish with `slsa-verifier verify-artifact`, surfacing any mismatch loudly even though the bytes are already live.
+
+This is the same shape wrangle's container build type uses (`docker push` then `slsa-github-generator` provenance). The small window between goreleaser's publish and the provenance arriving is acceptable: the provenance attests content-addressed hashes, so consumers who download in the window can verify once the attestation lands, and hashes don't change in transit. Adopters who want a stronger "no naked window" guarantee can opt out by setting up their own release pipeline; wrangle's posture matches the established container path.
+
+On non-tag events goreleaser runs `release --clean --snapshot --skip=publish` — `--snapshot` because `release` refuses to run off a tag, `--skip=publish` because there's no release to publish to. PR builds exercise the goreleaser pipeline without publishing.
+
 **Predicate version (v0.2 vs v1).** `slsa-github-generator` v2.1.0 currently emits `slsa.dev/provenance/v0.2`. `actions/attest-build-provenance` emits `v1`. Wrangle's container, python, and npm specs intentionally stay on `slsa-github-generator` for the L3 isolation property; the Go build type follows the same convention. When upstream ships v1, wrangle adopts it across all build types in one change. The doc shouldn't silently endorse `actions/attest-build-provenance` as a substitute.
 
 #### Alternative: ecosystem-specific Go builder (`builder_go_slsa3.yml`) — not picked

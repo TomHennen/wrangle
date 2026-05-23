@@ -93,13 +93,20 @@ setup() {
     [[ "$status" -ne 0 ]]
 }
 
-@test "go: goreleaser ALWAYS runs with --skip=publish (verify-before-publish invariant)" {
-    # Goreleaser must never publish inline — that would let a bad
-    # artifact reach the GitHub Release before verify runs. The
-    # reusable workflow's publish job owns release upload, gated on
-    # verify success.
-    run bash -c "grep -E 'args:.*release' '$ACTION' | grep -v 'skip=publish'"
-    [[ "$status" -ne 0 ]]
+@test "go: goreleaser publishes natively on tag push (--skip=publish only on non-tag)" {
+    # Goreleaser owns its native publish on tag pushes — running with
+    # --skip=publish there would neuter every downstream goreleaser
+    # verb (Docker, Homebrew, deb/rpm/snap, announcements). On non-tag
+    # events --skip=publish IS set (no release exists to publish to)
+    # alongside --snapshot.
+    #
+    # The args expression must contain BOTH branches: the tag branch
+    # ends in `release --clean` (no skip=publish), and the non-tag
+    # branch contains --snapshot --skip=publish. Grep for both.
+    run bash -c "grep -E \"startsWith.*refs/tags.*release --clean'\" '$ACTION'"
+    [[ "$status" -eq 0 ]]
+    run bash -c "grep -E 'release --clean --snapshot --skip=publish' '$ACTION'"
+    [[ "$status" -eq 0 ]]
 }
 
 @test "go: action.yml computes artifact hashes from goreleaser's checksums.txt" {
@@ -133,6 +140,26 @@ setup() {
     run grep -E '^  cache:' "$ACTION"
     [[ "$status" -eq 0 ]]
     run bash -c "sed -n '/^  cache:/,/^  [a-z]/p' \"$ACTION\" | grep -E 'default:.*\"enabled\"'"
+    [[ "$status" -eq 0 ]]
+}
+
+@test "go: action.yml exposes run-race-detector input (default true)" {
+    # Race detector requires cgo; CGO-disabled builds can't run with
+    # -race. Adopters cross-compiling with CGO_ENABLED=0 set this false.
+    run grep -E '^  run-race-detector:' "$ACTION"
+    [[ "$status" -eq 0 ]]
+    run bash -c "sed -n '/^  run-race-detector:/,/^  [a-z]/p' \"$ACTION\" | grep -E 'default:.*\"true\"'"
+    [[ "$status" -eq 0 ]]
+}
+
+@test "go: action.yml exposes run-gofmt-check input (default true)" {
+    # gofmt check is a stop-gap until #194 (source-stage lint).
+    # Default-on; auto-skips files with `// Code generated` headers;
+    # input lets adopters disable entirely when the header convention
+    # doesn't cover their generated code.
+    run grep -E '^  run-gofmt-check:' "$ACTION"
+    [[ "$status" -eq 0 ]]
+    run bash -c "sed -n '/^  run-gofmt-check:/,/^  [a-z]/p' \"$ACTION\" | grep -E 'default:.*\"true\"'"
     [[ "$status" -eq 0 ]]
 }
 
@@ -269,10 +296,22 @@ write_goreleaser() {
     [[ "$status" -eq 0 ]]
 }
 
-@test "go: build_go.sh runs go test with -race" {
+@test "go: build_go.sh runs go test with -race when run-race-detector is true" {
     # -race catches data races that would otherwise ship in the released
-    # binary. Mandatory.
-    run grep -E 'go test -race ./\.\.\.' "$ACTION_DIR/build_go.sh"
+    # binary. Gated by run-race-detector (default true).
+    run grep -E 'go test -race \./\.\.\.' "$ACTION_DIR/build_go.sh"
+    [[ "$status" -eq 0 ]]
+    # And a plain `go test ./...` branch must exist for the false case.
+    run grep -E '^[[:space:]]+go test \./\.\.\.[[:space:]]*$' "$ACTION_DIR/build_go.sh"
+    [[ "$status" -eq 0 ]]
+}
+
+@test "go: build_go.sh filters generated files from gofmt via the Go convention header" {
+    # Files with `// Code generated ... DO NOT EDIT.` headers are
+    # auto-skipped (golangci-lint uses the same heuristic). Without
+    # this filter, protobuf/mockgen/sqlc output would fail gofmt and
+    # force every adopter with codegen to disable the gofmt check.
+    run grep -E 'Code generated .* DO NOT EDIT' "$ACTION_DIR/build_go.sh"
     [[ "$status" -eq 0 ]]
 }
 
@@ -302,11 +341,16 @@ write_goreleaser() {
     [[ -f "$WORKFLOW" ]]
 }
 
-@test "go: workflow has build job with minimal permissions (contents: read only)" {
+@test "go: workflow build job grants contents: write (goreleaser owns publish inline)" {
+    # Unlike python/npm (where the build job uses contents: read), the
+    # Go build composite invokes goreleaser, which publishes to GitHub
+    # Releases inline on tag pushes. contents: write is required at
+    # workflow startup for that.
+    run bash -c "sed -n '/^  build:/,/^  [a-z]/p' \"$WORKFLOW\" | grep -E 'contents: write'"
+    [[ "$status" -eq 0 ]]
+    # No id-token on the build job — that's the provenance job's domain.
     run bash -c "sed -n '/^  build:/,/^  [a-z]/p' \"$WORKFLOW\" | grep -E '^[[:space:]]*id-token:'"
     [[ "$status" -ne 0 ]]
-    run bash -c "sed -n '/^  build:/,/^  [a-z]/p' \"$WORKFLOW\" | grep -E 'contents: read'"
-    [[ "$status" -eq 0 ]]
 }
 
 @test "go: workflow has provenance job calling slsa-github-generator" {
@@ -316,29 +360,30 @@ write_goreleaser() {
     [[ "$status" -eq 0 ]]
 }
 
-@test "go: workflow has publish job (Go differs from python/npm — no caller-bound publish constraint)" {
-    # Go's publish target is GitHub Releases, which has no caller-bound
-    # OIDC publish constraint. Wrangle owns the publish to preserve
-    # verify-before-publish (the SLSA generator's upload-assets would
-    # publish before verify runs).
+@test "go: workflow does NOT have a publish job (goreleaser owns publish inline)" {
+    # Goreleaser publishes natively on tag pushes via `release --clean`;
+    # the SLSA generator's upload-assets job appends the provenance
+    # shortly after. There's no caller-bound OIDC constraint forcing a
+    # separate publish job (unlike python/npm). Adopters write a single
+    # `uses:` line and are done.
     run grep '^  publish:' "$WORKFLOW"
+    [[ "$status" -ne 0 ]]
+}
+
+@test "go: provenance job has upload-assets gated on tag push (publish-first, attest-second)" {
+    # The SLSA generator appends the provenance file to the release
+    # goreleaser already created. Tag-push only — `gh release upload`
+    # without a release would 404.
+    run bash -c "sed -n '/^  provenance:/,/^[a-z]/p' \"$WORKFLOW\" | grep -E 'upload-assets:.*startsWith.*refs/tags'"
     [[ "$status" -eq 0 ]]
 }
 
-@test "go: publish job is gated on tag-push AND should-release AND needs verify" {
-    run bash -c "sed -n '/^  publish:/,/^[a-z]/p' \"$WORKFLOW\" | grep -E \"if:.*should-release.*startsWith.*refs/tags|if:.*startsWith.*refs/tags.*should-release\""
+@test "go: workflow exposes run-race-detector and run-gofmt-check inputs" {
+    # Mirror the composite's new inputs so the reusable workflow plumbs
+    # them through.
+    run grep -E '^      run-race-detector:' "$WORKFLOW"
     [[ "$status" -eq 0 ]]
-    # Publish depends on verify so a failed verify blocks publish via
-    # standard needs: propagation.
-    run bash -c "sed -n '/^  publish:/,/^[a-z]/p' \"$WORKFLOW\" | grep -E 'needs:.*verify'"
-    [[ "$status" -eq 0 ]]
-}
-
-@test "go: provenance job has upload-assets: false (publish job owns the release upload)" {
-    # If upload-assets were true, the SLSA generator would attach
-    # provenance to a release BEFORE verify runs — defeating
-    # verify-before-publish. The wrangle publish job uploads after.
-    run bash -c "sed -n '/^  provenance:/,/^[a-z]/p' \"$WORKFLOW\" | grep -E 'upload-assets:[[:space:]]*false'"
+    run grep -E '^      run-gofmt-check:' "$WORKFLOW"
     [[ "$status" -eq 0 ]]
 }
 

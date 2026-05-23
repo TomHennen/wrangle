@@ -3,11 +3,18 @@ description: |
   Build a Go project via goreleaser, run gofmt/vet/test/govulncheck,
   generate SBOM, and compute artifact hashes for SLSA provenance.
   SLSA provenance generation is handled by a separate job in the
-  reusable workflow. Publishing to GitHub Releases happens in a
-  separate `publish` job in the reusable workflow, AFTER verify —
-  preserving wrangle's "verify before publish" invariant. Goreleaser
-  here always runs with `--skip=publish`; it builds and packages, but
-  upload is owned by the reusable workflow's publish job.
+  reusable workflow.
+
+  Goreleaser owns its native publish: on tag pushes it creates a
+  GitHub Release, attaches archives + checksums, and runs whatever
+  downstream verbs the adopter's .goreleaser.yml configures (Docker
+  pushes, Homebrew taps, deb/rpm/snap, announce, etc.). The SLSA
+  generator's upload-assets job appends the provenance file to the
+  same release shortly after. This is "publish first, attest second"
+  — the same shape wrangle's container build type uses (image push,
+  then provenance), with the same small content-addressable-hash
+  window between the two. Don't force --skip=publish here: doing so
+  would neuter every downstream goreleaser feature.
 
 inputs:
   path:
@@ -22,7 +29,35 @@ inputs:
     required: false
     default: ""
   run-tests:
-    description: "Whether to run `go test ./...` (with -race) before the build"
+    description: "Whether to run `go test ./...` before the build (also gates gofmt/vet/govulncheck)"
+    required: false
+    default: "true"
+  run-race-detector:
+    description: |
+      Whether `go test` runs with `-race`. Defaults to true. Set to
+      false when CGO is disabled — the race detector requires cgo, so
+      `go test -race` with `CGO_ENABLED=0` fails. Common in
+      cross-compilation setups where goreleaser builds against
+      multiple GOOS/GOARCH combinations without cgo. The race
+      detector still adds real value when it runs (catches data
+      races that would otherwise ship in the released binary), so
+      flip this only when you have to.
+    required: false
+    default: "true"
+  run-gofmt-check:
+    description: |
+      Whether to run `gofmt -l` before the build. Defaults to true.
+      Files with the `// Code generated ... DO NOT EDIT.` header
+      (Go's convention for tool-generated code; also what
+      golangci-lint respects) are automatically skipped, so adopters
+      with protobuf/mockgen/sqlc/etc. generated code don't typically
+      need to disable this. Set to false only if you have
+      project-specific reasons the header convention doesn't cover
+      (custom generators that don't emit the standard marker, vendored
+      upstream code you can't modify, monorepos with mixed languages
+      where gofmt-walking the whole tree is wasteful). Source-stage
+      lint via #194 will eventually replace this; until then it's a
+      cheap toolchain-bundled gate against shipping unformatted code.
     required: false
     default: "true"
   cache:
@@ -144,10 +179,12 @@ runs:
         INPUT_PATH: ${{ inputs.path }}
         METADATA_DIR: ${{ steps.metadata.outputs.metadata-dir }}
         GOVULN_VERSION: ${{ inputs.govulncheck-version }}
+        RUN_RACE: ${{ inputs.run-race-detector }}
+        RUN_GOFMT: ${{ inputs.run-gofmt-check }}
       run: |
         set -euo pipefail
         "${{ github.action_path }}/../../../lib/stop_commands_guard.sh" run \
-          "${{ github.action_path }}/build_go.sh" "$INPUT_PATH" "$METADATA_DIR" "$GOVULN_VERSION"
+          "${{ github.action_path }}/build_go.sh" "$INPUT_PATH" "$METADATA_DIR" "$GOVULN_VERSION" "$RUN_RACE" "$RUN_GOFMT"
 
     # Goreleaser runs as a separate `uses:` step (goreleaser-action,
     # SHA-pinned). The action's invocation cannot be wrapped inline by
@@ -162,20 +199,18 @@ runs:
         set -euo pipefail
         "${{ github.action_path }}/../../../lib/stop_commands_guard.sh" begin
 
-    # Goreleaser runs with --skip=publish always — the build composite
-    # never uploads to GitHub Releases inline. Upload happens in the
-    # reusable workflow's `publish` job, after the verify job confirms
-    # the just-generated SLSA provenance matches the just-built dist.
-    # This preserves the "verify before publish" invariant python and
-    # npm already have; without --skip=publish, a build that goreleaser
-    # publishes but verify later fails would have already exposed the
-    # bad bytes to consumers.
+    # Goreleaser owns its native publish on tag pushes: it creates the
+    # GitHub Release, attaches archives + checksums.txt, and runs
+    # whatever downstream verbs the adopter's .goreleaser.yml
+    # configures (Docker pushes, Homebrew taps, deb/rpm/snap, etc.).
+    # The SLSA generator's upload-assets job in the reusable workflow
+    # appends the provenance file shortly after — "publish first,
+    # attest second," same shape as wrangle's container build type.
     #
-    # On non-tag events goreleaser additionally needs --snapshot
-    # (`release` refuses to run off a tag without it). Snapshot mode is
-    # purely about version-string handling; the produced dist/ layout
-    # is identical to a tag build, so hash computation and SBOM
-    # generation work the same way.
+    # On non-tag events goreleaser needs --snapshot (`release` refuses
+    # to run off a tag without it) and --skip=publish (no release
+    # exists to push to). Both flags are gated together so PR builds
+    # exercise the goreleaser pipeline without publishing.
     - name: Run goreleaser
       uses: goreleaser/goreleaser-action@5daf1e915a5f0af01ddbcd89a43b8061ff4f1a89 # v7.2.2
       with:
@@ -189,7 +224,14 @@ runs:
         # after upstream release) along with a CI smoke test.
         version: "2.15.4"
         workdir: ${{ inputs.path }}
-        args: ${{ startsWith(github.ref, 'refs/tags/') && 'release --clean --skip=publish' || 'release --clean --snapshot --skip=publish' }}
+        args: ${{ startsWith(github.ref, 'refs/tags/') && 'release --clean' || 'release --clean --snapshot --skip=publish' }}
+      env:
+        # goreleaser's publish path needs GITHUB_TOKEN for the GitHub
+        # Release create + upload. The wrangle reusable workflow grants
+        # contents: write on the build job; the caller of the reusable
+        # workflow grants it at startup. On non-tag (snapshot) runs the
+        # token is harmless (no publish happens).
+        GITHUB_TOKEN: ${{ github.token }}
 
     - name: Resume workflow commands (end)
       if: always()

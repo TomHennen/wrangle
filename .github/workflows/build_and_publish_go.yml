@@ -1,16 +1,23 @@
 name: "Build, test, and release a Go project with best practices."
 
-# Build + SLSA provenance + GitHub-Release publish reusable workflow for Go.
+# Build + SLSA provenance reusable workflow for Go.
 #
-# Unlike python and npm (where publish lives in the adopter's workflow
-# due to PyPI/npm Trusted Publishing's caller-bound OIDC constraint),
-# Go has no language-level package registry with caller-bound publish
-# semantics. The "publish target" is GitHub Releases, which only needs
-# `contents: write` on the calling workflow — same permission the SLSA
-# generator's upload-assets job already requires. Wrangle therefore
-# owns publish too, in a dedicated job that runs AFTER verify, so the
-# "verify before publish" invariant is preserved (a bad artifact never
-# reaches the GitHub Release surface).
+# Goreleaser owns its native publish: on tag pushes it creates the
+# GitHub Release, attaches archives + checksums, and runs whatever
+# downstream verbs the adopter's .goreleaser.yml configures (Docker
+# pushes, Homebrew taps, deb/rpm/snap, announce, etc.). The SLSA
+# generator's upload-assets job appends the provenance file shortly
+# after. This is "publish first, attest second" — same shape as
+# wrangle's container build type (docker push, then provenance), with
+# the same small content-addressable-hash window between the two.
+#
+# Wrangle does NOT force goreleaser into --skip=publish: doing so
+# would neuter every downstream goreleaser feature, which is most of
+# why adopters reach for goreleaser in the first place.
+#
+# This means there is no caller-bound publish job here (unlike python
+# and npm, which have PyPI/npm Trusted Publishing's caller-bound OIDC
+# constraint). A single `uses:` line is the full integration.
 
 on:
   workflow_call:
@@ -27,6 +34,22 @@ on:
         default: ""
       run-tests:
         description: "Whether to run gofmt/vet/test/govulncheck before the build"
+        required: false
+        type: boolean
+        default: true
+      run-race-detector:
+        description: |
+          Whether `go test` runs with `-race`. Defaults to true. Set
+          to false when CGO is disabled (race detector requires cgo).
+        required: false
+        type: boolean
+        default: true
+      run-gofmt-check:
+        description: |
+          Whether to run `gofmt -l` before the build. Defaults to
+          true. Files with `// Code generated ... DO NOT EDIT.`
+          headers are auto-skipped; set to false only when that
+          convention isn't enough.
         required: false
         type: boolean
         default: true
@@ -120,7 +143,12 @@ jobs:
     needs: [guard, gate]
     runs-on: ubuntu-latest
     permissions:
-      contents: read    # minimal — no OIDC, no publish
+      # contents: write — goreleaser publishes to GitHub Releases inline
+      # on tag pushes (creates the release, uploads archives + checksums,
+      # runs adopter-configured downstream verbs). On non-tag events the
+      # composite passes --snapshot --skip=publish so this permission is
+      # unused, but it must be granted at workflow startup either way.
+      contents: write
     outputs:
       hashes: ${{ steps.build.outputs.hashes }}
       version: ${{ steps.build.outputs.version }}
@@ -136,16 +164,18 @@ jobs:
           ref: ${{ inputs.ref || '' }}
 
       # TODO: replace with $/build/actions/go when GitHub ships $/ syntax (#136)
-      # Pinned to this PR's own latest commit because build/actions/go/action.yml
-      # is introduced by this PR — main 2026-05-23 (2510122) predates it.
-      # A follow-up "Bump self-ref pins" PR will repoint to the squashed
-      # merge SHA after this lands, matching the convention from #227 / #233.
-      - uses: TomHennen/wrangle/build/actions/go@3251b457a8780d943377d9a7788b7d25a37f382e # PR #238 HEAD
+      # Self-pinned to PR HEAD until merge (composite action and reusable
+      # workflow update together per CLAUDE.md "Action Reference Pinning").
+      # A follow-up "Bump self-ref pins" PR repoints to the squashed merge
+      # SHA after this lands, matching #227 / #233.
+      - uses: TomHennen/wrangle/build/actions/go@75e9e50887c988fff5ba1bf4b775ebfc55327bc1 # PR #238 HEAD before this revision; bump-self-refs follow-up updates after merge
         id: build
         with:
           path: ${{ inputs.path }}
           go-version: ${{ inputs.go-version }}
           run-tests: ${{ inputs.run-tests }}
+          run-race-detector: ${{ inputs.run-race-detector }}
+          run-gofmt-check: ${{ inputs.run-gofmt-check }}
           # Disable the Go module + build caches on release builds.
           # should-release == 'true' means this event produces L3
           # provenance, so the build must not consume a shared
@@ -184,34 +214,38 @@ jobs:
   # with — this is what makes the provenance non-falsifiable. Gated on
   # the release-events input.
   #
-  # upload-assets is intentionally false: wrangle's publish job (below)
-  # owns the upload to GitHub Releases, so verify can run BEFORE the
-  # release becomes visible. Letting the SLSA generator's upload-assets
-  # attach provenance would re-introduce the "verify after publish" gap
-  # by uploading to the release before verify runs.
-  #
-  # contents: write is required at startup regardless of upload-assets'
-  # value (GitHub validates permissions at workflow startup, not based
-  # on runtime flags).
+  # upload-assets is true on tag pushes: goreleaser has already created
+  # the GitHub Release in the build job (publishing inline is its
+  # native behavior), and the SLSA generator appends the provenance
+  # file to that release shortly after. The small window between
+  # goreleaser's publish and this attestation is acceptable — the
+  # provenance attests content-addressed hashes that don't change, and
+  # any consumer that downloads in the window can verify once the
+  # attestation lands.
   provenance:
     if: ${{ needs.gate.outputs.should-release == 'true' }}
     needs: [guard, gate, build]
     permissions:
       actions: read    # detect the GitHub Actions environment
       id-token: write  # OIDC for Sigstore signing
-      contents: write  # required by generator's upload-assets job at startup (even when set false)
+      contents: write  # required by generator's upload-assets job
     # MUST use tag, not SHA — the SLSA generator validates its own invocation
     # ref. See https://github.com/TomHennen/wrangle/issues/147
     uses: slsa-framework/slsa-github-generator/.github/workflows/generator_generic_slsa3.yml@v2.1.0 # zizmor: ignore[unpinned-uses] tag required by SLSA generator's OIDC verification
     with:
       base64-subjects: ${{ needs.build.outputs.hashes }}
       provenance-name: go-${{ needs.build.outputs.shortname }}.intoto.jsonl
-      upload-assets: false    # publish job owns release upload
+      upload-assets: ${{ startsWith(github.ref, 'refs/tags/') }}
 
   # Verify the just-built dist matches the just-generated provenance.
-  # Failing here fails the workflow, which (via standard `needs:`
-  # propagation) blocks the publish job — so a tampered dist between
-  # build and publish never reaches a GitHub Release.
+  # Runs AFTER goreleaser's inline publish; the artifacts are already
+  # live on the GitHub Release at this point — but the provenance
+  # attests content-addressed hashes, so verification still works the
+  # same way it would pre-publish. A failure here surfaces loudly in
+  # CI even if the bad bytes have already been uploaded; in practice
+  # it would mean the SLSA generator's hashes don't match the bytes
+  # wrangle handed it, which is a tooling regression worth flagging.
+  # Same shape as the container build type's `verify-image` step.
   verify:
     if: ${{ needs.gate.outputs.should-release == 'true' && inputs.verify-provenance }}
     needs: [guard, gate, build, provenance]
@@ -262,48 +296,3 @@ jobs:
               --provenance-path "provenance/${PROVENANCE_NAME}" \
               --source-uri "$SOURCE_URI" \
               "${artifacts[@]}"
-
-  # Publish to GitHub Releases. Tag-push only (`gh release create`
-  # requires a tag). Runs AFTER verify so the verify-before-publish
-  # invariant holds: a verification failure blocks this job via the
-  # `needs:` chain, leaving no GitHub Release surface for the bad bytes.
-  #
-  # The release includes the goreleaser-produced dist contents
-  # (binaries, archives, checksums.txt) AND the SLSA provenance file —
-  # everything a downstream consumer needs to run
-  # `slsa-verifier verify-artifact` against the released bytes.
-  publish:
-    if: ${{ needs.gate.outputs.should-release == 'true' && startsWith(github.ref, 'refs/tags/') }}
-    # Verify is in the chain only when verify-provenance is true (its
-    # own `if:` skips it otherwise). Listing it in needs: still works —
-    # a skipped job is treated as success by needs:.
-    needs: [guard, gate, build, provenance, verify]
-    runs-on: ubuntu-latest
-    permissions:
-      contents: write    # gh release create / upload
-    steps:
-      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
-        with:
-          name: ${{ needs.build.outputs.dist-artifact-name }}
-          path: dist/
-
-      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
-        with:
-          name: ${{ needs.provenance.outputs.provenance-name }}
-          path: provenance/
-
-      - name: Publish GitHub Release
-        env:
-          GH_TOKEN: ${{ github.token }}
-          TAG: ${{ github.ref_name }}
-          PROVENANCE_NAME: ${{ needs.provenance.outputs.provenance-name }}
-        run: |
-          set -euo pipefail
-          # Create the release if missing (idempotent on re-runs), then
-          # upload all dist contents + the provenance file. --clobber
-          # makes the upload tolerant of partial prior uploads from a
-          # failed previous run.
-          if ! gh release view "$TAG" >/dev/null 2>&1; then
-              gh release create "$TAG" --title "$TAG" --notes "Release $TAG"
-          fi
-          gh release upload "$TAG" --clobber dist/* "provenance/${PROVENANCE_NAME}"

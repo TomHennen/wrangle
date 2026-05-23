@@ -10,17 +10,15 @@
 #          - flags: [-trimpath]
 #            env: [-buildvcs=false]
 #
-# Unlike python and npm, publish is OWNED by wrangle's reusable workflow.
-# Go has no language-level package registry with a caller-bound OIDC
-# publish constraint — the publish target is GitHub Releases, which only
-# needs `contents: write` on the workflow calling wrangle. Wrangle's
-# reusable workflow runs `gh release create` / `gh release upload` AFTER
-# verify, so a bad artifact never reaches a GitHub Release.
+# Unlike python and npm, the adopter does NOT need a separate publish
+# job here. Go has no language-level package registry with a caller-
+# bound OIDC publish constraint, so goreleaser itself owns publish on
+# tag pushes — it creates the GitHub Release, attaches archives + checksums,
+# and runs every downstream verb your .goreleaser.yml configures (Docker
+# pushes, Homebrew taps, deb/rpm/snap, announcements). The SLSA generator
+# appends the provenance file to the same release shortly after.
 #
-# Wrangle's reusable workflow generates SLSA provenance (Build L3) AND
-# verifies the just-built dist against it before publishing. There is no
-# separate publish job for the adopter to wire — a single `uses:` line
-# is the full integration.
+# Single `uses:` line is the full integration.
 #
 # Trigger note: this template sets `release-events: tag-only` so only
 # tag pushes publish a GitHub Release. PR builds run the full pipeline
@@ -38,8 +36,8 @@ on:
 jobs:
   build:
     permissions:
-      # Required by wrangle's reusable workflow's nested provenance + publish jobs:
-      contents: write   # SLSA generator's upload-assets job (declared at startup) + publish job's gh release create
+      # Required by goreleaser's inline publish + wrangle's nested provenance:
+      contents: write   # goreleaser creates the GitHub Release on tag push + SLSA generator's upload-assets job (declared at startup)
       id-token: write   # OIDC for Sigstore signing
       actions: read     # SLSA generator detects the GitHub Actions environment
     uses: TomHennen/wrangle/.github/workflows/build_and_publish_go.yml@v0.2.0
@@ -48,4 +46,6 @@ jobs:
       release-events: tag-only          # only tag pushes publish a release (recommended default)
       # go-version: ""                  # optional: auto-detected from go.mod's `go` directive
       # run-tests: true                 # optional: skip with false (also skips gofmt/vet/govulncheck)
-      # verify-provenance: true         # optional: wrangle verifies before publishing; set false for custom verify
+      # run-race-detector: true         # optional: set false when CGO is disabled (race detector requires cgo)
+      # run-gofmt-check: true           # optional: set false only if the `// Code generated` auto-skip isn't enough
+      # verify-provenance: true         # optional: wrangle verifies post-publish; set false for custom verify

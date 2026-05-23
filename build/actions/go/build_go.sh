@@ -44,18 +44,26 @@
 # Output: writes govulncheck JSON to $METADATA_DIR/govulncheck.json so
 # adopters can see what was scanned without re-running.
 #
-# Usage: build/actions/go/build_go.sh <path> <metadata_dir> <govulncheck_version>
+# Usage: build/actions/go/build_go.sh <path> <metadata_dir>
+#                                     <govulncheck_version> <run_race> <run_gofmt>
+#
+#   run_race:  "true" → `go test -race`; anything else → plain `go test`.
+#              Set to "false" when CGO is disabled (race detector requires cgo).
+#   run_gofmt: "true" → run gofmt check (with generated-file auto-skip);
+#              "false" → skip entirely.
 
 set -euo pipefail
 
-if [[ $# -ne 3 ]]; then
-    printf 'Usage: %s <path> <metadata_dir> <govulncheck_version>\n' "$0" >&2
+if [[ $# -ne 5 ]]; then
+    printf 'Usage: %s <path> <metadata_dir> <govulncheck_version> <run_race> <run_gofmt>\n' "$0" >&2
     exit 1
 fi
 
 INPUT_PATH="$1"
 METADATA_DIR="$2"
 GOVULNCHECK_VERSION="$3"
+RUN_RACE="$4"
+RUN_GOFMT="$5"
 
 # Absolute paths captured BEFORE the cd so the metadata write below
 # resolves to the workspace root, not the project subdir.
@@ -63,32 +71,60 @@ METADATA_DIR_ABS="$(cd "$(dirname "$METADATA_DIR")" && pwd)/$(basename "$METADAT
 
 cd "$INPUT_PATH"
 
-printf '== gofmt check ==\n'
-# `gofmt -l .` lists files that would change. Capture; if non-empty,
-# print and exit. Doesn't fail the build via gofmt's exit code (it
-# returns 0 even when files would change), so we drive the failure
-# from the listed-files count.
-unformatted="$(gofmt -l . 2>&1 || true)"
-if [[ -n "$unformatted" ]]; then
-    printf 'Error: the following files are not gofmt-clean:\n'
-    printf '%s\n' "$unformatted"
-    # shellcheck disable=SC2016 # backticks here are human-readable formatting, not command substitution
-    printf 'Run `gofmt -w .` locally to fix, then commit.\n'
-    exit 1
+if [[ "$RUN_GOFMT" == "true" ]]; then
+    printf '== gofmt check ==\n'
+    # `gofmt -l .` lists files that would change under gofmt. gofmt
+    # itself returns 0 even when files would change, so we drive the
+    # failure from the listed-files count.
+    #
+    # Generated files (protobuf, mockgen, sqlc, etc.) by Go convention
+    # carry a `// Code generated ... DO NOT EDIT.` header on their first
+    # few lines (https://pkg.go.dev/cmd/go/internal/generate, mirrored
+    # by golangci-lint's --skip-files generated-code default). Wrangle
+    # auto-skips those — adopters with generated code rarely need to
+    # disable the gofmt check via run-gofmt-check: false.
+    unformatted=""
+    while read -r f; do
+        [[ -n "$f" ]] || continue
+        if [[ -f "$f" ]] && head -3 "$f" 2>/dev/null | grep -qE '^// Code generated .* DO NOT EDIT\.$'; then
+            continue
+        fi
+        unformatted+="$f"$'\n'
+    done < <(gofmt -l . 2>&1 || true)
+    # Trim the trailing newline so the empty-string check below is meaningful.
+    unformatted="${unformatted%$'\n'}"
+    if [[ -n "$unformatted" ]]; then
+        printf 'Error: the following files are not gofmt-clean:\n'
+        printf '%s\n' "$unformatted"
+        # shellcheck disable=SC2016 # backticks here are human-readable formatting, not command substitution
+        printf 'Run `gofmt -w .` locally to fix, then commit.\n'
+        # shellcheck disable=SC2016 # backticks here are human-readable formatting, not command substitution
+        printf 'If the file is generated and missing the `// Code generated ... DO NOT EDIT.` header,\n'
+        printf 'add that header (Go convention) — wrangle will auto-skip it. Or disable the gofmt\n'
+        printf 'check entirely via run-gofmt-check: false on the action input.\n'
+        exit 1
+    fi
+    printf 'gofmt: all files are formatted (generated files auto-skipped).\n'
+else
+    printf '== gofmt check ==\nSkipped (run-gofmt-check: false).\n'
 fi
-printf 'gofmt: all files are formatted.\n'
 
 printf '\n== go vet ==\n'
 go vet ./...
 printf 'go vet: passed.\n'
 
 printf '\n== go test ./... ==\n'
-# -race adds overhead but catches data races; mandatory on every
-# wrangle Go build. Adopters who absolutely cannot afford -race
-# (e.g., CGo + a runtime the race detector doesn't support) can
-# fork until we expose a flag.
-go test -race ./...
-printf 'go test: passed.\n'
+# Race detector adds overhead but catches data races that would
+# otherwise ship in the released binary. Default on; flip off via
+# run-race-detector: false when CGO is disabled (race detector
+# requires cgo, so `go test -race` fails with CGO_ENABLED=0).
+if [[ "$RUN_RACE" == "true" ]]; then
+    go test -race ./...
+    printf 'go test: passed (with race detector).\n'
+else
+    go test ./...
+    printf 'go test: passed (race detector skipped via run-race-detector: false).\n'
+fi
 
 printf '\n== govulncheck ==\n'
 # Pinned version installed via `go install` (sum.golang.org-verified).
