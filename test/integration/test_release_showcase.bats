@@ -178,6 +178,15 @@ case "$2" in
     "repos/"*"/git/matching-refs/tags/v")
         case "${GH_STUB_MODE:-}" in
             no-prior-tags) printf '[]' ;;
+            prior-tag-matches-head)
+                # Return one tracking tag whose embedded SHA prefix is
+                # the first 7 chars of GH_STUB_HEAD_SHA. Combined with a
+                # WRANGLE_SHA pointing at the same commit, the script's
+                # `git diff` will be empty -> exercises the runtime-diff
+                # short-circuit (the load-bearing new mechanism).
+                short="${GH_STUB_HEAD_SHA:0:7}"
+                printf '[{"ref":"refs/tags/v20260101-%s"}]' "$short"
+                ;;
             *) printf '[]' ;;
         esac
         ;;
@@ -241,5 +250,20 @@ _teardown_workspace() {
     [[ "$output" == *"bootstrapping"* ]]
     [[ "$output" == *"Pushed"* ]]
     [[ -f "$CREATED_MARKER" ]]
+    _teardown_workspace
+}
+
+@test "push_showcase_tag.sh skips when runtime diff against last tracking tag is empty" {
+    # Exercises the runtime-diff short-circuit: the prior tracking tag's
+    # embedded SHA matches HEAD, so `git diff` is empty and the script
+    # must skip without pushing. This is the new mechanism that replaced
+    # the paths: allowlist on the workflow side.
+    _setup_workspace
+    GH_STUB_MODE=prior-tag-matches-head \
+        GH_STUB_HEAD_SHA="$REAL_SHA" \
+        run bash -c "cd '$WORKSPACE' && '$SCRIPT' '$REAL_SHA'"
+    [[ "$status" -eq 0 ]]
+    [[ "$output" == *"No diff"* ]]
+    [[ ! -f "$CREATED_MARKER" ]]   # Did not reach the create-tag step.
     _teardown_workspace
 }
