@@ -1,6 +1,6 @@
 # Wrangle Build Go
 
-Build a Go project via [`goreleaser`](https://goreleaser.com/), run gofmt/vet/test/govulncheck, generate an SPDX SBOM, and produce SLSA provenance (Build L3) via `slsa-github-generator`. Goreleaser publishes natively on tag push, so adopters wire wrangle with a single `uses:` line and get back a GitHub Release with archives, checksums, SBOM, provenance, plus whatever Docker pushes / Homebrew taps / deb-rpm-snap / announcements their `.goreleaser.yml` configures.
+**Wrangle wraps your existing `.goreleaser.yml`; it does not replace it.** Bring your goreleaser config; wrangle adds gofmt/vet/test/govulncheck, an SPDX SBOM, SLSA L3 provenance, and post-publish verification around it. Goreleaser publishes natively on tag push, so your Docker pushes, Homebrew taps, deb/rpm/snap, and announcements all keep working — wrangle attaches SLSA provenance to the GitHub Release shortly after.
 
 > **Note:** This README documents *currently-shipped* behavior. For the full design — ecosystem-specific-builder-vs-generic-generator pick, cache isolation analysis, permissions architecture — see [`SPEC.md`](./SPEC.md).
 
@@ -50,6 +50,29 @@ checksum:
 
 Both `-trimpath` and `-buildvcs=false` are zero-cost reproducibility wins. `CGO_ENABLED=0` is **not** recommended as a default — cgo-backed `net`/`os/user` resolvers and many third-party crypto libraries link C — set it only if you specifically want pure-Go binaries. See [goreleaser customization docs](https://goreleaser.com/customization/) for the full schema.
 
+## What the SLSA provenance covers (and what it doesn't)
+
+Wrangle hashes the contents of goreleaser's `dist/checksums.txt` and hands those hashes to the SLSA generator. Anything in `checksums.txt` is a provenance subject; anything outside it is NOT — including artifacts goreleaser pushes to OCI registries, Homebrew taps, or chat webhooks.
+
+| Goreleaser output | Covered by wrangle's SLSA provenance? |
+|---|---|
+| Archives in `dist/` (tar.gz, zip) | **Yes** — hashed via `checksums.txt` |
+| `dist/checksums.txt` itself | Yes (file-level integrity, distinct subject) |
+| deb / rpm / apk / snap packages in `dist/` | **Yes**, when goreleaser includes them in `checksums.txt` (its default) |
+| Docker images pushed by goreleaser | **No** — wrangle does not attest registry-side image artifacts; pair with wrangle's container build type for those |
+| Homebrew formula updates (tap-repo commits) | **No** — those are commits in a separate repo, outside `checksums.txt` |
+| GitHub Release notes / announcements | **No** — informational, not signed |
+
+If your release ships Docker images alongside binaries and you need provenance for both, plan to call wrangle's container build type for the image and `build_and_publish_go.yml` for the binaries in the same workflow.
+
+## "Publish first, attest second" — the timing model
+
+Goreleaser publishes the release inline (creates the GitHub Release, uploads archives, runs Docker pushes / Homebrew taps / announcements). The SLSA generator's `upload-assets` job appends the provenance file to that release shortly after — typically 30s-2min later. This is the same shape wrangle's container build type uses (`docker push` first, attestation second), and it's the only viable shape that preserves goreleaser's downstream verbs.
+
+Two practical consequences:
+- During the gap, consumers who download from the release see archives without an attestation alongside them. Once the generator job finishes, the `.intoto.jsonl` is there. Hashes are content-addressed, so verification works whenever it lands.
+- Verification is post-publish (see "SLSA provenance verification" below): it surfaces tooling regressions loudly but does not retract released bytes. For a regulated environment that needs strict before-publish attestation, the container or python pattern fits better.
+
 ## Recommended companion: source scan
 
 This action hardens *how* your artifact is produced; it does NOT scan your source. Pair with wrangle's source-scan workflow ([`actions/scan/README.md`](../../../actions/scan/README.md)) to catch vulnerable deps, dangerous workflow triggers, and missing branch protection — issues wrangle would otherwise faithfully L3-attest as legitimately built.
@@ -91,7 +114,15 @@ Cost: ~30s extra latency for the second checkout + setup-go. Benefit: a compromi
 
 ## Controlling when releases happen
 
-`release-events` (default: `non-pull-request`) controls which events mint SLSA provenance. Goreleaser publishes *only* on tag pushes (`gh release create` requires a tag) — so `release-events: tag-only` and `release-events: non-pull-request` yield the same publish behavior; the difference is whether the workflow runs at all on non-tag non-PR events (where it builds in `--snapshot` mode without uploading anything).
+`release-events` (default: `non-pull-request`) governs **which events run wrangle's full pipeline** (build, tests, SBOM, provenance). It does NOT control publish directly — publish happens whenever you push a tag (`gh release create` requires one). The interaction:
+
+| Setting | Tag push behavior | Non-tag push (e.g. main) | PR build |
+|---|---|---|---|
+| `tag-only` | Full pipeline + publish | Workflow doesn't run | Workflow doesn't run |
+| `non-pull-request` (default) | Full pipeline + publish | Full pipeline, no publish (snapshot mode) | Workflow doesn't run |
+| `main-and-tags` | Full pipeline + publish | Full pipeline on `main`, no publish (snapshot mode) | Workflow doesn't run |
+
+For most adopters: **`tag-only` is the cheapest setting** (workflow runs only when it would do something meaningful). Use `non-pull-request` if you want main/dispatch builds to exercise the pipeline for early failure-detection (at the cost of a snapshot goreleaser run on every push).
 
 ```yaml
 uses: TomHennen/wrangle/.github/workflows/build_and_publish_go.yml@v0.2.0
@@ -104,11 +135,7 @@ Full vocabulary in [`docs/SPEC.md`](../../../docs/SPEC.md) "Release-events gatin
 
 ## SLSA provenance verification (post-publish, informational)
 
-Wrangle's reusable workflow generates SLSA L3 provenance via `slsa-github-generator` and runs `slsa-verifier verify-artifact` after goreleaser publishes.
-
-**Verify is informational, not a gate.** Goreleaser has already created the release by the time verify runs — a failure does not retract the released artifacts. What verify catches is a tooling regression: a hash mismatch between the bytes the generator signed and the bytes goreleaser put on the release would surface here loudly. To opt out (e.g., custom verification flow): `verify-provenance: false`.
-
-The small "naked window" between goreleaser's publish and the provenance arriving is the same trade wrangle's container build type makes. Hashes are content-addressed, so any consumer who downloads in the window can verify once the attestation lands.
+After goreleaser publishes, wrangle runs `slsa-verifier verify-artifact` against the just-built dist. **Verify is informational, not a gate** — see "Publish first, attest second" above for the timing model. A failure here surfaces a tooling regression (hash mismatch between what the generator signed and what goreleaser uploaded) but does not retract the released artifacts. To opt out (e.g., custom verification flow): `verify-provenance: false`.
 
 ### Verifying after install (downstream consumers)
 
