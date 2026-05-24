@@ -9,7 +9,7 @@ Wrangle is a composable CI/CD framework for GitHub Actions that handles the full
 ### Core principles
 
 1. **Full lifecycle** — wrangle handles source scanning, building, testing, publishing, SBOM generation, signing, and SLSA provenance. Not just one stage.
-2. **One-shot adoption** — a maintainer picks a profile matching their project type, gets one or two workflow files, and everything works
+2. **One-shot adoption** — a maintainer picks a workflow template matching their project type, gets one or two workflow files, and everything works
 3. **Pluggable tools** — new tools are added via adapters without changing adopting repos
 4. **Automatic updates** — adopters reference wrangle's reusable workflows; updates flow to everyone
 5. **AI-agent friendly** — designed so "Claude, adopt wrangle for this repo" just works
@@ -1005,7 +1005,7 @@ If the project type is unknown (no Dockerfile, no recognized language files), ad
 
 ### Long-term: OpenSSF contribution
 
-The adapter pattern, tool composition logic, and profile system are candidates for contribution to OpenSSF (e.g., as part of Minder or a new working group). The spec and implementation will be designed with this handoff in mind.
+The adapter pattern and tool composition logic are candidates for contribution to OpenSSF (e.g., as part of Minder or a new working group). The spec and implementation will be designed with this handoff in mind.
 
 ---
 
@@ -1034,17 +1034,31 @@ The adapter pattern, tool composition logic, and profile system are candidates f
 - [ ] Tested on Concordance
 - [ ] AGENTS.md for AI agent adoption
 
-### v0.2.0 — Profiles + additional build types
+### v0.2.0 — Verify story complete + Go build type + tool plumbing
 
-- [ ] Profile system (`wrangle.yml` with `profile: container` / `profile: library` / `profile: python`)
-- [ ] `wrangle init` CLI or GitHub Action for bootstrapping
-- [ ] Test integration — detect and run project tests before build
-- [ ] Additional source tools (e.g., Semgrep, Trivy)
-- [ ] Additional build types (Python, npm, Go)
+Theme: complete the verify story end-to-end (producer + consumer), ship the
+Go build type, and tighten tool plumbing. A profile system (`wrangle.yml`
+with `profile:` field) and a `wrangle init` bootstrapper were considered and
+deferred — the existing example workflows in `gh_workflow_examples/` already
+deliver the "one-shot adoption" vision, and a config layer doesn't reduce
+the irreducible per-adopter inputs (`path`, `imagename`, `release-events`).
+
+- [ ] Additional build types: Go (Python and npm shipped in v0.1)
+- [ ] [Ampel](https://github.com/carabiner-dev/ampel) integration — policy verification layer that evaluates attestations against CEL-based policies and produces Verification Summary Attestations. Scoping: [#247](https://github.com/TomHennen/wrangle/issues/247)
+- [ ] Consumer-facing `wrangle verify-artifact` action so adopters and their consumers can verify VSAs without installing Ampel. Tracking: [#198](https://github.com/TomHennen/wrangle/issues/198)
+- [ ] Bundle wrangle attestations into a single in-toto JSONL across all build types (replacing per-build `python-<shortname>.intoto.jsonl` etc.). Tracking: [#181](https://github.com/TomHennen/wrangle/issues/181)
 - [ ] `tools.lock` manifest — single file listing all tool versions, URLs, and checksums per platform
-- [ ] Lightweight sandboxing for adapters (bubblewrap/firejail on Linux)
-- [ ] [Ampel](https://github.com/carabiner-dev/ampel) integration — policy verification layer that evaluates attestations against CEL-based policies and produces Verification Summary Attestations
-- [ ] Help adopters adopt the SLSA source track in their repos
+- [ ] Per-tool configuration — prefer native config files over flat passthrough inputs. Tracking: [#221](https://github.com/TomHennen/wrangle/issues/221)
+- [ ] Action-pattern source-scan tools must fail closed when the underlying tool errors (currently fail open). Tracking: [#222](https://github.com/TomHennen/wrangle/issues/222)
+- [ ] Help adopters adopt the SLSA source track in their repos. Tracking: [#201](https://github.com/TomHennen/wrangle/issues/201), [#174](https://github.com/TomHennen/wrangle/issues/174)
+
+**Deferred from v0.2** (candidates for v0.3+):
+
+- Profile system and `wrangle init` — see theme paragraph above
+- Lightweight adapter sandboxing (bubblewrap/firejail on Linux) — significant design surface; own release
+- Additional source tools (Semgrep, Trivy) — additive, not architectural
+- Test integration as a profile-level concept — each build type already runs tests inside its own action
+- npm/pnpm/yarn workspaces ([#208](https://github.com/TomHennen/wrangle/issues/208)) — own track
 
 ### v1.0.0 — OpenSSF ready
 
