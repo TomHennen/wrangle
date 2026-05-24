@@ -9,7 +9,7 @@
 # Output goes to <output_path>. The composite picks a path matching
 # the unified-metadata convention (e.g., metadata/go/<shortname>/sbom.spdx.json).
 #
-# Usage: lib/generate_sbom.sh <source_dir> <output_path>
+# Usage: tools/syft/generate_sbom.sh <source_dir> <output_path>
 
 set -euo pipefail
 set -f  # processes external arguments — disable globbing per CLAUDE.md

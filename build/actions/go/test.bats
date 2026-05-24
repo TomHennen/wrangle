@@ -174,43 +174,43 @@ func main() {}
 # ====================================================================
 
 @test "go.release: derive_shortname maps '.' to '_'" {
-    run bash -c 'source "$1"; derive_shortname "."' -- "$RELEASE_DIR/compute_metadata.sh"
+    run bash -c 'source "$1"; derive_shortname "."' -- "$GO_ACTION_DIR/compute_metadata.sh"
     [[ "$status" -eq 0 ]]
     [[ "$output" == "_" ]]
 }
 
 @test "go.release: derive_shortname maps 'cmd/foo' to 'cmd_foo'" {
-    run bash -c 'source "$1"; derive_shortname "cmd/foo"' -- "$RELEASE_DIR/compute_metadata.sh"
+    run bash -c 'source "$1"; derive_shortname "cmd/foo"' -- "$GO_ACTION_DIR/compute_metadata.sh"
     [[ "$status" -eq 0 ]]
     [[ "$output" == "cmd_foo" ]]
 }
 
 @test "go.release: derive_shortname maps nested paths" {
-    run bash -c 'source "$1"; derive_shortname "a/b/c"' -- "$RELEASE_DIR/compute_metadata.sh"
+    run bash -c 'source "$1"; derive_shortname "a/b/c"' -- "$GO_ACTION_DIR/compute_metadata.sh"
     [[ "$status" -eq 0 ]]
     [[ "$output" == "a_b_c" ]]
 }
 
 @test "go.release: derive_version returns tag name on tag push" {
-    run bash -c 'GITHUB_REF=refs/tags/v1.2.3; source "$1"; derive_version' -- "$RELEASE_DIR/compute_metadata.sh"
+    run bash -c 'GITHUB_REF=refs/tags/v1.2.3; source "$1"; derive_version' -- "$GO_ACTION_DIR/compute_metadata.sh"
     [[ "$status" -eq 0 ]]
     [[ "$output" == "v1.2.3" ]]
 }
 
 @test "go.release: derive_version returns 'snapshot' on non-tag refs" {
-    run bash -c 'GITHUB_REF=refs/heads/main; source "$1"; derive_version' -- "$RELEASE_DIR/compute_metadata.sh"
+    run bash -c 'GITHUB_REF=refs/heads/main; source "$1"; derive_version' -- "$GO_ACTION_DIR/compute_metadata.sh"
     [[ "$status" -eq 0 ]]
     [[ "$output" == "snapshot" ]]
 }
 
 @test "go.release: derive_version returns 'snapshot' when GITHUB_REF unset" {
-    run bash -c 'unset GITHUB_REF; source "$1"; derive_version' -- "$RELEASE_DIR/compute_metadata.sh"
+    run bash -c 'unset GITHUB_REF; source "$1"; derive_version' -- "$GO_ACTION_DIR/compute_metadata.sh"
     [[ "$status" -eq 0 ]]
     [[ "$output" == "snapshot" ]]
 }
 
 @test "go.release: compute_metadata.sh end-to-end writes shortname and version to GITHUB_OUTPUT" {
-    GITHUB_REF=refs/tags/v0.1.0 run "$RELEASE_DIR/compute_metadata.sh" "cmd/example"
+    GITHUB_REF=refs/tags/v0.1.0 run "$GO_ACTION_DIR/compute_metadata.sh" "cmd/example"
     [[ "$status" -eq 0 ]]
     grep -qE '^shortname=cmd_example$' "$GITHUB_OUTPUT"
     grep -qE '^version=v0\.1\.0$' "$GITHUB_OUTPUT"
@@ -438,13 +438,13 @@ func main() {}
     [[ "$status" -eq 0 ]]
 }
 
-@test "lib/generate_sbom.sh uses set -f" {
-    run grep '^set -f' "$REPO_ROOT/lib/generate_sbom.sh"
+@test "tools/syft/generate_sbom.sh uses set -f" {
+    run grep '^set -f' "$REPO_ROOT/tools/syft/generate_sbom.sh"
     [[ "$status" -eq 0 ]]
 }
 
-@test "go.release: compute_metadata.sh uses set -f" {
-    run grep '^set -f' "$RELEASE_DIR/compute_metadata.sh"
+@test "go: compute_metadata.sh uses set -f" {
+    run grep '^set -f' "$GO_ACTION_DIR/compute_metadata.sh"
     [[ "$status" -eq 0 ]]
 }
 
@@ -525,6 +525,18 @@ func main() {}
         run grep -E "^  ${job}:" "$WORKFLOW"
         [[ "$status" -eq 0 ]]
     done
+}
+
+@test "go: workflow does not inline-duplicate shortname derivation (composites own it)" {
+    # Earlier revisions had `SHORTNAME="${INPUT_PATH////_}"` shell
+    # blocks in both the checks and release jobs, duplicating
+    # derive_shortname() from compute_metadata.sh. The composites
+    # now own shortname computation; the workflow consumes the
+    # `shortname` and `metadata-dir` outputs.
+    run grep -E 'SHORTNAME=\$' "$WORKFLOW"
+    [[ "$status" -ne 0 ]]
+    run grep -E 'INPUT_PATH////_' "$WORKFLOW"
+    [[ "$status" -ne 0 ]]
 }
 
 @test "go: workflow checks job has contents: read (least privilege for go test)" {

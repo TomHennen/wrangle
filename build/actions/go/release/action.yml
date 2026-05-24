@@ -55,14 +55,6 @@ inputs:
                the pipeline is exercised without publishing.
     required: false
     default: "false"
-  metadata-dir:
-    description: |
-      Workspace-relative path where sbom.spdx.json should be
-      written (typically `metadata/go/<shortname>/`). The composite
-      creates the directory if needed; the caller uploads it as a
-      workflow artifact.
-    required: false
-    default: "metadata/go/_"
 
 outputs:
   version:
@@ -74,6 +66,9 @@ outputs:
   shortname:
     description: "Path-derived short name for artifact namespacing (e.g., '.' becomes '_')"
     value: ${{ steps.metadata.outputs.shortname }}
+  metadata-dir:
+    description: "Workspace-relative path containing the SBOM. Format: metadata/go/<shortname>."
+    value: ${{ steps.metadata.outputs.metadata-dir }}
 
 runs:
   using: "composite"
@@ -95,7 +90,7 @@ runs:
         INPUT_PATH: ${{ inputs.path }}
       run: |
         set -euo pipefail
-        "${{ github.action_path }}/compute_metadata.sh" "$INPUT_PATH"
+        "${{ github.action_path }}/../compute_metadata.sh" "$INPUT_PATH"
 
     - name: Setup Go
       uses: actions/setup-go@4a3601121dd01d1626a1e23e37211e3254c1c06c # v6.4.0
@@ -172,11 +167,11 @@ runs:
       shell: bash
       env:
         INPUT_PATH: ${{ inputs.path }}
-        METADATA_DIR: ${{ inputs.metadata-dir }}
+        METADATA_DIR: ${{ steps.metadata.outputs.metadata-dir }}
       run: |
         set -euo pipefail
         mkdir -p "$METADATA_DIR"
-        "${{ github.action_path }}/../../../../lib/generate_sbom.sh" \
+        "${{ github.action_path }}/../../../../tools/syft/generate_sbom.sh" \
             "$INPUT_PATH" "$METADATA_DIR/sbom.spdx.json"
 
     - name: Generate summary

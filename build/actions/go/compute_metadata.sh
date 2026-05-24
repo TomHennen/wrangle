@@ -1,14 +1,18 @@
 #!/bin/bash
-# Computes shortname and version metadata for the Go release composite
-# and writes them to $GITHUB_OUTPUT.
+# Computes shortname, version, and metadata-dir for the Go build
+# composites and writes them to $GITHUB_OUTPUT. Shared by checks/
+# and release/ — call from either; both need shortname-derived paths.
 #
-# - shortname: path-derived identifier for artifact namespacing
-#   ('.' -> '_', 'cmd/foo' -> 'cmd_foo').
-# - version:   the git tag if the workflow was triggered by a tag push,
-#   otherwise "snapshot" (matches what goreleaser uses for its
-#   internal version string).
+# - shortname:    path-derived identifier for artifact namespacing
+#                 ('.' -> '_', 'cmd/foo' -> 'cmd_foo').
+# - version:      the git tag if the workflow was triggered by a tag
+#                 push, otherwise "snapshot" (matches what goreleaser
+#                 uses for its internal version string).
+# - metadata-dir: "metadata/go/<shortname>" — where the composite
+#                 writes sbom.spdx.json / govulncheck.json. The
+#                 calling workflow uses this path for upload-artifact.
 #
-# Usage: build/actions/go/release/compute_metadata.sh <input_path>
+# Usage: build/actions/go/compute_metadata.sh <input_path>
 
 set -euo pipefail
 set -f  # processes external arguments — disable globbing per CLAUDE.md
@@ -52,8 +56,11 @@ main() {
     shortname="$(derive_shortname "$1")"
     version="$(derive_version)"
 
-    printf 'shortname=%s\n' "$shortname" >> "$GITHUB_OUTPUT"
-    printf 'version=%s\n' "$version" >> "$GITHUB_OUTPUT"
+    {
+        printf 'shortname=%s\n' "$shortname"
+        printf 'version=%s\n' "$version"
+        printf 'metadata-dir=metadata/go/%s\n' "$shortname"
+    } >> "$GITHUB_OUTPUT"
 }
 
 # Sourcing guard: tests source this file to call derive_*() directly.

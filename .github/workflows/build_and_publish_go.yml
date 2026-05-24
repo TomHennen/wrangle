@@ -166,46 +166,23 @@ jobs:
     permissions:
       contents: read
     outputs:
-      checks-metadata-artifact-name: ${{ steps.names.outputs.checks-metadata }}
+      checks-metadata-artifact-name: go-checks-metadata-${{ steps.checks.outputs.shortname }}
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
           persist-credentials: false
           ref: ${{ inputs.ref || '' }}
 
-      - id: shortname
-        shell: bash
-        env:
-          INPUT_PATH: ${{ inputs.path }}
-        run: |
-          set -euo pipefail
-          # Match derive_shortname() in build/actions/go/release/compute_metadata.sh.
-          if [[ "$INPUT_PATH" == "." ]]; then
-            SHORTNAME="_"
-          else
-            SHORTNAME="${INPUT_PATH////_}"
-          fi
-          printf 'shortname=%s\n' "$SHORTNAME" >> "$GITHUB_OUTPUT"
-          printf 'metadata-dir=metadata/go/%s\n' "$SHORTNAME" >> "$GITHUB_OUTPUT"
-
-      - id: names
-        shell: bash
-        env:
-          SHORTNAME: ${{ steps.shortname.outputs.shortname }}
-        run: |
-          set -euo pipefail
-          printf 'checks-metadata=go-checks-metadata-%s\n' "$SHORTNAME" >> "$GITHUB_OUTPUT"
-
       # TODO: replace with $/build/actions/go/checks when GitHub ships $/ syntax (#136)
       # Self-pinned to PR HEAD until merge — bump-self-refs follow-up
       # repoints to the squashed merge SHA after this lands.
-      - uses: TomHennen/wrangle/build/actions/go/checks@2d54a9ba95ec5c7ce1f88308f05b5d257472625e
+      - uses: TomHennen/wrangle/build/actions/go/checks@__PR_HEAD__
+        id: checks
         with:
           path: ${{ inputs.path }}
           go-version: ${{ inputs.go-version }}
           run-race-detector: ${{ inputs.run-race-detector }}
           run-gofmt-check: ${{ inputs.run-gofmt-check }}
-          metadata-dir: ${{ steps.shortname.outputs.metadata-dir }}
           # Caches are disabled on release builds (the same `should-release`
           # signal that gates provenance) — Go's build cache trusts pre-
           # derived compiled output without re-derivation (same shape as
@@ -215,8 +192,8 @@ jobs:
 
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
-          name: ${{ steps.names.outputs.checks-metadata }}
-          path: ${{ steps.shortname.outputs.metadata-dir }}/
+          name: go-checks-metadata-${{ steps.checks.outputs.shortname }}
+          path: ${{ steps.checks.outputs.metadata-dir }}/
           if-no-files-found: warn   # govulncheck JSON is informational; not having it is OK
 
   # Goreleaser invocation + SBOM + hash. contents: write because
@@ -231,8 +208,8 @@ jobs:
       hashes: ${{ steps.release.outputs.hashes }}
       version: ${{ steps.release.outputs.version }}
       shortname: ${{ steps.release.outputs.shortname }}
-      dist-artifact-name: ${{ steps.names.outputs.dist }}
-      metadata-artifact-name: ${{ steps.names.outputs.metadata }}
+      dist-artifact-name: go-dist-${{ steps.release.outputs.shortname }}
+      metadata-artifact-name: go-metadata-${{ steps.release.outputs.shortname }}
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
@@ -241,23 +218,9 @@ jobs:
           fetch-depth: 0         # goreleaser reads recent commit history
           ref: ${{ inputs.ref || '' }}
 
-      - id: shortname
-        shell: bash
-        env:
-          INPUT_PATH: ${{ inputs.path }}
-        run: |
-          set -euo pipefail
-          # Match derive_shortname() in build/actions/go/release/compute_metadata.sh.
-          if [[ "$INPUT_PATH" == "." ]]; then
-            SHORTNAME="_"
-          else
-            SHORTNAME="${INPUT_PATH////_}"
-          fi
-          printf 'metadata-dir=metadata/go/%s\n' "$SHORTNAME" >> "$GITHUB_OUTPUT"
-
       # TODO: replace with $/build/actions/go/release when GitHub ships $/ syntax (#136)
       # Self-pinned to PR HEAD until merge.
-      - uses: TomHennen/wrangle/build/actions/go/release@2d54a9ba95ec5c7ce1f88308f05b5d257472625e
+      - uses: TomHennen/wrangle/build/actions/go/release@__PR_HEAD__
         id: release
         with:
           path: ${{ inputs.path }}
@@ -267,27 +230,17 @@ jobs:
           # it builds in --snapshot mode without uploading anything.
           publish: ${{ needs.gate.outputs.should-release == 'true' && startsWith(github.ref, 'refs/tags/') }}
           cache: ${{ needs.gate.outputs.should-release == 'true' && 'disabled' || 'enabled' }}
-          metadata-dir: ${{ steps.shortname.outputs.metadata-dir }}
-
-      - id: names
-        shell: bash
-        env:
-          SHORTNAME: ${{ steps.release.outputs.shortname }}
-        run: |
-          set -euo pipefail
-          printf 'dist=go-dist-%s\n' "$SHORTNAME" >> "$GITHUB_OUTPUT"
-          printf 'metadata=go-metadata-%s\n' "$SHORTNAME" >> "$GITHUB_OUTPUT"
 
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
-          name: ${{ steps.names.outputs.dist }}
+          name: go-dist-${{ steps.release.outputs.shortname }}
           path: ${{ inputs.path }}/dist/
           if-no-files-found: error
 
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
-          name: ${{ steps.names.outputs.metadata }}
-          path: ${{ steps.shortname.outputs.metadata-dir }}/
+          name: go-metadata-${{ steps.release.outputs.shortname }}
+          path: ${{ steps.release.outputs.metadata-dir }}/
           if-no-files-found: error
 
   # Generate SLSA L3 provenance for the built artifacts. The generator
