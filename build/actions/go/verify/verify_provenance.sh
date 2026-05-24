@@ -45,7 +45,10 @@ list_artifacts() {
         printf 'Error: checksums file not found: %s\n' "$checksums" >&2
         return 1
     fi
-    awk -v d="$dist_dir/" '{ $1=""; sub(/^ +/, ""); print d $0 }' "$checksums"
+    # NF > 0 filters out blank lines defensively — a trailing newline
+    # in checksums.txt would otherwise produce a bare "dist/" entry
+    # that slsa-verifier would treat as a filename and fail confusingly.
+    awk -v d="$dist_dir/" 'NF > 0 { $1=""; sub(/^ +/, ""); print d $0 }' "$checksums"
 }
 
 main() {
@@ -58,9 +61,20 @@ main() {
     local provenance="$2"
     local source_uri="$3"
 
-    mapfile -t artifacts < <(list_artifacts "$dist_dir" "$dist_dir/checksums.txt")
+    # Pre-check explicitly so the actual error from list_artifacts
+    # (e.g., "checksums file not found") propagates. mapfile's
+    # process substitution swallows non-zero exit codes from the
+    # producer, so a missing checksums file would otherwise surface
+    # below as the less-helpful "checksums.txt is empty."
+    local checksums="$dist_dir/checksums.txt"
+    if [[ ! -f "$checksums" ]]; then
+        printf 'Error: checksums file not found: %s\n' "$checksums" >&2
+        exit 1
+    fi
+
+    mapfile -t artifacts < <(list_artifacts "$dist_dir" "$checksums")
     if (( ${#artifacts[@]} == 0 )); then
-        printf 'Error: dist/checksums.txt is empty; nothing to verify\n' >&2
+        printf 'Error: %s contains no artifact entries; nothing to verify\n' "$checksums" >&2
         exit 1
     fi
 

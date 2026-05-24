@@ -12,6 +12,14 @@
 #   3. Structural greps over the action.yml files and the reusable
 #      workflow — supply-chain guard rails (SHA-pinned actions,
 #      inputs through env:, permissions, ::stop-commands:: wraps).
+#   4. Integration tests against the real Go toolchain + real
+#      govulncheck binary — the test image (see test/Dockerfile)
+#      pre-installs both, so list_unformatted, run_checks.sh main(),
+#      count_findings, and install_govulncheck idempotency get
+#      exercised against actual tools rather than shims. The Go-
+#      requiring tests skip cleanly when run outside the test image
+#      (e.g., on a developer's machine without Go), so non-Docker
+#      runs still get layers 1-3.
 
 setup() {
     GO_ACTION_DIR="$(cd "$(dirname "$BATS_TEST_FILENAME")" && pwd)"
@@ -45,14 +53,17 @@ write_goreleaser() {
 }
 
 write_gofile() {
-    # $1: path, $2: content (defaults to a trivially formatted file)
+    # $1: path, $2: content (defaults to a trivially formatted file).
+    # The default is a complete, gofmt-clean, valid-syntax main package
+    # — used by layer-3 integration tests that need a buildable fixture.
     local file="$1"
-    local content="${2:-package main
+    local default_content='package main
 
 func main() {}
-}"
+'
+    local content="${2:-$default_content}"
     mkdir -p "$(dirname "$file")"
-    printf '%s\n' "$content" > "$file"
+    printf '%s' "$content" > "$file"
 }
 
 # ====================================================================
@@ -522,4 +533,313 @@ func main() {}
 
 @test "go: stop-commands guard helper exists and is executable" {
     [[ -x "$REPO_ROOT/lib/stop_commands_guard.sh" ]]
+}
+
+# ====================================================================
+# Layer 4: Integration tests against the real Go toolchain
+#
+# The test image (test/Dockerfile) installs Go and govulncheck. These
+# tests run against those real binaries — they catch regressions that
+# pure-function tests miss (e.g., gofmt actually parses the file;
+# govulncheck actually returns the expected -json shape; install
+# actually hits the GOPATH cache idempotently).
+#
+# Tests skip cleanly when run outside the test image (no Go on PATH),
+# so non-Docker runs (e.g., `bats build/actions/go/test.bats` from a
+# developer machine without Go) still execute layers 1-3.
+# ====================================================================
+
+# Helper: skip the calling test if Go is not on PATH.
+need_go() {
+    if ! command -v go >/dev/null 2>&1; then
+        skip "go binary not on PATH (run via ./test.sh to use the Docker image)"
+    fi
+}
+
+# Helper: write a complete buildable Go module at $1/. The module
+# has a main package, a single Go file (gofmt-clean), and a passing
+# unit test. Callers can override behavior by dropping additional
+# files in via write_gofile after this returns.
+init_go_module() {
+    local dir="$1"
+    mkdir -p "$dir"
+    (
+        cd "$dir"
+        # `go 1.26` matches the test image's installed version so
+        # setup-go-style version-file behavior stays consistent.
+        printf 'module example.com/wrangle-test-go\n\ngo 1.26\n' > go.mod
+    )
+    write_gofile "$dir/main.go" 'package main
+
+import "fmt"
+
+func main() {
+    fmt.Println(Hello())
+}
+
+func Hello() string {
+    return "hello"
+}
+'
+    write_gofile "$dir/main_test.go" 'package main
+
+import "testing"
+
+func TestHello(t *testing.T) {
+    if got := Hello(); got != "hello" {
+        t.Fatalf("Hello() = %q, want %q", got, "hello")
+    }
+}
+'
+    # gofmt -w normalizes the spacing to tabs so the fixture is
+    # gofmt-clean by construction (the heredoc content above uses
+    # spaces for human readability). Callers that want a dirty file
+    # add one via write_gofile AFTER calling init_go_module.
+    ( cd "$dir" && gofmt -w . )
+}
+
+# --- list_unformatted ------------------------------------------------
+
+@test "go.checks (L4): list_unformatted returns empty for a gofmt-clean fixture" {
+    need_go
+    local proj="$BATS_TEST_TMPDIR/proj"
+    init_go_module "$proj"
+    run bash -c 'source "$1"; list_unformatted "$2"' -- "$CHECKS_DIR/run_checks.sh" "$proj"
+    [[ "$status" -eq 0 ]]
+    [[ -z "$output" ]]
+}
+
+@test "go.checks (L4): list_unformatted reports dirty-handwritten files" {
+    need_go
+    local proj="$BATS_TEST_TMPDIR/proj"
+    init_go_module "$proj"
+    # Write a hand-authored file with extra blank lines + missing
+    # indentation that gofmt will rewrite.
+    write_gofile "$proj/dirty.go" 'package main
+
+
+func Dirty(   ) string  {
+return     "dirty"
+}
+'
+    run bash -c 'source "$1"; list_unformatted "$2"' -- "$CHECKS_DIR/run_checks.sh" "$proj"
+    [[ "$status" -eq 0 ]]
+    [[ "$output" == *"dirty.go"* ]]
+}
+
+@test "go.checks (L4): list_unformatted skips dirty-generated files (header auto-skip works)" {
+    need_go
+    # The whole point of is_generated_file. Even when gofmt would flag
+    # the file, the generated-code header makes wrangle skip it.
+    local proj="$BATS_TEST_TMPDIR/proj"
+    init_go_module "$proj"
+    write_gofile "$proj/zz_generated.go" '// Code generated by mock-tool. DO NOT EDIT.
+package main
+
+
+func Generated(   ) string  {
+return    "gen"
+}
+'
+    run bash -c 'source "$1"; list_unformatted "$2"' -- "$CHECKS_DIR/run_checks.sh" "$proj"
+    [[ "$status" -eq 0 ]]
+    [[ "$output" != *"zz_generated.go"* ]]
+}
+
+@test "go.checks (L4): list_unformatted skips generated files with leading copyright header (head -5 covers this)" {
+    need_go
+    # Common shape: copyright header + blank + generated marker. The
+    # marker lands on line 5; head -3 would have missed it.
+    local proj="$BATS_TEST_TMPDIR/proj"
+    init_go_module "$proj"
+    write_gofile "$proj/zz_generated.go" '// Copyright 2026 Wrangle contributors.
+// Licensed under the Apache License, Version 2.0.
+
+// Code generated by mock-tool. DO NOT EDIT.
+package main
+
+
+func Generated(   ) string  {
+return    "gen"
+}
+'
+    run bash -c 'source "$1"; list_unformatted "$2"' -- "$CHECKS_DIR/run_checks.sh" "$proj"
+    [[ "$status" -eq 0 ]]
+    [[ "$output" != *"zz_generated.go"* ]]
+}
+
+# --- count_findings against real govulncheck -------------------------
+
+@test "go.checks (L4): count_findings returns 0 on a govulncheck-style stream with no findings" {
+    need_go
+    # Simulate govulncheck's actual -json shape: a stream of objects
+    # where the config + sbom + osv records contain various keys but
+    # not `finding`.
+    local f="$BATS_TEST_TMPDIR/nofindings.json"
+    cat > "$f" <<'EOF'
+{"config":{"protocol_version":"v1.0.0","scanner_name":"govulncheck"}}
+{"sbom":{"go_version":"go1.26.3","modules":[]}}
+{"osv":{"id":"GO-2025-9999","summary":"a hypothetical vuln"}}
+EOF
+    run bash -c 'source "$1"; count_findings "$2"' -- "$CHECKS_DIR/run_checks.sh" "$f"
+    [[ "$status" -eq 0 ]]
+    [[ "$output" == "0" ]]
+}
+
+@test "go.checks (L4): count_findings ignores key substrings that aren't actual finding records" {
+    need_go
+    # A field named `findings_url` or a value mentioning `finding`
+    # must NOT be counted. This is the regression the literal-grep
+    # implementation would fail.
+    local f="$BATS_TEST_TMPDIR/decoys.json"
+    cat > "$f" <<'EOF'
+{"osv":{"id":"GO-2025-9999","references":[{"url":"https://example.com/finding/path"}]}}
+{"summary":{"findings_url":"https://example.com/findings"}}
+EOF
+    run bash -c 'source "$1"; count_findings "$2"' -- "$CHECKS_DIR/run_checks.sh" "$f"
+    [[ "$status" -eq 0 ]]
+    [[ "$output" == "0" ]]
+}
+
+@test "go.checks (L4): count_findings counts actual finding records" {
+    need_go
+    local f="$BATS_TEST_TMPDIR/findings.json"
+    cat > "$f" <<'EOF'
+{"config":{"scanner_name":"govulncheck"}}
+{"finding":{"osv":"GO-2025-9999","trace":[{"module":"stdlib"}]}}
+{"finding":{"osv":"GO-2025-9998","trace":[{"module":"stdlib"}]}}
+EOF
+    run bash -c 'source "$1"; count_findings "$2"' -- "$CHECKS_DIR/run_checks.sh" "$f"
+    [[ "$status" -eq 0 ]]
+    [[ "$output" == "2" ]]
+}
+
+# --- install_govulncheck idempotency ---------------------------------
+
+@test "go.checks (L4): install_govulncheck is idempotent (cached install is fast)" {
+    need_go
+    # First call may hit the network if the module isn't already in
+    # the GOPATH cache; second call should be a no-op (under a second).
+    # In the test image, the cache is pre-populated.
+    local first second
+    first="$(bash -c 'source "$1"; install_govulncheck "v1.1.4"' -- "$CHECKS_DIR/run_checks.sh")"
+    second="$(bash -c 'source "$1"; install_govulncheck "v1.1.4"' -- "$CHECKS_DIR/run_checks.sh")"
+    [[ "$first" == "$second" ]]
+    [[ -x "$first" ]]
+}
+
+# --- run_checks.sh main() against real fixtures ----------------------
+
+@test "go.checks (L4): main() succeeds on a clean fixture" {
+    need_go
+    local proj="$BATS_TEST_TMPDIR/proj"
+    local metadata="$BATS_TEST_TMPDIR/metadata/go/_"
+    init_go_module "$proj"
+    GITHUB_STEP_SUMMARY="$BATS_TEST_TMPDIR/summary.md"
+    export GITHUB_STEP_SUMMARY
+    run "$CHECKS_DIR/run_checks.sh" "$proj" "$metadata" "v1.1.4" "true" "true"
+    [[ "$status" -eq 0 ]]
+    [[ -f "$metadata/govulncheck.json" ]]
+    # Step summary should be populated.
+    [[ -s "$GITHUB_STEP_SUMMARY" ]]
+    grep -q "Go quality checks" "$GITHUB_STEP_SUMMARY"
+}
+
+@test "go.checks (L4): main() fails on unformatted code" {
+    need_go
+    local proj="$BATS_TEST_TMPDIR/proj"
+    local metadata="$BATS_TEST_TMPDIR/metadata/go/_"
+    init_go_module "$proj"
+    write_gofile "$proj/dirty.go" 'package main
+
+func Dirty(   ) string{return "dirty"}
+'
+    run "$CHECKS_DIR/run_checks.sh" "$proj" "$metadata" "v1.1.4" "true" "true"
+    [[ "$status" -ne 0 ]]
+    [[ "$output" == *"not gofmt-clean"* ]]
+    [[ "$output" == *"dirty.go"* ]]
+}
+
+@test "go.checks (L4): main() skips gofmt when run-gofmt-check is false" {
+    need_go
+    local proj="$BATS_TEST_TMPDIR/proj"
+    local metadata="$BATS_TEST_TMPDIR/metadata/go/_"
+    init_go_module "$proj"
+    write_gofile "$proj/dirty.go" 'package main
+
+func Dirty(   ) string{return "dirty"}
+'
+    # gofmt would otherwise fail; with run-gofmt-check=false, it skips
+    # and the build continues. go vet WILL still parse this — but the
+    # file is syntactically valid Go (just badly formatted), so vet
+    # passes. Tests don't reference Dirty so they pass too.
+    run "$CHECKS_DIR/run_checks.sh" "$proj" "$metadata" "v1.1.4" "true" "false"
+    [[ "$status" -eq 0 ]]
+    [[ "$output" == *"Skipped (run-gofmt-check: false)"* ]]
+}
+
+@test "go.checks (L4): main() fails on failing tests" {
+    need_go
+    local proj="$BATS_TEST_TMPDIR/proj"
+    local metadata="$BATS_TEST_TMPDIR/metadata/go/_"
+    init_go_module "$proj"
+    # Overwrite the test to fail.
+    write_gofile "$proj/main_test.go" 'package main
+
+import "testing"
+
+func TestFails(t *testing.T) {
+    t.Fatal("intentional failure")
+}
+'
+    run "$CHECKS_DIR/run_checks.sh" "$proj" "$metadata" "v1.1.4" "true" "true"
+    [[ "$status" -ne 0 ]]
+}
+
+@test "go.checks (L4): main() runs without -race when run-race-detector is false" {
+    need_go
+    local proj="$BATS_TEST_TMPDIR/proj"
+    local metadata="$BATS_TEST_TMPDIR/metadata/go/_"
+    init_go_module "$proj"
+    GITHUB_STEP_SUMMARY="$BATS_TEST_TMPDIR/summary.md"
+    export GITHUB_STEP_SUMMARY
+    run "$CHECKS_DIR/run_checks.sh" "$proj" "$metadata" "v1.1.4" "false" "true"
+    [[ "$status" -eq 0 ]]
+    [[ "$output" == *"race detector skipped via run-race-detector: false"* ]]
+}
+
+@test "go.checks (L4): main() govulncheck reports findings as informational (does not fail build)" {
+    need_go
+    # govulncheck on a project that pins an older Go version often
+    # surfaces stdlib findings — informational under wrangle's
+    # posture. Build must NOT fail on these.
+    local proj="$BATS_TEST_TMPDIR/proj"
+    local metadata="$BATS_TEST_TMPDIR/metadata/go/_"
+    init_go_module "$proj"
+    # Drop go.mod to an older version that has known stdlib findings
+    # so govulncheck has something to report (otherwise the test
+    # could be vacuously true on a clean Go release).
+    printf 'module example.com/wrangle-test-go\n\ngo 1.22\n' > "$proj/go.mod"
+    run "$CHECKS_DIR/run_checks.sh" "$proj" "$metadata" "v1.1.4" "true" "true"
+    [[ "$status" -eq 0 ]]
+    # Output should mention govulncheck whether or not findings show
+    # up (informational either way).
+    [[ "$output" == *"govulncheck:"* ]]
+    [[ -f "$metadata/govulncheck.json" ]]
+}
+
+@test "go.checks (L4): main() with metadata_dir trailing slash resolves correctly (realpath -m)" {
+    need_go
+    # The realpath -m fix replaced a dirname/basename recompose that
+    # would have produced "metadata/go" given "metadata/go/" because
+    # basename strips trailing slashes. Test that with a trailing /
+    # the JSON still lands in the right place.
+    local proj="$BATS_TEST_TMPDIR/proj"
+    local metadata="$BATS_TEST_TMPDIR/metadata/go/_/"   # trailing slash
+    init_go_module "$proj"
+    run "$CHECKS_DIR/run_checks.sh" "$proj" "$metadata" "v1.1.4" "true" "true"
+    [[ "$status" -eq 0 ]]
+    # JSON should be at metadata/go/_/govulncheck.json (without the
+    # trailing slash collapsing the path one level up).
+    [[ -f "$BATS_TEST_TMPDIR/metadata/go/_/govulncheck.json" ]]
 }
