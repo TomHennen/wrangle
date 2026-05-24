@@ -1,4 +1,5 @@
 #!/bin/bash
+set -euo pipefail
 # lib/sanitize.sh — Shared output sanitization for step summaries.
 #
 # Provides wrangle_sanitize_output() which strips HTML tags and truncates

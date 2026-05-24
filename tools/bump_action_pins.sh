@@ -79,7 +79,7 @@ elif git -C "$REPO_ROOT" merge-base --is-ancestor "$target_sha" "$default_branch
     # rather than the cleanup branch's name, which would be misleading.
     branch_label="$default_branch"
 else
-    branch_label="$(git -C "$REPO_ROOT" symbolic-ref --short HEAD 2>/dev/null || echo "$default_branch")"
+    branch_label="$(git -C "$REPO_ROOT" symbolic-ref --short HEAD 2>/dev/null || printf '%s' "$default_branch")"
 fi
 date_label="${WRANGLE_PINS_DATE:-$(date -u +%Y-%m-%d)}"
 

@@ -1,15 +1,20 @@
-.PHONY: all test lint shellcheck bats bump-action-pins
+.PHONY: all test lint shellcheck shellstyle bats bump-action-pins
 
 # Default target
 all: test
 
 # Run all local checks
-test: lint shellcheck bats
+test: lint shellcheck shellstyle bats
 
 # Validate all workflow and action YAML files
 lint:
 	@echo "=== actionlint ==="
 	@actionlint
+
+# Run wrangle-specific shell style linter (CLAUDE.md rules not covered by shellcheck)
+shellstyle:
+	@echo "=== wrangle-shell-lint ==="
+	@./tools/wrangle-shell-lint/lint.sh
 
 # Lint all shell scripts
 shellcheck:

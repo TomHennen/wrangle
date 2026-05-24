@@ -14,7 +14,7 @@ TEST_TARGET="${1:-all}"
 # Validate test target
 case "$TEST_TARGET" in
     all|test|bats|lint|shellcheck) ;;
-    *) echo "Usage: $0 [all|test|bats|lint|shellcheck]" >&2; exit 1 ;;
+    *) printf 'Usage: %s [all|test|bats|lint|shellcheck]\n' "$0" >&2; exit 1 ;;
 esac
 
 # Check Docker is available
@@ -28,7 +28,7 @@ echo "=== Building test container ==="
 docker build -t "$IMAGE_NAME" -f "$SCRIPT_DIR/test/Dockerfile" "$SCRIPT_DIR"
 
 # Run the requested test suite
-echo "=== Running: $TEST_TARGET ==="
+printf '=== Running: %s ===\n' "$TEST_TARGET"
 
 docker run --rm \
     -v "$SCRIPT_DIR":/wrangle:ro \
