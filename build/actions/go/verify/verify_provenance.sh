@@ -29,10 +29,14 @@ list_artifacts() {
         printf 'Error: checksums file not found: %s\n' "$checksums" >&2
         return 1
     fi
-    # NF > 0 filters out blank lines defensively — a trailing newline
-    # in checksums.txt would otherwise produce a bare "dist/" entry
-    # that slsa-verifier would treat as a filename and fail confusingly.
-    awk -v d="$dist_dir/" 'NF > 0 { $1=""; sub(/^ +/, ""); print d $0 }' "$checksums"
+    # checksums.txt lines are `<sha256>  <filename>` (sha256sum
+    # default: exactly two spaces). Splitting on the first two-space
+    # sequence preserves any internal whitespace in <filename>;
+    # the prior `$1=""; sub(/^ +/, "")` approach rebuilt $0 with
+    # awk's OFS (single space), silently collapsing multi-space
+    # filenames. NF > 0 filters out blank lines defensively — a
+    # trailing newline would otherwise emit a bare "dist/" entry.
+    awk -v d="$dist_dir/" 'NF > 0 { idx = index($0, "  "); if (idx > 0) print d substr($0, idx + 2) }' "$checksums"
 }
 
 main() {

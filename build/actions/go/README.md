@@ -118,12 +118,12 @@ Cost: ~30s extra latency for the second checkout + setup-go. Benefit: a compromi
 
 ## Controlling when releases happen
 
-`release-events` (default: `non-pull-request`) governs **which events run wrangle's full pipeline** (build, tests, SBOM, provenance). It does NOT control publish directly — publish happens whenever you push a tag (`gh release create` requires one). The interaction:
+`release-events` (default: `tag-only`) governs **which events run wrangle's full pipeline** (build, tests, SBOM, provenance). It does NOT control publish directly — publish happens whenever you push a tag (`gh release create` requires one). The interaction:
 
 | Setting | Tag push behavior | Non-tag push (e.g. main) | PR build |
 |---|---|---|---|
-| `tag-only` | Full pipeline + publish | Workflow doesn't run | Workflow doesn't run |
-| `non-pull-request` (default) | Full pipeline + publish | Full pipeline, no publish (snapshot mode) | Workflow doesn't run |
+| `tag-only` (default) | Full pipeline + publish | Workflow doesn't run | Workflow doesn't run |
+| `non-pull-request` | Full pipeline + publish | Full pipeline, no publish (snapshot mode) | Workflow doesn't run |
 | `main-and-tags` | Full pipeline + publish | Full pipeline on `main`, no publish (snapshot mode) | Workflow doesn't run |
 
 For most adopters: **`tag-only` is the cheapest setting** (workflow runs only when it would do something meaningful). Use `non-pull-request` if you want main/dispatch builds to exercise the pipeline for early failure-detection (at the cost of a snapshot goreleaser run on every push).

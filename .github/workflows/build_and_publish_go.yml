@@ -199,8 +199,22 @@ jobs:
   # Goreleaser invocation + SBOM + hash. contents: write because
   # goreleaser publishes inline on tag pushes. Sequenced after
   # `checks` so quality gates have already passed.
+  #
+  # The `if:` is load-bearing for the run-tests: false path. With
+  # `if: ${{ inputs.run-tests }}` on the checks job, run-tests: false
+  # SKIPS checks. By default, a job whose needed-job is *skipped*
+  # (not failed) also skips — so without this explicit if:, setting
+  # run-tests: false would cascade through release/provenance/verify
+  # and nothing would build. Documented behavior is "checks skipped,
+  # release proceeds with quality gates unenforced," so allow skipped
+  # explicitly. A failed guard or gate still blocks release.
   release:
     needs: [guard, gate, checks]
+    if: >
+      always() && !cancelled() &&
+      needs.guard.result == 'success' &&
+      needs.gate.result == 'success' &&
+      (needs.checks.result == 'success' || needs.checks.result == 'skipped')
     runs-on: ubuntu-latest
     permissions:
       contents: write    # goreleaser creates the GitHub Release

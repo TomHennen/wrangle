@@ -75,11 +75,7 @@ runs:
         INPUT_CACHE: ${{ inputs.cache }}
       run: |
         set -euo pipefail
-        if [[ "$INPUT_CACHE" != "enabled" && "$INPUT_CACHE" != "disabled" ]]; then
-            printf 'Error: cache input must be one of enabled|disabled (got: %s)\n' "$INPUT_CACHE" >&2
-            exit 1
-        fi
-        "${{ github.action_path }}/validate_inputs.sh" "$INPUT_PATH"
+        "${{ github.action_path }}/validate_inputs.sh" "$INPUT_PATH" "$INPUT_CACHE"
 
     - name: Compute metadata
       id: metadata

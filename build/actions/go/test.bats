@@ -252,6 +252,23 @@ func main() {}
     [[ "${lines[0]}" == "dist/app_linux_amd64.tar.gz" ]]
 }
 
+@test "go.verify: list_artifacts preserves internal whitespace in filenames (no OFS collapse)" {
+    # Earlier impl used `$1=""; sub(/^ +/, "")` which rebuilt $0 with
+    # awk's OFS (single space), silently collapsing multi-space
+    # filenames. The split-on-first-two-spaces approach preserves
+    # what's after the hash exactly. sha256sum uses two spaces as
+    # the hash/filename separator, so the rest is the filename
+    # verbatim.
+    local checksums="$BATS_TEST_TMPDIR/checksums.txt"
+    # Hypothetical: filename with two internal spaces. Goreleaser
+    # archives don't ship this in practice, but the primitive should
+    # handle it.
+    printf 'aaa  my  file.tar.gz\n' > "$checksums"
+    run bash -c 'source "$1"; list_artifacts "dist" "$2"' -- "$VERIFY_DIR/verify_provenance.sh" "$checksums"
+    [[ "$status" -eq 0 ]]
+    [[ "${lines[0]}" == "dist/my  file.tar.gz" ]]
+}
+
 # ====================================================================
 # Layer 2: Behavioral tests for validate_inputs.sh (both composites)
 # ====================================================================
@@ -260,7 +277,7 @@ func main() {}
     local proj="$BATS_TEST_TMPDIR/proj"
     write_gomod "$proj"
     cd "$BATS_TEST_TMPDIR"
-    run "$CHECKS_DIR/validate_inputs.sh" "proj"
+    run "$CHECKS_DIR/validate_inputs.sh" "proj" "enabled"
     [[ "$status" -eq 0 ]]
 }
 
@@ -270,7 +287,7 @@ func main() {}
     local proj="$BATS_TEST_TMPDIR/proj"
     write_gomod "$proj"
     cd "$BATS_TEST_TMPDIR"
-    run "$CHECKS_DIR/validate_inputs.sh" "proj"
+    run "$CHECKS_DIR/validate_inputs.sh" "proj" "enabled"
     [[ "$status" -eq 0 ]]
 }
 
@@ -278,7 +295,7 @@ func main() {}
     local proj="$BATS_TEST_TMPDIR/proj"
     mkdir -p "$proj"
     cd "$BATS_TEST_TMPDIR"
-    run "$CHECKS_DIR/validate_inputs.sh" "proj"
+    run "$CHECKS_DIR/validate_inputs.sh" "proj" "enabled"
     [[ "$status" -ne 0 ]]
     [[ "$output" == *"no go.mod found"* ]]
 }
@@ -312,9 +329,28 @@ func main() {}
 }
 
 @test "go.checks: validate_inputs.sh rejects absolute path" {
-    run "$CHECKS_DIR/validate_inputs.sh" "/abs/path"
+    run "$CHECKS_DIR/validate_inputs.sh" "/abs/path" "enabled"
     [[ "$status" -ne 0 ]]
     [[ "$output" == *"path must be relative"* ]]
+}
+
+@test "go.checks: validate_inputs.sh rejects invalid cache value" {
+    # Cache enum validation lives in validate_inputs.sh (was inline in
+    # the composite YAML; moved for consistency with release/'s shape).
+    local proj="$BATS_TEST_TMPDIR/proj"
+    write_gomod "$proj"
+    cd "$BATS_TEST_TMPDIR"
+    run "$CHECKS_DIR/validate_inputs.sh" "proj" "garbage"
+    [[ "$status" -ne 0 ]]
+    [[ "$output" == *"cache input must be one of enabled|disabled"* ]]
+}
+
+@test "go.checks: validate_inputs.sh accepts cache=disabled" {
+    local proj="$BATS_TEST_TMPDIR/proj"
+    write_gomod "$proj"
+    cd "$BATS_TEST_TMPDIR"
+    run "$CHECKS_DIR/validate_inputs.sh" "proj" "disabled"
+    [[ "$status" -eq 0 ]]
 }
 
 @test "go.release: validate_inputs.sh rejects path traversal" {
@@ -343,6 +379,57 @@ func main() {}
 
 @test "go.release: compute_hashes.sh usage error with wrong arg count" {
     run "$RELEASE_DIR/compute_hashes.sh"
+    [[ "$status" -ne 0 ]]
+    [[ "$output" == *"Usage:"* ]]
+}
+
+# --- generate_summary.sh ---
+
+@test "go.release: generate_summary.sh writes a markdown table to GITHUB_STEP_SUMMARY" {
+    local proj="$BATS_TEST_TMPDIR/proj"
+    mkdir -p "$proj/dist"
+    : > "$proj/dist/app.tar.gz"
+    : > "$proj/dist/checksums.txt"
+    GITHUB_STEP_SUMMARY="$BATS_TEST_TMPDIR/summary.md"
+    : > "$GITHUB_STEP_SUMMARY"
+    export GITHUB_STEP_SUMMARY
+    run "$RELEASE_DIR/generate_summary.sh" "$proj" "v1.2.3" "true"
+    [[ "$status" -eq 0 ]]
+    grep -q "Go Release Results" "$GITHUB_STEP_SUMMARY"
+    grep -q "\\*\\*Version\\*\\* | v1.2.3" "$GITHUB_STEP_SUMMARY"
+    grep -q "\\*\\*Published\\*\\* | true" "$GITHUB_STEP_SUMMARY"
+    grep -q "app.tar.gz" "$GITHUB_STEP_SUMMARY"
+    grep -q "checksums.txt" "$GITHUB_STEP_SUMMARY"
+}
+
+@test "go.release: generate_summary.sh handles empty dist/ (no artifacts row)" {
+    local proj="$BATS_TEST_TMPDIR/proj"
+    mkdir -p "$proj/dist"
+    GITHUB_STEP_SUMMARY="$BATS_TEST_TMPDIR/summary.md"
+    : > "$GITHUB_STEP_SUMMARY"
+    export GITHUB_STEP_SUMMARY
+    run "$RELEASE_DIR/generate_summary.sh" "$proj" "snapshot" "false"
+    [[ "$status" -eq 0 ]]
+    grep -q "Go Release Results" "$GITHUB_STEP_SUMMARY"
+    # No file rows. File rows look like `| | \`<filename>\` |`;
+    # the table header `| | |` and dividers should not trip this.
+    ! grep -qE '^\| \| `' "$GITHUB_STEP_SUMMARY"
+}
+
+@test "go.release: generate_summary.sh prints to stdout when GITHUB_STEP_SUMMARY unset" {
+    # No-op-ish fallback path: print to stdout instead of crashing on
+    # the unset env var. Useful for local development.
+    local proj="$BATS_TEST_TMPDIR/proj"
+    mkdir -p "$proj/dist"
+    : > "$proj/dist/app.tar.gz"
+    run bash -c 'unset GITHUB_STEP_SUMMARY; "$1" "$2" "v1.0.0" "true"' -- "$RELEASE_DIR/generate_summary.sh" "$proj"
+    [[ "$status" -eq 0 ]]
+    [[ "$output" == *"Go Release Results"* ]]
+    [[ "$output" == *"app.tar.gz"* ]]
+}
+
+@test "go.release: generate_summary.sh usage error with wrong arg count" {
+    run "$RELEASE_DIR/generate_summary.sh" "proj"
     [[ "$status" -ne 0 ]]
     [[ "$output" == *"Usage:"* ]]
 }
@@ -525,6 +612,22 @@ func main() {}
         run grep -E "^  ${job}:" "$WORKFLOW"
         [[ "$status" -eq 0 ]]
     done
+}
+
+@test "go: workflow release job runs even when checks is skipped (run-tests: false path)" {
+    # Without an explicit `if:`, GitHub Actions skips a downstream job
+    # whose needed-job is *skipped*. So `run-tests: false` (which
+    # sets `if: ${{ inputs.run-tests }}` on checks → skips it) would
+    # cascade to release/provenance/verify and nothing would build.
+    # The release job's `if:` must explicitly allow needs.checks.result
+    # == 'skipped' to keep the documented behavior — "checks skipped,
+    # release proceeds with quality gates unenforced."
+    section="$(awk '/^  [a-z][a-z_-]*:$/ { in_section = ($0 == "  release:") } in_section' "$WORKFLOW")"
+    grep -qF "needs.checks.result == 'skipped'" <<<"$section"
+    # And the if: must NOT be the trivial truthy default that would
+    # let release run even on a failed guard/gate.
+    grep -qE "needs\\.guard\\.result == 'success'" <<<"$section"
+    grep -qE "needs\\.gate\\.result == 'success'" <<<"$section"
 }
 
 @test "go: workflow does not inline-duplicate shortname derivation (composites own it)" {
