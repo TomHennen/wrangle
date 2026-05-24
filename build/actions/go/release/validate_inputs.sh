@@ -1,15 +1,17 @@
 #!/bin/bash
-# Validates inputs to the Go build action: shared path checks via
-# lib/validate_path.sh, plus Go-specific checks that go.mod exists in the
-# project directory and a goreleaser config is present.
+# Validates inputs to the Go release composite: shared path checks
+# via lib/validate_path.sh, plus go.mod and .goreleaser.yml presence.
 #
-# v0.1 requires .goreleaser.yml (or .goreleaser.yaml) — wrangle does not
-# ship a starter goreleaser config; adopters BYO. See SPEC.md "Open
-# questions" → ".goreleaser.yml template ownership."
+# Unlike the sister checks composite, release REQUIRES .goreleaser.yml
+# (or .goreleaser.yaml) — goreleaser is the only step here, and it
+# needs a config to run against. Wrangle does not ship a starter
+# goreleaser config; adopters BYO. See SPEC.md "Open questions"
+# → ".goreleaser.yml template ownership."
 #
-# Usage: build/actions/go/validate_inputs.sh <path>
+# Usage: build/actions/go/release/validate_inputs.sh <path>
 
 set -euo pipefail
+set -f  # processes external arguments — disable globbing per CLAUDE.md
 
 if [[ $# -ne 1 ]]; then
     printf 'Usage: %s <path>\n' "$0" >&2
@@ -19,7 +21,7 @@ fi
 INPUT_PATH="$1"
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
-"$SCRIPT_DIR/../../../lib/validate_path.sh" "$INPUT_PATH"
+"$SCRIPT_DIR/../../../../lib/validate_path.sh" "$INPUT_PATH"
 
 if [[ ! -f "$INPUT_PATH/go.mod" ]]; then
     printf 'Error: no go.mod found in %s\n' "$INPUT_PATH" >&2
@@ -28,9 +30,6 @@ if [[ ! -f "$INPUT_PATH/go.mod" ]]; then
     exit 1
 fi
 
-# Goreleaser config detection — accept either common filename. Wrangle
-# does not ship a starter; adopters must supply their own so the build
-# attests what the adopter intended to release.
 if [[ ! -f "$INPUT_PATH/.goreleaser.yml" ]] && [[ ! -f "$INPUT_PATH/.goreleaser.yaml" ]]; then
     printf 'Error: no .goreleaser.yml (or .goreleaser.yaml) found in %s\n' "$INPUT_PATH" >&2
     printf 'Hint: wrangle does not ship a starter goreleaser config; supply your own per https://goreleaser.com/customization/\n' >&2

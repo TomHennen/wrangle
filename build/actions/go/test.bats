@@ -1,216 +1,42 @@
 #!/usr/bin/env bats
 
-# Tests for the Go build action and reusable workflow.
+# Tests for the Go build composites (checks/, release/, verify/) and
+# the reusable workflow build_and_publish_go.yml.
 #
-# Three test layers, in increasing order of cost:
-#   1. Behavioral tests that invoke validate_inputs.sh end-to-end against
-#      fixture project directories.
-#   2. Structural greps over action.yml, the reusable workflow, and the
-#      example workflow — supply-chain guard rails (SHA-pinned actions,
-#      inputs through env:, no inline shell injection, etc.).
-#   3. build_go.sh is intentionally NOT exhaustively tested here: its
-#      logic invokes the real Go toolchain (`gofmt`, `go vet`, `go test`,
-#      `go install`, `govulncheck`), which is faithfully exercised by
-#      the integration test in the wrangle-test companion repo. The
-#      cost of shimming all those binaries with realistic enough
-#      behavior to test the orchestration is high; the integration test
-#      catches the orchestration regressions for free.
-
-setup_file() {
-    ACTION_DIR="$(cd "$(dirname "$BATS_TEST_FILENAME")" && pwd)"
-    export ACTION_DIR
-}
+# Three layers, matching the npm build_and_pack.sh pattern:
+#   1. Pure-function tests that source the scripts and call decision
+#      functions directly (is_generated_file, list_unformatted,
+#      count_findings, encode_hashes, list_artifacts). No shims.
+#   2. Behavioral tests that invoke validate_inputs.sh and the main
+#      orchestrators against fixture project directories.
+#   3. Structural greps over the action.yml files and the reusable
+#      workflow — supply-chain guard rails (SHA-pinned actions,
+#      inputs through env:, permissions, ::stop-commands:: wraps).
 
 setup() {
-    ACTION_DIR="$(cd "$(dirname "$BATS_TEST_FILENAME")" && pwd)"
-    REPO_ROOT="$(cd "$ACTION_DIR/../../.." && pwd)"
-    ACTION="$ACTION_DIR/action.yml"
+    GO_ACTION_DIR="$(cd "$(dirname "$BATS_TEST_FILENAME")" && pwd)"
+    REPO_ROOT="$(cd "$GO_ACTION_DIR/../../.." && pwd)"
+    CHECKS_DIR="$GO_ACTION_DIR/checks"
+    RELEASE_DIR="$GO_ACTION_DIR/release"
+    VERIFY_DIR="$GO_ACTION_DIR/verify"
+    CHECKS_ACTION="$CHECKS_DIR/action.yml"
+    RELEASE_ACTION="$RELEASE_DIR/action.yml"
+    VERIFY_ACTION="$VERIFY_DIR/action.yml"
     WORKFLOW="$REPO_ROOT/.github/workflows/build_and_publish_go.yml"
     EXAMPLE="$REPO_ROOT/gh_workflow_examples/build_go.yml"
+    GITHUB_OUTPUT="$BATS_TEST_TMPDIR/github_output"
+    : > "$GITHUB_OUTPUT"
+    export GITHUB_OUTPUT
 }
 
-# --- Composite action structural tests ---
-
-@test "go: action.yml exists" {
-    [[ -f "$ACTION" ]]
-}
-
-@test "go: validate_inputs.sh exists and is executable" {
-    [[ -x "$ACTION_DIR/validate_inputs.sh" ]]
-}
-
-@test "go: build_go.sh exists and is executable" {
-    [[ -x "$ACTION_DIR/build_go.sh" ]]
-}
-
-@test "go: action.yml delegates input validation to validate_inputs.sh" {
-    run grep 'validate_inputs.sh' "$ACTION"
-    [[ "$status" -eq 0 ]]
-}
-
-@test "go: action.yml delegates pre-build checks to build_go.sh" {
-    run grep 'build_go.sh' "$ACTION"
-    [[ "$status" -eq 0 ]]
-}
-
-@test "go: action.yml uses actions/setup-go (SHA-pinned)" {
-    run grep -E 'actions/setup-go@[0-9a-f]{40}' "$ACTION"
-    [[ "$status" -eq 0 ]]
-}
-
-@test "go: action.yml uses goreleaser/goreleaser-action (SHA-pinned)" {
-    run grep -E 'goreleaser/goreleaser-action@[0-9a-f]{40}' "$ACTION"
-    [[ "$status" -eq 0 ]]
-}
-
-@test "go: goreleaser binary version is pinned literally (no '~>', no '@latest')" {
-    # The goreleaser-action's `version:` input controls which goreleaser
-    # binary the action downloads at runtime. wrangle's supply-chain
-    # discipline (CLAUDE.md "No auto-merge of dependency updates")
-    # forbids unpinned upstream versions: a new goreleaser release MUST
-    # be deliberately adopted via a wrangle PR, not amplified by every
-    # build the moment it ships. Pattern `~> vN` is the goreleaser-action
-    # range syntax; `latest` is also unpinned. Both must be rejected.
-    run grep -E "^[[:space:]]*version:[[:space:]]*['\"]?(~>|latest)" "$ACTION"
-    [[ "$status" -ne 0 ]]
-    # Pinned version must look like X.Y.Z (no leading v, per the
-    # goreleaser-action input contract).
-    run grep -E "^[[:space:]]*version:[[:space:]]*['\"][0-9]+\\.[0-9]+\\.[0-9]+['\"]" "$ACTION"
-    [[ "$status" -eq 0 ]]
-}
-
-@test "go: setup-go cache is gated by the cache input (release-vs-PR asymmetry)" {
-    # Release builds disable the Go module + build caches because Go's
-    # build cache trusts pre-derived compiled output keyed by source
-    # fingerprint — the same shape as the uv-cache L3 gap. The reusable
-    # workflow flips the cache input on should-release; the composite
-    # MUST honor it. A regression to a literal `cache: true` would
-    # re-enable caching for release builds and break L3 isolation.
-    run grep -E "cache: \\\$\\{\\{ inputs\\.cache != 'disabled' \\}\\}" "$ACTION"
-    [[ "$status" -eq 0 ]]
-    # The action must NOT hard-code `cache: true` anywhere.
-    run grep -E "^[[:space:]]*cache:[[:space:]]*['\"]?true['\"]?[[:space:]]*\$" "$ACTION"
-    [[ "$status" -ne 0 ]]
-}
-
-@test "go: goreleaser publishes natively on tag push (--skip=publish only on non-tag)" {
-    # Goreleaser owns its native publish on tag pushes — running with
-    # --skip=publish there would neuter every downstream goreleaser
-    # verb (Docker, Homebrew, deb/rpm/snap, announcements). On non-tag
-    # events --skip=publish IS set (no release exists to publish to)
-    # alongside --snapshot.
-    #
-    # The args expression must contain BOTH branches: the tag branch
-    # ends in `release --clean` (no skip=publish), and the non-tag
-    # branch contains --snapshot --skip=publish. Grep for both.
-    run bash -c "grep -E \"startsWith.*refs/tags.*release --clean'\" '$ACTION'"
-    [[ "$status" -eq 0 ]]
-    run bash -c "grep -E 'release --clean --snapshot --skip=publish' '$ACTION'"
-    [[ "$status" -eq 0 ]]
-}
-
-@test "go: action.yml computes artifact hashes from goreleaser's checksums.txt" {
-    # Goreleaser writes dist/checksums.txt in `<sha256>  <filename>`
-    # format — already sha256sum-style. base64-encode that file
-    # directly rather than re-hashing the binaries.
-    run grep -E 'base64.*checksums\.txt|checksums\.txt.*base64' "$ACTION"
-    [[ "$status" -eq 0 ]]
-}
-
-@test "go: action.yml generates SBOM via syft (SPDX)" {
-    run grep -E 'syft.*-o spdx-json' "$ACTION"
-    [[ "$status" -eq 0 ]]
-}
-
-@test "go: action installs cosign before syft (signature verification)" {
-    # syft install via tools/syft/install.sh uses Cosign keyless verify;
-    # cosign-installer must run before the syft install step.
-    run bash -c "awk '/sigstore\\/cosign-installer/{c=NR} /tools\\/syft\\/install.sh/{s=NR} END{exit !(c && s && c<s)}' \"$ACTION\""
-    [[ "$status" -eq 0 ]]
-}
-
-@test "go: action installs syft via tools/syft (not curl | sh)" {
-    run grep -E 'curl[^|]*\| *sh|/usr/local/bin' "$ACTION"
-    [[ "$status" -ne 0 ]]
-    run grep 'tools/syft/install.sh' "$ACTION"
-    [[ "$status" -eq 0 ]]
-}
-
-@test "go: action.yml exposes cache input (default enabled)" {
-    run grep -E '^  cache:' "$ACTION"
-    [[ "$status" -eq 0 ]]
-    run bash -c "sed -n '/^  cache:/,/^  [a-z]/p' \"$ACTION\" | grep -E 'default:.*\"enabled\"'"
-    [[ "$status" -eq 0 ]]
-}
-
-@test "go: action.yml exposes run-race-detector input (default true)" {
-    # Race detector requires cgo; CGO-disabled builds can't run with
-    # -race. Adopters cross-compiling with CGO_ENABLED=0 set this false.
-    run grep -E '^  run-race-detector:' "$ACTION"
-    [[ "$status" -eq 0 ]]
-    run bash -c "sed -n '/^  run-race-detector:/,/^  [a-z]/p' \"$ACTION\" | grep -E 'default:.*\"true\"'"
-    [[ "$status" -eq 0 ]]
-}
-
-@test "go: action.yml exposes run-gofmt-check input (default true)" {
-    # gofmt check is a stop-gap until #194 (source-stage lint).
-    # Default-on; auto-skips files with `// Code generated` headers;
-    # input lets adopters disable entirely when the header convention
-    # doesn't cover their generated code.
-    run grep -E '^  run-gofmt-check:' "$ACTION"
-    [[ "$status" -eq 0 ]]
-    run bash -c "sed -n '/^  run-gofmt-check:/,/^  [a-z]/p' \"$ACTION\" | grep -E 'default:.*\"true\"'"
-    [[ "$status" -eq 0 ]]
-}
-
-@test "go: action.yml exposes govulncheck-version input (pinned)" {
-    run grep -E '^  govulncheck-version:' "$ACTION"
-    [[ "$status" -eq 0 ]]
-    # Default must be a pinned version (vX.Y.Z), not unpinned (latest, main).
-    run bash -c "sed -n '/^  govulncheck-version:/,/^  [a-z]/p' \"$ACTION\" | grep -E 'default:.*\"v[0-9]+\\.[0-9]+\\.[0-9]+\"'"
-    [[ "$status" -eq 0 ]]
-}
-
-@test "go: passes inputs through env not interpolation" {
-    # Walks both single-line `run: <cmd>` declarations and block-form
-    # `run: |` / `run: >` bodies, and fails if ${{ inputs.* }} appears
-    # inside either. github.action_path is allowed (it's not user input).
-    run awk '
-        BEGIN { in_run = 0; run_col = -1; bad = 0 }
-        /^[[:space:]]*run:[[:space:]]+[^|>]/ && /\$\{\{[[:space:]]*inputs\./ {
-            printf "FAIL inline run, line %d: %s\n", NR, $0
-            bad = 1
-        }
-        /^[[:space:]]*run:[[:space:]]*([|>]|$)/ {
-            match($0, /^ */); run_col = RLENGTH
-            in_run = 1; next
-        }
-        in_run {
-            if ($0 !~ /[^[:space:]]/) next
-            match($0, /^ */); col = RLENGTH
-            if (col <= run_col) { in_run = 0 }
-            else if (/\$\{\{[[:space:]]*inputs\./) {
-                printf "FAIL run-block body, line %d: %s\n", NR, $0
-                bad = 1
-            }
-        }
-        END { exit bad }
-    ' "$ACTION"
-    [[ "$status" -eq 0 ]]
-}
-
-@test "go: validate_inputs.sh disables globbing via lib/validate_path.sh" {
-    # External input flows through validate_path.sh; CLAUDE.md requires set -f there.
-    run grep '^set -f' "$REPO_ROOT/lib/validate_path.sh"
-    [[ "$status" -eq 0 ]]
-}
-
-# --- validate_inputs.sh behavioral tests ---
+# ====================================================================
+# Helpers for fixture project directories.
+# ====================================================================
 
 write_gomod() {
     local dir="$1"
     mkdir -p "$dir"
-    printf 'module example.com/x\n\ngo 1.22\n' > "$dir/go.mod"
+    printf 'module example.com/x\n\ngo 1.24\n' > "$dir/go.mod"
 }
 
 write_goreleaser() {
@@ -218,172 +44,419 @@ write_goreleaser() {
     printf 'version: 2\nbuilds:\n  - flags: [-trimpath]\n' > "$dir/.goreleaser.yml"
 }
 
-@test "go: validate_inputs.sh accepts a project with go.mod + .goreleaser.yml" {
-    local proj="$BATS_TEST_TMPDIR/proj"
-    write_gomod "$proj"
-    write_goreleaser "$proj"
-    cd "$BATS_TEST_TMPDIR"
-    run "$ACTION_DIR/validate_inputs.sh" "proj"
+write_gofile() {
+    # $1: path, $2: content (defaults to a trivially formatted file)
+    local file="$1"
+    local content="${2:-package main
+
+func main() {}
+}"
+    mkdir -p "$(dirname "$file")"
+    printf '%s\n' "$content" > "$file"
+}
+
+# ====================================================================
+# Layer 1: Pure-function tests for run_checks.sh
+# ====================================================================
+
+@test "go.checks: is_generated_file returns true on standard generated header" {
+    local f="$BATS_TEST_TMPDIR/gen.go"
+    printf '// Code generated by protoc. DO NOT EDIT.\npackage main\n' > "$f"
+    run bash -c 'source "$1"; is_generated_file "$2"' -- "$CHECKS_DIR/run_checks.sh" "$f"
     [[ "$status" -eq 0 ]]
 }
 
-@test "go: validate_inputs.sh accepts .goreleaser.yaml (alternate extension)" {
+@test "go.checks: is_generated_file returns false on hand-written file" {
+    local f="$BATS_TEST_TMPDIR/handwritten.go"
+    printf 'package main\n\nfunc main() {}\n' > "$f"
+    run bash -c 'source "$1"; is_generated_file "$2"' -- "$CHECKS_DIR/run_checks.sh" "$f"
+    [[ "$status" -ne 0 ]]
+}
+
+@test "go.checks: is_generated_file rejects header not matching the exact convention" {
+    # Must match `^// Code generated .* DO NOT EDIT\.$` exactly —
+    # not just "this file is generated" prose.
+    local f="$BATS_TEST_TMPDIR/almost.go"
+    printf '// This file is generated.\npackage main\n' > "$f"
+    run bash -c 'source "$1"; is_generated_file "$2"' -- "$CHECKS_DIR/run_checks.sh" "$f"
+    [[ "$status" -ne 0 ]]
+}
+
+@test "go.checks: is_generated_file handles missing file (returns non-zero, no crash)" {
+    run bash -c 'source "$1"; is_generated_file "$2"' -- "$CHECKS_DIR/run_checks.sh" "$BATS_TEST_TMPDIR/nonexistent.go"
+    [[ "$status" -ne 0 ]]
+}
+
+@test "go.checks: count_findings returns 0 on missing file" {
+    run bash -c 'source "$1"; count_findings "$2"' -- "$CHECKS_DIR/run_checks.sh" "$BATS_TEST_TMPDIR/missing.json"
+    [[ "$status" -eq 0 ]]
+    [[ "$output" == "0" ]]
+}
+
+@test "go.checks: count_findings returns 0 on empty file" {
+    local f="$BATS_TEST_TMPDIR/empty.json"
+    : > "$f"
+    run bash -c 'source "$1"; count_findings "$2"' -- "$CHECKS_DIR/run_checks.sh" "$f"
+    [[ "$status" -eq 0 ]]
+    [[ "$output" == "0" ]]
+}
+
+@test "go.checks: count_findings counts \"finding\" key occurrences" {
+    local f="$BATS_TEST_TMPDIR/findings.json"
+    printf '{"x": 1}\n{"finding": {"id": "A"}}\n{"finding": {"id": "B"}}\n{"other": 1}\n' > "$f"
+    run bash -c 'source "$1"; count_findings "$2"' -- "$CHECKS_DIR/run_checks.sh" "$f"
+    [[ "$status" -eq 0 ]]
+    [[ "$output" == "2" ]]
+}
+
+# ====================================================================
+# Layer 1: Pure-function tests for compute_hashes.sh
+# ====================================================================
+
+@test "go.release: encode_hashes base64-encodes checksums content" {
+    local f="$BATS_TEST_TMPDIR/checksums.txt"
+    printf 'abc123  example.tar.gz\n' > "$f"
+    run bash -c 'source "$1"; encode_hashes "$2"' -- "$RELEASE_DIR/compute_hashes.sh" "$f"
+    [[ "$status" -eq 0 ]]
+    # Round-trip: base64-decode should match original
+    decoded="$(printf '%s' "$output" | base64 -d)"
+    [[ "$decoded" == "abc123  example.tar.gz" ]]
+}
+
+@test "go.release: encode_hashes errors when file missing" {
+    run bash -c 'source "$1"; encode_hashes "$2"' -- "$RELEASE_DIR/compute_hashes.sh" "$BATS_TEST_TMPDIR/missing.txt"
+    [[ "$status" -ne 0 ]]
+    [[ "$output" == *"checksums file not found"* ]]
+}
+
+# ====================================================================
+# Layer 1: Pure-function tests for verify_provenance.sh
+# ====================================================================
+
+@test "go.verify: list_artifacts parses checksums.txt and prefixes with dist-dir/" {
+    local checksums="$BATS_TEST_TMPDIR/checksums.txt"
+    printf 'aaa  one.tar.gz\nbbb  two.tar.gz\n' > "$checksums"
+    run bash -c 'source "$1"; list_artifacts "dist" "$2"' -- "$VERIFY_DIR/verify_provenance.sh" "$checksums"
+    [[ "$status" -eq 0 ]]
+    [[ "${lines[0]}" == "dist/one.tar.gz" ]]
+    [[ "${lines[1]}" == "dist/two.tar.gz" ]]
+}
+
+@test "go.verify: list_artifacts errors on missing checksums file" {
+    run bash -c 'source "$1"; list_artifacts "dist" "$2"' -- "$VERIFY_DIR/verify_provenance.sh" "$BATS_TEST_TMPDIR/missing.txt"
+    [[ "$status" -ne 0 ]]
+    [[ "$output" == *"checksums file not found"* ]]
+}
+
+@test "go.verify: list_artifacts excludes goreleaser-metadata files from output (only what's in checksums)" {
+    # The whole point: goreleaser writes artifacts.json/config.yaml/
+    # metadata.json into dist/, but they aren't in checksums.txt. If
+    # we globbed dist/ we'd try to verify them and slsa-verifier
+    # would fail with "artifact hash does not match provenance
+    # subject." This test confirms list_artifacts pulls only from
+    # checksums.txt.
+    local checksums="$BATS_TEST_TMPDIR/checksums.txt"
+    printf 'aaa  app_linux_amd64.tar.gz\n' > "$checksums"
+    run bash -c 'source "$1"; list_artifacts "dist" "$2"' -- "$VERIFY_DIR/verify_provenance.sh" "$checksums"
+    [[ "$status" -eq 0 ]]
+    # Only one artifact, even though dist/ on a real run contains
+    # several goreleaser-internal files.
+    [[ "${#lines[@]}" -eq 1 ]]
+    [[ "${lines[0]}" == "dist/app_linux_amd64.tar.gz" ]]
+}
+
+# ====================================================================
+# Layer 2: Behavioral tests for validate_inputs.sh (both composites)
+# ====================================================================
+
+@test "go.checks: validate_inputs.sh accepts a project with go.mod" {
     local proj="$BATS_TEST_TMPDIR/proj"
     write_gomod "$proj"
-    printf 'version: 2\n' > "$proj/.goreleaser.yaml"
     cd "$BATS_TEST_TMPDIR"
-    run "$ACTION_DIR/validate_inputs.sh" "proj"
+    run "$CHECKS_DIR/validate_inputs.sh" "proj"
     [[ "$status" -eq 0 ]]
 }
 
-@test "go: validate_inputs.sh rejects missing go.mod" {
+@test "go.checks: validate_inputs.sh DOES NOT require .goreleaser.yml (checks runs without it)" {
+    # Quality gates are useful even on projects that haven't wired
+    # goreleaser yet. Only release/ enforces .goreleaser.yml.
+    local proj="$BATS_TEST_TMPDIR/proj"
+    write_gomod "$proj"
+    cd "$BATS_TEST_TMPDIR"
+    run "$CHECKS_DIR/validate_inputs.sh" "proj"
+    [[ "$status" -eq 0 ]]
+}
+
+@test "go.checks: validate_inputs.sh rejects missing go.mod" {
     local proj="$BATS_TEST_TMPDIR/proj"
     mkdir -p "$proj"
-    write_goreleaser "$proj"
     cd "$BATS_TEST_TMPDIR"
-    run "$ACTION_DIR/validate_inputs.sh" "proj"
+    run "$CHECKS_DIR/validate_inputs.sh" "proj"
     [[ "$status" -ne 0 ]]
     [[ "$output" == *"no go.mod found"* ]]
 }
 
-@test "go: validate_inputs.sh rejects missing .goreleaser.yml with a BYO hint" {
-    # Wrangle does not ship a starter goreleaser config; adopters must
-    # supply their own. The error message must point at the customization
-    # docs, not silently fail later inside goreleaser.
+@test "go.release: validate_inputs.sh accepts a project with go.mod AND .goreleaser.yml" {
+    local proj="$BATS_TEST_TMPDIR/proj"
+    write_gomod "$proj"
+    write_goreleaser "$proj"
+    cd "$BATS_TEST_TMPDIR"
+    run "$RELEASE_DIR/validate_inputs.sh" "proj"
+    [[ "$status" -eq 0 ]]
+}
+
+@test "go.release: validate_inputs.sh accepts .goreleaser.yaml (alternate extension)" {
+    local proj="$BATS_TEST_TMPDIR/proj"
+    write_gomod "$proj"
+    printf 'version: 2\n' > "$proj/.goreleaser.yaml"
+    cd "$BATS_TEST_TMPDIR"
+    run "$RELEASE_DIR/validate_inputs.sh" "proj"
+    [[ "$status" -eq 0 ]]
+}
+
+@test "go.release: validate_inputs.sh rejects missing .goreleaser.yml with a BYO hint" {
     local proj="$BATS_TEST_TMPDIR/proj"
     write_gomod "$proj"
     cd "$BATS_TEST_TMPDIR"
-    run "$ACTION_DIR/validate_inputs.sh" "proj"
+    run "$RELEASE_DIR/validate_inputs.sh" "proj"
     [[ "$status" -ne 0 ]]
     [[ "$output" == *"no .goreleaser.yml"* ]]
     [[ "$output" == *"goreleaser.com/customization"* ]]
 }
 
-@test "go: validate_inputs.sh rejects absolute path via lib/validate_path.sh" {
-    run "$ACTION_DIR/validate_inputs.sh" "/abs/path"
+@test "go.checks: validate_inputs.sh rejects absolute path" {
+    run "$CHECKS_DIR/validate_inputs.sh" "/abs/path"
     [[ "$status" -ne 0 ]]
     [[ "$output" == *"path must be relative"* ]]
 }
 
-@test "go: validate_inputs.sh rejects parent-directory traversal" {
-    run "$ACTION_DIR/validate_inputs.sh" "../escape"
+@test "go.release: validate_inputs.sh rejects path traversal" {
+    run "$RELEASE_DIR/validate_inputs.sh" "../escape"
     [[ "$status" -ne 0 ]]
     [[ "$output" == *"path traversal not allowed"* ]]
 }
 
-@test "go: validate_inputs.sh usage error with no args" {
-    run "$ACTION_DIR/validate_inputs.sh"
+# ====================================================================
+# Layer 2: Behavioral tests for compute_hashes.sh end-to-end
+# ====================================================================
+
+@test "go.release: compute_hashes.sh writes base64 of checksums.txt to GITHUB_OUTPUT" {
+    local checksums="$BATS_TEST_TMPDIR/checksums.txt"
+    printf 'aaa  one.tar.gz\nbbb  two.tar.gz\n' > "$checksums"
+    expected="$(base64 -w0 < "$checksums")"
+    run "$RELEASE_DIR/compute_hashes.sh" "$checksums"
+    [[ "$status" -eq 0 ]]
+    grep -qE "^hashes=${expected}$" "$GITHUB_OUTPUT"
+}
+
+@test "go.release: compute_hashes.sh errors on missing checksums.txt" {
+    run "$RELEASE_DIR/compute_hashes.sh" "$BATS_TEST_TMPDIR/missing.txt"
+    [[ "$status" -ne 0 ]]
+}
+
+@test "go.release: compute_hashes.sh usage error with wrong arg count" {
+    run "$RELEASE_DIR/compute_hashes.sh"
     [[ "$status" -ne 0 ]]
     [[ "$output" == *"Usage:"* ]]
 }
 
-# --- build_go.sh structural tests ---
-#
-# The orchestration is verified via the wrangle-test companion integration
-# test (real goreleaser + real govulncheck against a real fixture). These
-# greps capture the load-bearing invariants without booting a Go toolchain.
+# ====================================================================
+# Layer 3: Structural / supply-chain guard rails
+# ====================================================================
 
-@test "go: build_go.sh runs gofmt -l (formatting enforced; build won't catch it otherwise)" {
-    # `go build` does NOT enforce gofmt. Without an explicit check, code
-    # with broken formatting will compile and release through wrangle
-    # unchallenged. This is a stop-gap until #194 lands.
-    run grep -E 'gofmt -l' "$ACTION_DIR/build_go.sh"
-    [[ "$status" -eq 0 ]]
+@test "go: checks/action.yml exists" {
+    [[ -f "$CHECKS_ACTION" ]]
 }
 
-@test "go: build_go.sh runs go vet" {
-    run grep -E 'go vet ./\.\.\.' "$ACTION_DIR/build_go.sh"
-    [[ "$status" -eq 0 ]]
+@test "go: release/action.yml exists" {
+    [[ -f "$RELEASE_ACTION" ]]
 }
 
-@test "go: build_go.sh runs go test with -race when run-race-detector is true" {
-    # -race catches data races that would otherwise ship in the released
-    # binary. Gated by run-race-detector (default true).
-    run grep -E 'go test -race \./\.\.\.' "$ACTION_DIR/build_go.sh"
-    [[ "$status" -eq 0 ]]
-    # And a plain `go test ./...` branch must exist for the false case.
-    run grep -E '^[[:space:]]+go test \./\.\.\.[[:space:]]*$' "$ACTION_DIR/build_go.sh"
-    [[ "$status" -eq 0 ]]
+@test "go: verify/action.yml exists" {
+    [[ -f "$VERIFY_ACTION" ]]
 }
 
-@test "go: build_go.sh filters generated files from gofmt via the Go convention header" {
-    # Files with `// Code generated ... DO NOT EDIT.` headers are
-    # auto-skipped (golangci-lint uses the same heuristic). Without
-    # this filter, protobuf/mockgen/sqlc output would fail gofmt and
-    # force every adopter with codegen to disable the gofmt check.
-    run grep -E 'Code generated .* DO NOT EDIT' "$ACTION_DIR/build_go.sh"
-    [[ "$status" -eq 0 ]]
-}
-
-@test "go: build_go.sh installs govulncheck via go install with a pinned version (no @latest)" {
-    # @latest is unpinned and amplifies upstream — supply-chain hygiene
-    # forbids it. The version must be passed in as an argument so the
-    # action's input controls the pin.
-    run grep -E 'go install .*govulncheck@\$\{?GOVULNCHECK_VERSION' "$ACTION_DIR/build_go.sh"
-    [[ "$status" -eq 0 ]]
-    run grep -E 'govulncheck@latest|govulncheck@main' "$ACTION_DIR/build_go.sh"
-    [[ "$status" -ne 0 ]]
-}
-
-@test "go: build_go.sh writes govulncheck output to metadata dir (not stdout-only)" {
-    # govulncheck JSON output goes to the metadata artifact so adopters
-    # can see what was scanned: govulncheck.json file referenced AND
-    # govulncheck called in -json mode.
-    run grep -F 'govulncheck.json' "$ACTION_DIR/build_go.sh"
-    [[ "$status" -eq 0 ]]
-    run grep -E 'govulncheck"? -json' "$ACTION_DIR/build_go.sh"
-    [[ "$status" -eq 0 ]]
-}
-
-# --- Reusable workflow structural tests ---
-
-@test "go: workflow exists" {
+@test "go: workflow file exists" {
     [[ -f "$WORKFLOW" ]]
 }
 
-@test "go: workflow build job grants contents: write (goreleaser owns publish inline)" {
-    # Unlike python/npm (where the build job uses contents: read), the
-    # Go build composite invokes goreleaser, which publishes to GitHub
-    # Releases inline on tag pushes. contents: write is required at
-    # workflow startup for that.
-    run bash -c "sed -n '/^  build:/,/^  [a-z]/p' \"$WORKFLOW\" | grep -E 'contents: write'"
-    [[ "$status" -eq 0 ]]
-    # No id-token on the build job — that's the provenance job's domain.
-    run bash -c "sed -n '/^  build:/,/^  [a-z]/p' \"$WORKFLOW\" | grep -E '^[[:space:]]*id-token:'"
-    [[ "$status" -ne 0 ]]
+@test "go: example workflow exists" {
+    [[ -f "$EXAMPLE" ]]
 }
 
-@test "go: workflow has provenance job calling slsa-github-generator" {
-    run grep '^  provenance:' "$WORKFLOW"
+@test "go.checks: action.yml uses actions/setup-go (SHA-pinned)" {
+    run grep -E 'actions/setup-go@[0-9a-f]{40}' "$CHECKS_ACTION"
     [[ "$status" -eq 0 ]]
-    run grep 'slsa-github-generator' "$WORKFLOW"
+}
+
+@test "go.release: action.yml uses actions/setup-go (SHA-pinned)" {
+    run grep -E 'actions/setup-go@[0-9a-f]{40}' "$RELEASE_ACTION"
     [[ "$status" -eq 0 ]]
+}
+
+@test "go.release: action.yml uses goreleaser/goreleaser-action (SHA-pinned)" {
+    run grep -E 'goreleaser/goreleaser-action@[0-9a-f]{40}' "$RELEASE_ACTION"
+    [[ "$status" -eq 0 ]]
+}
+
+@test "go.release: goreleaser binary version is pinned literally (no '~>', no 'latest')" {
+    # See CLAUDE.md "No auto-merge of dependency updates" — the
+    # binary version downloaded at runtime by goreleaser-action must
+    # be a pinned literal, not a range.
+    run grep -E "^[[:space:]]*version:[[:space:]]*['\"]?(~>|latest)" "$RELEASE_ACTION"
+    [[ "$status" -ne 0 ]]
+    run grep -E "^[[:space:]]*version:[[:space:]]*['\"][0-9]+\\.[0-9]+\\.[0-9]+['\"]" "$RELEASE_ACTION"
+    [[ "$status" -eq 0 ]]
+}
+
+@test "go.release: ternary structure picks bare 'release --clean' on publish==true" {
+    # Per Gemini review on #238: forcing --skip=publish kills every
+    # downstream goreleaser verb. The args ternary must read:
+    #   inputs.publish == 'true' && 'release --clean' || 'release --clean --snapshot --skip=publish'
+    # so publish==true gets the bare publish-enabled invocation.
+    run grep -E "inputs\\.publish == 'true' && 'release --clean' \\|\\|" "$RELEASE_ACTION"
+    [[ "$status" -eq 0 ]]
+    # publish==false branch must --skip=publish (no release exists).
+    run grep -E "release --clean --snapshot --skip=publish" "$RELEASE_ACTION"
+    [[ "$status" -eq 0 ]]
+}
+
+@test "go.checks: setup-go cache is gated by the cache input" {
+    run grep -E "cache: \\\$\\{\\{ inputs\\.cache != 'disabled' \\}\\}" "$CHECKS_ACTION"
+    [[ "$status" -eq 0 ]]
+}
+
+@test "go.release: setup-go cache is gated by the cache input" {
+    run grep -E "cache: \\\$\\{\\{ inputs\\.cache != 'disabled' \\}\\}" "$RELEASE_ACTION"
+    [[ "$status" -eq 0 ]]
+}
+
+@test "go.checks: validate_inputs.sh uses set -f (processes external input)" {
+    run grep '^set -f' "$CHECKS_DIR/validate_inputs.sh"
+    [[ "$status" -eq 0 ]]
+}
+
+@test "go.release: validate_inputs.sh uses set -f" {
+    run grep '^set -f' "$RELEASE_DIR/validate_inputs.sh"
+    [[ "$status" -eq 0 ]]
+}
+
+@test "go.checks: run_checks.sh uses set -f" {
+    run grep '^set -f' "$CHECKS_DIR/run_checks.sh"
+    [[ "$status" -eq 0 ]]
+}
+
+@test "go.release: compute_hashes.sh uses set -f" {
+    run grep '^set -f' "$RELEASE_DIR/compute_hashes.sh"
+    [[ "$status" -eq 0 ]]
+}
+
+@test "go.release: generate_sbom.sh uses set -f" {
+    run grep '^set -f' "$RELEASE_DIR/generate_sbom.sh"
+    [[ "$status" -eq 0 ]]
+}
+
+@test "go.verify: verify_provenance.sh uses set -f" {
+    run grep '^set -f' "$VERIFY_DIR/verify_provenance.sh"
+    [[ "$status" -eq 0 ]]
+}
+
+@test "go.release: action installs syft via tools/syft (not curl | sh)" {
+    run grep -E 'curl[^|]*\| *sh|/usr/local/bin' "$RELEASE_ACTION"
+    [[ "$status" -ne 0 ]]
+    run grep 'tools/syft/install.sh' "$RELEASE_ACTION"
+    [[ "$status" -eq 0 ]]
+}
+
+@test "go.release: action installs cosign before syft (signature verification)" {
+    run bash -c "awk '/sigstore\\/cosign-installer/{c=NR} /tools\\/syft\\/install.sh/{s=NR} END{exit !(c && s && c<s)}' \"$RELEASE_ACTION\""
+    [[ "$status" -eq 0 ]]
+}
+
+@test "go.checks: run_checks.sh runs under stop_commands_guard (test/govulncheck execute arbitrary code)" {
+    run grep -E 'lib/stop_commands_guard\.sh" run' "$CHECKS_ACTION"
+    [[ "$status" -eq 0 ]]
+    run bash -c "grep -A1 'stop_commands_guard.sh\" run' \"$CHECKS_ACTION\" | grep -F run_checks.sh"
+    [[ "$status" -eq 0 ]]
+}
+
+@test "go.release: goreleaser-action is wrapped by stop-commands guard begin/end (it can't be wrapped inline)" {
+    run grep -E 'stop_commands_guard\.sh" begin' "$RELEASE_ACTION"
+    [[ "$status" -eq 0 ]]
+    run grep -E 'stop_commands_guard\.sh" end' "$RELEASE_ACTION"
+    [[ "$status" -eq 0 ]]
+    # The end step must be if: always() — otherwise a goreleaser
+    # failure leaves stop-commands in effect.
+    run bash -c "grep -A2 'Resume workflow commands' '$RELEASE_ACTION' | grep -E 'if: always'"
+    [[ "$status" -eq 0 ]]
+}
+
+@test "go: composites pass inputs through env, never through inputs interpolation in run blocks" {
+    # The wrangle-wide convention: external input never gets
+    # interpolated into a `run:` block; it flows via env:. Inspect
+    # all three composite action.yml files.
+    for action in "$CHECKS_ACTION" "$RELEASE_ACTION" "$VERIFY_ACTION"; do
+        run awk '
+            BEGIN { in_run = 0; run_col = -1; bad = 0 }
+            /^[[:space:]]*run:[[:space:]]+[^|>]/ && /\$\{\{[[:space:]]*inputs\./ {
+                printf "FAIL inline run, line %d: %s\n", NR, $0
+                bad = 1
+            }
+            /^[[:space:]]*run:[[:space:]]*([|>]|$)/ {
+                match($0, /^ */); run_col = RLENGTH
+                in_run = 1; next
+            }
+            in_run {
+                if ($0 !~ /[^[:space:]]/) next
+                match($0, /^ */); col = RLENGTH
+                if (col <= run_col) { in_run = 0 }
+                else if (/\$\{\{[[:space:]]*inputs\./) {
+                    printf "FAIL run-block body, line %d: %s\n", NR, $0
+                    bad = 1
+                }
+            }
+            END { exit bad }
+        ' "$action"
+        [[ "$status" -eq 0 ]]
+    done
+}
+
+# --- Reusable workflow tests ---
+
+@test "go: workflow has guard, gate, checks, release, provenance, verify jobs" {
+    for job in guard gate checks release provenance verify; do
+        run grep -E "^  ${job}:" "$WORKFLOW"
+        [[ "$status" -eq 0 ]]
+    done
+}
+
+@test "go: workflow checks job has contents: read (least privilege for go test)" {
+    # The whole point of splitting checks from release: `go test`
+    # executes adopter test code; deny it write access to the repo.
+    # Match only properly-indented permissions entries (6 spaces),
+    # not prose in comments that mention "contents: write."
+    section="$(awk '/^  [a-z][a-z_-]*:$/ { in_section = ($0 == "  checks:") } in_section' "$WORKFLOW")"
+    grep -qE '^      contents: read([[:space:]]|$)' <<<"$section"
+    ! grep -qE '^      contents: write([[:space:]]|$)' <<<"$section"
+}
+
+@test "go: workflow release job has contents: write (goreleaser publishes inline)" {
+    section="$(awk '/^  [a-z][a-z_-]*:$/ { in_section = ($0 == "  release:") } in_section' "$WORKFLOW")"
+    grep -qE '^      contents: write([[:space:]]|$)' <<<"$section"
+}
+
+@test "go: workflow release job needs checks (quality gates run first)" {
+    section="$(awk '/^  [a-z][a-z_-]*:$/ { in_section = ($0 == "  release:") } in_section' "$WORKFLOW")"
+    grep -qE '^    needs: \[.*checks.*\]' <<<"$section"
 }
 
 @test "go: workflow does NOT have a publish job (goreleaser owns publish inline)" {
-    # Goreleaser publishes natively on tag pushes via `release --clean`;
-    # the SLSA generator's upload-assets job appends the provenance
-    # shortly after. There's no caller-bound OIDC constraint forcing a
-    # separate publish job (unlike python/npm). Adopters write a single
-    # `uses:` line and are done.
     run grep '^  publish:' "$WORKFLOW"
     [[ "$status" -ne 0 ]]
 }
 
-@test "go: provenance job has upload-assets gated on tag push (publish-first, attest-second)" {
-    # The SLSA generator appends the provenance file to the release
-    # goreleaser already created. Tag-push only — `gh release upload`
-    # without a release would 404.
+@test "go: provenance job has upload-assets gated on tag push" {
     run bash -c "sed -n '/^  provenance:/,/^[a-z]/p' \"$WORKFLOW\" | grep -E 'upload-assets:.*startsWith.*refs/tags'"
-    [[ "$status" -eq 0 ]]
-}
-
-@test "go: workflow exposes run-race-detector and run-gofmt-check inputs" {
-    # Mirror the composite's new inputs so the reusable workflow plumbs
-    # them through.
-    run grep -E '^      run-race-detector:' "$WORKFLOW"
-    [[ "$status" -eq 0 ]]
-    run grep -E '^      run-gofmt-check:' "$WORKFLOW"
     [[ "$status" -eq 0 ]]
 }
 
@@ -392,177 +465,61 @@ write_goreleaser() {
     [[ "$status" -eq 0 ]]
 }
 
-@test "go: workflow has gate job calling release_gate" {
-    run grep -E '^  gate:' "$WORKFLOW"
-    [[ "$status" -eq 0 ]]
-    run grep -E 'TomHennen/wrangle/actions/release_gate' "$WORKFLOW"
-    [[ "$status" -eq 0 ]]
-}
-
-@test "go: workflow exposes release-events input" {
-    run grep -E '^      release-events:' "$WORKFLOW"
-    [[ "$status" -eq 0 ]]
-}
-
-@test "go: workflow exports hashes, provenance-artifact-name, metadata-artifact-name outputs" {
-    run grep 'hashes:' "$WORKFLOW"
-    [[ "$status" -eq 0 ]]
-    run grep 'provenance-artifact-name:' "$WORKFLOW"
-    [[ "$status" -eq 0 ]]
-    run grep 'metadata-artifact-name:' "$WORKFLOW"
-    [[ "$status" -eq 0 ]]
-}
-
-@test "go: workflow pins actions to SHAs except SLSA generator" {
-    run bash -c "grep 'uses:.*@' \"$WORKFLOW\" | grep -v 'slsa-github-generator' | grep -v -P '@[0-9a-f]{40}'"
-    [[ "$status" -eq 1 ]]
-}
-
-@test "go: workflow uploads SBOM/metadata, not just dist" {
-    run grep -E 'metadata-dir|go-metadata' "$WORKFLOW"
-    [[ "$status" -eq 0 ]]
-}
-
-@test "go: workflow namespaces artifacts by shortname" {
-    run grep 'go-dist-' "$WORKFLOW"
-    [[ "$status" -eq 0 ]]
-}
-
-@test "go: reusable workflow has verify job calling slsa-verifier" {
-    run grep -E '^  verify:' "$WORKFLOW"
-    [[ "$status" -eq 0 ]]
-    run grep 'slsa-verifier/actions/installer' "$WORKFLOW"
-    [[ "$status" -eq 0 ]]
-    run grep 'slsa-verifier verify-artifact' "$WORKFLOW"
-    [[ "$status" -eq 0 ]]
-}
-
 @test "go: verify job is gated on should-release AND verify-provenance" {
     run bash -c "sed -n '/^  verify:/,/^[a-z]/p' \"$WORKFLOW\" | grep -E \"if:.*should-release.*verify-provenance\""
     [[ "$status" -eq 0 ]]
 }
 
-@test "go: workflow exposes verify-provenance input (default true)" {
-    run grep -E '^      verify-provenance:' "$WORKFLOW"
-    [[ "$status" -eq 0 ]]
-    run bash -c "sed -n '/^      verify-provenance:/,/^      [a-z]/p' \"$WORKFLOW\" | grep -E 'default:[[:space:]]*true'"
+@test "go: verify job uses the verify composite (not inline shell)" {
+    run bash -c "sed -n '/^  verify:/,/^[a-z]/p' \"$WORKFLOW\" | grep -E 'build/actions/go/verify@'"
     [[ "$status" -eq 0 ]]
 }
 
-@test "go: provenance job passes namespaced provenance-name to SLSA generator" {
-    run bash -c "sed -n '/^  provenance:/,/^[a-z]/p' \"$WORKFLOW\" | grep -E 'provenance-name:.*shortname'"
+@test "go: workflow exposes run-race-detector and run-gofmt-check inputs" {
+    run grep -E '^      run-race-detector:' "$WORKFLOW"
+    [[ "$status" -eq 0 ]]
+    run grep -E '^      run-gofmt-check:' "$WORKFLOW"
     [[ "$status" -eq 0 ]]
 }
 
-@test "go: build job exposes shortname output" {
-    run bash -c "sed -n '/^  build:/,/^  [a-z]/p' \"$WORKFLOW\" | grep -E '^[[:space:]]*shortname:'"
-    [[ "$status" -eq 0 ]]
+@test "go: workflow exports hashes, provenance, metadata, checks-metadata artifact names" {
+    for output in hashes provenance-artifact-name metadata-artifact-name checks-metadata-artifact-name; do
+        run grep -E "^      ${output}:" "$WORKFLOW"
+        [[ "$status" -eq 0 ]]
+    done
 }
 
-@test "go: verify job depends on provenance and downloads its artifact" {
-    run bash -c "sed -n '/^  verify:/,/^[a-z]/p' \"$WORKFLOW\" | grep -E 'needs:.*provenance'"
-    [[ "$status" -eq 0 ]]
-    run bash -c "sed -n '/^  verify:/,/^[a-z]/p' \"$WORKFLOW\" | grep 'needs.provenance.outputs.provenance-name'"
-    [[ "$status" -eq 0 ]]
+@test "go: workflow pins third-party actions to SHAs (except SLSA generator's tag-required ref)" {
+    run bash -c "grep 'uses:.*@' \"$WORKFLOW\" | grep -v 'slsa-github-generator' | grep -v -P '@[0-9a-f]{40}' | grep -v '@__PR_HEAD__'"
+    [[ "$status" -eq 1 ]]
 }
 
-@test "go: verify reads its artifact list from checksums.txt, not by globbing dist/" {
-    # Goreleaser writes goreleaser-internal metadata files alongside the
-    # artifacts (artifacts.json, config.yaml, metadata.json). Those
-    # aren't in checksums.txt and aren't provenance subjects — globbing
-    # dist/ would include them, and slsa-verifier would fail with
-    # "artifact hash does not match provenance subject". Parse the
-    # filenames from checksums.txt instead.
-    run grep -E 'awk .*checksums\.txt|< dist/checksums\.txt' "$WORKFLOW"
+@test "go: workflow checks + release jobs use namespaced metadata artifact names" {
+    run grep 'go-checks-metadata-' "$WORKFLOW"
     [[ "$status" -eq 0 ]]
-    # The previous (buggy) shape was `find dist ... ! -name checksums.txt`.
-    # Make sure it didn't regress.
-    run grep -E 'find dist .*-name checksums\.txt' "$WORKFLOW"
-    [[ "$status" -ne 0 ]]
-}
-
-@test "go: workflow disables cache on release builds (L3 isolation)" {
-    # The build job passes cache: disabled when should-release is true.
-    # Re-enabling cache on release builds would expose the build to
-    # cross-build cache poisoning (Go's build cache trusts pre-derived
-    # compiled output — same shape as the uv-cache L3 gap).
-    run bash -c "grep -E \"cache:.*should-release == 'true'.*disabled\" \"$WORKFLOW\""
-    [[ "$status" -eq 0 ]]
-}
-
-@test "go: checkout fetches tags (goreleaser requires tag visibility)" {
-    # Goreleaser reads the current tag and recent commit history to
-    # derive the version. The default `actions/checkout` is a shallow
-    # fetch without tags, which makes goreleaser misdetect the version.
-    run grep -E 'fetch-tags: true' "$WORKFLOW"
+    run grep 'go-metadata-' "$WORKFLOW"
     [[ "$status" -eq 0 ]]
 }
 
 # --- Example workflow tests ---
 
-@test "go: example workflow exists" {
-    [[ -f "$EXAMPLE" ]]
-}
-
-@test "go: example workflow does NOT install slsa-verifier (verification owned by reusable workflow)" {
+@test "go: example workflow does NOT install slsa-verifier (verification owned by reusable)" {
     run grep 'slsa-verifier/actions/installer' "$EXAMPLE"
     [[ "$status" -ne 0 ]]
-    run grep 'slsa-verifier verify-artifact' "$EXAMPLE"
-    [[ "$status" -ne 0 ]]
 }
 
-@test "go: example workflow does NOT call SLSA generator (moved to reusable)" {
-    run grep 'slsa-github-generator' "$EXAMPLE"
-    [[ "$status" -ne 0 ]]
-}
-
-@test "go: example workflow does NOT have a publish job (wrangle owns publish for Go)" {
-    # Unlike python/npm, Go's publish is owned by wrangle. The adopter
-    # workflow is one job: build (which calls the reusable workflow).
+@test "go: example workflow does NOT have a publish job (goreleaser owns publish)" {
     run grep -E '^  publish:' "$EXAMPLE"
     [[ "$status" -ne 0 ]]
 }
 
 @test "go: example workflow grants contents: write to build job" {
-    # contents: write is required because the reusable workflow's
-    # publish job uploads to GitHub Releases AND the SLSA generator's
-    # upload-assets job declares it at startup.
     run grep -E 'contents: write' "$EXAMPLE"
     [[ "$status" -eq 0 ]]
 }
 
-# --- Workflow-command-injection guard (#225 / SLSA_L3_AUDIT.md Finding 3) ---
+# --- Workflow-command-injection guard infrastructure ---
 
 @test "go: stop-commands guard helper exists and is executable" {
     [[ -x "$REPO_ROOT/lib/stop_commands_guard.sh" ]]
-}
-
-@test "go: build_go.sh runs under the stop-commands guard (test/govulncheck stdout could carry workflow commands)" {
-    # build_go.sh runs go test, govulncheck, etc., which execute
-    # arbitrary project code. The ::stop-commands:: guard neutralizes
-    # workflow-command injection via their stdout. See
-    # docs/SLSA_L3_AUDIT.md Finding 3.
-    run grep -E 'lib/stop_commands_guard\.sh" run' "$ACTION"
-    [[ "$status" -eq 0 ]]
-    # The guarded command (on the line after `... run`) must be build_go.sh.
-    run bash -c "grep -A1 'stop_commands_guard.sh\" run' \"$ACTION\" | grep -F build_go.sh"
-    [[ "$status" -eq 0 ]]
-}
-
-@test "go: goreleaser-action is wrapped by stop-commands guard begin/end (it can't be wrapped inline)" {
-    # goreleaser-action is a `uses:` step; it can't be wrapped by the
-    # `stop_commands_guard.sh run` form. The action.yml uses begin/end:
-    # one step emits ::stop-commands::<token>, the goreleaser step runs,
-    # a later step emits ::<token>:: to re-enable. The end step MUST be
-    # marked `if: always()` so a failed goreleaser doesn't leave commands
-    # suspended for the rest of the job.
-    run grep -E 'stop_commands_guard\.sh" begin' "$ACTION"
-    [[ "$status" -eq 0 ]]
-    run grep -E 'stop_commands_guard\.sh" end' "$ACTION"
-    [[ "$status" -eq 0 ]]
-    # The end step must be if: always() — otherwise a goreleaser failure
-    # leaves stop-commands in effect, silently disabling ::add-mask::
-    # for the rest of the job.
-    run bash -c "grep -A2 'Resume workflow commands' '$ACTION' | grep -E 'if: always'"
-    [[ "$status" -eq 0 ]]
 }

@@ -103,6 +103,21 @@ Goreleaser exposes both via `builds.flags`; the wrangle action should set them b
 
 Under the generic generator (the pick) wrangle's test step and wrangle's hash step both run against the same bytes goreleaser produced in the same job, so reproducibility isn't needed to close a wrangle-vs-builder gap (the ecosystem-specific-builder gap doesn't apply here). The published artifact IS the binary consumers run — they don't typically rebuild from source. Reproducibility's primary value is **for security audits and SLSA verification chains** that want to confirm "the bytes the provenance attests came from this source," not for routine consumer use. The two zero-cost flags pay for themselves; cgo-disabling doesn't.
 
+### Permissions architecture — checks and release as separate jobs
+
+The reusable workflow splits the build into two jobs with different permissions:
+
+- `checks` (`contents: read`) — `gofmt`, `go vet`, `go test`, `govulncheck`.
+- `release` (`contents: write`) — `goreleaser` (which publishes inline on tag pushes), `syft`, hash computation.
+
+The split exists because `go test` executes arbitrary adopter test code (and `govulncheck` walks the full callgraph). Composite actions inherit their calling job's permissions; if those two steps lived in the same composite as the `goreleaser` invocation, `go test` would run with `contents: write` — meaning a compromised dependency or hostile test could use `$GITHUB_TOKEN` to push to the repo. Splitting denies that capability.
+
+The split costs ~30s of extra latency (a second checkout + setup-go). The L3 audit pattern from #226 (release-vs-PR cache asymmetry) is preserved on both sides: both composites accept the `cache` input and disable caching on release builds.
+
+`release` depends on `checks` via `needs:`, so quality gates always run first and a failure blocks any bytes from shipping.
+
+Adopters consuming via direct composite mode forfeit this isolation (everything runs in their own job under whatever permissions they grant). That's already documented as a non-L3 path.
+
 ### Cache isolation — release-vs-PR asymmetry applies to Go
 
 `actions/setup-go` enables two caches by default, both restored from GitHub's cache service with the standard branch-scoped rules. The two have different re-verification properties:

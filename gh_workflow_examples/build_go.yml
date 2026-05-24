@@ -1,29 +1,23 @@
 # Copy this file to your repo at .github/workflows/build_go.yml
 #
 # Before first use:
-# 1. Drop a `.goreleaser.yml` config in your repo root (or under `path:`
-#    if your Go project lives in a subdirectory). Wrangle does not ship
-#    a starter goreleaser config; bring your own. See
-#    https://goreleaser.com/customization/ for the schema.
-#    Minimum recommended `builds:` settings for reproducible bytes:
-#        builds:
-#          - flags: [-trimpath]
-#            env: [-buildvcs=false]
+# 1. Add a `.goreleaser.yml` at your repo root (or under `path:`).
+#    Wrangle does not ship a starter — bring your own per
+#    https://goreleaser.com/customization/. See
+#    build/actions/go/README.md for a minimal recommended template
+#    (`-trimpath` + `-buildvcs=false` reproducibility flags).
+# 2. Make sure your release tags match `v*` — goreleaser uses the
+#    tag name as the version.
 #
-# Unlike python and npm, the adopter does NOT need a separate publish
-# job here. Go has no language-level package registry with a caller-
-# bound OIDC publish constraint, so goreleaser itself owns publish on
-# tag pushes — it creates the GitHub Release, attaches archives + checksums,
-# and runs every downstream verb your .goreleaser.yml configures (Docker
-# pushes, Homebrew taps, deb/rpm/snap, announcements). The SLSA generator
-# appends the provenance file to the same release shortly after.
+# Wrangle's reusable workflow handles build, tests, SBOM, SLSA L3
+# provenance generation, post-publish verify, and dispatch of every
+# downstream goreleaser verb (Docker pushes, Homebrew taps,
+# deb/rpm/snap, announcements). Goreleaser publishes natively on tag
+# push; this caller workflow just gates which events trigger that.
 #
-# Single `uses:` line is the full integration.
-#
-# Trigger note: this template sets `release-events: tag-only` so only
-# tag pushes publish a GitHub Release. PR builds run the full pipeline
-# (build → tests → SBOM) but do NOT mint provenance or publish. Switch
-# to `non-pull-request` or `main-and-tags` for a different release model.
+# Trigger note: `release-events: tag-only` means only tag pushes
+# publish a release. PR builds run the full pipeline (build → tests
+# → SBOM) but do NOT mint provenance or publish.
 name: Go Build
 
 on:
@@ -36,14 +30,13 @@ on:
 jobs:
   build:
     permissions:
-      # Required by goreleaser's inline publish + wrangle's nested provenance:
-      contents: write   # goreleaser creates the GitHub Release on tag push + SLSA generator's upload-assets job (declared at startup)
+      contents: write   # goreleaser creates the Release + SLSA generator's upload-assets
       id-token: write   # OIDC for Sigstore signing
-      actions: read     # SLSA generator detects the GitHub Actions environment
+      actions: read     # SLSA generator detects the GA environment
     uses: TomHennen/wrangle/.github/workflows/build_and_publish_go.yml@v0.2.0
     with:
       path: "."
-      release-events: tag-only          # only tag pushes publish a release (recommended default)
+      release-events: tag-only          # only tag pushes mint provenance and publish (recommended default)
       # go-version: ""                  # optional: auto-detected from go.mod's `go` directive
       # run-tests: true                 # optional: skip with false (also skips gofmt/vet/govulncheck)
       # run-race-detector: true         # optional: set false when CGO is disabled (race detector requires cgo)

@@ -1,0 +1,41 @@
+name: Wrangle Go Verify
+description: |
+  Install slsa-verifier and verify wrangle-generated SLSA provenance
+  against a goreleaser-produced dist directory. Used by the reusable
+  workflow's verify job, but exposed as a standalone composite so the
+  verify logic can be invoked + tested in isolation.
+
+  The artifact list for verification is derived from
+  `dist/checksums.txt` (the authoritative subject list — what wrangle's
+  hash step base64-encoded into the SLSA generator's base64-subjects
+  input). Globbing dist/ would include goreleaser-internal metadata
+  files (artifacts.json, config.yaml, metadata.json) that aren't
+  provenance subjects and would cause slsa-verifier to fail with
+  "artifact hash does not match provenance subject."
+
+inputs:
+  dist-dir:
+    description: "Path to the directory containing checksums.txt and the artifacts whose hashes are listed there."
+    required: true
+  provenance-path:
+    description: "Path to the .intoto.jsonl SLSA provenance bundle."
+    required: true
+  source-uri:
+    description: "Source URI for slsa-verifier, e.g. github.com/<owner>/<repo>."
+    required: true
+
+runs:
+  using: "composite"
+  steps:
+    - uses: slsa-framework/slsa-verifier/actions/installer@ea584f4502babc6f60d9bc799dbbb13c1caa9ee6 # v2.7.1
+
+    - name: Verify SLSA provenance
+      shell: bash
+      env:
+        DIST_DIR: ${{ inputs.dist-dir }}
+        PROVENANCE_PATH: ${{ inputs.provenance-path }}
+        SOURCE_URI: ${{ inputs.source-uri }}
+      run: |
+        set -euo pipefail
+        "${{ github.action_path }}/verify_provenance.sh" \
+          "$DIST_DIR" "$PROVENANCE_PATH" "$SOURCE_URI"
