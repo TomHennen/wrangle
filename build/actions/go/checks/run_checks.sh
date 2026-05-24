@@ -140,6 +140,126 @@ install_govulncheck() {
     printf '%s/govulncheck\n' "$gobin"
 }
 
+# --- step functions --------------------------------------------------
+#
+# main() orchestrates these. Each step takes only the arguments it
+# needs and is independently testable.
+
+# Run the gofmt format check. Exits 1 if unformatted files are
+# found, 0 otherwise (including when skipped via run_gofmt="false").
+# Args: <input_path> <run_gofmt>
+run_gofmt_step() {
+    local input_path="$1"
+    local run_gofmt="$2"
+    if [[ "$run_gofmt" != "true" ]]; then
+        printf '== gofmt check ==\nSkipped (run-gofmt-check: false).\n'
+        return 0
+    fi
+    printf '== gofmt check ==\n'
+    local unformatted
+    unformatted="$(list_unformatted "$input_path")"
+    if [[ -n "$unformatted" ]]; then
+        printf 'Error: the following files are not gofmt-clean:\n'
+        printf '%s\n' "$unformatted"
+        # shellcheck disable=SC2016 # backticks here are human-readable formatting, not command substitution
+        printf 'Run `gofmt -w .` locally to fix, then commit.\n'
+        # shellcheck disable=SC2016
+        printf 'If the file is generated and missing the `// Code generated ... DO NOT EDIT.` header,\n'
+        printf 'add that header (Go convention) — wrangle will auto-skip it. Or disable the gofmt\n'
+        printf 'check entirely via run-gofmt-check: false on the action input.\n'
+        return 1
+    fi
+    printf 'gofmt: all files are formatted (generated files auto-skipped).\n'
+}
+
+# Run `go vet ./...`. Args: <input_path>
+run_vet_step() {
+    local input_path="$1"
+    printf '\n== go vet ==\n'
+    ( cd "$input_path" && go vet ./... )
+    printf 'go vet: passed.\n'
+}
+
+# Run the test suite, optionally with the race detector.
+# Args: <input_path> <run_race>
+run_test_step() {
+    local input_path="$1"
+    local run_race="$2"
+    printf '\n== go test ./... ==\n'
+    if [[ "$run_race" == "true" ]]; then
+        ( cd "$input_path" && go test -race ./... )
+        printf 'go test: passed (with race detector).\n'
+    else
+        ( cd "$input_path" && go test ./... )
+        printf 'go test: passed (race detector skipped via run-race-detector: false).\n'
+    fi
+}
+
+# Install govulncheck, run it, write JSON to <metadata_dir>/govulncheck.json,
+# and print the finding count. Findings are informational (never
+# fail the build); tool errors propagate.
+# Args: <input_path> <metadata_dir_abs> <govulncheck_version>
+# Prints: integer finding count to stdout (caller can capture)
+run_govulncheck_step() {
+    local input_path="$1"
+    local metadata_dir_abs="$2"
+    local version="$3"
+    printf '\n== govulncheck ==\n' >&2
+    local govuln_bin govuln_out
+    govuln_bin="$(install_govulncheck "$version")"
+    govuln_out="$metadata_dir_abs/govulncheck.json"
+
+    # govulncheck -json exits 0 even on findings (findings live in
+    # the JSON, not the exit code); non-zero means a tool error
+    # (network, infra). Tool errors propagate; findings don't fail.
+    set +e
+    ( cd "$input_path" && "$govuln_bin" -json ./... ) > "$govuln_out"
+    local status=$?
+    set -e
+
+    if (( status != 0 )); then
+        printf 'govulncheck: tool error (exit %d). JSON output: %s\n' "$status" "$govuln_out" >&2
+        exit "$status"
+    fi
+
+    local findings
+    findings="$(count_findings "$govuln_out")"
+    if (( findings == 0 )); then
+        printf 'govulncheck: no reachable vulnerabilities.\n' >&2
+    else
+        printf 'govulncheck: %s reachable vulnerability finding(s) (informational; not failing the build).\n' "$findings" >&2
+        printf 'JSON output: %s\n' "$govuln_out" >&2
+        # shellcheck disable=SC2016 # backticks here are human-readable formatting, not command substitution
+        printf 'Re-run locally with `govulncheck ./...` for human-readable findings.\n' >&2
+    fi
+    printf '%s\n' "$findings"
+}
+
+# Append the quality-checks step summary block to $GITHUB_STEP_SUMMARY.
+# Args: <run_gofmt> <run_race> <findings>
+write_step_summary() {
+    local run_gofmt="$1"
+    local run_race="$2"
+    local findings="$3"
+    [[ -n "${GITHUB_STEP_SUMMARY:-}" ]] || return 0
+    {
+        printf '## Go quality checks\n\n'
+        printf '| Check | Result |\n|---|---|\n'
+        if [[ "$run_gofmt" == "true" ]]; then
+            printf '| gofmt | passed (generated files auto-skipped) |\n'
+        else
+            printf '| gofmt | skipped |\n'
+        fi
+        printf '| go vet | passed |\n'
+        if [[ "$run_race" == "true" ]]; then
+            printf '| go test | passed (with race detector) |\n'
+        else
+            printf '| go test | passed |\n'
+        fi
+        printf '| govulncheck | %s reachable finding(s) — informational |\n' "$findings"
+    } >> "$GITHUB_STEP_SUMMARY"
+}
+
 # --- main orchestrator -----------------------------------------------
 
 main() {
@@ -154,103 +274,23 @@ main() {
     local run_race="$4"
     local run_gofmt="$5"
 
-    # Absolute path resolved BEFORE the cd so subsequent writes resolve
-    # to the workspace root, not the project subdir. realpath -m
-    # handles trailing slashes correctly — the old dirname/basename
-    # recompose would have produced "metadata/go" given input
-    # "metadata/go/" because basename strips the trailing slash and
-    # dirname returns the parent.
+    # Resolve the metadata path BEFORE any cd, so subsequent writes
+    # resolve to the workspace root. realpath -m handles trailing
+    # slashes correctly — a dirname/basename recompose would produce
+    # "metadata/go" given input "metadata/go/" because basename strips
+    # trailing slashes.
     mkdir -p "$metadata_dir"
     local metadata_dir_abs
     metadata_dir_abs="$(realpath -m "$metadata_dir")"
 
-    # --- gofmt -------------------------------------------------------
-    if [[ "$run_gofmt" == "true" ]]; then
-        printf '== gofmt check ==\n'
-        local unformatted
-        unformatted="$(list_unformatted "$input_path")"
-        if [[ -n "$unformatted" ]]; then
-            printf 'Error: the following files are not gofmt-clean:\n'
-            printf '%s\n' "$unformatted"
-            # shellcheck disable=SC2016 # backticks here are human-readable formatting, not command substitution
-            printf 'Run `gofmt -w .` locally to fix, then commit.\n'
-            # shellcheck disable=SC2016
-            printf 'If the file is generated and missing the `// Code generated ... DO NOT EDIT.` header,\n'
-            printf 'add that header (Go convention) — wrangle will auto-skip it. Or disable the gofmt\n'
-            printf 'check entirely via run-gofmt-check: false on the action input.\n'
-            exit 1
-        fi
-        printf 'gofmt: all files are formatted (generated files auto-skipped).\n'
-    else
-        printf '== gofmt check ==\nSkipped (run-gofmt-check: false).\n'
-    fi
-
-    # --- go vet ------------------------------------------------------
-    printf '\n== go vet ==\n'
-    ( cd "$input_path" && go vet ./... )
-    printf 'go vet: passed.\n'
-
-    # --- go test -----------------------------------------------------
-    printf '\n== go test ./... ==\n'
-    if [[ "$run_race" == "true" ]]; then
-        ( cd "$input_path" && go test -race ./... )
-        printf 'go test: passed (with race detector).\n'
-    else
-        ( cd "$input_path" && go test ./... )
-        printf 'go test: passed (race detector skipped via run-race-detector: false).\n'
-    fi
-
-    # --- govulncheck -------------------------------------------------
-    printf '\n== govulncheck ==\n'
-    local govuln_bin govuln_out
-    govuln_bin="$(install_govulncheck "$govulncheck_version")"
-    govuln_out="$metadata_dir_abs/govulncheck.json"
-
-    # govulncheck -json exits 0 even on findings (findings carried in
-    # the JSON, not the exit code); non-zero means a tool error
-    # (network, infra). We propagate tool errors but never block on
-    # findings.
-    set +e
-    ( cd "$input_path" && "$govuln_bin" -json ./... ) > "$govuln_out"
-    local status=$?
-    set -e
-
-    if (( status != 0 )); then
-        printf 'govulncheck: tool error (exit %d). JSON output: %s\n' "$status" "$govuln_out" >&2
-        exit "$status"
-    fi
+    run_gofmt_step "$input_path" "$run_gofmt"
+    run_vet_step "$input_path"
+    run_test_step "$input_path" "$run_race"
 
     local findings
-    findings="$(count_findings "$govuln_out")"
-    if (( findings == 0 )); then
-        printf 'govulncheck: no reachable vulnerabilities.\n'
-    else
-        printf 'govulncheck: %s reachable vulnerability finding(s) (informational; not failing the build).\n' "$findings"
-        printf 'JSON output: %s\n' "$govuln_out"
-        # shellcheck disable=SC2016 # backticks here are human-readable formatting, not command substitution
-        printf 'Re-run locally with `govulncheck ./...` for human-readable findings.\n'
-    fi
+    findings="$(run_govulncheck_step "$input_path" "$metadata_dir_abs" "$govulncheck_version")"
 
-    # Step summary: surface the finding count where adopters look first
-    # (the job page). Visibility issue tracked in #242.
-    if [[ -n "${GITHUB_STEP_SUMMARY:-}" ]]; then
-        {
-            printf '## Go quality checks\n\n'
-            printf '| Check | Result |\n|---|---|\n'
-            if [[ "$run_gofmt" == "true" ]]; then
-                printf '| gofmt | passed (generated files auto-skipped) |\n'
-            else
-                printf '| gofmt | skipped |\n'
-            fi
-            printf '| go vet | passed |\n'
-            if [[ "$run_race" == "true" ]]; then
-                printf '| go test | passed (with race detector) |\n'
-            else
-                printf '| go test | passed |\n'
-            fi
-            printf '| govulncheck | %s reachable finding(s) — informational |\n' "$findings"
-        } >> "$GITHUB_STEP_SUMMARY"
-    fi
+    write_step_summary "$run_gofmt" "$run_race" "$findings"
 }
 
 # Sourcing guard: tests source this file to call decision functions

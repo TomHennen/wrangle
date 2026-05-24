@@ -86,15 +86,7 @@ runs:
         INPUT_PUBLISH: ${{ inputs.publish }}
       run: |
         set -euo pipefail
-        if [[ "$INPUT_CACHE" != "enabled" && "$INPUT_CACHE" != "disabled" ]]; then
-            printf 'Error: cache input must be one of enabled|disabled (got: %s)\n' "$INPUT_CACHE" >&2
-            exit 1
-        fi
-        if [[ "$INPUT_PUBLISH" != "true" && "$INPUT_PUBLISH" != "false" ]]; then
-            printf 'Error: publish input must be one of true|false (got: %s)\n' "$INPUT_PUBLISH" >&2
-            exit 1
-        fi
-        "${{ github.action_path }}/validate_inputs.sh" "$INPUT_PATH"
+        "${{ github.action_path }}/validate_inputs.sh" "$INPUT_PATH" "$INPUT_CACHE" "$INPUT_PUBLISH"
 
     - name: Compute metadata
       id: metadata
@@ -103,17 +95,7 @@ runs:
         INPUT_PATH: ${{ inputs.path }}
       run: |
         set -euo pipefail
-        SHORTNAME="${INPUT_PATH////_}"
-        printf 'shortname=%s\n' "$SHORTNAME" >> "$GITHUB_OUTPUT"
-
-        # Version: the git tag if we're on one, otherwise "snapshot".
-        # Matches what goreleaser will use for its package version.
-        if [[ "${GITHUB_REF:-}" == refs/tags/* ]]; then
-            VERSION="${GITHUB_REF#refs/tags/}"
-        else
-            VERSION="snapshot"
-        fi
-        printf 'version=%s\n' "$VERSION" >> "$GITHUB_OUTPUT"
+        "${{ github.action_path }}/compute_metadata.sh" "$INPUT_PATH"
 
     - name: Setup Go
       uses: actions/setup-go@4a3601121dd01d1626a1e23e37211e3254c1c06c # v6.4.0
@@ -194,7 +176,8 @@ runs:
       run: |
         set -euo pipefail
         mkdir -p "$METADATA_DIR"
-        "${{ github.action_path }}/generate_sbom.sh" "$INPUT_PATH" "$METADATA_DIR/sbom.spdx.json"
+        "${{ github.action_path }}/../../../../lib/generate_sbom.sh" \
+            "$INPUT_PATH" "$METADATA_DIR/sbom.spdx.json"
 
     - name: Generate summary
       if: always()
@@ -205,16 +188,4 @@ runs:
         PUBLISH: ${{ inputs.publish }}
       run: |
         set -euo pipefail
-        {
-            printf '## Go Release Results\n\n'
-            printf '| | |\n|---|---|\n'
-            printf '| **Project** | %s |\n' "$INPUT_PATH"
-            printf '| **Version** | %s |\n' "$VERSION"
-            printf '| **Published** | %s |\n' "$PUBLISH"
-            printf '| **Artifacts** | |\n'
-            for f in "$INPUT_PATH"/dist/*; do
-                if [[ -f "$f" ]]; then
-                    printf '| | `%s` |\n' "$(basename "$f")"
-                fi
-            done
-        } >> "$GITHUB_STEP_SUMMARY"
+        "${{ github.action_path }}/generate_summary.sh" "$INPUT_PATH" "$VERSION" "$PUBLISH"

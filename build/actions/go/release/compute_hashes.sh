@@ -4,17 +4,10 @@
 #
 # Goreleaser writes dist/checksums.txt in the standard `sha256sum`
 # format — `<hex>  <filename>` per line — which is exactly what the
-# generator expects when base64-encoded. So we just base64-encode
-# the file directly (no re-hashing of the binaries).
+# generator expects when base64-encoded. The file is base64-encoded
+# directly; no re-hashing of the binaries.
 #
-# Why a separate script: the action.yml previously inlined this as
-# `HASHES="$(base64 -w0 < "$INPUT_PATH/dist/checksums.txt")"`, which
-# was untestable. Extracting it lets test.bats verify the output
-# round-trips correctly against fixture checksums.txt files.
-#
-# Writes `hashes=<base64>` to $GITHUB_OUTPUT (a file the runner reads
-# after the step). $GITHUB_OUTPUT writes are unaffected by the
-# stop-commands suspension that may be in effect.
+# Writes `hashes=<base64>` to $GITHUB_OUTPUT.
 #
 # Usage: build/actions/go/release/compute_hashes.sh <checksums_path>
 

@@ -1,32 +1,16 @@
 #!/bin/bash
-# Verifies wrangle-generated SLSA provenance against the goreleaser-
-# produced dist directory by extracting the subject filename list
-# from dist/checksums.txt and handing them to `slsa-verifier
-# verify-artifact`.
+# Verifies wrangle-generated SLSA provenance against a goreleaser-
+# produced dist directory.
 #
-# Why a separate script: the reusable workflow previously inlined
-# this as a `run: |` block, which (a) wasn't testable and (b) had a
-# subtle bug — globbing dist/ would include goreleaser-internal
-# metadata files (artifacts.json, config.yaml, metadata.json) that
-# aren't in checksums.txt and aren't provenance subjects, causing
-# slsa-verifier to fail with "artifact hash does not match
-# provenance subject." Parsing checksums.txt is the only correct
-# source of the subject list.
+# The subject filename list is read from dist/checksums.txt rather
+# than globbed from the directory. Globbing would include goreleaser-
+# internal metadata files (artifacts.json, config.yaml, metadata.json)
+# that aren't subjects, causing slsa-verifier to fail with "artifact
+# hash does not match provenance subject." checksums.txt is the
+# authoritative subject list — slsa-verifier re-hashes each file and
+# compares against the provenance.
 #
-# Used by `.github/workflows/build_and_publish_go.yml`'s verify job.
-# Lives at build/actions/go/verify_provenance.sh (not under
-# checks/ or release/) because verify is its own job in the reusable
-# workflow with default permissions — different surface from either
-# composite.
-#
-# Usage: build/actions/go/verify_provenance.sh <dist_dir> <provenance_path> <source_uri>
-#
-#   dist_dir:        path to the directory containing checksums.txt and the
-#                    artifacts whose hashes are listed there
-#   provenance_path: path to the .intoto.jsonl provenance bundle
-#   source_uri:      e.g., "github.com/<owner>/<repo>" (passed to
-#                    --source-uri so slsa-verifier binds the
-#                    attestation to the source repo).
+# Usage: verify_provenance.sh <dist_dir> <provenance_path> <source_uri>
 
 set -euo pipefail
 set -f  # processes external arguments — disable globbing per CLAUDE.md

@@ -120,6 +120,35 @@ func main() {}
     [[ "$output" == "2" ]]
 }
 
+# Step-function tests (these wrap real tool invocations, but the gofmt
+# branch in particular is testable without Go: list_unformatted is
+# pure-function-tested above, and run_gofmt_step's skip-when-false
+# branch just prints a message). Real-toolchain coverage of run_*_step
+# happens in Layer 4 against an installed Go.
+
+@test "go.checks: run_gofmt_step prints skip message when run_gofmt is false" {
+    run bash -c 'source "$1"; run_gofmt_step "/nonexistent" "false"' -- "$CHECKS_DIR/run_checks.sh"
+    [[ "$status" -eq 0 ]]
+    [[ "$output" == *"Skipped (run-gofmt-check: false)"* ]]
+}
+
+@test "go.checks: write_step_summary writes a markdown table to GITHUB_STEP_SUMMARY" {
+    GITHUB_STEP_SUMMARY="$BATS_TEST_TMPDIR/summary.md"
+    : > "$GITHUB_STEP_SUMMARY"
+    export GITHUB_STEP_SUMMARY
+    bash -c 'source "$1"; write_step_summary "true" "true" "3"' -- "$CHECKS_DIR/run_checks.sh"
+    grep -q "Go quality checks" "$GITHUB_STEP_SUMMARY"
+    grep -q "gofmt | passed" "$GITHUB_STEP_SUMMARY"
+    grep -q "go test | passed (with race detector)" "$GITHUB_STEP_SUMMARY"
+    grep -q "3 reachable finding" "$GITHUB_STEP_SUMMARY"
+}
+
+@test "go.checks: write_step_summary skips when GITHUB_STEP_SUMMARY unset" {
+    # No-op when the env var isn't set (e.g., running tests outside GHA).
+    run bash -c 'unset GITHUB_STEP_SUMMARY; source "$1"; write_step_summary "true" "true" "0"' -- "$CHECKS_DIR/run_checks.sh"
+    [[ "$status" -eq 0 ]]
+}
+
 # ====================================================================
 # Layer 1: Pure-function tests for compute_hashes.sh
 # ====================================================================
@@ -138,6 +167,53 @@ func main() {}
     run bash -c 'source "$1"; encode_hashes "$2"' -- "$RELEASE_DIR/compute_hashes.sh" "$BATS_TEST_TMPDIR/missing.txt"
     [[ "$status" -ne 0 ]]
     [[ "$output" == *"checksums file not found"* ]]
+}
+
+# ====================================================================
+# Layer 1: Pure-function tests for compute_metadata.sh
+# ====================================================================
+
+@test "go.release: derive_shortname maps '.' to '_'" {
+    run bash -c 'source "$1"; derive_shortname "."' -- "$RELEASE_DIR/compute_metadata.sh"
+    [[ "$status" -eq 0 ]]
+    [[ "$output" == "_" ]]
+}
+
+@test "go.release: derive_shortname maps 'cmd/foo' to 'cmd_foo'" {
+    run bash -c 'source "$1"; derive_shortname "cmd/foo"' -- "$RELEASE_DIR/compute_metadata.sh"
+    [[ "$status" -eq 0 ]]
+    [[ "$output" == "cmd_foo" ]]
+}
+
+@test "go.release: derive_shortname maps nested paths" {
+    run bash -c 'source "$1"; derive_shortname "a/b/c"' -- "$RELEASE_DIR/compute_metadata.sh"
+    [[ "$status" -eq 0 ]]
+    [[ "$output" == "a_b_c" ]]
+}
+
+@test "go.release: derive_version returns tag name on tag push" {
+    run bash -c 'GITHUB_REF=refs/tags/v1.2.3; source "$1"; derive_version' -- "$RELEASE_DIR/compute_metadata.sh"
+    [[ "$status" -eq 0 ]]
+    [[ "$output" == "v1.2.3" ]]
+}
+
+@test "go.release: derive_version returns 'snapshot' on non-tag refs" {
+    run bash -c 'GITHUB_REF=refs/heads/main; source "$1"; derive_version' -- "$RELEASE_DIR/compute_metadata.sh"
+    [[ "$status" -eq 0 ]]
+    [[ "$output" == "snapshot" ]]
+}
+
+@test "go.release: derive_version returns 'snapshot' when GITHUB_REF unset" {
+    run bash -c 'unset GITHUB_REF; source "$1"; derive_version' -- "$RELEASE_DIR/compute_metadata.sh"
+    [[ "$status" -eq 0 ]]
+    [[ "$output" == "snapshot" ]]
+}
+
+@test "go.release: compute_metadata.sh end-to-end writes shortname and version to GITHUB_OUTPUT" {
+    GITHUB_REF=refs/tags/v0.1.0 run "$RELEASE_DIR/compute_metadata.sh" "cmd/example"
+    [[ "$status" -eq 0 ]]
+    grep -qE '^shortname=cmd_example$' "$GITHUB_OUTPUT"
+    grep -qE '^version=v0\.1\.0$' "$GITHUB_OUTPUT"
 }
 
 # ====================================================================
@@ -212,7 +288,7 @@ func main() {}
     write_gomod "$proj"
     write_goreleaser "$proj"
     cd "$BATS_TEST_TMPDIR"
-    run "$RELEASE_DIR/validate_inputs.sh" "proj"
+    run "$RELEASE_DIR/validate_inputs.sh" "proj" "enabled" "false"
     [[ "$status" -eq 0 ]]
 }
 
@@ -221,7 +297,7 @@ func main() {}
     write_gomod "$proj"
     printf 'version: 2\n' > "$proj/.goreleaser.yaml"
     cd "$BATS_TEST_TMPDIR"
-    run "$RELEASE_DIR/validate_inputs.sh" "proj"
+    run "$RELEASE_DIR/validate_inputs.sh" "proj" "enabled" "false"
     [[ "$status" -eq 0 ]]
 }
 
@@ -229,10 +305,10 @@ func main() {}
     local proj="$BATS_TEST_TMPDIR/proj"
     write_gomod "$proj"
     cd "$BATS_TEST_TMPDIR"
-    run "$RELEASE_DIR/validate_inputs.sh" "proj"
+    run "$RELEASE_DIR/validate_inputs.sh" "proj" "enabled" "false"
     [[ "$status" -ne 0 ]]
     [[ "$output" == *"no .goreleaser.yml"* ]]
-    [[ "$output" == *"goreleaser.com/customization"* ]]
+    [[ "$output" == *"build_go.goreleaser.yml"* ]]
 }
 
 @test "go.checks: validate_inputs.sh rejects absolute path" {
@@ -242,7 +318,7 @@ func main() {}
 }
 
 @test "go.release: validate_inputs.sh rejects path traversal" {
-    run "$RELEASE_DIR/validate_inputs.sh" "../escape"
+    run "$RELEASE_DIR/validate_inputs.sh" "../escape" "enabled" "false"
     [[ "$status" -ne 0 ]]
     [[ "$output" == *"path traversal not allowed"* ]]
 }
@@ -362,8 +438,18 @@ func main() {}
     [[ "$status" -eq 0 ]]
 }
 
-@test "go.release: generate_sbom.sh uses set -f" {
-    run grep '^set -f' "$RELEASE_DIR/generate_sbom.sh"
+@test "lib/generate_sbom.sh uses set -f" {
+    run grep '^set -f' "$REPO_ROOT/lib/generate_sbom.sh"
+    [[ "$status" -eq 0 ]]
+}
+
+@test "go.release: compute_metadata.sh uses set -f" {
+    run grep '^set -f' "$RELEASE_DIR/compute_metadata.sh"
+    [[ "$status" -eq 0 ]]
+}
+
+@test "go.release: generate_summary.sh uses set -f" {
+    run grep '^set -f' "$RELEASE_DIR/generate_summary.sh"
     [[ "$status" -eq 0 ]]
 }
 

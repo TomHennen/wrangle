@@ -64,23 +64,26 @@ on:
         default: true
       release-events:
         description: |
-          Which events should trigger release-time actions (SLSA
-          provenance, verification, publish). One of:
-            - non-pull-request (default): every event except pull_request*.
-            - tag-only: push to refs/tags/* only.
+          Which events should trigger wrangle's full pipeline (build,
+          tests, SBOM, provenance). One of:
+            - tag-only (default): push to refs/tags/* only.
+            - non-pull-request: every event except pull_request* (runs
+              the pipeline on main pushes too, in --snapshot mode).
             - main-and-tags: push to refs/heads/main or refs/tags/*.
             - <comma-separated event_name list>: matches if
               github.event_name is in the list. See
               actions/release_gate for full vocabulary.
 
-          Note: goreleaser publishes only on TAG PUSHES (`gh release
-          create` requires a tag). So `tag-only` and `non-pull-request`
-          both yield the same publish behavior; the difference is
-          whether the workflow runs on non-tag non-PR events at all
-          (where it builds in --snapshot mode without publishing).
+          Goreleaser publishes only on TAG PUSHES (`gh release create`
+          requires a tag). The default `tag-only` is therefore also
+          the cheapest setting — workflow runs only when it would do
+          something meaningful. Use `non-pull-request` or
+          `main-and-tags` for early failure detection on non-tag
+          events (at the cost of a snapshot goreleaser run on every
+          matching push).
         required: false
         type: string
-        default: non-pull-request
+        default: tag-only
       ref:
         description: |
           Git ref to check out. If empty (default), uses
@@ -176,7 +179,12 @@ jobs:
           INPUT_PATH: ${{ inputs.path }}
         run: |
           set -euo pipefail
-          SHORTNAME="${INPUT_PATH////_}"
+          # Match derive_shortname() in build/actions/go/release/compute_metadata.sh.
+          if [[ "$INPUT_PATH" == "." ]]; then
+            SHORTNAME="_"
+          else
+            SHORTNAME="${INPUT_PATH////_}"
+          fi
           printf 'shortname=%s\n' "$SHORTNAME" >> "$GITHUB_OUTPUT"
           printf 'metadata-dir=metadata/go/%s\n' "$SHORTNAME" >> "$GITHUB_OUTPUT"
 
@@ -239,7 +247,12 @@ jobs:
           INPUT_PATH: ${{ inputs.path }}
         run: |
           set -euo pipefail
-          SHORTNAME="${INPUT_PATH////_}"
+          # Match derive_shortname() in build/actions/go/release/compute_metadata.sh.
+          if [[ "$INPUT_PATH" == "." ]]; then
+            SHORTNAME="_"
+          else
+            SHORTNAME="${INPUT_PATH////_}"
+          fi
           printf 'metadata-dir=metadata/go/%s\n' "$SHORTNAME" >> "$GITHUB_OUTPUT"
 
       # TODO: replace with $/build/actions/go/release when GitHub ships $/ syntax (#136)
