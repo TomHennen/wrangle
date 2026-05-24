@@ -1,25 +1,17 @@
 # Wrangle Workflow Examples
 
-Starting points for adopting wrangle. Copy to `.github/workflows/` in your repo and customize the inputs (paths, image names, etc.) for your project.
+Starting points for adopting wrangle. Copy to `.github/workflows/` in your repo and customize the inputs for your project.
 
-**Recommended pattern:** pair *any* build/publish workflow below with `check_source_change.yml`. Build/publish hardens *how* your artifact is produced; the source-scan workflow covers *what was checked into the repo you're building from*. Without both, an attacker who lands a malicious dep or workflow misconfiguration routes around the build-side hardening — wrangle will still faithfully attest the result. See [`../actions/scan/README.md`](../actions/scan/README.md) for the full rationale.
+**Pair any build/publish workflow with `check_source_change.yml`.** Build hardens *how* your artifact is produced; source scan covers *what was checked into the repo you're building from*. See [`../actions/scan/README.md`](../actions/scan/README.md) for the rationale.
 
-## check_source_change.yml
+| Workflow | What it does | Per-build-type README |
+|----------|-------------|------------------------|
+| `check_source_change.yml` | OSV-Scanner, Zizmor, Scorecard, dependency-review on every PR and push. | [`actions/scan/README.md`](../actions/scan/README.md) |
+| `build_shell.yml` | shellcheck + bats. No artifact. | — |
+| `build_and_publish_containers.yml` | Build, sign, publish a container image with SBOM and SLSA L3 provenance. | [`../build/actions/container/README.md`](../build/actions/container/README.md) |
+| `build_npm.yml` | `npm pack` / `pnpm pack`, test, SBOM, SLSA L3 provenance. Publishes via npm Trusted Publishing — publish job stays in the caller workflow ([npm constraint](https://github.com/npm/documentation/issues/1755)). | [`../build/actions/npm/README.md`](../build/actions/npm/README.md) |
+| `build_python.yml` | Wheel + sdist, pytest, SBOM, SLSA L3 provenance. Publishes via PyPI Trusted Publishing — publish job stays in the caller. | [`../build/actions/python/README.md`](../build/actions/python/README.md) |
 
-Run OSV-Scanner, Zizmor, and Scorecard source scanning on every PR and push to main. **Adopt alongside whichever build/publish workflow below matches your project.** Roadmap: [#201](https://github.com/TomHennen/wrangle/issues/201) extends this with per-commit SLSA Source Track attestations via [slsa-framework/source-tool](https://github.com/slsa-framework/source-tool) — adoption stays a single workflow file.
+The npm and python READMEs each have a "Before first use" section covering Trusted Publishing setup — bootstrap publish (npm only), trusted-publisher registration, and disabling legacy token uploads. Read those before your first run.
 
-## build_shell.yml
-
-Run shellcheck and bats tests on shell projects.
-
-## build_and_publish_containers.yml
-
-Build, sign, and publish a container image with SBOM and SLSA provenance (Build L3).
-
-## build_npm.yml
-
-Build an npm package (`npm pack`), run tests, generate an SPDX SBOM, and produce SLSA provenance (Build L3). Publishes to npmjs.org via Trusted Publishing (no `NPM_TOKEN`) — the publish job lives in the caller workflow because npm's Trusted Publishing OIDC token must come from the caller's workflow filename, not a reusable workflow. Adopters must bootstrap-publish v0.0.1 once manually and configure a [Trusted Publisher on npmjs.com](https://docs.npmjs.com/trusted-publishers/) before the first automated publish — see [`build/actions/npm/README.md`](/build/actions/npm/README.md) for the onboarding checklist.
-
-## build_python.yml
-
-Build a Python package (wheel + sdist), run pytest, generate an SPDX SBOM, and produce SLSA provenance (Build L3). Optionally verify the provenance with `slsa-verifier` before publishing to PyPI via Trusted Publishing (no API tokens). Adopters must configure a [Trusted Publisher on PyPI](https://docs.pypi.org/trusted-publishers/) before the first publish — see [`build/actions/python/README.md`](/build/actions/python/README.md) for the onboarding checklist.
+Roadmap: [#201](https://github.com/TomHennen/wrangle/issues/201) adds per-commit SLSA Source Track attestations to `check_source_change.yml`.
