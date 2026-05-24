@@ -31,16 +31,16 @@ Release builds run with the BuildKit `type=gha` cache disabled (BuildKit doesn't
 - Pushes to ghcr.io (other registries out of scope — see [`SPEC.md`](./SPEC.md#current-scope-ghcrio-only)).
 - Generates a BuildKit-native SBOM, attaches it to the image as an OCI attestation, and uploads it as a workflow artifact in SPDX JSON.
 
-The reusable workflow `build_and_publish_container.yml` adds `slsa-github-generator` for L3 provenance, `cosign verify-attestation` of that provenance against the just-pushed digest, and the release-gate job.
+The reusable workflow `build_and_publish_container.yml` layers on top: `slsa-github-generator` produces L3 provenance, `cosign verify-attestation` checks that provenance against the just-pushed digest, and the release-gate job enforces the order.
 
-Two things from the spec aren't shipped yet in either the composite or the reusable workflow:
+Two pieces from the spec are not yet shipped — neither in the composite nor in the reusable workflow:
 
-- **Cosign keyless signing of the image digest itself.** The reusable workflow already pulls in `cosign-installer` for `verify-attestation`, but it does not yet run `cosign sign` against the digest. Verified via grep on this branch — no tracking issue today; please file one if you need it prioritized. Design: [`SPEC.md` §"Cosign image signing"](./SPEC.md#cosign-image-signing).
-- **OSV-Scanner against the produced SBOM (non-blocking).** The SBOM is generated and uploaded, but not yet scanned in the container path. No tracking issue today; same suggestion. Design: [`SPEC.md` §"Failure contract"](./SPEC.md#failure-contract).
+- **Cosign keyless signing of the image digest itself.** The reusable workflow already pulls in `cosign-installer` for `verify-attestation`, but it does not yet run `cosign sign` against the digest. No tracking issue today; please file one if you need it prioritized. Design: [`SPEC.md` §"Cosign image signing"](./SPEC.md#cosign-image-signing).
+- **OSV-Scanner against the produced SBOM (non-blocking).** The SBOM is generated and uploaded, but nothing in the container path scans it yet. No tracking issue today; same suggestion. Design: [`SPEC.md` §"Failure contract"](./SPEC.md#failure-contract).
 
 ## Controlling when provenance is generated
 
-The reusable workflow's `release-events` input controls which events trigger release-time actions — SLSA provenance generation, verification, and (downstream, via the `should-release` output) any release-time job in your own workflow that gates on it. Accepted values:
+The reusable workflow's `release-events` input controls which events trigger release-time actions: SLSA provenance generation, verification, and — via the `should-release` output — any downstream release-time job in your own workflow that gates on it. Accepted values:
 
 - `non-pull-request` (default) — every event except `pull_request` (the common case: provenance on merges to main, tags, manual dispatches, etc.).
 - `tag-only` — only `push` events to `refs/tags/*`.

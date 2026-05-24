@@ -1,6 +1,6 @@
 # wrangle
 
-A composable CI/CD security framework for GitHub Actions. Adopters get source scanning, signed builds, SBOMs, and SLSA L3 provenance out of the box — by referencing wrangle's reusable workflows. Maintainers can update the tooling without adopters touching their repos.
+A composable CI/CD security framework for GitHub Actions. Adopters reference wrangle's reusable workflows and get source scanning, signed builds, SBOMs, and SLSA L3 provenance out of the box. Maintainers update the underlying tooling without adopters touching their repos.
 
 ## Quick Start
 

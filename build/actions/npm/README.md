@@ -1,6 +1,10 @@
 # Wrangle Build npm
 
-Build an npm or pnpm package (`npm pack` / `pnpm pack`), run tests, generate an SBOM, and produce SLSA L3 provenance. Package manager is detected from the lockfile (`package-lock.json` / `npm-shrinkwrap.json` → npm; `pnpm-lock.yaml` → pnpm). Publishes to npmjs.org via Trusted Publishing — the publish job lives in the caller workflow because npm's OIDC token must come from the caller's workflow filename, not a reusable workflow ([npm/documentation#1755](https://github.com/npm/documentation/issues/1755)).
+Build an npm or pnpm package (`npm pack` / `pnpm pack`), run tests, generate an SBOM, and produce SLSA L3 provenance. Publish goes to npmjs.org via Trusted Publishing.
+
+Package manager is detected from the lockfile: `package-lock.json` or `npm-shrinkwrap.json` selects npm; `pnpm-lock.yaml` selects pnpm.
+
+The publish job lives in your own workflow — not in a wrangle reusable workflow — because npm's OIDC token must come from the caller's workflow filename ([npm/documentation#1755](https://github.com/npm/documentation/issues/1755)).
 
 ## Quick-start
 
@@ -8,7 +12,9 @@ Wrangle publishes via [npm Trusted Publishing](https://docs.npmjs.com/trusted-pu
 
 Copy [`gh_workflow_examples/build_npm.yml`](../../../gh_workflow_examples/build_npm.yml) into your repo at `.github/workflows/`. The example wires the required permissions (`contents: write` for the SLSA generator's upload-assets job, `id-token: write` for Sigstore, `actions: read`) and includes the publish job. Most adopters only need to set the `path` input.
 
-Pair with [source scan](../../../actions/scan/README.md) for source-side coverage. For the composite-only path (build + test + SBOM, you wire your own provenance and publish), `uses: TomHennen/wrangle/build/actions/npm@v0.2.0`.
+Pair with [source scan](../../../actions/scan/README.md) — build hardens *how* your artifact is produced; source scan covers *what was checked into the repo you're building from*.
+
+For the composite-only path (build + test + SBOM; you wire your own provenance and publish), use `TomHennen/wrangle/build/actions/npm@v0.2.0` as a step.
 
 This README documents shipped behavior. For the full design (attestation model, step sequence), see [`SPEC.md`](./SPEC.md); workspaces support is designed in [`WORKSPACES_PHASE_1.md`](./WORKSPACES_PHASE_1.md) but not yet implemented.
 
@@ -49,12 +55,12 @@ The build-platform L3 claim is distinct from — and additional to — the SLSA 
 - `tarball` — `.tgz` filename relative to the dist artifact root. Scoped packages produce `scope-name-version.tgz`.
 - `provenance-artifact-name` — workflow-artifact name for the SLSA provenance (`npm-<shortname>.intoto.jsonl`; empty when `should-release` is false).
 - `metadata-artifact-name` — workflow-artifact name for the SBOM (`npm-metadata-<shortname>`).
-- `should-release` — `"true"` if the package should be released — today that's exactly "the event matched `release-events`", but the gate is the source of truth (future versions may apply additional checks). Your publish job MUST gate on this.
+- `should-release` — `"true"` if the package should be released. Today that means the event matched `release-events`; future versions may apply additional checks, so treat the output as the source of truth rather than re-evaluating `release-events` yourself. Your publish job MUST gate on this (see below).
 - `hashes`, `version`.
 
 ## Controlling when releases happen
 
-`release-events` controls which events trigger release-time actions — SLSA provenance generation, verification, and (downstream, via the `should-release` output) your publish job. Accepted values:
+`release-events` controls which events trigger release-time actions: SLSA provenance generation, verification, and — via the `should-release` output — your downstream publish job. Accepted values:
 
 - `non-pull-request` (default) — every event except `pull_request`.
 - `tag-only` — only `push` events to `refs/tags/*`.

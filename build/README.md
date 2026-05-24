@@ -11,6 +11,8 @@ Build types live here. Each produces a signed artifact with an SBOM and SLSA pro
 
 ## Build Track level
 
-Every build type that produces an artifact (npm, pnpm, pip, uv, container) meets **SLSA v1.2 Build L3** when consumed through wrangle's reusable workflow on GitHub-hosted runners. Shell produces no artifact, so no Build Track level applies. Each build type's README lists the conditions its claim depends on; see [`docs/SPEC.md` §"Build Track level"](../docs/SPEC.md) and [`docs/SLSA_L3_AUDIT.md`](../docs/SLSA_L3_AUDIT.md) for the full analysis.
+Every build type that produces an artifact (npm, pnpm, pip, uv, container) meets **SLSA v1.2 Build L3** when consumed through wrangle's reusable workflow on GitHub-hosted runners. Shell produces no artifact, so no Build Track level applies.
+
+Each build type's README lists the conditions its claim depends on. For the cross-build analysis, see [`docs/SPEC.md` §"Build Track level"](../docs/SPEC.md) and [`docs/SLSA_L3_AUDIT.md`](../docs/SLSA_L3_AUDIT.md).
 
 ![Wrangle Build Container Summary showing vulns found by OSV](/assets/images/osv_sbom_summary.png)

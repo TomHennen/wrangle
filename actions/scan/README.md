@@ -1,6 +1,8 @@
 # Wrangle Source Scan
 
-Runs OSV-Scanner, Zizmor, Scorecard, and Dependency Review against your repo on every PR and push to main — catching vulnerable dependencies, workflow-config mistakes, and supply-chain gaps before they're merged. As wrangle adds new source-side tools over time, adopters get them automatically by bumping the version pin. The companion to wrangle's build/publish workflows: build hardens *how* your artifact is produced; source scan covers *what was checked into the repo you're building from*.
+Runs OSV-Scanner, Zizmor, Scorecard, and Dependency Review against your repo on every PR and push to main. Catches vulnerable dependencies, workflow-config mistakes, and supply-chain gaps before they merge. As wrangle adds source-side tools over time, adopters pick them up automatically by bumping the version pin — no per-tool wiring in your repo.
+
+This is the companion to wrangle's build/publish workflows: build hardens *how* your artifact is produced; source scan covers *what was checked into the repo you're building from*.
 
 ## Quick-start
 
@@ -65,7 +67,7 @@ with:
 - [#201](https://github.com/TomHennen/wrangle/issues/201) — SLSA Source Track via `source-tool` (per-commit source provenance).
 - [#194](https://github.com/TomHennen/wrangle/issues/194) — npm-specific tools (ESLint, `tsc --noEmit`).
 - [#203](https://github.com/TomHennen/wrangle/issues/203) — Surface Scorecard findings as actionable remediations.
-- [#202](https://github.com/TomHennen/wrangle/issues/202) — Refuse `pull_request_target` invocations in wrangle's reusable workflows.
+- [#202](https://github.com/TomHennen/wrangle/issues/202) — Block any workflow that invokes a wrangle reusable workflow from a `pull_request_target` trigger.
 
 ## Further reading
 

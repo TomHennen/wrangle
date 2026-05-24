@@ -1,12 +1,16 @@
 # Wrangle Build Python
 
-Build a Python package (wheel + sdist), run pytest, generate an SBOM, and produce SLSA L3 provenance. Publishes to PyPI via Trusted Publishing — the publish job lives in the caller workflow because PyPI's OIDC token must come from the caller, not a reusable workflow ([pypi/warehouse#11096](https://github.com/pypi/warehouse/issues/11096)).
+Build a Python package (wheel + sdist), run pytest, generate an SBOM, and produce SLSA L3 provenance. Publish goes to PyPI via Trusted Publishing.
+
+The publish job lives in your own workflow — not in a wrangle reusable workflow — because PyPI's OIDC token must come from the caller ([pypi/warehouse#11096](https://github.com/pypi/warehouse/issues/11096)).
 
 ## Quick-start
 
 Copy [`gh_workflow_examples/build_python.yml`](../../../gh_workflow_examples/build_python.yml) into your repo at `.github/workflows/`. The example wires the required permissions (`contents: write` for the SLSA generator's upload-assets job, `id-token: write` for Sigstore, `actions: read`) and includes the publish job with verify-before-publish. Most adopters only need to set the `path` input.
 
-Pair with [source scan](../../../actions/scan/README.md) for source-side coverage. For the composite-only path (build + test + SBOM, you wire your own provenance and publish), `uses: TomHennen/wrangle/build/actions/python@v0.2.0`.
+Pair with [source scan](../../../actions/scan/README.md) — build hardens *how* your artifact is produced; source scan covers *what was checked into the repo you're building from*.
+
+For the composite-only path (build + test + SBOM; you wire your own provenance and publish), use `TomHennen/wrangle/build/actions/python@v0.2.0` as a step.
 
 This README documents shipped behavior. For architecture and the full step sequence, see [`SPEC.md`](./SPEC.md).
 
@@ -41,14 +45,14 @@ On the uv sub-path, release builds disable `setup-uv`'s cache (uv doesn't re-ver
 - `dist-artifact-name` — workflow-artifact name to download with `actions/download-artifact` to retrieve the built wheel + sdist.
 - `provenance-artifact-name` — workflow-artifact name for the SLSA provenance (empty when `should-release` is false). Format: `python-<shortname>.intoto.jsonl` so multiple python builds in one workflow don't collide on the same artifact name. (When [#181](https://github.com/TomHennen/wrangle/issues/181) ships, consumers will see a single bundled `multiple.intoto.jsonl` on the release; the per-build namespaced files will become workflow-internal intermediates.)
 - `metadata-artifact-name` — workflow-artifact name for the SBOM and any scan output (`python-metadata-<shortname>`). See [`docs/SPEC.md`](../../../docs/SPEC.md) "Unified metadata layout."
-- `should-release` — `"true"` if the package should be released — today that's exactly "the current event matched `release-events`", but the gate is the source of truth (future versions may apply additional checks). Your publish job MUST gate on this (see below).
+- `should-release` — `"true"` if the package should be released. Today that means the event matched `release-events`; future versions may apply additional checks, so treat the output as the source of truth rather than re-evaluating `release-events` yourself. Your publish job MUST gate on this (see below).
 - `hashes`, `version`.
 
 `<shortname>` is path-derived (`.` → `_`, `pkg/foo` → `pkg_foo`) so multiple python builds in one workflow don't collide on artifact names.
 
 ## Controlling when releases happen
 
-`release-events` controls which events trigger release-time actions — SLSA provenance generation, verification, and (downstream, via the `should-release` output) your publish job. Accepted values:
+`release-events` controls which events trigger release-time actions: SLSA provenance generation, verification, and — via the `should-release` output — your downstream publish job. Accepted values:
 
 - `non-pull-request` (default) — every event except `pull_request`.
 - `tag-only` — only `push` events to `refs/tags/*`.
