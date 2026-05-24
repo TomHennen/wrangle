@@ -125,7 +125,7 @@ jobs:
     permissions: {}    # reads env only — no workspace, no API, no secrets
     steps:
       # TODO: replace with $/actions/preflight_guard when GitHub ships $/ syntax (#136)
-      - uses: TomHennen/wrangle/actions/preflight_guard@f0a0b4acbd065ba47dfae170341ce4340bc18b72 # main 2026-05-20
+      - uses: TomHennen/wrangle/actions/preflight_guard@68f81972937f778cc38202f18370a177002da73e # bump-action-pins 2026-05-24
 
   gate:
     needs: [guard]
@@ -136,7 +136,7 @@ jobs:
     steps:
       # No checkout: release_gate resolves via ${{ github.action_path }}.
       # TODO: replace with $/actions/release_gate when GitHub ships $/ syntax (#136)
-      - uses: TomHennen/wrangle/actions/release_gate@f0a0b4acbd065ba47dfae170341ce4340bc18b72 # main 2026-05-20
+      - uses: TomHennen/wrangle/actions/release_gate@68f81972937f778cc38202f18370a177002da73e # bump-action-pins 2026-05-24
         id: gate
         with:
           events: ${{ inputs.release-events }}
@@ -160,7 +160,7 @@ jobs:
           ref: ${{ inputs.ref || '' }}
 
       # TODO: replace with $/build/actions/npm when GitHub ships $/ syntax (#136)
-      - uses: TomHennen/wrangle/build/actions/npm@f0a0b4acbd065ba47dfae170341ce4340bc18b72 # main 2026-05-20
+      - uses: TomHennen/wrangle/build/actions/npm@68f81972937f778cc38202f18370a177002da73e # bump-action-pins 2026-05-24
         id: build
         with:
           path: ${{ inputs.path }}
