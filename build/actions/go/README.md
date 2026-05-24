@@ -67,11 +67,15 @@ If your release ships Docker images alongside binaries and you need provenance f
 
 ## "Publish first, attest second" — the timing model
 
-Goreleaser publishes the release inline (creates the GitHub Release, uploads archives, runs Docker pushes / Homebrew taps / announcements). The SLSA generator's `upload-assets` job appends the provenance file to that release shortly after — typically 30s-2min later. This is the same shape wrangle's container build type uses (`docker push` first, attestation second), and it's the only viable shape that preserves goreleaser's downstream verbs.
+Goreleaser publishes the release inline (creates the GitHub Release, uploads archives, runs Docker pushes / Homebrew taps / announcements). The SLSA generator's `upload-assets` job appends the provenance file to that release shortly after — typically 30s-2min later. Same shape as wrangle's container build type (`docker push` first, attestation second).
 
-Two practical consequences:
-- During the gap, consumers who download from the release see archives without an attestation alongside them. Once the generator job finishes, the `.intoto.jsonl` is there. Hashes are content-addressed, so verification works whenever it lands.
-- Verification is post-publish (see "SLSA provenance verification" below): it surfaces tooling regressions loudly but does not retract released bytes. For a regulated environment that needs strict before-publish attestation, the container or python pattern fits better.
+**This is fine — because the SLSA contract is "consumer runs the verifier," not "consumer trusts that a provenance file exists."** A security-aware consumer always runs `slsa-verifier verify-artifact` (or equivalent) against the bytes they downloaded. They don't trust the presence of an `.intoto.jsonl`; they trust the result of verifying it.
+
+Two consequences worth knowing:
+
+- A consumer downloading during the gap sees archives without the provenance file. If they run verify, they get "no provenance found" → they should treat the artifact as untrusted and retry later. If they download without running verify, they've already opted out of SLSA's guarantees.
+- A consumer downloading after the provenance lands runs verify and gets a confirmed chain.
+- A consumer downloading after a wrangle-side verify failure (e.g., a tooling regression that produced provenance whose hashes don't match the artifacts) runs verify and gets "verification failed" → they reject the artifact. The fact that the broken provenance is technically on the release does no harm; verify is what's load-bearing.
 
 ## Recommended companion: source scan
 
@@ -133,9 +137,11 @@ with:
 
 Full vocabulary in [`docs/SPEC.md`](../../../docs/SPEC.md) "Release-events gating."
 
-## SLSA provenance verification (post-publish, informational)
+## SLSA provenance verification (wrangle-side, post-publish)
 
-After goreleaser publishes, wrangle runs `slsa-verifier verify-artifact` against the just-built dist. **Verify is informational, not a gate** — see "Publish first, attest second" above for the timing model. A failure here surfaces a tooling regression (hash mismatch between what the generator signed and what goreleaser uploaded) but does not retract the released artifacts. To opt out (e.g., custom verification flow): `verify-provenance: false`.
+After goreleaser publishes, wrangle runs `slsa-verifier verify-artifact` against the just-built dist. This is wrangle dogfooding the same check downstream consumers will run — if it fails, consumers running verify will fail too, so the artifact is effectively rejected at the security-aware-consumer layer regardless of whether bad provenance landed on the release. (See "Publish first, attest second" above for why presence ≠ trust in the SLSA model.)
+
+A wrangle-side verify failure surfaces a tooling regression (hash mismatch between what the generator signed and what goreleaser uploaded) loudly in CI. To opt out (e.g., custom verification flow): `verify-provenance: false`.
 
 ### Verifying after install (downstream consumers)
 
