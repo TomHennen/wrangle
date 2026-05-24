@@ -48,7 +48,7 @@ On the uv sub-path, release builds disable `setup-uv`'s cache (uv doesn't re-ver
 
 ## Controlling when releases happen
 
-`release-events` controls which events produce SLSA provenance. Accepted values:
+`release-events` controls which events trigger release-time actions — SLSA provenance generation, verification, and (downstream, via the `should-release` output) your publish job. Accepted values:
 
 - `non-pull-request` (default) — every event except `pull_request`.
 - `tag-only` — only `push` events to `refs/tags/*`.

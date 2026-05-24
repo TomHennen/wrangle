@@ -40,7 +40,7 @@ Two things from the spec aren't shipped yet in either the composite or the reusa
 
 ## Controlling when provenance is generated
 
-The reusable workflow's `release-events` input controls which events trigger SLSA provenance generation. Accepted values:
+The reusable workflow's `release-events` input controls which events trigger release-time actions — SLSA provenance generation, verification, and (downstream, via the `should-release` output) any release-time job in your own workflow that gates on it. Accepted values:
 
 - `non-pull-request` (default) — every event except `pull_request` (the common case: provenance on merges to main, tags, manual dispatches, etc.).
 - `tag-only` — only `push` events to `refs/tags/*`.

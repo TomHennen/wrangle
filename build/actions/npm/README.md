@@ -54,7 +54,7 @@ The build-platform L3 claim is distinct from — and additional to — the SLSA 
 
 ## Controlling when releases happen
 
-`release-events` controls which events produce SLSA provenance. Accepted values:
+`release-events` controls which events trigger release-time actions — SLSA provenance generation, verification, and (downstream, via the `should-release` output) your publish job. Accepted values:
 
 - `non-pull-request` (default) — every event except `pull_request`.
 - `tag-only` — only `push` events to `refs/tags/*`.
