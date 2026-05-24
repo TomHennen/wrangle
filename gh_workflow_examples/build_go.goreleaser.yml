@@ -1,0 +1,64 @@
+# Copy this file to your repo at `.goreleaser.yml` (or `.goreleaser.yaml`).
+#
+# This is the minimum goreleaser config wrangle's Go build type
+# requires. Adjust to your project — common additions are listed in
+# the comments. Full reference: https://goreleaser.com/customization/.
+
+version: 2
+
+builds:
+  # `main:` is the path to your binary's entry point. Adjust to match
+  # your project layout. For a monorepo with multiple binaries, add
+  # one `builds:` entry per binary.
+  - main: ./cmd/example
+
+    # `-trimpath` strips local filesystem paths from the binary —
+    # zero runtime cost, materially improves reproducibility, makes
+    # wrangle's SLSA provenance bind to source rather than build host.
+    flags:
+      - -trimpath
+
+    # `-buildvcs=false` suppresses VCS-info embedding (commit SHA,
+    # dirty flag, timestamps). Zero runtime cost; same reproducibility
+    # win as -trimpath. Without it, two builds of the same commit
+    # produce different bytes.
+    env:
+      - GOFLAGS=-buildvcs=false
+
+    # Default GOOS / GOARCH matrix produces linux + darwin + windows
+    # binaries for both amd64 and arm64. Trim to just what you ship
+    # — every extra cell costs CI time.
+    # goos: [linux, darwin]
+    # goarch: [amd64, arm64]
+
+# Pin the checksums filename — wrangle base64-encodes
+# dist/checksums.txt for the SLSA generator's subjects input. Custom
+# names break that hand-off.
+checksum:
+  name_template: "checksums.txt"
+
+# Tarball naming for the archives goreleaser uploads. Goreleaser's
+# defaults are reasonable; this is just the explicit form.
+archives:
+  - formats: [tar.gz]
+    name_template: "{{ .ProjectName }}_{{ .Version }}_{{ .Os }}_{{ .Arch }}"
+
+# (Optional) Goreleaser's downstream verbs — wrangle preserves all of
+# these. Add what your project needs:
+#
+# brews:                    # update a Homebrew tap
+#   - repository:
+#       owner: your-org
+#       name: homebrew-tap
+#
+# dockers:                  # push images to ghcr.io etc.
+#   - image_templates:
+#       - "ghcr.io/your-org/your-app:{{ .Tag }}"
+#
+# nfpms:                    # build deb / rpm / apk packages
+#   - vendor: your-org
+#     formats: [deb, rpm]
+#
+# announce:                 # post to Slack / Discord / etc.
+#   slack:
+#     enabled: true

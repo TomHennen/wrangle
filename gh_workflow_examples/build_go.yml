@@ -1,0 +1,42 @@
+# Copy this file to your repo at .github/workflows/build_go.yml
+#
+# Before first use:
+# 1. Copy `gh_workflow_examples/build_go.goreleaser.yml` to your
+#    repo root as `.goreleaser.yml` and adjust to your project
+#    (binary name, GOOS/GOARCH matrix, downstream verbs).
+# 2. Make sure your release tags match `v*` — goreleaser uses the
+#    tag name as the version.
+#
+# Wrangle's reusable workflow handles build, tests, SBOM, SLSA L3
+# provenance generation, post-publish verify, and dispatch of every
+# downstream goreleaser verb (Docker pushes, Homebrew taps,
+# deb/rpm/snap, announcements). Goreleaser publishes natively on tag
+# push; this caller workflow just gates which events trigger that.
+#
+# Trigger note: `release-events: tag-only` means only tag pushes
+# publish a release. PR builds run the full pipeline (build → tests
+# → SBOM) but do NOT mint provenance or publish.
+name: Go Build
+
+on:
+  push:
+    tags: ["v*"]       # publish on version tags
+  pull_request:
+    branches: ["**"]   # build + test on PRs (no provenance, no publish)
+  workflow_dispatch:
+
+jobs:
+  build:
+    permissions:
+      contents: write   # goreleaser creates the Release + SLSA generator's upload-assets
+      id-token: write   # OIDC for Sigstore signing
+      actions: read     # SLSA generator detects the GA environment
+    uses: TomHennen/wrangle/.github/workflows/build_and_publish_go.yml@v0.2.0
+    with:
+      path: "."
+      # release-events: tag-only         # default; uncomment + change to "non-pull-request" or "main-and-tags" for early failure detection on non-tag events
+      # go-version: ""                  # optional: auto-detected from go.mod's `go` directive
+      # run-tests: true                 # optional: skip with false (also skips gofmt/vet/govulncheck)
+      # run-race-detector: true         # optional: set false when CGO is disabled (race detector requires cgo)
+      # run-gofmt-check: true           # optional: set false only if the `// Code generated` auto-skip isn't enough
+      # verify-provenance: true         # optional: wrangle verifies post-publish; set false for custom verify

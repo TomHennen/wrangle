@@ -1,0 +1,311 @@
+name: "Build, test, and release a Go project with best practices."
+
+# Build + SLSA provenance reusable workflow for Go.
+#
+# The build is split into two jobs with different permissions:
+#
+#   - `checks` (contents: read) runs the quality gates that don't
+#     need write access: gofmt, go vet, go test, govulncheck. The
+#     `go test` step executes arbitrary adopter test code, so
+#     denying it `contents: write` is real defense-in-depth — a
+#     compromised dependency or hostile test cannot use $GITHUB_TOKEN
+#     to push to the repo.
+#
+#   - `release` (contents: write) runs goreleaser, which publishes
+#     to GitHub Releases on tag pushes and needs write access. The
+#     `release` job depends on `checks` so quality gates must pass
+#     before any bytes ship.
+#
+# Goreleaser owns its native publish: on tag pushes it creates the
+# GitHub Release, attaches archives + checksums, and runs whatever
+# downstream verbs the adopter's .goreleaser.yml configures (Docker
+# pushes, Homebrew taps, deb/rpm/snap, announce). The SLSA generator's
+# upload-assets job appends the provenance shortly after — same
+# "publish first, attest second" shape as wrangle's container build
+# type.
+
+on:
+  workflow_call:
+    inputs:
+      path:
+        description: "Relative path to the directory containing go.mod and .goreleaser.yml"
+        required: false
+        type: string
+        default: "."
+      go-version:
+        description: "Go version override. If empty, read from go.mod's `go` directive."
+        required: false
+        type: string
+        default: ""
+      run-tests:
+        description: |
+          Whether to run the `checks` job (gofmt/vet/test/govulncheck).
+          Defaults to true. Setting false skips the checks job; the
+          release job still runs but quality gates are unenforced.
+          Adopters who want strict block-on-failure leave this true.
+        required: false
+        type: boolean
+        default: true
+      run-race-detector:
+        description: |
+          Whether `go test` runs with `-race`. Defaults to true. Set
+          to false when CGO is disabled (race detector requires cgo).
+        required: false
+        type: boolean
+        default: true
+      run-gofmt-check:
+        description: |
+          Whether to run `gofmt -l` before the build. Defaults to true.
+          Files with `// Code generated ... DO NOT EDIT.` headers are
+          auto-skipped; set false only when that convention doesn't
+          cover the adopter's generators.
+        required: false
+        type: boolean
+        default: true
+      release-events:
+        description: |
+          Which events should trigger wrangle's full pipeline (build,
+          tests, SBOM, provenance). One of:
+            - tag-only (default): push to refs/tags/* only.
+            - non-pull-request: every event except pull_request* (runs
+              the pipeline on main pushes too, in --snapshot mode).
+            - main-and-tags: push to refs/heads/main or refs/tags/*.
+            - <comma-separated event_name list>: matches if
+              github.event_name is in the list. See
+              actions/release_gate for full vocabulary.
+
+          Goreleaser publishes only on TAG PUSHES (`gh release create`
+          requires a tag). The default `tag-only` is therefore also
+          the cheapest setting — workflow runs only when it would do
+          something meaningful. Use `non-pull-request` or
+          `main-and-tags` for early failure detection on non-tag
+          events (at the cost of a snapshot goreleaser run on every
+          matching push).
+        required: false
+        type: string
+        default: tag-only
+      ref:
+        description: |
+          Git ref to check out. If empty (default), uses
+          the triggering commit SHA (github.sha) — which is what
+          almost every adopter wants. Pass `github.ref` for the rare
+          case where an earlier job in the same workflow run has
+          pushed a commit that the build should pick up.
+        required: false
+        type: string
+        default: ""
+      verify-provenance:
+        description: |
+          When true (default), wrangle runs `slsa-verifier verify-artifact`
+          against the just-built dist after publishing. The verify step
+          is informational — goreleaser has already created the release
+          by the time verify runs, so failure does not retract artifacts.
+          What it catches is a tooling regression (hash mismatch between
+          wrangle's hashes and SLSA-signed bytes). Set false to skip.
+        required: false
+        type: boolean
+        default: true
+    outputs:
+      hashes:
+        description: "Base64-encoded SHA-256 hashes of built artifacts (for SLSA provenance)"
+        value: ${{ jobs.release.outputs.hashes }}
+      version:
+        description: "The release version (tag) goreleaser used, or 'snapshot' for non-tag builds"
+        value: ${{ jobs.release.outputs.version }}
+      dist-artifact-name:
+        description: "Name of the uploaded dist/ artifact (download with this name to retrieve binaries + checksums.txt)"
+        value: ${{ jobs.release.outputs.dist-artifact-name }}
+      provenance-artifact-name:
+        description: "Name of the SLSA provenance workflow artifact (= the provenance filename). Empty when should-release is false."
+        value: ${{ jobs.provenance.outputs.provenance-name }}
+      metadata-artifact-name:
+        description: "Name of the workflow artifact containing sbom.spdx.json. Format: `go-metadata-<shortname>`."
+        value: ${{ jobs.release.outputs.metadata-artifact-name }}
+      checks-metadata-artifact-name:
+        description: "Name of the workflow artifact containing govulncheck.json (informational findings)."
+        value: ${{ jobs.checks.outputs.checks-metadata-artifact-name }}
+      should-release:
+        description: |
+          "true" if the current event matches release-events; "false"
+          otherwise. Wrangle gates provenance + verify on this internally.
+        value: ${{ jobs.gate.outputs.should-release }}
+
+jobs:
+  # Refuse trigger patterns known to expose this workflow to supply-chain
+  # attack classes (pull_request_target, workflow_run via
+  # pull_request_target). The guard MUST stay first under `jobs:`;
+  # every other job lists `guard` in its `needs:` so a refused
+  # invocation skips the entire workflow.
+  guard:
+    runs-on: ubuntu-latest
+    permissions: {}    # reads env only — no workspace, no API, no secrets
+    steps:
+      # TODO: replace with $/actions/preflight_guard when GitHub ships $/ syntax (#136)
+      - uses: TomHennen/wrangle/actions/preflight_guard@2510122c14f8503a43c6fef5e88394d29af43d1d # main 2026-05-23
+
+  gate:
+    needs: [guard]
+    runs-on: ubuntu-latest
+    permissions: {}    # release_gate reads only env; no workspace, no API
+    outputs:
+      should-release: ${{ steps.gate.outputs.should-release }}
+    steps:
+      # TODO: replace with $/actions/release_gate when GitHub ships $/ syntax (#136)
+      - uses: TomHennen/wrangle/actions/release_gate@2510122c14f8503a43c6fef5e88394d29af43d1d # main 2026-05-23
+        id: gate
+        with:
+          events: ${{ inputs.release-events }}
+
+  # Quality gates with `contents: read` only. `go test` executes
+  # arbitrary adopter test code; the minimum-permissions posture
+  # denies it any write capability against the repo.
+  checks:
+    if: ${{ inputs.run-tests }}
+    needs: [guard, gate]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    outputs:
+      checks-metadata-artifact-name: go-checks-metadata-${{ steps.checks.outputs.shortname }}
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+          ref: ${{ inputs.ref || '' }}
+
+      # TODO: replace with $/build/actions/go/checks when GitHub ships $/ syntax (#136)
+      # Self-pinned to PR HEAD until merge — bump-self-refs follow-up
+      # repoints to the squashed merge SHA after this lands.
+      - uses: TomHennen/wrangle/build/actions/go/checks@a7ac75597bf63f6f252395f3ce4ebea8aabb6570
+        id: checks
+        with:
+          path: ${{ inputs.path }}
+          go-version: ${{ inputs.go-version }}
+          run-race-detector: ${{ inputs.run-race-detector }}
+          run-gofmt-check: ${{ inputs.run-gofmt-check }}
+          # Caches are disabled on release builds (the same `should-release`
+          # signal that gates provenance) — Go's build cache trusts pre-
+          # derived compiled output without re-derivation (same shape as
+          # the uv-cache L3 gap). PR builds keep caching for fast
+          # iteration; no provenance is produced.
+          cache: ${{ needs.gate.outputs.should-release == 'true' && 'disabled' || 'enabled' }}
+
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: go-checks-metadata-${{ steps.checks.outputs.shortname }}
+          path: ${{ steps.checks.outputs.metadata-dir }}/
+          if-no-files-found: warn   # govulncheck JSON is informational; not having it is OK
+
+  # Goreleaser invocation + SBOM + hash. contents: write because
+  # goreleaser publishes inline on tag pushes. Sequenced after
+  # `checks` so quality gates have already passed.
+  #
+  # The `if:` is load-bearing for the run-tests: false path. With
+  # `if: ${{ inputs.run-tests }}` on the checks job, run-tests: false
+  # SKIPS checks. By default, a job whose needed-job is *skipped*
+  # (not failed) also skips — so without this explicit if:, setting
+  # run-tests: false would cascade through release/provenance/verify
+  # and nothing would build. Documented behavior is "checks skipped,
+  # release proceeds with quality gates unenforced," so allow skipped
+  # explicitly. A failed guard or gate still blocks release.
+  release:
+    needs: [guard, gate, checks]
+    if: >
+      always() && !cancelled() &&
+      needs.guard.result == 'success' &&
+      needs.gate.result == 'success' &&
+      (needs.checks.result == 'success' || needs.checks.result == 'skipped')
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write    # goreleaser creates the GitHub Release
+    outputs:
+      hashes: ${{ steps.release.outputs.hashes }}
+      version: ${{ steps.release.outputs.version }}
+      shortname: ${{ steps.release.outputs.shortname }}
+      dist-artifact-name: go-dist-${{ steps.release.outputs.shortname }}
+      metadata-artifact-name: go-metadata-${{ steps.release.outputs.shortname }}
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+          fetch-tags: true       # goreleaser reads tags for version resolution
+          fetch-depth: 0         # goreleaser reads recent commit history
+          ref: ${{ inputs.ref || '' }}
+
+      # TODO: replace with $/build/actions/go/release when GitHub ships $/ syntax (#136)
+      # Self-pinned to PR HEAD until merge.
+      - uses: TomHennen/wrangle/build/actions/go/release@a7ac75597bf63f6f252395f3ce4ebea8aabb6570
+        id: release
+        with:
+          path: ${{ inputs.path }}
+          go-version: ${{ inputs.go-version }}
+          # publish == AND of (release-events gate) AND (tag push).
+          # Both must hold for goreleaser to do a full publish; otherwise
+          # it builds in --snapshot mode without uploading anything.
+          publish: ${{ needs.gate.outputs.should-release == 'true' && startsWith(github.ref, 'refs/tags/') }}
+          cache: ${{ needs.gate.outputs.should-release == 'true' && 'disabled' || 'enabled' }}
+
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: go-dist-${{ steps.release.outputs.shortname }}
+          path: ${{ inputs.path }}/dist/
+          if-no-files-found: error
+
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: go-metadata-${{ steps.release.outputs.shortname }}
+          path: ${{ steps.release.outputs.metadata-dir }}/
+          if-no-files-found: error
+
+  # Generate SLSA L3 provenance for the built artifacts. The generator
+  # runs in an isolated reusable workflow that the caller cannot tamper
+  # with — this is what makes the provenance non-falsifiable. Gated on
+  # the release-events input.
+  #
+  # upload-assets is true on tag pushes: goreleaser has already created
+  # the release in the `release` job, and the generator appends the
+  # provenance file to that release shortly after — "publish first,
+  # attest second" (same shape as wrangle's container build type).
+  provenance:
+    if: ${{ needs.gate.outputs.should-release == 'true' }}
+    needs: [guard, gate, release]
+    permissions:
+      actions: read    # detect the GitHub Actions environment
+      id-token: write  # OIDC for Sigstore signing
+      contents: write  # required by generator's upload-assets job
+    # MUST use tag, not SHA — the SLSA generator validates its own invocation
+    # ref. See https://github.com/TomHennen/wrangle/issues/147
+    uses: slsa-framework/slsa-github-generator/.github/workflows/generator_generic_slsa3.yml@v2.1.0 # zizmor: ignore[unpinned-uses] tag required by SLSA generator's OIDC verification
+    with:
+      base64-subjects: ${{ needs.release.outputs.hashes }}
+      provenance-name: go-${{ needs.release.outputs.shortname }}.intoto.jsonl
+      upload-assets: ${{ startsWith(github.ref, 'refs/tags/') }}
+
+  # Verify the just-built dist matches the just-generated provenance.
+  # Runs AFTER goreleaser's inline publish; this is an informational
+  # post-publish check, not a publish gate (the bytes are already
+  # live). A failure here surfaces loudly in CI and signals a tooling
+  # regression — hash drift between wrangle and SLSA-signed bytes.
+  # Same shape as the container build type's `verify-image` step.
+  verify:
+    if: ${{ needs.gate.outputs.should-release == 'true' && inputs.verify-provenance }}
+    needs: [guard, gate, release, provenance]
+    runs-on: ubuntu-latest
+    permissions: {}    # default token; download-artifact reads same-run artifacts
+    steps:
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: ${{ needs.release.outputs.dist-artifact-name }}
+          path: dist/
+
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: ${{ needs.provenance.outputs.provenance-name }}
+          path: provenance/
+
+      # TODO: replace with $/build/actions/go/verify when GitHub ships $/ syntax (#136)
+      - uses: TomHennen/wrangle/build/actions/go/verify@2d54a9ba95ec5c7ce1f88308f05b5d257472625e
+        with:
+          dist-dir: dist
+          provenance-path: provenance/${{ needs.provenance.outputs.provenance-name }}
+          source-uri: github.com/${{ github.repository }}
