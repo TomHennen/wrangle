@@ -43,6 +43,15 @@ archives:
   - formats: [tar.gz]
     name_template: "{{ .ProjectName }}_{{ .Version }}_{{ .Os }}_{{ .Arch }}"
 
+# NOTE: Do NOT add a snapshot.version_template that uses semver functions
+# like `incpatch`, `incminor`, or `incmajor`. Those functions require
+# `.Version` to be valid semver. If your repo has any non-semver tags
+# (e.g. "phase-0-complete") before your first "v*" release tag, snapshot
+# builds (PR builds and non-tag pushes) will fail with:
+#   "failed to parse snapshot name: invalid semantic version"
+# Goreleaser's default snapshot template does plain string interpolation
+# and handles non-semver tags gracefully — don't override it.
+
 # (Optional) Goreleaser's downstream verbs — wrangle preserves all of
 # these. Add what your project needs:
 #

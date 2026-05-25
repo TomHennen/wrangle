@@ -50,6 +50,8 @@ checksum:
 
 Both `-trimpath` and `-buildvcs=false` are zero-cost reproducibility wins. `CGO_ENABLED=0` is **not** recommended as a default — cgo-backed `net`/`os/user` resolvers and many third-party crypto libraries link C — set it only if you specifically want pure-Go binaries. See [goreleaser customization docs](https://goreleaser.com/customization/) for the full schema.
 
+**Tag naming:** Wrangle's workflow triggers on `tags: ["v*"]`, so your release tags must be `v`-prefixed semver (e.g. `v1.2.3`). If your repo has non-semver tags (such as `phase-0-complete`) and you run goreleaser in snapshot mode (PR builds or non-tag pushes), goreleaser's default snapshot template handles them gracefully via plain string interpolation. However, if you add a custom `snapshot.version_template` that uses semver functions like `incpatch`, `incminor`, or `incmajor`, snapshot builds will fail on repos with no semver tags. Avoid customizing the snapshot template unless your repo already has at least one `v*` semver tag.
+
 ## What the SLSA provenance covers (and what it doesn't)
 
 Wrangle hashes the contents of goreleaser's `dist/checksums.txt` and hands those hashes to the SLSA generator. Anything in `checksums.txt` is a provenance subject; anything outside it is NOT — including artifacts goreleaser pushes to OCI registries, Homebrew taps, or chat webhooks.
