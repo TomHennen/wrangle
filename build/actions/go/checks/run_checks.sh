@@ -136,6 +136,7 @@ install_govulncheck() {
     if [[ -z "$gobin" ]]; then
         gobin="$(go env GOPATH)/bin"
     fi
+    # Integrity via sum.golang.org tlog (pinned semver); no upstream binary release. See CLAUDE.md "Supply Chain Discipline".
     go install "golang.org/x/vuln/cmd/govulncheck@${version}" 1>&2
     printf '%s/govulncheck\n' "$gobin"
 }

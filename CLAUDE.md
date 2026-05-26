@@ -58,6 +58,12 @@ Don't `curl | sh` — all binary downloads go through `lib/download_verify.sh`. 
 
 **Integrity verification hierarchy:** SLSA provenance > GitHub release attestation > Sigstore signature > hardcoded SHA-256 checksum. NEVER fall back to a weaker method if a stronger one fails.
 
+**Go modules via `go install`.** Tools fetched as Go modules (`go install <module>@<version>`) are integrity-verified against [sum.golang.org](https://sum.golang.org/), a Trillian-backed transparency log over go.sum-shaped lines. This is an accepted alternative to `lib/download_verify.sh` for Go modules that meet ALL the following:
+
+1. The module is pinned to a specific semver tag (no `@latest`, no `@main`).
+2. The Go toolchain used to install it has been installed via `lib/download_verify.sh` or equivalent (e.g., `actions/setup-go` with a pinned version).
+3. The integration point documents WHY this path is preferred over a tarball install (typically: no upstream binary release).
+
 **Install method hierarchy:** canonical package manager (with adequate verification) > GitHub release binary + attestation > GitHub release binary + sha256. When upstream offers multiple package managers, prefer in order: (1) the one upstream's install docs recommend first, (2) the one with attestation support, (3) the one that doesn't add transitive runtime deps to the test image. If upstream is on pipx/cargo/npm/go-install and the test image already has that runtime, use it. Don't write a custom `install.sh` if upstream supports a canonical package manager with adequate verification — that's the fallback, not the default.
 
 **Convenience is not a fallback justification.** "We'd have to install one more tool in the image" or "the attestation flow is awkward at build time" are NOT reasons to drop to a weaker tier. The fallback rule is "stronger verification is genuinely unavailable upstream" — document *why* the stronger tier doesn't exist, not why it'd be inconvenient.
