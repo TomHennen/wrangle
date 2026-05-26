@@ -68,5 +68,17 @@ while IFS= read -r -d '' dir; do
         # Sanitize markdown output: strip HTML tags, truncate
         wrangle_sanitize_output < "${dir}/output.md"
         printf '\n'
+    elif [[ -f "${dir}/output.sarif" ]]; then
+        # Fallback: no tool-supplied human-readable output, but we have
+        # SARIF. Render a findings table directly so adopters can see
+        # WHAT was found in the step summary (issue #158) without
+        # opening the raw SARIF artifact. Silently skip on invalid SARIF
+        # — the table above already flagged it as "Error (invalid SARIF)".
+        if md_table="$("$SCRIPT_DIR/sarif_to_md.sh" "${dir}/output.sarif" 2>/dev/null)"; then
+            printf '## %s Details\n' "$safe_tool"
+            # sarif_to_md.sh already sanitizes its output; pass through.
+            printf '%s\n' "$md_table"
+            printf '\n'
+        fi
     fi
 done < <(find "$METADATA_DIR" -mindepth 1 -maxdepth 1 -type d -print0 2>/dev/null | sort -z)
