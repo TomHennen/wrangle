@@ -78,6 +78,55 @@ teardown() {
     ! grep -Eq '^\s+(if|for|while) ' "$TOOL_DIR/action.yml"
 }
 
+# --- Tool-error marker (issue #222) ---
+
+@test "dependency-review: action.yml writes error marker gated on upstream outcome" {
+    # The fail-open fix from #222: write a marker the Check results step
+    # treats as failure when the upstream action errored out (as opposed
+    # to "found issues").
+    grep -q "steps.depreview.outcome == 'failure'" "$TOOL_DIR/action.yml"
+    grep -q 'mark_error.sh' "$TOOL_DIR/action.yml"
+}
+
+@test "dependency-review: mark_error.sh exists and is executable" {
+    [ -x "$TOOL_DIR/mark_error.sh" ]
+}
+
+@test "mark_error: empty VULNERABLE_CHANGES writes error marker" {
+    META="$TMP_DIR/meta-err-empty"
+    METADATA_DIR="$META" OUTCOME=failure VULNERABLE_CHANGES='' \
+        run "$TOOL_DIR/mark_error.sh"
+    [ "$status" -eq 0 ]
+    [ -f "$META/error" ]
+    grep -q 'outcome=failure' "$META/error"
+}
+
+@test "mark_error: literal [] VULNERABLE_CHANGES writes error marker" {
+    META="$TMP_DIR/meta-err-empty-arr"
+    METADATA_DIR="$META" OUTCOME=failure VULNERABLE_CHANGES='[]' \
+        run "$TOOL_DIR/mark_error.sh"
+    [ "$status" -eq 0 ]
+    [ -f "$META/error" ]
+}
+
+@test "mark_error: non-empty VULNERABLE_CHANGES does NOT write error marker" {
+    # Findings exit: dep-review populated vulnerable-changes. The SARIF
+    # produced by collect_outputs.sh already encodes the findings, so
+    # check_results.sh will fail on the SARIF count. Writing an error
+    # marker here would misreport findings as a tool error.
+    META="$TMP_DIR/meta-findings"
+    VC='[{"change_type":"added","manifest":"package.json","ecosystem":"npm","name":"x","version":"1","vulnerabilities":[{"severity":"high","advisory_ghsa_id":"GHSA-x","advisory_summary":"s","advisory_url":"u"}]}]'
+    METADATA_DIR="$META" OUTCOME=failure VULNERABLE_CHANGES="$VC" \
+        run "$TOOL_DIR/mark_error.sh"
+    [ "$status" -eq 0 ]
+    [ ! -f "$META/error" ]
+}
+
+@test "mark_error: missing METADATA_DIR exits non-zero" {
+    run env -u METADATA_DIR OUTCOME=failure VULNERABLE_CHANGES='' "$TOOL_DIR/mark_error.sh"
+    [ "$status" -ne 0 ]
+}
+
 @test "converter: empty array -> SARIF with zero results" {
     printf '[]' > "$TMP_DIR/in.json"
     run "$TOOL_DIR/vulnerable_changes_to_sarif.sh" "$TMP_DIR/in.json"

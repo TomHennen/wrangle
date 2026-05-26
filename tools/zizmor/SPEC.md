@@ -9,7 +9,7 @@
 | SARIF upload | Handled by the upstream action (wrangle does not upload separately) |
 | Default policy | `:fail` — workflow security issues block the check |
 | Suppression | `.zizmor.yml` at repo root configures accepted findings. Suppress only documented false positives, not convenience silencing |
-| Known limitations | `continue-on-error: true` on the upstream step is required so the SARIF collection step can access outputs after zizmor finds issues (exit code 14). The "Check results" step in the scan action is the actual pass/fail gate. |
+| Tool-error handling | `continue-on-error: true` on the upstream step is required so the SARIF collection step can access outputs after zizmor finds issues (exit code 14). The collection step distinguishes "found issues" (SARIF present) from "tool error" (no SARIF output and upstream outcome is `failure`); the error case writes an `error` marker that `lib/check_results.sh` reads to fail closed for `:fail` policy. The "Check results" step in the scan action is the actual pass/fail gate. |
 
 ## Install paths
 

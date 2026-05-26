@@ -70,3 +70,14 @@ setup() {
     grep -qE 'package-ecosystem: +"pip"' "$ORIG_DIR/.github/dependabot.yml"
     grep -qE '"/tools/(zizmor|\*\*)"' "$ORIG_DIR/.github/dependabot.yml"
 }
+
+@test "zizmor: action.yml writes error marker when upstream fails without SARIF" {
+    # Fail-open fix from issue #222: when the upstream step errors out
+    # (no SARIF produced) AND its outcome is failure, write an `error`
+    # marker file the Check results step treats as a hard failure.
+    # The collection step's else branch must reference both the outcome
+    # check and write to the error marker path.
+    grep -Fq 'OUTCOME: ${{ steps.zizmor.outcome }}' "$ORIG_DIR/tools/zizmor/action.yml"
+    grep -Fq '"$OUTCOME" == "failure"' "$ORIG_DIR/tools/zizmor/action.yml"
+    grep -Fq '/error"' "$ORIG_DIR/tools/zizmor/action.yml"
+}

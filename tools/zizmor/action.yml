@@ -41,16 +41,31 @@ runs:
     - name: Collect SARIF output
       if: always()
       shell: bash
-      # Route step output through env: to prevent expression injection
+      # Route step output through env: to prevent expression injection.
+      # OUTCOME lets us distinguish a real zizmor error (no SARIF produced)
+      # from "found issues" (zizmor exits 14 but writes valid SARIF first).
+      # See issue #222: without this, a tool error produces an empty SARIF
+      # that check_results.sh reads as "0 findings" — fail open.
       env:
         SARIF_SRC: ${{ steps.zizmor.outputs.output-file }}
+        OUTCOME: ${{ steps.zizmor.outcome }}
       run: |
         set -euo pipefail
-        SARIF_DST="${GITHUB_WORKSPACE}/.wrangle/metadata/zizmor/output.sarif"
+        META="${GITHUB_WORKSPACE}/.wrangle/metadata/zizmor"
+        SARIF_DST="$META/output.sarif"
         if [[ -n "$SARIF_SRC" ]] && [[ -f "$SARIF_SRC" ]]; then
             cp "$SARIF_SRC" "$SARIF_DST"
         else
-            # If no SARIF produced, create an empty one
+            # No SARIF produced. If the upstream step failed, this is a
+            # tool error (not "ran clean"): drop a marker so check_results.sh
+            # fails closed for :fail policy. Findings cause exit 14 *after*
+            # SARIF is written, so they take the cp branch above.
+            if [[ "$OUTCOME" == "failure" ]]; then
+                printf 'upstream zizmor-action exited non-zero with no SARIF output (outcome=%s)\n' \
+                    "$OUTCOME" > "$META/error"
+            fi
+            # Create an empty SARIF so the summary collector and Code
+            # Scanning upload still have a file to read.
             jq -n '{
                 "version": "2.1.0",
                 "$schema": "https://raw.githubusercontent.com/oasis-tcs/sarif-spec/main/sarif-2.1/schema/sarif-schema-2.1.0.json",
