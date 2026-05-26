@@ -148,7 +148,7 @@ with:
   govulncheck-version: "v1.1.5"   # newer than wrangle's pin; pinned literally
 ```
 
-Wrangle accepts only pinned versions — `latest` and `main` are not permitted (and would be rejected by `go install`'s module spec parser regardless). Omitting the input or passing `""` keeps wrangle's vetted default, which is the recommended setting for most adopters.
+Wrangle accepts only pinned versions: the checks composite's `validate_inputs.sh` matches the input against `^v[0-9]+\.[0-9]+\.[0-9]+([+-][A-Za-z0-9.-]+)?$` and rejects `latest`, `main`, branch names, and any other floating ref. (`go install` itself happily resolves `@latest` and `@main`, so the enforcement is wrangle-side, not toolchain-side.) Omitting the input or passing `""` keeps wrangle's vetted default, which is the recommended setting for most adopters.
 
 ## SLSA provenance verification (wrangle-side, post-publish)
 

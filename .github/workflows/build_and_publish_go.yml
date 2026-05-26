@@ -68,10 +68,11 @@ on:
           wrangle's vetted pin; override only when you need a newer
           version ahead of wrangle's bump cycle (e.g., a CVE response
           that lands in upstream govulncheck before wrangle's 7-day
-          adoption window). Wrangle accepts only pinned versions,
-          never "latest" or "main" — both are rejected by `go install`
-          anyway, but the constraint is intentional, not incidental.
-          See CLAUDE.md "Supply Chain Discipline."
+          adoption window). The checks composite validates this
+          against a strict semver-tag regex and rejects `@latest`,
+          `@main`, branch names, and any other non-pinned ref —
+          `go install` would happily resolve those, so the enforcement
+          is wrangle-side. See CLAUDE.md "Supply Chain Discipline."
         required: false
         type: string
         default: ""    # empty -> composite uses its default (the wrangle pin)

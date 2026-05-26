@@ -73,9 +73,15 @@ runs:
       env:
         INPUT_PATH: ${{ inputs.path }}
         INPUT_CACHE: ${{ inputs.cache }}
+        # Coalesce the same way the "Run quality checks" step does
+        # below — the reusable workflow's `default: ""` shadows this
+        # composite's `default:` whenever the caller passes "" through,
+        # so the wrangle pin lives at the env boundary. The two literals
+        # MUST stay in sync (both move when wrangle bumps).
+        INPUT_GOVULN_VERSION: ${{ inputs.govulncheck-version || 'v1.1.4' }}
       run: |
         set -euo pipefail
-        "${{ github.action_path }}/validate_inputs.sh" "$INPUT_PATH" "$INPUT_CACHE"
+        "${{ github.action_path }}/validate_inputs.sh" "$INPUT_PATH" "$INPUT_CACHE" "$INPUT_GOVULN_VERSION"
 
     - name: Compute metadata
       id: metadata

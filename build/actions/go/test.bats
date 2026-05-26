@@ -277,7 +277,7 @@ func main() {}
     local proj="$BATS_TEST_TMPDIR/proj"
     write_gomod "$proj"
     cd "$BATS_TEST_TMPDIR"
-    run "$CHECKS_DIR/validate_inputs.sh" "proj" "enabled"
+    run "$CHECKS_DIR/validate_inputs.sh" "proj" "enabled" "v1.1.4"
     [[ "$status" -eq 0 ]]
 }
 
@@ -287,7 +287,7 @@ func main() {}
     local proj="$BATS_TEST_TMPDIR/proj"
     write_gomod "$proj"
     cd "$BATS_TEST_TMPDIR"
-    run "$CHECKS_DIR/validate_inputs.sh" "proj" "enabled"
+    run "$CHECKS_DIR/validate_inputs.sh" "proj" "enabled" "v1.1.4"
     [[ "$status" -eq 0 ]]
 }
 
@@ -295,7 +295,7 @@ func main() {}
     local proj="$BATS_TEST_TMPDIR/proj"
     mkdir -p "$proj"
     cd "$BATS_TEST_TMPDIR"
-    run "$CHECKS_DIR/validate_inputs.sh" "proj" "enabled"
+    run "$CHECKS_DIR/validate_inputs.sh" "proj" "enabled" "v1.1.4"
     [[ "$status" -ne 0 ]]
     [[ "$output" == *"no go.mod found"* ]]
 }
@@ -329,7 +329,7 @@ func main() {}
 }
 
 @test "go.checks: validate_inputs.sh rejects absolute path" {
-    run "$CHECKS_DIR/validate_inputs.sh" "/abs/path" "enabled"
+    run "$CHECKS_DIR/validate_inputs.sh" "/abs/path" "enabled" "v1.1.4"
     [[ "$status" -ne 0 ]]
     [[ "$output" == *"path must be relative"* ]]
 }
@@ -340,7 +340,7 @@ func main() {}
     local proj="$BATS_TEST_TMPDIR/proj"
     write_gomod "$proj"
     cd "$BATS_TEST_TMPDIR"
-    run "$CHECKS_DIR/validate_inputs.sh" "proj" "garbage"
+    run "$CHECKS_DIR/validate_inputs.sh" "proj" "garbage" "v1.1.4"
     [[ "$status" -ne 0 ]]
     [[ "$output" == *"cache input must be one of enabled|disabled"* ]]
 }
@@ -349,8 +349,96 @@ func main() {}
     local proj="$BATS_TEST_TMPDIR/proj"
     write_gomod "$proj"
     cd "$BATS_TEST_TMPDIR"
-    run "$CHECKS_DIR/validate_inputs.sh" "proj" "disabled"
+    run "$CHECKS_DIR/validate_inputs.sh" "proj" "disabled" "v1.1.4"
     [[ "$status" -eq 0 ]]
+}
+
+# --- govulncheck-version validation (issue #246 follow-up) ---
+#
+# `go install pkg@latest` and `go install pkg@main` are documented Go
+# module queries that resolve to the latest semver tag / tip of main —
+# `go install` does NOT reject them. Wrangle MUST therefore validate
+# the version string before it reaches `go install` to keep the
+# supply-chain-discipline posture honest. The regex matches semver
+# 2.0.0 tags (v-prefixed): optional `-<prerelease>` or `+<build>` suffix.
+
+@test "go.checks: validate_inputs.sh accepts pinned semver govulncheck version" {
+    local proj="$BATS_TEST_TMPDIR/proj"
+    write_gomod "$proj"
+    cd "$BATS_TEST_TMPDIR"
+    run "$CHECKS_DIR/validate_inputs.sh" "proj" "enabled" "v1.1.4"
+    [[ "$status" -eq 0 ]]
+}
+
+@test "go.checks: validate_inputs.sh accepts semver prerelease govulncheck version (e.g. v1.1.4-rc1)" {
+    # CVE-response use case: an adopter wants a prerelease scanner
+    # ahead of wrangle's bump cycle. Prereleases MUST be allowed.
+    local proj="$BATS_TEST_TMPDIR/proj"
+    write_gomod "$proj"
+    cd "$BATS_TEST_TMPDIR"
+    run "$CHECKS_DIR/validate_inputs.sh" "proj" "enabled" "v1.1.4-rc1"
+    [[ "$status" -eq 0 ]]
+    run "$CHECKS_DIR/validate_inputs.sh" "proj" "enabled" "v2.0.0-beta.3"
+    [[ "$status" -eq 0 ]]
+}
+
+@test "go.checks: validate_inputs.sh accepts semver build-metadata govulncheck version" {
+    local proj="$BATS_TEST_TMPDIR/proj"
+    write_gomod "$proj"
+    cd "$BATS_TEST_TMPDIR"
+    run "$CHECKS_DIR/validate_inputs.sh" "proj" "enabled" "v1.0.0+go1.24"
+    [[ "$status" -eq 0 ]]
+}
+
+@test "go.checks: validate_inputs.sh rejects 'latest' govulncheck version" {
+    local proj="$BATS_TEST_TMPDIR/proj"
+    write_gomod "$proj"
+    cd "$BATS_TEST_TMPDIR"
+    run "$CHECKS_DIR/validate_inputs.sh" "proj" "enabled" "latest"
+    [[ "$status" -ne 0 ]]
+    [[ "$output" == *"not a pinned semver tag"* ]]
+}
+
+@test "go.checks: validate_inputs.sh rejects 'main' govulncheck version" {
+    local proj="$BATS_TEST_TMPDIR/proj"
+    write_gomod "$proj"
+    cd "$BATS_TEST_TMPDIR"
+    run "$CHECKS_DIR/validate_inputs.sh" "proj" "enabled" "main"
+    [[ "$status" -ne 0 ]]
+    [[ "$output" == *"not a pinned semver tag"* ]]
+}
+
+@test "go.checks: validate_inputs.sh rejects unprefixed/partial semver (v1, v1.1, 1.1.4)" {
+    local proj="$BATS_TEST_TMPDIR/proj"
+    write_gomod "$proj"
+    cd "$BATS_TEST_TMPDIR"
+    for bad in "v1" "v1.1" "1.1.4"; do
+        run "$CHECKS_DIR/validate_inputs.sh" "proj" "enabled" "$bad"
+        [[ "$status" -ne 0 ]]
+        [[ "$output" == *"not a pinned semver tag"* ]]
+    done
+}
+
+@test "go.checks: validate_inputs.sh rejects branch-like govulncheck version" {
+    local proj="$BATS_TEST_TMPDIR/proj"
+    write_gomod "$proj"
+    cd "$BATS_TEST_TMPDIR"
+    run "$CHECKS_DIR/validate_inputs.sh" "proj" "enabled" "release-branch.go1.24"
+    [[ "$status" -ne 0 ]]
+    [[ "$output" == *"not a pinned semver tag"* ]]
+}
+
+@test "go.checks: validate_inputs.sh rejects empty govulncheck version" {
+    # The composite's env wiring `${{ inputs.govulncheck-version || 'v1.1.4' }}`
+    # coalesces empty to the pin before this script runs, so empty
+    # only reaches validate_inputs.sh on direct invocation. Reject it
+    # explicitly so the env coalesce remains the only default site.
+    local proj="$BATS_TEST_TMPDIR/proj"
+    write_gomod "$proj"
+    cd "$BATS_TEST_TMPDIR"
+    run "$CHECKS_DIR/validate_inputs.sh" "proj" "enabled" ""
+    [[ "$status" -ne 0 ]]
+    [[ "$output" == *"not a pinned semver tag"* ]]
 }
 
 @test "go.release: validate_inputs.sh rejects path traversal" {
@@ -727,6 +815,19 @@ func main() {}
     # Without it, run_checks.sh would receive an empty GOVULN_VERSION
     # and try to `go install ...@""`.
     run grep -E "GOVULN_VERSION:[[:space:]]+\\\$\\{\\{[[:space:]]+inputs\\.govulncheck-version[[:space:]]+\\|\\|[[:space:]]+'v[0-9]+\\.[0-9]+\\.[0-9]+'" "$CHECKS_ACTION"
+    [[ "$status" -eq 0 ]]
+}
+
+@test "go.checks: composite passes govulncheck-version into validate_inputs.sh (fail fast)" {
+    # The validate step MUST coalesce empty AND pass the resulting
+    # version to validate_inputs.sh as the 3rd positional arg, so an
+    # invalid version like `latest` is rejected BEFORE setup-go and
+    # the whole checks job runs. Same `||` fallback as the run step.
+    run grep -E "INPUT_GOVULN_VERSION:[[:space:]]+\\\$\\{\\{[[:space:]]+inputs\\.govulncheck-version[[:space:]]+\\|\\|[[:space:]]+'v[0-9]+\\.[0-9]+\\.[0-9]+'" "$CHECKS_ACTION"
+    [[ "$status" -eq 0 ]]
+    # The validate_inputs.sh invocation must pass the env var as the
+    # 3rd arg (after INPUT_PATH and INPUT_CACHE).
+    run grep -E 'validate_inputs\.sh".*"\$INPUT_PATH".*"\$INPUT_CACHE".*"\$INPUT_GOVULN_VERSION"' "$CHECKS_ACTION"
     [[ "$status" -eq 0 ]]
 }
 
