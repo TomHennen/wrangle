@@ -100,6 +100,12 @@ runs:
         cache: ${{ inputs.cache != 'disabled' }}
         cache-dependency-path: ${{ inputs.path }}/go.sum
 
+    - name: Check for semver tags
+      shell: bash
+      run: |
+        set -euo pipefail
+        "${{ github.action_path }}/check_semver_tags.sh"
+
     # goreleaser-action is a `uses:` step; can't be wrapped inline
     # by stop_commands_guard.sh `run` mode. Use the begin/end form:
     # `begin` emits ::stop-commands::<token> + writes the token to
