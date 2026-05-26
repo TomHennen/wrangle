@@ -104,7 +104,15 @@ runs:
       env:
         INPUT_PATH: ${{ inputs.path }}
         METADATA_DIR: ${{ steps.metadata.outputs.metadata-dir }}
-        GOVULN_VERSION: ${{ inputs.govulncheck-version }}
+        # Explicit fallback: when the reusable workflow exposes
+        # `govulncheck-version` and an adopter omits it, GHA passes ""
+        # through to this composite (the reusable workflow's input
+        # `default: ""` overrides this composite's `default:` because
+        # the input IS provided, just empty). Coalesce to the wrangle
+        # pin so adopter-omitted == wrangle's vetted version. Keep the
+        # literal in sync with the `default:` value above (both lines
+        # move together when wrangle bumps the pin).
+        GOVULN_VERSION: ${{ inputs.govulncheck-version || 'v1.1.4' }}
         RUN_RACE: ${{ inputs.run-race-detector }}
         RUN_GOFMT: ${{ inputs.run-gofmt-check }}
       run: |

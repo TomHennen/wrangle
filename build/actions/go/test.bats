@@ -694,6 +694,42 @@ func main() {}
     [[ "$status" -eq 0 ]]
 }
 
+@test "go: workflow exposes govulncheck-version as a string input (issue #246)" {
+    # The reusable workflow MUST expose `govulncheck-version` so
+    # adopters can override wrangle's pinned scanner ahead of the
+    # 7-day bump cycle (CVE-response escape hatch). The composite
+    # already accepted it; this test pins the input's presence at
+    # the reusable-workflow boundary.
+    run grep -E '^      govulncheck-version:' "$WORKFLOW"
+    [[ "$status" -eq 0 ]]
+    # Type must be string (not boolean) and default must be empty so
+    # omitting the input keeps wrangle's vetted pin. The empty
+    # default is what makes the composite-side `||` fallback kick in.
+    section="$(awk '/^      govulncheck-version:/{flag=1} flag && /^      [a-z]/ && !/govulncheck-version/{exit} flag' "$WORKFLOW")"
+    grep -qE '^[[:space:]]+type:[[:space:]]+string' <<<"$section"
+    grep -qE '^[[:space:]]+default:[[:space:]]+""' <<<"$section"
+}
+
+@test "go: workflow passes govulncheck-version through to the checks composite" {
+    # The input is useless if it isn't wired into the composite step.
+    # Inside the `checks:` job, the `uses: .../build/actions/go/checks@*`
+    # step must list `govulncheck-version:` in its `with:` block,
+    # interpolating `inputs.govulncheck-version`.
+    section="$(awk '/^  [a-z][a-z_-]*:$/ { in_section = ($0 == "  checks:") } in_section' "$WORKFLOW")"
+    grep -qE 'govulncheck-version:[[:space:]]+\$\{\{[[:space:]]*inputs\.govulncheck-version' <<<"$section"
+}
+
+@test "go.checks: composite coalesces empty govulncheck-version to the pinned default" {
+    # The reusable workflow's `default: ""` overrides this composite's
+    # own `default: v1.1.4` whenever the adopter omits the input (the
+    # input IS provided to the composite, just empty). The fallback
+    # at the env wiring is what restores the wrangle pin in that case.
+    # Without it, run_checks.sh would receive an empty GOVULN_VERSION
+    # and try to `go install ...@""`.
+    run grep -E "GOVULN_VERSION:[[:space:]]+\\\$\\{\\{[[:space:]]+inputs\\.govulncheck-version[[:space:]]+\\|\\|[[:space:]]+'v[0-9]+\\.[0-9]+\\.[0-9]+'" "$CHECKS_ACTION"
+    [[ "$status" -eq 0 ]]
+}
+
 @test "go: workflow exports hashes, provenance, metadata, checks-metadata artifact names" {
     for output in hashes provenance-artifact-name metadata-artifact-name checks-metadata-artifact-name; do
         run grep -E "^      ${output}:" "$WORKFLOW"

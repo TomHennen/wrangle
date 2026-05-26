@@ -39,4 +39,5 @@ jobs:
       # run-tests: true                 # optional: skip with false (also skips gofmt/vet/govulncheck)
       # run-race-detector: true         # optional: set false when CGO is disabled (race detector requires cgo)
       # run-gofmt-check: true           # optional: set false only if the `// Code generated` auto-skip isn't enough
+      # govulncheck-version: ""         # optional: pinned semver like "v1.1.4"; empty uses wrangle's vetted pin. No `latest`/`main`.
       # verify-provenance: true         # optional: wrangle verifies post-publish; set false for custom verify

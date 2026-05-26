@@ -62,6 +62,19 @@ on:
         required: false
         type: boolean
         default: true
+      govulncheck-version:
+        description: |
+          Pinned semver for govulncheck (e.g., "v1.1.4"). Defaults to
+          wrangle's vetted pin; override only when you need a newer
+          version ahead of wrangle's bump cycle (e.g., a CVE response
+          that lands in upstream govulncheck before wrangle's 7-day
+          adoption window). Wrangle accepts only pinned versions,
+          never "latest" or "main" — both are rejected by `go install`
+          anyway, but the constraint is intentional, not incidental.
+          See CLAUDE.md "Supply Chain Discipline."
+        required: false
+        type: string
+        default: ""    # empty -> composite uses its default (the wrangle pin)
       release-events:
         description: |
           Which events should trigger wrangle's full pipeline (build,
@@ -183,6 +196,12 @@ jobs:
           go-version: ${{ inputs.go-version }}
           run-race-detector: ${{ inputs.run-race-detector }}
           run-gofmt-check: ${{ inputs.run-gofmt-check }}
+          # Empty string -> composite falls back to its pinned default
+          # (see checks/action.yml). The composite's `default:` only
+          # applies when the caller omits the input entirely; passing
+          # `""` explicitly here would otherwise override it, so the
+          # fallback lives at the composite boundary.
+          govulncheck-version: ${{ inputs.govulncheck-version }}
           # Caches are disabled on release builds (the same `should-release`
           # signal that gates provenance) — Go's build cache trusts pre-
           # derived compiled output without re-derivation (same shape as

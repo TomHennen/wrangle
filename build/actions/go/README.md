@@ -137,6 +137,19 @@ with:
 
 Full vocabulary in [`docs/SPEC.md`](../../../docs/SPEC.md) "Release-events gating."
 
+## Overriding the govulncheck version
+
+`govulncheck-version` (default: empty -> wrangle's vetted pin) lets you opt into a newer `govulncheck` ahead of wrangle's bump cycle. The intended use case is a CVE response: upstream `govulncheck` ships a fix or a new reachability check, you want the newer scanner *now*, and wrangle's 7-day adoption window hasn't closed yet. Pass a pinned semver:
+
+```yaml
+uses: TomHennen/wrangle/.github/workflows/build_and_publish_go.yml@v0.2.0
+with:
+  path: "."
+  govulncheck-version: "v1.1.5"   # newer than wrangle's pin; pinned literally
+```
+
+Wrangle accepts only pinned versions — `latest` and `main` are not permitted (and would be rejected by `go install`'s module spec parser regardless). Omitting the input or passing `""` keeps wrangle's vetted default, which is the recommended setting for most adopters.
+
 ## SLSA provenance verification (wrangle-side, post-publish)
 
 After goreleaser publishes, wrangle runs `slsa-verifier verify-artifact` against the just-built dist. This is wrangle dogfooding the same check downstream consumers will run — if it fails, consumers running verify will fail too, so the artifact is effectively rejected at the security-aware-consumer layer regardless of whether bad provenance landed on the release. (See "Publish first, attest second" above for why presence ≠ trust in the SLSA model.)
