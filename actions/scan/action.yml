@@ -22,7 +22,31 @@ runs:
 
     # Install slsa-verifier for tools that use SLSA provenance verification
     # (e.g., OSV-Scanner). Required before running adapter-pattern tools.
+    # Retry the installer up to 3 times: it downloads from GitHub's release
+    # CDN, which occasionally returns transient 5xx errors (see #190).
     - name: Install slsa-verifier
+      id: install-slsa-verifier
+      uses: slsa-framework/slsa-verifier/actions/installer@ea584f4502babc6f60d9bc799dbbb13c1caa9ee6 # v2.7.1
+      continue-on-error: true
+
+    - name: Wait before retrying slsa-verifier install (1)
+      if: steps.install-slsa-verifier.outcome == 'failure'
+      shell: bash
+      run: sleep 5
+
+    - name: Install slsa-verifier (retry 1)
+      if: steps.install-slsa-verifier.outcome == 'failure'
+      id: install-slsa-verifier-retry-1
+      uses: slsa-framework/slsa-verifier/actions/installer@ea584f4502babc6f60d9bc799dbbb13c1caa9ee6 # v2.7.1
+      continue-on-error: true
+
+    - name: Wait before retrying slsa-verifier install (2)
+      if: steps.install-slsa-verifier.outcome == 'failure' && steps.install-slsa-verifier-retry-1.outcome == 'failure'
+      shell: bash
+      run: sleep 5
+
+    - name: Install slsa-verifier (retry 2)
+      if: steps.install-slsa-verifier.outcome == 'failure' && steps.install-slsa-verifier-retry-1.outcome == 'failure'
       uses: slsa-framework/slsa-verifier/actions/installer@ea584f4502babc6f60d9bc799dbbb13c1caa9ee6 # v2.7.1
 
     # Run adapter-pattern tools via the orchestrator (run.sh).
