@@ -1508,14 +1508,15 @@ builds:
     [[ "$status" -eq 0 ]]
 }
 
-@test "go.release: zig install step's GITHUB_PATH write carries a zizmor suppression with justification" {
-    # zizmor's github-env audit flags writes to $GITHUB_PATH because
-    # attacker-controllable values flowing into PATH are an RCE
-    # vector. Here BIN_DIR is purely runner-state-derived, so the
-    # finding is suppressed inline. Pin the suppression with a
-    # justification so a future contributor can't silently delete
-    # the comment without re-thinking the security argument.
-    run grep -F 'zizmor: ignore[github-env]' "$RELEASE_ACTION"
+@test "go.release: zig install step declares WRANGLE_BIN_DIR via step-level env (not computed in shell)" {
+    # zizmor's github-env audit flags GITHUB_PATH writes whose value
+    # comes from a shell-computed variable (can't statically trace
+    # to a safe source). Declaring WRANGLE_BIN_DIR in the step env:
+    # from ${{ runner.temp }} keeps the write rooted in a constrained
+    # context value — same pattern .github/workflows/test.yml uses
+    # for its osv install step. Pin both halves: the env declaration
+    # AND the runner.temp source.
+    run grep -E '^[[:space:]]+WRANGLE_BIN_DIR:[[:space:]]*\$\{\{[[:space:]]*runner\.temp[[:space:]]*\}\}/\.wrangle/bin' "$RELEASE_ACTION"
     [[ "$status" -eq 0 ]]
 }
 

@@ -110,13 +110,19 @@ runs:
       shell: bash
       env:
         WRANGLE_ROOT: ${{ github.action_path }}/../../../..
-      run: | # zizmor: ignore[github-env] BIN_DIR is runner-state-derived ($WRANGLE_BIN_DIR with $RUNNER_TEMP fallback), never an adopter input; tools/zig/install.sh has already populated it from a SHA-256-verified tarball. github-env's RCE concern (attacker-controllable string flowing into PATH) does not apply.
+        # Declared at step level (not computed in shell) so zizmor's
+        # github-env audit recognizes the GITHUB_PATH write below as
+        # rooted in runner.temp (constrained context), not a shell
+        # expression. Mirrors .github/workflows/test.yml's osv install
+        # step. The value matches tools/zig/install.sh's BIN_DIR
+        # default (${RUNNER_TEMP}/.wrangle/bin).
+        WRANGLE_BIN_DIR: ${{ runner.temp }}/.wrangle/bin
+      run: |
         set -euo pipefail
         "$WRANGLE_ROOT/tools/zig/install.sh"
-        BIN_DIR="${WRANGLE_BIN_DIR:-${RUNNER_TEMP:-.}/.wrangle/bin}"
         # Put wrangle's bin on PATH so goreleaser (and any per-cell
         # CC=zig cc... template) resolves the newly-installed binary.
-        printf '%s\n' "$BIN_DIR" >> "$GITHUB_PATH"
+        printf '%s\n' "$WRANGLE_BIN_DIR" >> "$GITHUB_PATH"
 
     - name: Compute metadata
       id: metadata
