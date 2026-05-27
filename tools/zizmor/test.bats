@@ -4,43 +4,68 @@
 #
 # Action-pattern tools wrap an upstream GitHub Action, so there is no
 # install.sh or adapter.sh to unit-test. These tests validate the
-# action.yml structure and that supporting files are correct.
+# action.yml structure plus the collect_sarif.sh helper which performs
+# the fail-closed disambiguation for issue #222.
 #
 # Full integration testing happens in CI when the scan action invokes
 # tools/zizmor/action.yml against the wrangle repo itself (dogfooding).
 
 setup() {
     export ORIG_DIR="$(pwd)"
+    export TOOL_DIR="$ORIG_DIR/tools/zizmor"
+    TMP_DIR="$(mktemp -d "${TMPDIR:-/tmp}/zizmor-bats-XXXXXX")"
+    export TMP_DIR
 }
 
+teardown() {
+    if [[ -n "${TMP_DIR:-}" && -d "$TMP_DIR" ]]; then
+        rm -rf "$TMP_DIR"
+    fi
+}
+
+# Helper: write a SARIF fixture with $1 findings to $2.
+make_sarif() {
+    local count="$1"
+    local dst="$2"
+    local results="[]"
+    if [[ "$count" -gt 0 ]]; then
+        results="$(jq -n --argjson n "$count" '[range($n) | {"ruleId":"TEST-\(.)","message":{"text":"x"}}]')"
+    fi
+    jq -n --argjson r "$results" \
+        '{"version":"2.1.0","runs":[{"tool":{"driver":{"name":"zizmor"}},"results":$r}]}' \
+        > "$dst"
+}
+
+# --- action.yml structure ---
+
 @test "zizmor: action.yml exists and is valid YAML" {
-    [ -f "$ORIG_DIR/tools/zizmor/action.yml" ]
+    [ -f "$TOOL_DIR/action.yml" ]
 }
 
 @test "zizmor: action.yml pins upstream action to SHA" {
-    grep -q 'zizmorcore/zizmor-action@[0-9a-f]\{40\}' "$ORIG_DIR/tools/zizmor/action.yml"
+    grep -q 'zizmorcore/zizmor-action@[0-9a-f]\{40\}' "$TOOL_DIR/action.yml"
 }
 
 @test "zizmor: action.yml has version input" {
-    grep -q 'version:' "$ORIG_DIR/tools/zizmor/action.yml"
+    grep -q 'version:' "$TOOL_DIR/action.yml"
 }
 
 @test "zizmor: no install.sh exists (action pattern, not adapter)" {
-    [ ! -f "$ORIG_DIR/tools/zizmor/install.sh" ]
+    [ ! -f "$TOOL_DIR/install.sh" ]
 }
 
 @test "zizmor: no adapter.sh exists (action pattern, not adapter)" {
-    [ ! -f "$ORIG_DIR/tools/zizmor/adapter.sh" ]
+    [ ! -f "$TOOL_DIR/adapter.sh" ]
 }
 
 @test "zizmor: action.yml sets advanced-security to true" {
     # advanced-security: true is required for the upstream action to produce
     # SARIF output. See issue #109 and #114.
-    grep -q 'advanced-security: true' "$ORIG_DIR/tools/zizmor/action.yml"
+    grep -q 'advanced-security: true' "$TOOL_DIR/action.yml"
 }
 
 @test "zizmor: action.yml writes to wrangle metadata directory" {
-    grep -q '\.wrangle/metadata/zizmor' "$ORIG_DIR/tools/zizmor/action.yml"
+    grep -q '\.wrangle/metadata/zizmor' "$TOOL_DIR/action.yml"
 }
 
 @test "zizmor: requirements.txt and action.yml default agree on version" {
@@ -71,13 +96,158 @@ setup() {
     grep -qE '"/tools/(zizmor|\*\*)"' "$ORIG_DIR/.github/dependabot.yml"
 }
 
-@test "zizmor: action.yml writes error marker when upstream fails without SARIF" {
-    # Fail-open fix from issue #222: when the upstream step errors out
-    # (no SARIF produced) AND its outcome is failure, write an `error`
-    # marker file the Check results step treats as a hard failure.
-    # The collection step's else branch must reference both the outcome
-    # check and write to the error marker path.
-    grep -Fq 'OUTCOME: ${{ steps.zizmor.outcome }}' "$ORIG_DIR/tools/zizmor/action.yml"
-    grep -Fq '"$OUTCOME" == "failure"' "$ORIG_DIR/tools/zizmor/action.yml"
-    grep -Fq '/error"' "$ORIG_DIR/tools/zizmor/action.yml"
+@test "zizmor: action.yml delegates SARIF collection to a script, not inline shell" {
+    # Per CLAUDE.md, run: blocks with logic must be extracted to scripts.
+    # The collection step's run: block should just invoke collect_sarif.sh.
+    grep -q 'collect_sarif.sh' "$TOOL_DIR/action.yml"
+    # The "Collect SARIF output" run: block must contain no inline
+    # conditionals — extract everything to collect_sarif.sh. We scope this
+    # check to the collection step only; the small "Generate human-readable
+    # output" step retains its `[[ -f $SARIF ]]` guard.
+    run awk '/^    - name: Collect SARIF output/{flag=1;next} flag && /^    - name:/{flag=0} flag' "$TOOL_DIR/action.yml"
+    [ "$status" -eq 0 ]
+    ! printf '%s\n' "$output" | grep -Eq '^\s+(if|for|while) '
+}
+
+@test "zizmor: action.yml passes upstream output via env, not direct interpolation" {
+    # Belt-and-braces: run: blocks must not interpolate ${{ steps.* }}.
+    ! grep -E 'run:.*\$\{\{ *steps\.zizmor' "$TOOL_DIR/action.yml"
+}
+
+@test "zizmor: collect_sarif.sh exists and is executable" {
+    [ -x "$TOOL_DIR/collect_sarif.sh" ]
+}
+
+# --- collect_sarif.sh: fail-closed disambiguation (issue #222) ---
+
+@test "collect_sarif: usage error when metadata dir arg missing" {
+    run "$TOOL_DIR/collect_sarif.sh"
+    [ "$status" -eq 1 ]
+}
+
+@test "collect_sarif: outcome=success + valid SARIF → copy, no marker" {
+    # Clean run, zero findings.
+    META="$TMP_DIR/meta-clean"
+    mkdir -p "$META"
+    SRC="$TMP_DIR/src-clean.sarif"
+    make_sarif 0 "$SRC"
+
+    SARIF_SRC="$SRC" OUTCOME=success \
+        run "$TOOL_DIR/collect_sarif.sh" "$META"
+    [ "$status" -eq 0 ]
+    [ -f "$META/output.sarif" ]
+    [ ! -f "$META/error" ]
+    # The copied SARIF round-trips correctly.
+    jq -e '[.runs[].results[]] | length == 0' "$META/output.sarif" >/dev/null
+}
+
+@test "collect_sarif: outcome=failure + valid SARIF with findings → copy, no marker" {
+    # Findings exit (zizmor exit code 14 → upstream outcome=failure).
+    # SARIF is well-formed and reports >0 results, so we trust it.
+    # check_results.sh will fail-close via SARIF count for :fail; :info
+    # will report findings informationally (not as an error).
+    META="$TMP_DIR/meta-findings"
+    mkdir -p "$META"
+    SRC="$TMP_DIR/src-findings.sarif"
+    make_sarif 3 "$SRC"
+
+    SARIF_SRC="$SRC" OUTCOME=failure \
+        run "$TOOL_DIR/collect_sarif.sh" "$META"
+    [ "$status" -eq 0 ]
+    [ -f "$META/output.sarif" ]
+    [ ! -f "$META/error" ]
+    jq -e '[.runs[].results[]] | length == 3' "$META/output.sarif" >/dev/null
+}
+
+@test "collect_sarif: outcome=failure + missing SARIF → marker written" {
+    META="$TMP_DIR/meta-missing"
+    mkdir -p "$META"
+
+    SARIF_SRC="$TMP_DIR/does-not-exist.sarif" OUTCOME=failure \
+        run "$TOOL_DIR/collect_sarif.sh" "$META"
+    [ "$status" -eq 0 ]
+    [ -f "$META/error" ]
+    grep -q 'outcome=failure' "$META/error"
+    # Empty fallback SARIF written so downstream consumers have a file.
+    [ -f "$META/output.sarif" ]
+    jq -e '[.runs[].results[]] | length == 0' "$META/output.sarif" >/dev/null
+}
+
+@test "collect_sarif: outcome=failure + empty SARIF file → marker written" {
+    # Reproduces the original #222 fail-open: upstream `tee` created the
+    # file but docker crashed before zizmor wrote anything.
+    META="$TMP_DIR/meta-empty"
+    mkdir -p "$META"
+    SRC="$TMP_DIR/src-empty.sarif"
+    : > "$SRC"
+
+    SARIF_SRC="$SRC" OUTCOME=failure \
+        run "$TOOL_DIR/collect_sarif.sh" "$META"
+    [ "$status" -eq 0 ]
+    [ -f "$META/error" ]
+}
+
+@test "collect_sarif: outcome=failure + malformed SARIF → marker written" {
+    # docker crashed mid-stream and tee captured truncated/garbled JSON.
+    META="$TMP_DIR/meta-bad"
+    mkdir -p "$META"
+    SRC="$TMP_DIR/src-bad.sarif"
+    printf '{not valid json' > "$SRC"
+
+    SARIF_SRC="$SRC" OUTCOME=failure \
+        run "$TOOL_DIR/collect_sarif.sh" "$META"
+    [ "$status" -eq 0 ]
+    [ -f "$META/error" ]
+}
+
+@test "collect_sarif: outcome=failure + parseable SARIF with zero results → marker written" {
+    # Parseable but reports nothing — combined with outcome=failure this
+    # cannot be a clean findings exit (zizmor only exits 14 *with*
+    # findings), so we treat as tool error and fail closed.
+    META="$TMP_DIR/meta-zero"
+    mkdir -p "$META"
+    SRC="$TMP_DIR/src-zero.sarif"
+    make_sarif 0 "$SRC"
+
+    SARIF_SRC="$SRC" OUTCOME=failure \
+        run "$TOOL_DIR/collect_sarif.sh" "$META"
+    [ "$status" -eq 0 ]
+    [ -f "$META/error" ]
+}
+
+@test "collect_sarif: outcome=failure + empty SARIF_SRC env → marker written" {
+    # Defensive: if the upstream action ever stops exporting output-file,
+    # SARIF_SRC is empty. Combined with outcome=failure that's still a
+    # tool error.
+    META="$TMP_DIR/meta-emptyenv"
+    mkdir -p "$META"
+
+    SARIF_SRC='' OUTCOME=failure \
+        run "$TOOL_DIR/collect_sarif.sh" "$META"
+    [ "$status" -eq 0 ]
+    [ -f "$META/error" ]
+}
+
+@test "collect_sarif: outcome=success + missing SARIF → no marker, empty fallback" {
+    # Upstream succeeded but for some reason produced no file (e.g.,
+    # advanced-security: false path). Do not flag as error.
+    META="$TMP_DIR/meta-succ-nofile"
+    mkdir -p "$META"
+
+    SARIF_SRC="$TMP_DIR/does-not-exist.sarif" OUTCOME=success \
+        run "$TOOL_DIR/collect_sarif.sh" "$META"
+    [ "$status" -eq 0 ]
+    [ ! -f "$META/error" ]
+    [ -f "$META/output.sarif" ]
+}
+
+@test "collect_sarif: creates metadata directory if missing" {
+    META="$TMP_DIR/meta-fresh/zizmor"
+    SRC="$TMP_DIR/src-fresh.sarif"
+    make_sarif 0 "$SRC"
+
+    SARIF_SRC="$SRC" OUTCOME=success \
+        run "$TOOL_DIR/collect_sarif.sh" "$META"
+    [ "$status" -eq 0 ]
+    [ -f "$META/output.sarif" ]
 }
