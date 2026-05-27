@@ -419,6 +419,181 @@ SCRIPT
 
 # --- Repo walk -------------------------------------------------------------
 
+# --- WSL001/WSL002 false-negative regression: pipeline/list/negated_command ---
+# Round-1 review 4369033574 / comments 3308127865 + 3308127868: tree-sitter-bash
+# parses `cmd | cmd`, `cmd; cmd` / `cmd && cmd`, and `! cmd` as `pipeline`,
+# `list`, and `negated_command` nodes respectively — NOT `command`. Before the
+# fix in rules/wsl001.yml + rules/wsl002.yml, a script whose first (or second)
+# top-level node was one of those shapes silently bypassed WSL001 / WSL002.
+
+@test "WSL001: pipeline as first top-level node is flagged (regression)" {
+    tmp="$(mktemp /tmp/wsl-test-XXXXXX.sh)"
+    printf '#!/bin/bash\necho "evil" | cat\nset -euo pipefail\nset -f\nprintf hi\n' > "$tmp"
+    run "$LINTER" "$tmp"
+    rm -f "$tmp"
+    [ "$status" -eq 1 ]
+    [[ "$output" == *"WSL001"* ]]
+}
+
+@test "WSL001: list (||) as first top-level node is flagged (regression)" {
+    tmp="$(mktemp /tmp/wsl-test-XXXXXX.sh)"
+    printf '#!/bin/bash\ncommand -v foo || true\nset -euo pipefail\nset -f\nprintf hi\n' > "$tmp"
+    run "$LINTER" "$tmp"
+    rm -f "$tmp"
+    [ "$status" -eq 1 ]
+    [[ "$output" == *"WSL001"* ]]
+}
+
+@test "WSL001: list (&&) as first top-level node is flagged (regression)" {
+    tmp="$(mktemp /tmp/wsl-test-XXXXXX.sh)"
+    printf '#!/bin/bash\ntrue && false\nset -euo pipefail\nset -f\nprintf hi\n' > "$tmp"
+    run "$LINTER" "$tmp"
+    rm -f "$tmp"
+    [ "$status" -eq 1 ]
+    [[ "$output" == *"WSL001"* ]]
+}
+
+@test "WSL001: negated_command as first top-level node is flagged (regression)" {
+    tmp="$(mktemp /tmp/wsl-test-XXXXXX.sh)"
+    printf '#!/bin/bash\n! true\nset -euo pipefail\nset -f\nprintf hi\n' > "$tmp"
+    run "$LINTER" "$tmp"
+    rm -f "$tmp"
+    [ "$status" -eq 1 ]
+    [[ "$output" == *"WSL001"* ]]
+}
+
+@test "WSL002: pipeline at position 2 is flagged (regression)" {
+    tmp="$(mktemp /tmp/wsl-test-XXXXXX.sh)"
+    printf '#!/bin/bash\nset -euo pipefail\ntrue | false\nset -f\nprintf hi\n' > "$tmp"
+    run "$LINTER" "$tmp"
+    rm -f "$tmp"
+    [ "$status" -eq 1 ]
+    [[ "$output" == *"WSL002"* ]]
+}
+
+@test "WSL002: list at position 2 is flagged (regression)" {
+    tmp="$(mktemp /tmp/wsl-test-XXXXXX.sh)"
+    printf '#!/bin/bash\nset -euo pipefail\ntrue && false\nset -f\nprintf hi\n' > "$tmp"
+    run "$LINTER" "$tmp"
+    rm -f "$tmp"
+    [ "$status" -eq 1 ]
+    [[ "$output" == *"WSL002"* ]]
+}
+
+@test "WSL002: negated_command at position 2 is flagged (regression)" {
+    tmp="$(mktemp /tmp/wsl-test-XXXXXX.sh)"
+    printf '#!/bin/bash\nset -euo pipefail\n! true\nset -f\nprintf hi\n' > "$tmp"
+    run "$LINTER" "$tmp"
+    rm -f "$tmp"
+    [ "$status" -eq 1 ]
+    [[ "$output" == *"WSL002"* ]]
+}
+
+# --- WSL003 regression pin: echo with literal-only args + redirect/pipe ------
+# Round-1 review 4369033574 / comment 3308127872 item 4: echo with no variable
+# expansion piped to another command must not be flagged. A regression here
+# would surface as a false positive that is annoying to debug.
+
+@test "WSL003: echo with literal-only args piped to another command is not flagged" {
+    tmp="$(mktemp /tmp/wsl-test-XXXXXX.sh)"
+    printf '#!/bin/bash\nset -euo pipefail\nset -f\necho "hello world" | cat\n' > "$tmp"
+    run "$LINTER" "$tmp"
+    rm -f "$tmp"
+    [ "$status" -eq 0 ]
+    [[ "$output" != *"WSL003"* ]]
+}
+
+@test "WSL003: echo with literal-only args redirected to file is not flagged" {
+    tmp="$(mktemp /tmp/wsl-test-XXXXXX.sh)"
+    out="$(mktemp /tmp/wsl-test-out-XXXXXX)"
+    printf '#!/bin/bash\nset -euo pipefail\nset -f\necho "done" > %s\n' "$out" > "$tmp"
+    run "$LINTER" "$tmp"
+    rm -f "$tmp" "$out"
+    [ "$status" -eq 0 ]
+    [[ "$output" != *"WSL003"* ]]
+}
+
+# --- Symlink behavior: contract documentation -------------------------------
+# Per PR #243 review 4369033574: the repo walk uses `find -type f` which
+# SKIPS symlinks (it does not follow them). The real file is linted via its
+# own filesystem path. This test pins that contract so a future change to
+# `find -L` or `find -type f,l` would have to update the test consciously.
+
+@test "repo walk skips symlinks (real file linted via its own path)" {
+    tmp_repo="$(mktemp -d /tmp/wsl-repo-XXXXXX)"
+    git -C "$tmp_repo" init -q
+    mkdir -p "$tmp_repo/tools/wrangle-shell-lint/rules"
+    cp "$LINTER" "$tmp_repo/tools/wrangle-shell-lint/lint.sh"
+    cp "$ORIG_DIR/tools/wrangle-shell-lint/sgconfig.yml" "$tmp_repo/tools/wrangle-shell-lint/sgconfig.yml"
+    cp "$ORIG_DIR/tools/wrangle-shell-lint/rules"/*.yml "$tmp_repo/tools/wrangle-shell-lint/rules/"
+    # Real file (clean — passes all rules).
+    cat > "$tmp_repo/real.sh" << 'SCRIPT'
+#!/bin/bash
+set -euo pipefail
+set -f
+printf 'hi\n'
+SCRIPT
+    # Symlink to the real file. `find -type f` will not enumerate this
+    # entry (it matches only -type l), so the symlink is invisible to
+    # the walk. The underlying real.sh is still linted via its own path.
+    ln -s real.sh "$tmp_repo/link.sh"
+    run "$tmp_repo/tools/wrangle-shell-lint/lint.sh"
+    rm -rf "$tmp_repo"
+    [ "$status" -eq 0 ]
+    # Output must not mention the symlink path: it was skipped.
+    [[ "$output" != *"link.sh"* ]]
+}
+
+# --- Dockerfile / install.sh checksum drift guard ----------------------------
+# Round-1 review 4369032065 / comment 3308126453: ast-grep checksums live in
+# both test/Dockerfile and tools/wrangle-shell-lint/install.sh. A version bump
+# that updates one but not the other is silent drift. This test extracts the
+# four checksums from each source and diffs them — a mismatch fails CI.
+
+@test "ast-grep checksums match between Dockerfile and install.sh (drift guard)" {
+    dockerfile="$ORIG_DIR/test/Dockerfile"
+    install="$ORIG_DIR/tools/wrangle-shell-lint/install.sh"
+    [ -f "$dockerfile" ] || skip "test/Dockerfile not present"
+    [ -f "$install" ] || skip "install.sh not present"
+
+    # ast-grep version must match (single ARG / VERSION default).
+    docker_version="$(grep -E '^ARG AST_GREP_VERSION=' "$dockerfile" | cut -d= -f2)"
+    install_version="$(grep -E '^VERSION="\$\{1:-' "$install" | sed -E 's/^.*-([0-9.]+)\}".*$/\1/')"
+    [ -n "$docker_version" ]
+    [ -n "$install_version" ]
+    [ "$docker_version" = "$install_version" ]
+
+    # The two Linux checksums in install.sh (linux/x86_64, linux/aarch64) must
+    # match the AMD64 and ARM64 checksums in the Dockerfile respectively.
+    docker_amd64="$(grep -E '^ARG AST_GREP_CHECKSUM_AMD64=' "$dockerfile" | cut -d= -f2)"
+    docker_arm64="$(grep -E '^ARG AST_GREP_CHECKSUM_ARM64=' "$dockerfile" | cut -d= -f2)"
+    # The install.sh checksums are anchored to OS/arch case arms.
+    install_amd64="$(awk '/linux\/x86_64\)/{f=1} f && /EXPECTED_SHA=/{print; exit}' "$install" \
+        | grep -oE '[a-f0-9]{64}')"
+    install_arm64="$(awk '/linux\/aarch64\|linux\/arm64\)/{f=1} f && /EXPECTED_SHA=/{print; exit}' "$install" \
+        | grep -oE '[a-f0-9]{64}')"
+
+    [ -n "$docker_amd64" ]
+    [ -n "$docker_arm64" ]
+    [ -n "$install_amd64" ]
+    [ -n "$install_arm64" ]
+    [ "$docker_amd64" = "$install_amd64" ]
+    [ "$docker_arm64" = "$install_arm64" ]
+}
+
+# --- Dogfood self-check: linter must pass on the entire wrangle repo --------
+# Round-1 review 4369033574 / comment 3308127872 item 3: nothing in the bats
+# suite enforces the dogfood invariant. If someone introduces a violation in
+# run.sh or lib/ it only fails in `make test` integration, not here. Run the
+# linter against the whole repo and assert exit 0.
+
+@test "dogfood: linter passes on the entire wrangle repo (exit 0)" {
+    cd "$ORIG_DIR"
+    run "$LINTER"
+    [ "$status" -eq 0 ]
+    [ -z "$output" ]
+}
+
 @test "repo walk lints extensionless shebang scripts" {
     # Confirm the repo-walk path uses is_shell_script (matching the
     # explicit-args path) so a future extensionless `bin/wrangle` script

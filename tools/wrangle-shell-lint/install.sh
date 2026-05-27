@@ -31,9 +31,16 @@ SOURCE_REPO="ast-grep/ast-grep"
 BIN_DIR="${WRANGLE_BIN_DIR:-${RUNNER_TEMP:-.}/.wrangle/bin}"
 
 # Idempotency: skip if the requested version is already installed.
+#
+# Pin the version check to the FIRST line and require an exact match
+# against `ast-grep <VERSION>`. A pre-staged malicious binary could
+# print `ast-grep 0.43.0\n<extra>` and fool a less-strict parser into
+# treating itself as the expected version (PR #243 review 4369032065
+# / comment 3308126447). The first-line + exact-string requirement
+# defends against that and against a future upstream banner line.
 if [[ -x "${BIN_DIR}/${TOOL_NAME}" ]]; then
-    installed_version="$("${BIN_DIR}/${TOOL_NAME}" --version 2>/dev/null | awk '{print $2}' || true)"
-    if [[ "$installed_version" == "${VERSION}" ]]; then
+    installed_first_line="$("${BIN_DIR}/${TOOL_NAME}" --version 2>/dev/null | head -n1 || true)"
+    if [[ "$installed_first_line" == "ast-grep ${VERSION}" ]]; then
         printf 'wrangle: %s %s already installed\n' "$TOOL_NAME" "$VERSION"
         exit 0
     fi

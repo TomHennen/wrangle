@@ -16,7 +16,12 @@
 #  - `nthChild: 1` with `ofRule: { not: { kind: comment } }` selects the
 #    first non-comment child of `program`. Top-level statements in
 #    tree-sitter-bash come in several kinds, so the rule enumerates them
-#    via `any`.
+#    via `any`. `pipeline`, `list`, and `negated_command` MUST be in the
+#    enumeration: tree-sitter-bash parses `cmd1 | cmd2` as a `pipeline`,
+#    `cmd1 && cmd2` / `cmd1 ; cmd2` as a `list`, and `! cmd` as a
+#    `negated_command` — none of those are `command` nodes, so omitting
+#    them lets a script silently bypass WSL001 by making its first
+#    top-level node one of those shapes (PR #243 review 4369033574).
 #  - Files containing only comments (or only a shebang) produce no match
 #    and pass cleanly — there is no command to flag.
 
@@ -36,6 +41,9 @@ rule:
     - kind: redirected_statement
     - kind: subshell
     - kind: compound_statement
+    - kind: pipeline
+    - kind: list
+    - kind: negated_command
   inside:
     kind: program
   nthChild:

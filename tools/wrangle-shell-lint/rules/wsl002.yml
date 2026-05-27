@@ -14,6 +14,10 @@
 #
 # Implementation: identical sibling-position pattern as WSL001, except
 # checking the second non-comment child for the literal `set -f`.
+# `pipeline`, `list`, and `negated_command` are included in the kinds
+# enumeration to prevent the same bypass class as WSL001: e.g.
+# `true | false` or `set -f && printf hi` at position 2 would silently
+# pass if those kinds were omitted (PR #243 review 4369033574).
 
 id: wsl002-set-f-must-be-second
 severity: error
@@ -31,6 +35,9 @@ rule:
     - kind: redirected_statement
     - kind: subshell
     - kind: compound_statement
+    - kind: pipeline
+    - kind: list
+    - kind: negated_command
   inside:
     kind: program
   nthChild:

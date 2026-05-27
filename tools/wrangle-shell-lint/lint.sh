@@ -43,11 +43,18 @@ SGCONFIG="${SCRIPT_DIR}/sgconfig.yml"
 # but fall back to anything on $PATH so local developers who installed
 # via `brew install ast-grep` or `cargo install` aren't forced through
 # the wrangle install script.
+#
+# When falling back to PATH, log which binary and which version we
+# picked so CI logs make it obvious if the pinned install.sh binary
+# wasn't used (PR #243 review 4369032065 / comment 3308126456).
 ast_grep_bin=""
+ast_grep_source=""
 if [[ -n "${WRANGLE_BIN_DIR:-}" && -x "${WRANGLE_BIN_DIR}/ast-grep" ]]; then
     ast_grep_bin="${WRANGLE_BIN_DIR}/ast-grep"
+    ast_grep_source="WRANGLE_BIN_DIR"
 elif command -v ast-grep >/dev/null 2>&1; then
     ast_grep_bin="$(command -v ast-grep)"
+    ast_grep_source="PATH"
 fi
 
 if [[ -z "$ast_grep_bin" ]]; then
@@ -55,6 +62,13 @@ if [[ -z "$ast_grep_bin" ]]; then
     printf 'wrangle-shell-lint: install via tools/wrangle-shell-lint/install.sh\n' >&2
     printf 'wrangle-shell-lint: or place ast-grep on PATH.\n' >&2
     exit 2
+fi
+
+if [[ "$ast_grep_source" == "PATH" ]]; then
+    ast_grep_version="$("$ast_grep_bin" --version 2>/dev/null | head -n1 || true)"
+    printf 'wrangle-shell-lint: using ast-grep from PATH: %s (%s)\n' \
+        "$ast_grep_bin" "${ast_grep_version:-version unknown}" >&2
+    printf 'wrangle-shell-lint: set WRANGLE_BIN_DIR to the pinned install dir for CI parity.\n' >&2
 fi
 
 # is_shell_script: true if $1 is a *.sh file or an extensionless file
@@ -132,7 +146,18 @@ for t in "${targets[@]}"; do
         hash="$(printf '%s' "$t" | sha1sum | cut -c1-12)"
         base="$(basename "$t")"
         stage="${STAGE_DIR}/${hash}-${base}.sh"
-        ln -s "$t" "$stage"
+        # Resolve $t to an absolute path before symlinking. A relative
+        # path passed by the caller would become a relative-target
+        # symlink that doesn't resolve from inside STAGE_DIR, causing
+        # ast-grep to print `ERROR: ... No such file or directory` to
+        # stderr but still exit 0 — a silent fail-open.
+        # See PR #243 review 4369032065 / comment 3308126441.
+        abs_t="$(readlink -f "$t" 2>/dev/null || true)"
+        if [[ -z "$abs_t" || ! -e "$abs_t" ]]; then
+            printf 'wrangle-shell-lint: cannot resolve %s\n' "$t" >&2
+            exit 2
+        fi
+        ln -s "$abs_t" "$stage"
         scan_paths+=("$stage")
         real_paths+=("$t")
     fi
@@ -143,28 +168,60 @@ done
 # any finding. --report-style short keeps the output as one line per
 # finding: <path>:<line>:<col>: <severity>[<rule-id>]: <message>
 #
-# Capture output so we can rewrite stage-dir paths back to source paths.
-ast_grep_output="$("$ast_grep_bin" scan \
+# Capture stdout (findings) and stderr (tool errors) separately. We
+# MUST inspect stderr: ast-grep can exit 0 while writing `ERROR: ...`
+# to stderr (e.g. unresolvable file path, unreadable file). For a
+# security linter, fail-closed on tool error is mandatory — silently
+# treating those as pass is a fail-open bug (PR #243 review 4369032065
+# / comment 3308126441; CLAUDE.md Adapter Contract analogue).
+ast_grep_stdout_file="$(mktemp "${STAGE_DIR}/stdout.XXXXXX")"
+ast_grep_stderr_file="$(mktemp "${STAGE_DIR}/stderr.XXXXXX")"
+"$ast_grep_bin" scan \
     -c "$SGCONFIG" \
     --error \
     --report-style short \
-    "${scan_paths[@]}" 2>&1)" && ast_grep_status=0 || ast_grep_status=$?
+    "${scan_paths[@]}" \
+    >"$ast_grep_stdout_file" 2>"$ast_grep_stderr_file" && ast_grep_status=0 || ast_grep_status=$?
+
+ast_grep_stdout="$(cat "$ast_grep_stdout_file")"
+ast_grep_stderr="$(cat "$ast_grep_stderr_file")"
 
 # Rewrite any STAGE_DIR/<hash>-<base>.sh paths back to the source path
 # the user passed in. The hash prefix is the SHA-1 (first 12 chars) of
-# the original path, so the mapping is unambiguous.
-if [[ -n "$ast_grep_output" ]]; then
-    rewritten="$ast_grep_output"
+# the original path, so the mapping is unambiguous. Applied to both
+# stdout (findings) and stderr (errors) so messages point at real files.
+rewrite_paths() {
+    local s="$1"
+    local i sp rp
     for i in "${!scan_paths[@]}"; do
         sp="${scan_paths[$i]}"
         rp="${real_paths[$i]}"
         if [[ "$sp" != "$rp" ]]; then
-            # Use a placeholder to avoid double-substitution if a real
-            # path happens to look like a stage path.
-            rewritten="${rewritten//${sp}/${rp}}"
+            # Use parameter expansion to avoid double-substitution if a
+            # real path happens to look like a stage path.
+            s="${s//${sp}/${rp}}"
         fi
     done
-    printf '%s\n' "$rewritten"
+    printf '%s' "$s"
+}
+
+if [[ -n "$ast_grep_stdout" ]]; then
+    printf '%s\n' "$(rewrite_paths "$ast_grep_stdout")"
+fi
+
+# Fail-closed on ERROR: lines in stderr regardless of exit status. The
+# anchor `^ERROR:` matches ast-grep's stderr error format precisely
+# (unresolvable path, unreadable file, parser load failure, etc.).
+if printf '%s' "$ast_grep_stderr" | grep -q '^ERROR:'; then
+    printf '%s\n' "$(rewrite_paths "$ast_grep_stderr")" >&2
+    printf 'wrangle-shell-lint: ast-grep reported tool errors (see above); failing closed.\n' >&2
+    exit 2
+fi
+
+# If stderr has any other content (warnings, progress), surface it too
+# so it's visible in CI logs — but only fail on the ERROR: case above.
+if [[ -n "$ast_grep_stderr" ]]; then
+    printf '%s\n' "$(rewrite_paths "$ast_grep_stderr")" >&2
 fi
 
 # ast-grep returns 0 on clean, 1 on any error-level finding, 2-3 on

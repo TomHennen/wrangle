@@ -132,18 +132,22 @@ tmp_file=""
 cleanup() { [[ -n "$tmp_file" && -f "$tmp_file" ]] && rm -f "$tmp_file"; tmp_file=""; }
 trap cleanup EXIT INT TERM
 
-# set +f: this loop intentionally expands the workflow-file glob to
-# discover every .yml / .yaml file under .github/workflows. nullglob
-# makes both globs collapse to empty when the dir is empty so we never
-# iterate literal "*.yml" / "*.yaml" filenames. set -f is restored
-# immediately after the loop header so the loop body runs with
-# glob-disabled state.
+# Expand the workflow-file glob ONCE into an array, then restore the
+# glob-disabled state before iterating. Confining set +f / nullglob to
+# the expansion site (not the loop body) means: (1) `set -f` is restored
+# before any per-file processing, (2) `shopt -u nullglob` is restored
+# too (previously the nullglob change leaked past the loop), (3) the
+# code matches its comment. Per PR #243 review 4369032065 / comment
+# 3308126449. nullglob makes both globs collapse to empty when the dir
+# is empty so we never iterate literal "*.yml" / "*.yaml" filenames.
 set +f
 shopt -s nullglob
+workflow_files=( "$REPO_ROOT/$PINS_DIR"/*.yml "$REPO_ROOT/$PINS_DIR"/*.yaml )
+shopt -u nullglob
+set -f
 changed=0
 total=0
-for f in "$REPO_ROOT/$PINS_DIR"/*.yml "$REPO_ROOT/$PINS_DIR"/*.yaml; do
-    set -f
+for f in "${workflow_files[@]}"; do
     [[ -f "$f" ]] || continue
 
     # Filter to files that even contain a matching pin.

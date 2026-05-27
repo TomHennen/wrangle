@@ -105,4 +105,11 @@ RUN set -euo pipefail && \
     rm "/tmp/${ZIP}" && \
     ast-grep --version
 
+# Point WRANGLE_BIN_DIR at the directory where ast-grep was installed
+# above so tools/wrangle-shell-lint/lint.sh picks it up via its
+# preferred-path branch (not the PATH fallback, which prints a CI-parity
+# warning to stderr). Keeps bats `[ -z "$output" ]` assertions on
+# clean-run tests passing under the image. See PR #243 follow-up.
+ENV WRANGLE_BIN_DIR=/usr/local/bin
+
 WORKDIR /wrangle
