@@ -38,6 +38,33 @@ RUN set -euo pipefail && \
     tar -xzf "/tmp/$TARBALL" -C /usr/local/bin actionlint && \
     rm "/tmp/$TARBALL"
 
+# Install mikefarah's yq — pinned binary with checksum verification.
+# Used by build/actions/go/release/cgo_preflight.sh to parse adopter
+# .goreleaser.yml. ubuntu-latest preinstalls yq, so the release
+# composite assumes it on PATH; this RUN block keeps the same binary
+# available inside the test container so bats can exercise the
+# preflight against real fixtures rather than mocks.
+#
+# Apt's `yq` is the kislyuk Python wrapper with different syntax —
+# don't substitute. The mikefarah binary is shipped at github.com/
+# mikefarah/yq/releases/<tag>/yq_linux_<arch>.
+ARG YQ_VERSION=4.53.2
+ARG YQ_CHECKSUM_ARM64=03061b2a50c7a498de2bbb92d7cb078ce433011f085a4994117c2726be4106ea
+ARG YQ_CHECKSUM_AMD64=d56bf5c6819e8e696340c312bd70f849dc1678a7cda9c2ad63eebd906371d56b
+RUN set -euo pipefail && \
+    ARCH="$(uname -m)" && \
+    case "$ARCH" in \
+        aarch64) GOARCH=arm64; EXPECTED_CHECKSUM="$YQ_CHECKSUM_ARM64" ;; \
+        x86_64)  GOARCH=amd64; EXPECTED_CHECKSUM="$YQ_CHECKSUM_AMD64" ;; \
+        *) echo "Unsupported arch: $ARCH" >&2; exit 1 ;; \
+    esac && \
+    BINARY="yq_linux_${GOARCH}" && \
+    curl -sSL -o "/tmp/${BINARY}" \
+        "https://github.com/mikefarah/yq/releases/download/v${YQ_VERSION}/${BINARY}" && \
+    echo "$EXPECTED_CHECKSUM  /tmp/${BINARY}" | sha256sum -c - && \
+    install -m 0755 "/tmp/${BINARY}" /usr/local/bin/yq && \
+    rm "/tmp/${BINARY}"
+
 # Install Go — pinned version with checksum verification. Used by
 # build/actions/go/test.bats layer-3 integration tests (real gofmt,
 # go vet, go test, govulncheck against fixtures). Other build types'

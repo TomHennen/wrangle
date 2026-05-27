@@ -83,13 +83,40 @@ runs:
         set -euo pipefail
         "${{ github.action_path }}/validate_inputs.sh" "$INPUT_PATH" "$INPUT_CACHE" "$INPUT_PUBLISH"
 
-    - name: Advisory preflight (cgo + cross-compile)
+    # Preflight: parses inputs.path/.goreleaser.yml with yq+jq and
+    # decides (a) whether to install zig (when the adopter has set
+    # CC=zig templates), and (b) whether to emit a workflow warning
+    # (when CGO_ENABLED=1 is combined with a non-linux/amd64 target
+    # and no cross-toolchain hint). yq + jq are preinstalled on
+    # ubuntu-latest. Always exits 0 — advisory only.
+    - name: Cgo preflight
+      id: preflight
       shell: bash
       env:
         INPUT_PATH: ${{ inputs.path }}
       run: |
         set -euo pipefail
         "${{ github.action_path }}/cgo_preflight.sh" "$INPUT_PATH"
+
+    # Conditional zig install — only when the preflight detected
+    # CC=zig (or CXX=zig) in the adopter's .goreleaser.yml env block.
+    # Wrangle owning the install means the adopter's config stays
+    # short: per-cell `CC=zig cc -target X` templates with no
+    # `before.hooks` curl + sha256 + sudo plumbing. tools/zig/install.sh
+    # uses hardcoded SHA-256 since ziglang.org does not publish SLSA
+    # or Sigstore for binary releases (CLAUDE.md fallback).
+    - name: Install zig (cgo cross-compile toolchain)
+      if: steps.preflight.outputs.install-zig == 'true'
+      shell: bash
+      env:
+        WRANGLE_ROOT: ${{ github.action_path }}/../../../..
+      run: |
+        set -euo pipefail
+        "$WRANGLE_ROOT/tools/zig/install.sh"
+        BIN_DIR="${WRANGLE_BIN_DIR:-${RUNNER_TEMP:-.}/.wrangle/bin}"
+        # Put wrangle's bin on PATH so goreleaser (and any per-cell
+        # CC=zig cc... template) resolves the newly-installed binary.
+        printf '%s\n' "$BIN_DIR" >> "$GITHUB_PATH"
 
     - name: Compute metadata
       id: metadata

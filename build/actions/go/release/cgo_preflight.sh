@@ -1,18 +1,34 @@
 #!/bin/bash
-# Advisory pre-flight that warns when .goreleaser.yml configures
-# CGO_ENABLED=1 with a build matrix the default ubuntu-latest runner
-# cannot cross-compile (anything outside linux/amd64). The runner ships
-# an amd64-only gcc; cgo to linux/arm64 or any darwin/windows target
-# fails inside goreleaser with cryptic `# runtime/cgo` assembler
-# errors. We surface a workflow warning that names the failure mode
-# and points at the cgo example, so adopters don't burn 10 minutes
-# decoding `gcc_arm64.S: Error: no such instruction: 'stp ...'`.
+# Pre-flight that inspects .goreleaser.yml for cgo + cross-compile
+# patterns and decides what wrangle needs to do before goreleaser runs:
 #
-# This is best-effort by design: grep-level detection, advisory only,
-# always exits 0. False negatives (missed config shapes) are acceptable
-# — goreleaser will still fail loudly. False positives (warning when
-# the adopter already wired a cross-toolchain) are suppressed by a
-# coarse "looks like cgo cross-toolchain is set up" heuristic.
+#   - If the adopter has set `CC=zig ...` (or `CXX=zig ...`) anywhere
+#     in a builds[].env entry, signal install-zig=true so the release
+#     composite installs zig before goreleaser invocation. Wrangle
+#     owns the toolchain so the adopter's .goreleaser.yml stays short
+#     (per-cell `CC=zig cc -target X` templates, no install plumbing).
+#
+#   - If the adopter has CGO_ENABLED=1 with non-amd64 or non-linux
+#     build cells AND no cross-toolchain hint (no CC=zig and no other
+#     CC= override), emit a workflow ::warning:: naming the failure
+#     mode and pointing at the cgo example. Goreleaser will fail
+#     loudly anyway; the warning makes the cause discoverable.
+#
+# Implementation: yq -o json | jq. yq converts YAML to JSON; jq does
+# the actual selection. jq's filter language handles default values,
+# null safety, and Cartesian iteration cleanly — earlier grep-based
+# attempts (#270 first revision) needed multiple sanitizers and still
+# false-positived on comments and `ignore:` blocks.
+#
+# Required tools: yq (mikefarah's, v4.x) and jq. Both are preinstalled
+# on ubuntu-latest, and the test image installs them too (see
+# test/Dockerfile). If either is missing the preflight degrades to a
+# no-op with a debug log — wrangle's release composite does not
+# install yq itself; it relies on the runner image.
+#
+# Output: writes `install-zig=true|false` to $GITHUB_OUTPUT. Always
+# exits 0 — the preflight is advisory and must never block the
+# release.
 #
 # Usage: build/actions/go/release/cgo_preflight.sh <project-dir>
 
@@ -26,97 +42,93 @@ fi
 
 PROJECT_DIR="$1"
 
+# Helper: append a key=value to $GITHUB_OUTPUT if set, else print to
+# stdout (so tests can capture the value without simulating GHA).
+write_output() {
+    local key="$1"
+    local value="$2"
+    if [[ -n "${GITHUB_OUTPUT:-}" ]]; then
+        printf '%s=%s\n' "$key" "$value" >> "$GITHUB_OUTPUT"
+    else
+        printf '%s=%s\n' "$key" "$value"
+    fi
+}
+
+# Resolve config path (mirrors validate_inputs.sh's enforcement order).
 CONFIG=""
 if [[ -f "$PROJECT_DIR/.goreleaser.yml" ]]; then
     CONFIG="$PROJECT_DIR/.goreleaser.yml"
 elif [[ -f "$PROJECT_DIR/.goreleaser.yaml" ]]; then
     CONFIG="$PROJECT_DIR/.goreleaser.yaml"
-else
-    # validate_inputs.sh already enforced presence; defensive no-op.
+fi
+if [[ -z "$CONFIG" ]]; then
+    # validate_inputs.sh already enforces presence; defensive no-op.
+    write_output "install-zig" "false"
     exit 0
 fi
 
-# Strip noise before pattern-matching:
-#   - YAML comment lines (an adopter commenting out `CGO_ENABLED=1`
-#     or documenting goos targets in prose would otherwise trip the
-#     pattern grep).
-#   - `ignore:` blocks (goreleaser's standard way of *excluding* a
-#     (goos, goarch) cell; counting those cells would warn on the
-#     exact case where the adopter already did the right thing).
-# Output goes to stdout for downstream `grep -qE` to consume via
-# process substitution.
-sanitize() {
-    awk '
-        # Drop full-line YAML comments. (Inline trailing `# ...`
-        # comments are intentionally kept — they'\''re a small share
-        # of the false-positive surface and stripping them properly
-        # requires distinguishing `#` inside quoted strings.)
-        /^[[:space:]]*#/ { next }
+# Required tools. Either missing → advisory no-op rather than break
+# the release. On ubuntu-latest both are preinstalled; if a future
+# runner image drops yq, this branch keeps the release working while
+# emitting a debug log that explains the missing preflight.
+# stdout (not stderr) because GitHub Actions workflow commands
+# (::debug::, ::warning::) must be on the runner's read stream.
+for tool in yq jq; do
+    if ! command -v "$tool" >/dev/null 2>&1; then
+        printf '::debug::cgo_preflight: %s not on PATH; skipping advisory preflight\n' "$tool"
+        write_output "install-zig" "false"
+        exit 0
+    fi
+done
 
-        # Skip lines belonging to an `ignore:` block. Block starts
-        # with `ignore:` at some indent; ends when a non-blank line
-        # returns to that indent or shallower.
-        in_ignore {
-            if ($0 ~ /^[[:space:]]*$/) next
-            match($0, /^ */); col = RLENGTH
-            if (col > ignore_col) next
-            in_ignore = 0
-        }
-        /^[[:space:]]*ignore:[[:space:]]*$/ {
-            in_ignore = 1
-            match($0, /^ */); ignore_col = RLENGTH
-            next
-        }
+# Convert YAML to JSON once; downstream jq queries operate on that.
+JSON_CONFIG=""
+if ! JSON_CONFIG="$(yq -o json "$CONFIG" 2>/dev/null)"; then
+    printf '::debug::cgo_preflight: %s is not parseable as YAML; skipping\n' "$CONFIG"
+    write_output "install-zig" "false"
+    exit 0
+fi
 
-        { print }
-    ' "$CONFIG"
-}
+# Signal 1: zig as cross-compiler. Match `CC=zig` or `CXX=zig` (with
+# optional whitespace around `=`) in any builds[].env entry. The
+# anchored pattern avoids false positives like `MY_ZIG_PATH=...`.
+NEEDS_ZIG="false"
+if printf '%s' "$JSON_CONFIG" \
+    | jq -r '.builds[]?.env[]? // empty' \
+    | grep -qE '^[[:space:]]*(CC|CXX)[[:space:]]*=[[:space:]]*zig([[:space:]]|$)'; then
+    NEEDS_ZIG="true"
+fi
+write_output "install-zig" "$NEEDS_ZIG"
 
-# CGO_ENABLED=1 in any env: list (block or flow style). Matches the
-# common shapes: `- CGO_ENABLED=1`, `CGO_ENABLED: "1"`, flow-style
-# `env: [CGO_ENABLED=1]`, with optional surrounding quotes/whitespace.
-# The trailing `[^0-9a-zA-Z_]|$` guard rejects `CGO_ENABLED=10` /
-# `CGO_ENABLED=1true` etc. while allowing flow-list terminators
-# (`]`, `,`) and trailing punctuation.
-has_cgo_enabled() {
-    grep -qE "CGO_ENABLED[[:space:]]*[:=][[:space:]]*[\"']?1[\"']?([^0-9a-zA-Z_]|$)" < <(sanitize)
-}
+# Signal 2 (warning) is suppressed when wrangle is installing zig.
+if [[ "$NEEDS_ZIG" == "true" ]]; then
+    exit 0
+fi
 
-# Any target the runner can't natively cross-compile cgo for.
-# linux/amd64 is the runner's native — everything else needs a
-# cross-toolchain. Match goos/goarch lines in both flow style
-# (`goos: [linux, darwin]`) and block style (`- darwin`).
-has_non_native_target() {
-    local stripped
-    stripped="$(sanitize)"
-    grep -qE "goos:.*(darwin|windows)" <<<"$stripped" && return 0
-    grep -qE "goarch:.*(arm64|arm|386|riscv64|mips|s390x|ppc64)" <<<"$stripped" && return 0
-    # Block-style list items under goos:/goarch:. The grep is coarse —
-    # a stray top-level `- darwin` would match. False positives here
-    # are still real warnings (the adopter is doing something this
-    # preflight wasn't designed for).
-    grep -qE "^[[:space:]]+-[[:space:]]+(darwin|windows|arm64|riscv64|s390x|ppc64)([[:space:]]|$)" <<<"$stripped" && return 0
-    return 1
-}
+# Suppression: any other CC=/CXX= override (musl-gcc, mingw, etc.)
+# means the adopter has wired their own cross-toolchain. Stay quiet.
+if printf '%s' "$JSON_CONFIG" \
+    | jq -r '.builds[]?.env[]? // empty' \
+    | grep -qE '^[[:space:]]*(CC|CXX)[[:space:]]*='; then
+    exit 0
+fi
 
-# Heuristic: if the config already references a cross-toolchain
-# (zig, goreleaser-cross, an apt cross-gcc triple, or explicit
-# CC=/CXX= overrides), stay silent — the adopter knows what they're
-# doing. Misses are acceptable (we just warn redundantly).
-has_cross_toolchain_hint() {
-    local stripped
-    stripped="$(sanitize)"
-    grep -qE "zig[[:space:]]+cc|zig[[:space:]]+c\+\+|goreleaser-cross|aarch64-linux-gnu-gcc|x86_64-linux-musl|o64-clang|oa64-clang" <<<"$stripped" && return 0
-    grep -qE "^[[:space:]]*-[[:space:]]+(CC|CXX)[[:space:]]*=" <<<"$stripped" && return 0
-    return 1
-}
+# Effective goos/goarch per build with goreleaser's defaults applied
+# (goos = [linux, darwin, windows], goarch = [amd64, arm64, "386"]).
+# For each build that sets CGO_ENABLED=1, iterate over the cell
+# (goos, goarch) cartesian and emit any cell that isn't linux/amd64.
+NON_NATIVE_CELL="$(printf '%s' "$JSON_CONFIG" | jq -r '
+    .builds[]?
+    | select((.env // []) | any(. == "CGO_ENABLED=1"))
+    | (.goos // ["linux","darwin","windows"])[] as $os
+    | (.goarch // ["amd64","arm64","386"])[] as $arch
+    | $os + "/" + $arch
+    | select(. != "linux/amd64")
+' 2>/dev/null | head -1 || true)"
 
-if has_cgo_enabled && has_non_native_target && ! has_cross_toolchain_hint; then
-    # Single-line ::warning:: — multi-line content is allowed but
-    # only via the `%0A` URL-encoded newline; keep it readable in
-    # the Actions UI by sticking to one line.
+if [[ -n "$NON_NATIVE_CELL" ]]; then
     printf '::warning title=cgo + cross-compile may fail on ubuntu-latest::%s\n' \
-        "Your .goreleaser.yml sets CGO_ENABLED=1 with a non-linux or non-amd64 target. The default ubuntu-latest runner has an amd64-only C toolchain; goreleaser's cgo build for the other cells will fail with opaque '# runtime/cgo' assembler errors. Fix options: (a) set CGO_ENABLED=0 (Go cross-compiles freely without cgo), (b) restrict goos/goarch to linux/amd64, or (c) wire a cross-compile toolchain like zig — see gh_workflow_examples/build_go_cgo.goreleaser.yml for the working pattern."
+        "Your .goreleaser.yml sets CGO_ENABLED=1 with a non-linux/amd64 target (e.g., $NON_NATIVE_CELL). The default ubuntu-latest runner has an amd64-only C toolchain; goreleaser's cgo build for other cells will fail with opaque '# runtime/cgo' assembler errors. Fix options: (a) set CGO_ENABLED=0 (Go cross-compiles freely without cgo), (b) restrict goos/goarch to linux/amd64, or (c) set CC=zig cc -target ... templates in your env block — wrangle then installs zig automatically. Working example: gh_workflow_examples/build_go_cgo.goreleaser.yml."
 fi
 
 exit 0

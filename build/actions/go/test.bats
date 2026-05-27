@@ -1046,14 +1046,28 @@ func TestFails(t *testing.T) {
 }
 
 # ====================================================================
-# cgo_preflight.sh — advisory warning for cgo + cross-compile mismatch
+# cgo_preflight.sh — advisory warning + install-zig signal
 # ====================================================================
 #
-# These tests pin the behavior described in issue #259: when a project
-# sets CGO_ENABLED=1 with non-amd64 / non-linux build targets, the
-# release composite emits a ::warning:: naming the failure mode before
-# goreleaser runs. The preflight always exits 0 (advisory only) — the
-# tests assert on stdout content, not exit code.
+# Tests pin two behaviors described in issue #259:
+#   1. Warning emitted when CGO_ENABLED=1 + non-linux/amd64 targets +
+#      no cross-toolchain hint.
+#   2. install-zig=true signal when the adopter's env block sets
+#      CC=zig (or CXX=zig), so the release composite installs zig
+#      and the adopter doesn't need a before.hooks plumbing block.
+#
+# Preflight is advisory: always exits 0; tests assert on stdout
+# content. Implementation requires yq + jq (preinstalled on
+# ubuntu-latest, installed in test/Dockerfile via YQ_VERSION).
+#
+# All tests below skip cleanly if yq isn't on PATH — graceful
+# degradation rather than failure outside the test image.
+
+need_yq() {
+    if ! command -v yq >/dev/null 2>&1 || ! command -v jq >/dev/null 2>&1; then
+        skip "yq + jq required for preflight tests (test image installs them; run via ./test.sh)"
+    fi
+}
 
 write_goreleaser_content() {
     # $1: project dir, $2: file contents.
@@ -1064,6 +1078,7 @@ write_goreleaser_content() {
 }
 
 @test "go.release: cgo_preflight warns on CGO_ENABLED=1 + linux/arm64" {
+    need_yq
     local proj="$BATS_TEST_TMPDIR/proj"
     write_goreleaser_content "$proj" 'version: 2
 builds:
@@ -1079,6 +1094,7 @@ builds:
 }
 
 @test "go.release: cgo_preflight warns on CGO_ENABLED=1 + darwin target" {
+    need_yq
     local proj="$BATS_TEST_TMPDIR/proj"
     write_goreleaser_content "$proj" 'version: 2
 builds:
@@ -1093,6 +1109,7 @@ builds:
 }
 
 @test "go.release: cgo_preflight warns on CGO_ENABLED=1 + windows target" {
+    need_yq
     local proj="$BATS_TEST_TMPDIR/proj"
     write_goreleaser_content "$proj" 'version: 2
 builds:
@@ -1107,6 +1124,7 @@ builds:
 }
 
 @test "go.release: cgo_preflight warns on quoted CGO_ENABLED value" {
+    need_yq
     # CGO_ENABLED can be set as `"1"` (with quotes) in YAML-flow style,
     # or as `CGO_ENABLED: "1"` if someone writes the env block as a
     # map instead of a list (rare but valid).
@@ -1124,6 +1142,7 @@ builds:
 }
 
 @test "go.release: cgo_preflight stays silent on CGO_ENABLED=0" {
+    need_yq
     local proj="$BATS_TEST_TMPDIR/proj"
     write_goreleaser_content "$proj" 'version: 2
 builds:
@@ -1138,6 +1157,7 @@ builds:
 }
 
 @test "go.release: cgo_preflight stays silent on linux/amd64-only CGO build" {
+    need_yq
     local proj="$BATS_TEST_TMPDIR/proj"
     write_goreleaser_content "$proj" 'version: 2
 builds:
@@ -1152,6 +1172,7 @@ builds:
 }
 
 @test "go.release: cgo_preflight stays silent when CGO_ENABLED unset (default)" {
+    need_yq
     # CGO_ENABLED isn't mentioned at all — goreleaser falls back to
     # Go's own default (which cross-compiles fine without cgo).
     local proj="$BATS_TEST_TMPDIR/proj"
@@ -1167,6 +1188,7 @@ builds:
 }
 
 @test "go.release: cgo_preflight stays silent when zig cross-toolchain is configured" {
+    need_yq
     # If the adopter already wired zig via CC=zig cc -target ..., they
     # know what they're doing — suppress the warning.
     local proj="$BATS_TEST_TMPDIR/proj"
@@ -1184,6 +1206,7 @@ builds:
 }
 
 @test "go.release: cgo_preflight stays silent when an explicit CC= override is set" {
+    need_yq
     # Generic CC= override (not necessarily zig) — still treat as
     # "adopter knows what they're doing" and stay quiet.
     local proj="$BATS_TEST_TMPDIR/proj"
@@ -1201,6 +1224,7 @@ builds:
 }
 
 @test "go.release: cgo_preflight stays silent when CGO_ENABLED=1 is in a YAML comment line" {
+    need_yq
     # Adopter commenting out a setting to debug, or documenting in prose.
     # Pre-sanitizer this matched; the awk comment-strip pass fixed it.
     local proj="$BATS_TEST_TMPDIR/proj"
@@ -1218,6 +1242,7 @@ builds:
 }
 
 @test "go.release: cgo_preflight stays silent when a goos/goarch comment names darwin" {
+    need_yq
     # `# goos: [linux, darwin]` in a comment must not trigger the
     # non-native-target check.
     local proj="$BATS_TEST_TMPDIR/proj"
@@ -1235,6 +1260,7 @@ builds:
 }
 
 @test "go.release: cgo_preflight stays silent when ignore: excludes the risky cells" {
+    need_yq
     # The adopter has done the right thing — excluded darwin/arm64
     # explicitly. The non-native-target check used to match the
     # ignore-block goos/goarch lines. The sanitizer drops that block.
@@ -1257,6 +1283,7 @@ builds:
 }
 
 @test "go.release: cgo_preflight still warns when ignore: doesnt cover all risky cells" {
+    need_yq
     # ignore: removes darwin/arm64 but linux/arm64 is still in the
     # matrix → preflight still warns. Pins the sanitizer to skipping
     # only the ignore block, not the surrounding matrix.
@@ -1277,6 +1304,7 @@ builds:
 }
 
 @test "go.release: cgo_preflight does not match CGO_ENABLED=10 (regex tightening)" {
+    need_yq
     # The `[^0-9a-zA-Z_]|$` guard rejects multi-digit / multi-char values.
     local proj="$BATS_TEST_TMPDIR/proj"
     write_goreleaser_content "$proj" 'version: 2
@@ -1292,6 +1320,7 @@ builds:
 }
 
 @test "go.release: cgo_preflight handles .goreleaser.yaml (alternate extension)" {
+    need_yq
     local proj="$BATS_TEST_TMPDIR/proj"
     mkdir -p "$proj"
     printf 'version: 2\nbuilds:\n  - env: [CGO_ENABLED=1]\n    goos: [darwin]\n    goarch: [arm64]\n' > "$proj/.goreleaser.yaml"
@@ -1301,13 +1330,17 @@ builds:
 }
 
 @test "go.release: cgo_preflight exits 0 when config is missing (defensive)" {
+    need_yq
     # validate_inputs.sh enforces presence, but the preflight must
-    # never crash if called in isolation against an empty dir.
+    # never crash if called in isolation against an empty dir. AND
+    # it must still write install-zig=false so the downstream
+    # conditional zig install step makes the right decision (skip).
     local proj="$BATS_TEST_TMPDIR/proj"
     mkdir -p "$proj"
     run "$RELEASE_DIR/cgo_preflight.sh" "$proj"
     [[ "$status" -eq 0 ]]
     [[ "$output" != *"::warning"* ]]
+    grep -qE '^install-zig=false$' "$GITHUB_OUTPUT"
 }
 
 @test "go.release: cgo_preflight rejects wrong arg count" {
@@ -1329,15 +1362,215 @@ builds:
     [[ "$status" -eq 0 ]]
 }
 
+# --- install-zig signal -------------------------------------------------
+
+@test "go.release: cgo_preflight emits install-zig=true when CC=zig in env" {
+    need_yq
+    local proj="$BATS_TEST_TMPDIR/proj"
+    write_goreleaser_content "$proj" 'version: 2
+builds:
+  - env:
+      - CGO_ENABLED=1
+      - "CC=zig cc -target aarch64-linux-gnu"
+    goos: [linux]
+    goarch: [amd64, arm64]
+'
+    run "$RELEASE_DIR/cgo_preflight.sh" "$proj"
+    [[ "$status" -eq 0 ]]
+    # Setup exports GITHUB_OUTPUT → the install-zig line goes there,
+    # not stdout. This pins both the value and the writer side.
+    grep -qE '^install-zig=true$' "$GITHUB_OUTPUT"
+}
+
+@test "go.release: cgo_preflight emits install-zig=true when CXX=zig in env" {
+    need_yq
+    local proj="$BATS_TEST_TMPDIR/proj"
+    write_goreleaser_content "$proj" 'version: 2
+builds:
+  - env:
+      - CGO_ENABLED=1
+      - "CXX=zig c++ -target aarch64-linux-gnu"
+    goos: [linux]
+    goarch: [amd64, arm64]
+'
+    run "$RELEASE_DIR/cgo_preflight.sh" "$proj"
+    [[ "$status" -eq 0 ]]
+    grep -qE '^install-zig=true$' "$GITHUB_OUTPUT"
+}
+
+@test "go.release: cgo_preflight emits install-zig=false when env lacks CC=zig" {
+    need_yq
+    local proj="$BATS_TEST_TMPDIR/proj"
+    write_goreleaser_content "$proj" 'version: 2
+builds:
+  - env:
+      - CGO_ENABLED=0
+    goos: [linux]
+    goarch: [amd64]
+'
+    run "$RELEASE_DIR/cgo_preflight.sh" "$proj"
+    [[ "$status" -eq 0 ]]
+    grep -qE '^install-zig=false$' "$GITHUB_OUTPUT"
+}
+
+@test "go.release: cgo_preflight install-zig signal is NOT triggered by unrelated MY_ZIG_PATH" {
+    # The anchored CC=zig / CXX=zig pattern must not match a stray
+    # env var that happens to contain "zig" in its value.
+    need_yq
+    local proj="$BATS_TEST_TMPDIR/proj"
+    write_goreleaser_content "$proj" 'version: 2
+builds:
+  - env:
+      - CGO_ENABLED=1
+      - "MY_ZIG_PATH=/opt/zig"
+    goos: [linux]
+    goarch: [amd64, arm64]
+'
+    run "$RELEASE_DIR/cgo_preflight.sh" "$proj"
+    [[ "$status" -eq 0 ]]
+    grep -qE '^install-zig=false$' "$GITHUB_OUTPUT"
+    # And since we have CGO + cross + no CC override, the warning
+    # should still fire.
+    [[ "$output" == *"::warning"* ]]
+}
+
+@test "go.release: cgo_preflight install-zig signal suppresses the warning" {
+    # If we're installing zig, the adopter has handled the toolchain
+    # — don't emit the warning. Pin both behaviors at once.
+    need_yq
+    local proj="$BATS_TEST_TMPDIR/proj"
+    write_goreleaser_content "$proj" 'version: 2
+builds:
+  - env:
+      - CGO_ENABLED=1
+      - "CC=zig cc -target aarch64-linux-gnu"
+    goos: [linux, darwin]
+    goarch: [amd64, arm64]
+'
+    run "$RELEASE_DIR/cgo_preflight.sh" "$proj"
+    [[ "$status" -eq 0 ]]
+    grep -qE '^install-zig=true$' "$GITHUB_OUTPUT"
+    [[ "$output" != *"::warning"* ]]
+}
+
+@test "go.release: cgo_preflight writes install-zig to GITHUB_OUTPUT when set" {
+    # The release composite reads the output via
+    # steps.preflight.outputs.install-zig; pin the writer side.
+    need_yq
+    local proj="$BATS_TEST_TMPDIR/proj"
+    write_goreleaser_content "$proj" 'version: 2
+builds:
+  - env:
+      - CGO_ENABLED=1
+      - "CC=zig cc -target aarch64-linux-gnu"
+    goos: [linux]
+    goarch: [amd64, arm64]
+'
+    local outfile="$BATS_TEST_TMPDIR/gha_output"
+    : > "$outfile"
+    GITHUB_OUTPUT="$outfile" run "$RELEASE_DIR/cgo_preflight.sh" "$proj"
+    [[ "$status" -eq 0 ]]
+    grep -qE '^install-zig=true$' "$outfile"
+    # And stdout no longer carries it (it went to GITHUB_OUTPUT instead).
+    [[ "$output" != *"install-zig="* ]]
+}
+
+# --- Step wiring (structural guards on the composite) -------------------
+
+@test "go.release: cgo_preflight step is named with id=preflight (consumed by zig install)" {
+    # The conditional zig install step references
+    # steps.preflight.outputs.install-zig — pin that id here so
+    # accidental rename of one without the other is caught.
+    run grep -E '^      id: preflight$' "$RELEASE_ACTION"
+    [[ "$status" -eq 0 ]]
+}
+
+@test "go.release: zig install step is gated on preflight install-zig output" {
+    # The release composite installs zig ONLY when the preflight
+    # detected CC=zig in the adopter's .goreleaser.yml. This pins
+    # the if: expression so it never silently becomes always-on
+    # (would install zig on every release) or always-off (would
+    # leave goreleaser to fail).
+    run grep -F "steps.preflight.outputs.install-zig == 'true'" "$RELEASE_ACTION"
+    [[ "$status" -eq 0 ]]
+}
+
+@test "go.release: zig install step invokes tools/zig/install.sh" {
+    run grep -F 'tools/zig/install.sh' "$RELEASE_ACTION"
+    [[ "$status" -eq 0 ]]
+}
+
+@test "go.release: zig install step adds WRANGLE_BIN_DIR to GITHUB_PATH" {
+    # Without putting wrangle's bin on PATH, goreleaser's per-cell
+    # CC=zig cc -target ... env template can't resolve the just-
+    # installed binary. Pin that step so a refactor doesn't lose it.
+    run grep -F '$GITHUB_PATH' "$RELEASE_ACTION"
+    [[ "$status" -eq 0 ]]
+}
+
+# --- Example file + tool installer structural tests ---------------------
+
 @test "go: cgo example .goreleaser.yml exists in gh_workflow_examples" {
     [[ -f "$REPO_ROOT/gh_workflow_examples/build_go_cgo.goreleaser.yml" ]]
 }
 
-@test "go: cgo example flags the SHA256 placeholder (adopters must replace)" {
-    # The example ships with REPLACE_WITH_PUBLISHED_SHA256 so that an
-    # adopter who copy-pastes without reading the comment fails fast
-    # at sha256sum -c rather than running a fabricated checksum past
-    # supply-chain due diligence.
-    run grep -F 'REPLACE_WITH_PUBLISHED_SHA256' "$REPO_ROOT/gh_workflow_examples/build_go_cgo.goreleaser.yml"
+@test "go: cgo example uses CC=zig env templates" {
+    # The example's whole purpose: show adopters the env templates
+    # that trigger wrangle's auto-install. Pin that it actually does.
+    run grep -F 'CC=zig cc -target' "$REPO_ROOT/gh_workflow_examples/build_go_cgo.goreleaser.yml"
+    [[ "$status" -eq 0 ]]
+}
+
+@test "go: cgo example does NOT install zig in before.hooks (wrangle owns that)" {
+    # Earlier draft (#270 first revision) had a curl + sha256 +
+    # sudo install plumbed into goreleaser's before.hooks. With
+    # wrangle owning the install, the example file should be clean
+    # of that complexity.
+    run grep -F 'sha256sum' "$REPO_ROOT/gh_workflow_examples/build_go_cgo.goreleaser.yml"
+    [[ "$status" -ne 0 ]]
+    run grep -F 'before:' "$REPO_ROOT/gh_workflow_examples/build_go_cgo.goreleaser.yml"
+    [[ "$status" -ne 0 ]]
+}
+
+@test "tools/zig: install.sh exists and is executable" {
+    [[ -x "$REPO_ROOT/tools/zig/install.sh" ]]
+}
+
+@test "tools/zig: install.sh does NOT need set -f (only one positional arg)" {
+    # set -f is required only for scripts that process external
+    # tokens that could glob-expand. install.sh's single optional
+    # arg is a version string with a strict shape; no need.
+    # Documenting absence so future contributors don't add it
+    # cargo-culted from validate_inputs.sh.
+    run grep '^set -f' "$REPO_ROOT/tools/zig/install.sh"
+    [[ "$status" -ne 0 ]]
+}
+
+@test "tools/zig: install.sh uses wrangle_download_verify (no curl | sh)" {
+    run grep 'wrangle_download_verify' "$REPO_ROOT/tools/zig/install.sh"
+    [[ "$status" -eq 0 ]]
+}
+
+@test "tools/zig: install.sh hardcodes per-(version, arch) SHA-256" {
+    # Per CLAUDE.md: tools without SLSA/Sigstore must hardcode the
+    # checksum. Grep for a 64-hex SHA-256 line as a structural guard.
+    run grep -E '^[[:space:]]*"[0-9.]+:(x86_64|aarch64)".*[0-9a-f]{64}' "$REPO_ROOT/tools/zig/install.sh"
+    [[ "$status" -eq 0 ]]
+}
+
+@test "tools/zig: install.sh does NOT download checksums from same source as binary" {
+    # CLAUDE.md: "No downloading checksums from the same source as
+    # binaries." Zig has no SLSA / Sigstore; the SHA-256 lives in
+    # the script itself, not fetched at runtime.
+    run grep -E 'curl.*\.sha256|wget.*\.sha256' "$REPO_ROOT/tools/zig/install.sh"
+    [[ "$status" -ne 0 ]]
+}
+
+@test "test/Dockerfile installs mikefarah's yq (for preflight tests)" {
+    # The preflight uses yq + jq. jq is preinstalled in the
+    # base image; yq is mikefarah-specific (the apt yq is the
+    # Python wrapper with different syntax). Pin that we ship
+    # the right one in the test image.
+    run grep -E 'mikefarah/yq/releases' "$REPO_ROOT/test/Dockerfile"
     [[ "$status" -eq 0 ]]
 }
