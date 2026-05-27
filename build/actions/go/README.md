@@ -60,6 +60,8 @@ If your repo has no semver tags yet (only non-semver tags like `phase-0-complete
 
 The recommended `snapshot.version_template: "{{ .ShortCommit }}-snapshot"` in the [example config](../../../gh_workflow_examples/build_go.goreleaser.yml) avoids `.Version` entirely and works regardless of tag history. If you customize the snapshot template with semver functions (`incpatch`, `incminor`, `incmajor`), snapshot builds will fail until you push a `v*` tag — push `v0.0.0` to establish a semver baseline.
 
+Monorepo users with goreleaser's `monorepo.tag_prefix:` (release tags like `mymodule/v1.2.3`) don't see the warning — the check looks for prefix-shaped tags too, since goreleaser strips the prefix internally.
+
 See goreleaser's [snapshot docs](https://goreleaser.com/customization/snapshots/) and [template reference](https://goreleaser.com/customization/templates/) for the full template syntax.
 
 ## What the SLSA provenance covers (and what it doesn't)

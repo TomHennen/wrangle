@@ -1128,6 +1128,34 @@ init_repo() {
     [[ "$output" != *"tag-08"* ]]
 }
 
+@test "go.release: check_semver_tags.sh stays silent on goreleaser monorepo tag-prefix layouts" {
+    # Goreleaser's monorepo.tag_prefix produces tags like
+    # `mymodule/v1.2.3`. Those don't start with `v` so the
+    # `--match 'v[0-9]*'` lookup misses them, but goreleaser strips the
+    # prefix internally and resolves .Version correctly. The check must
+    # not warn in this case — the adopter's setup is fine end-to-end.
+    local repo="$BATS_TEST_TMPDIR/repo"
+    init_repo "$repo"
+    git -C "$repo" tag "mymodule/v1.2.3"
+    run bash -c 'cd "$1" && "$2"' -- "$repo" "$RELEASE_DIR/check_semver_tags.sh"
+    [[ "$status" -eq 0 ]]
+    [[ -z "$output" ]]
+}
+
+@test "go.release: check_semver_tags.sh warning names the .goreleaser.yml path and snapshot key" {
+    # When the warning fires, the message must point the adopter at the
+    # specific file and YAML key to inspect — otherwise a user who
+    # inherited their config and doesn't recognize incpatch/incminor/
+    # incmajor will grep their repo and find nothing.
+    local repo="$BATS_TEST_TMPDIR/repo"
+    init_repo "$repo"
+    git -C "$repo" tag "phase-0-complete"
+    run bash -c 'cd "$1" && "$2" "$3"' -- "$repo" "$RELEASE_DIR/check_semver_tags.sh" "cmd/foo"
+    [[ "$status" -eq 0 ]]
+    [[ "$output" == *"cmd/foo/.goreleaser.yml"* ]]
+    [[ "$output" == *"snapshot.version_template"* ]]
+}
+
 @test "go.release: check_semver_tags.sh prefers semver tag over earlier non-semver tag" {
     # When both kinds of tags are present, git describe --match "v[0-9]*"
     # must find the semver one and the script must exit 0 silent. This
@@ -1149,7 +1177,12 @@ init_repo() {
 @test "go.release: check_semver_tags step is skipped on v* tag pushes (redundant work)" {
     # The check is silenced on v* tag pushes anyway (git describe finds
     # the tag), but the explicit if: guard documents intent and saves
-    # a redundant fork on every release build.
-    run bash -c "awk '/Check for semver tags/,/run:/' \"$RELEASE_ACTION\" | grep -E \"if:.*!startsWith.*refs/tags/v\""
+    # a redundant fork on every release build. Pin against the exact
+    # expected if expression — `awk '/name/,/run:/'` slices the step
+    # only by happenstance of step ordering, so an unrelated startsWith
+    # on a sibling step would falsely satisfy a looser pattern. Tight
+    # match is what prevents this test from green-washing a regression.
+    run grep -A20 'name: Check for semver tags' "$RELEASE_ACTION"
     [[ "$status" -eq 0 ]]
+    [[ "$output" == *"if: \${{ !startsWith(github.ref, 'refs/tags/v') }}"* ]]
 }
