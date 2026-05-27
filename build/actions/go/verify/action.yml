@@ -27,8 +27,11 @@ inputs:
 runs:
   using: "composite"
   steps:
-    # Retry the installer up to 3 times: it downloads from GitHub's release
-    # CDN, which occasionally returns transient 5xx errors (see #190).
+    # Retry the installer up to 3 times. The upstream installer surfaces all
+    # errors (download, checksum, provenance) as a single step failure, so this
+    # retries on any failure mode; in practice the only retryable cause we've
+    # seen is a transient 5xx from the GitHub release CDN (#190). A real
+    # verification failure is deterministic and will still fail all 3 attempts.
     - name: Install slsa-verifier
       id: install-slsa-verifier
       uses: slsa-framework/slsa-verifier/actions/installer@ea584f4502babc6f60d9bc799dbbb13c1caa9ee6 # v2.7.1
