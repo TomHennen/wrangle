@@ -1,11 +1,12 @@
 #!/bin/bash
 set -euo pipefail
+set -f
 
 # Run all tests in a container — no local tool installation required.
-# Usage: ./test.sh [bats|lint|shellcheck|all]
+# Usage: ./test.sh [bats|lint|shellcheck|shellstyle|all]
 #
-# Builds a test container with actionlint, shellcheck, and bats-core,
-# then runs the specified test suite (default: all).
+# Builds a test container with actionlint, shellcheck, ast-grep, and
+# bats-core, then runs the specified test suite (default: all).
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 IMAGE_NAME="wrangle-test"
@@ -13,8 +14,8 @@ TEST_TARGET="${1:-all}"
 
 # Validate test target
 case "$TEST_TARGET" in
-    all|test|bats|lint|shellcheck) ;;
-    *) printf 'Usage: %s [all|test|bats|lint|shellcheck]\n' "$0" >&2; exit 1 ;;
+    all|test|bats|lint|shellcheck|shellstyle) ;;
+    *) printf 'Usage: %s [all|test|bats|lint|shellcheck|shellstyle]\n' "$0" >&2; exit 1 ;;
 esac
 
 # Check Docker is available

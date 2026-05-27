@@ -6,12 +6,17 @@ RUN apt-get update -q && \
         curl \
         git \
         jq \
+        python3 \
         shellcheck \
         ca-certificates \
         make \
         gcc \
         libc6-dev \
     && rm -rf /var/lib/apt/lists/*
+
+# python3 is required by tools/wrangle-shell-lint/install.sh to unzip
+# the ast-grep release archive (avoids pulling `unzip` as an extra
+# apt dependency).
 
 # gcc + libc6-dev are pulled in for `go test -race` (the race detector
 # requires cgo, which requires a C toolchain). Without them, Go's
@@ -73,5 +78,31 @@ ARG GOVULNCHECK_VERSION=v1.1.4
 RUN set -euo pipefail && \
     mkdir -p /opt/go && \
     go install "golang.org/x/vuln/cmd/govulncheck@${GOVULNCHECK_VERSION}"
+
+# Install ast-grep — used by tools/wrangle-shell-lint/lint.sh to run
+# the WSL001-005 rules. Checksums hardcoded here mirror the values in
+# tools/wrangle-shell-lint/install.sh; both MUST be bumped together
+# when the version changes. ast-grep does not publish SLSA provenance
+# or Sigstore signatures (see install.sh header for the integrity-
+# tier discussion), so hardcoded SHA-256 is the strongest tier
+# available for this upstream.
+ARG AST_GREP_VERSION=0.43.0
+ARG AST_GREP_CHECKSUM_ARM64=e706846148493967f3ab8011334817edd86ce5acbec10718b2a7b40799c640ff
+ARG AST_GREP_CHECKSUM_AMD64=a26253a9c821d935f7e383e40f0de7c2ca62a4121de1f73a6d81ec32eae631e0
+RUN set -euo pipefail && \
+    ARCH="$(uname -m)" && \
+    case "$ARCH" in \
+        aarch64) TARGET=aarch64-unknown-linux-gnu; EXPECTED_CHECKSUM="$AST_GREP_CHECKSUM_ARM64" ;; \
+        x86_64)  TARGET=x86_64-unknown-linux-gnu;  EXPECTED_CHECKSUM="$AST_GREP_CHECKSUM_AMD64" ;; \
+        *) echo "Unsupported arch: $ARCH" >&2; exit 1 ;; \
+    esac && \
+    ZIP="app-${TARGET}.zip" && \
+    curl -sSL -o "/tmp/${ZIP}" \
+        "https://github.com/ast-grep/ast-grep/releases/download/${AST_GREP_VERSION}/${ZIP}" && \
+    echo "$EXPECTED_CHECKSUM  /tmp/${ZIP}" | sha256sum -c - && \
+    python3 -c "import zipfile; zipfile.ZipFile('/tmp/${ZIP}').extract('ast-grep', '/usr/local/bin/')" && \
+    chmod +x /usr/local/bin/ast-grep && \
+    rm "/tmp/${ZIP}" && \
+    ast-grep --version
 
 WORKDIR /wrangle

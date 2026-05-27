@@ -1,5 +1,6 @@
 #!/bin/bash
 set -euo pipefail
+set -f
 
 # lib/setup.sh — Initialize wrangle directories.
 #

@@ -67,6 +67,7 @@
 #                    full pipeline with lifecycle hooks honored.
 
 set -euo pipefail
+set -f
 
 # Pure function: detects which package manager to use, based on the
 # project's lockfile. validate_inputs.sh has already ensured exactly one
@@ -123,9 +124,16 @@ find_one_tarball() {
     local path="$1"
     (
         cd "$path"
+        # set +f: this function intentionally expands the dist/*.tgz glob
+        # to discover the produced tarball. nullglob makes the empty case
+        # safe. set -f is restored inside the subshell before exit so the
+        # parent's glob-disabled state is unaffected even if a future
+        # caller swaps the subshell for a function.
+        set +f
         shopt -s nullglob
         local -a tarballs
         tarballs=(dist/*.tgz)
+        set -f
         if (( ${#tarballs[@]} != 1 )); then
             printf 'Error: expected exactly 1 tarball in dist/, found %d:\n' "${#tarballs[@]}" >&2
             printf '  %s\n' "${tarballs[@]}" >&2

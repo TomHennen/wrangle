@@ -1,0 +1,53 @@
+# WSL001 — first substantive command must be exactly: set -euo pipefail
+#
+# CLAUDE.md: "Every shell script MUST start with `set -euo pipefail`."
+#
+# This rule fires on the first non-comment top-level node of the program
+# when it is not the literal command `set -euo pipefail`. Stricter forms
+# (set -Eeuo pipefail) and equivalent forms (set -e -u -o pipefail) are
+# rejected by design — the rule enforces a single canonical preamble for
+# consistency. If you need ERR trap inheritance, add a separate `set -E`
+# line AFTER `set -euo pipefail` and `set -f`.
+#
+# Implementation notes:
+#  - tree-sitter-bash's `command` node's text covers just the command up
+#    to its arguments — a trailing inline comment is a separate node, so
+#    `set -euo pipefail  # any text` is matched correctly by the regex.
+#  - `nthChild: 1` with `ofRule: { not: { kind: comment } }` selects the
+#    first non-comment child of `program`. Top-level statements in
+#    tree-sitter-bash come in several kinds, so the rule enumerates them
+#    via `any`.
+#  - Files containing only comments (or only a shebang) produce no match
+#    and pass cleanly — there is no command to flag.
+
+id: wsl001-set-euo-pipefail-must-be-first
+severity: error
+language: bash
+rule:
+  any:
+    - kind: command
+    - kind: variable_assignment
+    - kind: declaration_command
+    - kind: function_definition
+    - kind: if_statement
+    - kind: while_statement
+    - kind: for_statement
+    - kind: case_statement
+    - kind: redirected_statement
+    - kind: subshell
+    - kind: compound_statement
+  inside:
+    kind: program
+  nthChild:
+    position: 1
+    ofRule:
+      not:
+        kind: comment
+  not:
+    regex: '^set -euo pipefail$'
+message: |
+  WSL001: first substantive line must be exactly `set -euo pipefail`.
+  Stricter forms (`set -Eeuo pipefail`) and equivalent forms
+  (`set -e -u -o pipefail`) are intentionally rejected for a single
+  canonical preamble. If you need ERR trap inheritance, add a separate
+  `set -E` line after the standard preamble. See CLAUDE.md "Shell Script Safety".

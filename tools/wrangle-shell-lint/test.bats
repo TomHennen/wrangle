@@ -1,17 +1,35 @@
 #!/usr/bin/env bats
 
-# Tests for tools/wrangle-shell-lint/lint.sh.
+# Tests for tools/wrangle-shell-lint/lint.sh — the ast-grep-based linter
+# that enforces CLAUDE.md shell conventions not covered by shellcheck.
 #
-# One positive fixture per rule (script that violates the rule → lint flags it)
-# and a shared negative fixture (clean script → lint passes cleanly).
-# Fixtures live in tools/wrangle-shell-lint/fixtures/ and are excluded from
-# the repo-wide scan so their intentional violations don't fail CI.
+# Layout:
+#   - One positive fixture per rule under fixtures/ (committed) that
+#     each violate exactly their rule.
+#   - good.sh (committed) is the negative fixture — must pass cleanly.
+#   - Inline tmp-file fixtures cover edge cases surfaced in the PR #243
+#     review rounds 1-3.
+#
+# These tests exercise the wrapper end-to-end (which invokes ast-grep).
+# ast-grep must be on PATH or in $WRANGLE_BIN_DIR — the test container's
+# Dockerfile preinstalls it via tools/wrangle-shell-lint/install.sh.
 
 setup() {
     ORIG_DIR="$(pwd)"
     LINTER="$ORIG_DIR/tools/wrangle-shell-lint/lint.sh"
     FIXTURES="$ORIG_DIR/tools/wrangle-shell-lint/fixtures"
     export ORIG_DIR LINTER FIXTURES
+
+    # Skip every test if ast-grep is not installed. We do this rather
+    # than auto-installing inside the bats run because the install
+    # script downloads from the internet — a flaky test failure would
+    # be misattributed to the linter. The CI image's Dockerfile is
+    # responsible for installing ast-grep up front.
+    if [[ -z "${WRANGLE_BIN_DIR:-}" || ! -x "${WRANGLE_BIN_DIR}/ast-grep" ]]; then
+        if ! command -v ast-grep >/dev/null 2>&1; then
+            skip "ast-grep not installed — run tools/wrangle-shell-lint/install.sh first"
+        fi
+    fi
 }
 
 teardown() {
@@ -42,7 +60,7 @@ teardown() {
 
 @test "WSL001: set -euo pipefail after comments is accepted" {
     tmp="$(mktemp /tmp/wsl-test-XXXXXX.sh)"
-    printf '#!/bin/bash\n# Comment line\n\nset -euo pipefail\nprintf hello\n' > "$tmp"
+    printf '#!/bin/bash\n# Comment line\n\nset -euo pipefail\nset -f\nprintf hello\n' > "$tmp"
     run "$LINTER" "$tmp"
     rm -f "$tmp"
     [ "$status" -eq 0 ]
@@ -51,50 +69,89 @@ teardown() {
 
 @test "WSL001: wrong first substantive line is flagged" {
     tmp="$(mktemp /tmp/wsl-test-XXXXXX.sh)"
-    printf '#!/bin/bash\nFOO=bar\nset -euo pipefail\nprintf hello\n' > "$tmp"
+    printf '#!/bin/bash\nFOO=bar\nset -euo pipefail\nset -f\nprintf hello\n' > "$tmp"
     run "$LINTER" "$tmp"
     rm -f "$tmp"
     [ "$status" -eq 1 ]
     [[ "$output" == *"WSL001"* ]]
 }
 
-# --- WSL002: set -f for external input ---------------------------------------
+@test "WSL001: stricter form set -Eeuo pipefail is rejected" {
+    # Stricter (adds ERR trap inheritance) but still rejected per the
+    # rule's exact-string design. See lint.sh / wsl001.yml header.
+    tmp="$(mktemp /tmp/wsl-test-XXXXXX.sh)"
+    printf '#!/bin/bash\nset -Eeuo pipefail\nset -f\nprintf hello\n' > "$tmp"
+    run "$LINTER" "$tmp"
+    rm -f "$tmp"
+    [ "$status" -eq 1 ]
+    [[ "$output" == *"WSL001"* ]]
+}
 
-@test "WSL002: for-loop over \$@ without set -f is reported" {
+@test "WSL001: equivalent form set -e -u -o pipefail is rejected" {
+    tmp="$(mktemp /tmp/wsl-test-XXXXXX.sh)"
+    printf '#!/bin/bash\nset -e -u -o pipefail\nset -f\nprintf hello\n' > "$tmp"
+    run "$LINTER" "$tmp"
+    rm -f "$tmp"
+    [ "$status" -eq 1 ]
+    [[ "$output" == *"WSL001"* ]]
+}
+
+# --- WSL002: set -f as the second substantive line (UNIVERSAL per #271) -----
+
+@test "WSL002: missing set -f after preamble is reported" {
     run "$LINTER" "$FIXTURES/bad_wsl002.sh"
     [ "$status" -eq 1 ]
     [[ "$output" == *"WSL002"* ]]
 }
 
-@test "WSL002: for-loop over \$@ with set -f is not flagged" {
+@test "WSL002: set -f as second line is not flagged" {
     run "$LINTER" "$FIXTURES/good.sh"
     [ "$status" -eq 0 ]
     [[ "$output" != *"WSL002"* ]]
 }
 
-@test "WSL002: adapter.sh without set -f is reported" {
-    tmp_dir="$(mktemp -d /tmp/wsl-test-XXXXXX)"
-    cat > "$tmp_dir/adapter.sh" << 'SCRIPT'
-#!/bin/bash
-set -euo pipefail
-printf 'adapter\n'
-SCRIPT
-    run "$LINTER" "$tmp_dir/adapter.sh"
-    rm -rf "$tmp_dir"
+@test "WSL002: set -f with trailing comment on the same line is not flagged" {
+    # The AST node's text covers just the command, not the trailing
+    # comment — so the exact-string regex matches.
+    tmp="$(mktemp /tmp/wsl-test-XXXXXX.sh)"
+    printf '#!/bin/bash\nset -euo pipefail\nset -f  # processes external input\nprintf hello\n' > "$tmp"
+    run "$LINTER" "$tmp"
+    rm -f "$tmp"
+    [ "$status" -eq 0 ]
+    [[ "$output" != *"WSL002"* ]]
+}
+
+@test "WSL002: arbitrary script without set -f is reported (universal rule)" {
+    # Per PR #271 (universal set -f), ANY script missing set -f on line
+    # 2 is a violation — not just adapter.sh or for-over-$@ scripts.
+    tmp="$(mktemp /tmp/wsl-test-XXXXXX.sh)"
+    printf '#!/bin/bash\nset -euo pipefail\nprintf hello\n' > "$tmp"
+    run "$LINTER" "$tmp"
+    rm -f "$tmp"
     [ "$status" -eq 1 ]
     [[ "$output" == *"WSL002"* ]]
 }
 
-@test "WSL002: adapter.sh with set -f is not flagged" {
-    tmp_dir="$(mktemp -d /tmp/wsl-test-XXXXXX)"
-    cat > "$tmp_dir/adapter.sh" << 'SCRIPT'
+@test "WSL002: an internal set +f wrap is not flagged (escape hatch)" {
+    # The escape hatch is `set +f` / `set -f` wrapped around a glob.
+    # The wrap appears INSIDE the script, never at position 2, so the
+    # WSL002 rule does not flag it. The preamble line at position 2 is
+    # still required and present here.
+    tmp="$(mktemp /tmp/wsl-test-XXXXXX.sh)"
+    cat > "$tmp" << 'SCRIPT'
 #!/bin/bash
 set -euo pipefail
-set -f  # disable globbing — processes external input
-printf 'adapter\n'
+set -f
+# set +f: this loop intentionally expands the glob
+set +f
+shopt -s nullglob
+for f in /etc/*.conf; do
+    printf '%s\n' "$f"
+done
+set -f
 SCRIPT
-    run "$LINTER" "$tmp_dir/adapter.sh"
-    rm -rf "$tmp_dir"
+    run "$LINTER" "$tmp"
+    rm -f "$tmp"
     [ "$status" -eq 0 ]
     [[ "$output" != *"WSL002"* ]]
 }
@@ -213,6 +270,15 @@ SCRIPT
     [[ "$output" != *"WSL003"* ]]
 }
 
+@test "WSL003: echo with command substitution \$(...) is reported" {
+    tmp="$(mktemp /tmp/wsl-test-XXXXXX.sh)"
+    printf '#!/bin/bash\nset -euo pipefail\nset -f\necho "$(date)"\n' > "$tmp"
+    run "$LINTER" "$tmp"
+    rm -f "$tmp"
+    [ "$status" -eq 1 ]
+    [[ "$output" == *"WSL003"* ]]
+}
+
 # --- WSL004: [ ] not [[ ]] ---------------------------------------------------
 
 @test "WSL004: if [ ] is reported" {
@@ -229,7 +295,7 @@ SCRIPT
 
 @test "WSL004: while [ ] is reported" {
     tmp="$(mktemp /tmp/wsl-test-XXXXXX.sh)"
-    printf '#!/bin/bash\nset -euo pipefail\nset -f\nwhile [ "$x" -gt 0 ]; do x=$((x-1)); done\n' > "$tmp"
+    printf '#!/bin/bash\nset -euo pipefail\nset -f\nx=1\nwhile [ "$x" -gt 0 ]; do x=$((x-1)); done\n' > "$tmp"
     run "$LINTER" "$tmp"
     rm -f "$tmp"
     [ "$status" -eq 1 ]
@@ -272,6 +338,17 @@ SCRIPT
     [[ "$output" == *"WSL004"* ]]
 }
 
+@test "WSL004: array index [0] is not flagged" {
+    # array[0] is not a test_command — it's an arithmetic subscript.
+    # AST matching correctly distinguishes the two.
+    tmp="$(mktemp /tmp/wsl-test-XXXXXX.sh)"
+    printf '#!/bin/bash\nset -euo pipefail\nset -f\narr=(a b c)\nprintf "%%s" "${arr[0]}"\n' > "$tmp"
+    run "$LINTER" "$tmp"
+    rm -f "$tmp"
+    [ "$status" -eq 0 ]
+    [[ "$output" != *"WSL004"* ]]
+}
+
 # --- WSL005: shellcheck disable without justification ------------------------
 
 @test "WSL005: shellcheck disable without inline justification is reported" {
@@ -301,15 +378,24 @@ SCRIPT
     [[ "$output" == *"WSL005"* ]]
 }
 
+@test "WSL005: multiple codes without justification is reported" {
+    tmp="$(mktemp /tmp/wsl-test-XXXXXX.sh)"
+    printf '#!/bin/bash\nset -euo pipefail\nset -f\n# shellcheck disable=SC2016,SC2086\nprintf done\n' > "$tmp"
+    run "$LINTER" "$tmp"
+    rm -f "$tmp"
+    [ "$status" -eq 1 ]
+    [[ "$output" == *"WSL005"* ]]
+}
+
 # --- Output format -----------------------------------------------------------
 
-@test "output format is path:line: RULE: message" {
+@test "output format includes path, line, and rule id" {
     run "$LINTER" "$FIXTURES/bad_wsl001.sh"
     [ "$status" -eq 1 ]
-    # Check that at least one line matches the expected format
+    # ast-grep emits: <path>:<line>:<col>: <severity>[<rule-id>]: <message>
     found=false
     while IFS= read -r line; do
-        if [[ "$line" =~ ^[^:]+:[0-9]+:\ WSL[0-9]+:\ .+ ]]; then
+        if [[ "$line" =~ ^[^:]+:[0-9]+:[0-9]+:\ error\[wsl[0-9]+ ]]; then
             found=true
             break
         fi
@@ -317,10 +403,16 @@ SCRIPT
     [ "$found" = true ]
 }
 
-# --- Self-check: linter passes its own rules ---------------------------------
+# --- Self-check: linter itself passes its own rules --------------------------
 
 @test "lint.sh itself passes all wrangle-shell-lint rules" {
     run "$LINTER" "$LINTER"
+    [ "$status" -eq 0 ]
+    [ -z "$output" ]
+}
+
+@test "install.sh itself passes all wrangle-shell-lint rules" {
+    run "$LINTER" "$ORIG_DIR/tools/wrangle-shell-lint/install.sh"
     [ "$status" -eq 0 ]
     [ -z "$output" ]
 }
@@ -334,10 +426,12 @@ SCRIPT
     # repo with an extensionless shebang script that violates WSL001.
     tmp_repo="$(mktemp -d /tmp/wsl-repo-XXXXXX)"
     git -C "$tmp_repo" init -q
-    # Make the lint.sh discoverable as a sibling tree so SCRIPT_DIR's
-    # `git rev-parse` returns this tmp_repo as the repo root.
-    mkdir -p "$tmp_repo/tools/wrangle-shell-lint"
+    # Make the lint.sh + rules + sgconfig discoverable as a sibling tree
+    # so SCRIPT_DIR's `git rev-parse` returns this tmp_repo as the root.
+    mkdir -p "$tmp_repo/tools/wrangle-shell-lint/rules"
     cp "$LINTER" "$tmp_repo/tools/wrangle-shell-lint/lint.sh"
+    cp "$ORIG_DIR/tools/wrangle-shell-lint/sgconfig.yml" "$tmp_repo/tools/wrangle-shell-lint/sgconfig.yml"
+    cp "$ORIG_DIR/tools/wrangle-shell-lint/rules"/*.yml "$tmp_repo/tools/wrangle-shell-lint/rules/"
     # Extensionless bash script missing `set -euo pipefail` (WSL001).
     cat > "$tmp_repo/runme" << 'SCRIPT'
 #!/bin/bash

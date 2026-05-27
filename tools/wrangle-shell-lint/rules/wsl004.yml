@@ -1,0 +1,37 @@
+# WSL004 — use [[ ]] instead of [ ] (or `test`) for conditionals
+#
+# CLAUDE.md: "Use `[[ ]]` not `[ ]` for conditionals."
+#
+# AST-aware match: fires on
+#  (a) a `test_command` node whose text starts with `[ ` (not `[[`), or
+#  (b) a `command` node whose name field is exactly `test`.
+#
+# tree-sitter-bash represents BOTH `[ ... ]` and `[[ ... ]]` as the
+# same `test_command` AST node with no structural difference, so the
+# regex on the matched text is required to distinguish single- vs
+# double-bracket.
+#
+# Because the matcher is structural, it correctly handles cases that
+# defeat regex-based linting:
+#   - Comments mentioning `[ -n "$x" ]` — comment text never produces a
+#     test_command, not matched.
+#   - `if [ ... ]`, `while [ ... ]`, `until [ ... ]`, `elif [ ... ]`,
+#     and bare `[ -n "$x" ] && ...` — all flagged consistently.
+#   - `test -n "$x"` and `if test -n "$x"; then` — both flagged.
+
+id: wsl004-single-bracket-or-test
+severity: error
+language: bash
+rule:
+  any:
+    - kind: test_command
+      regex: '^\[[^\[]'
+    - kind: command
+      has:
+        field: name
+        regex: '^test$'
+message: |
+  WSL004: use `[[ ]]` instead of `[ ]` or `test` for conditionals.
+  `[[ ]]` is a bash builtin keyword (not a command): it does not perform
+  word splitting or globbing on its arguments, supports regex `=~`, and
+  is generally less surprising. See CLAUDE.md "Shell Script Safety".

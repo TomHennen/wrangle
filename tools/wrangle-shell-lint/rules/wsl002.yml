@@ -1,0 +1,49 @@
+# WSL002 — second substantive command must be exactly: set -f
+#
+# CLAUDE.md (post-#271): "Every shell script MUST start with these two
+# lines: set -euo pipefail / set -f". This is universal per the spec
+# change in PR #271 (originally surfaced in PR #243 review 4351699820):
+# wrangle is a supply-chain security tool and defaults to the safer
+# flag rather than requiring contributors to judge "does my script
+# really need globbing disabled?".
+#
+# Escape hatch: scripts that genuinely need globbing wrap the glob in
+# an explicit `set +f` / `set -f` block with an explanatory comment.
+# Those wrappers appear LATER in the script, never at position 2 — so
+# this rule only ever flags the missing preamble line, never the wrap.
+#
+# Implementation: identical sibling-position pattern as WSL001, except
+# checking the second non-comment child for the literal `set -f`.
+
+id: wsl002-set-f-must-be-second
+severity: error
+language: bash
+rule:
+  any:
+    - kind: command
+    - kind: variable_assignment
+    - kind: declaration_command
+    - kind: function_definition
+    - kind: if_statement
+    - kind: while_statement
+    - kind: for_statement
+    - kind: case_statement
+    - kind: redirected_statement
+    - kind: subshell
+    - kind: compound_statement
+  inside:
+    kind: program
+  nthChild:
+    position: 2
+    ofRule:
+      not:
+        kind: comment
+  not:
+    regex: '^set -f$'
+message: |
+  WSL002: second substantive line must be exactly `set -f`
+  (immediately after `set -euo pipefail`). `set -f` (disable filename
+  globbing) is required on every script per CLAUDE.md "Shell Script
+  Safety". If this script genuinely needs to expand a glob, wrap the
+  glob in an explicit `set +f` / `set -f` block with a justifying
+  comment — do not omit the preamble line.

@@ -42,6 +42,7 @@
 #                         (default: today's date in YYYY-MM-DD UTC)
 
 set -euo pipefail
+set -f
 
 # Resolve the repo to operate on from the current git working directory,
 # NOT from the script's own location. This makes the script safe to run
@@ -131,10 +132,18 @@ tmp_file=""
 cleanup() { [[ -n "$tmp_file" && -f "$tmp_file" ]] && rm -f "$tmp_file"; tmp_file=""; }
 trap cleanup EXIT INT TERM
 
+# set +f: this loop intentionally expands the workflow-file glob to
+# discover every .yml / .yaml file under .github/workflows. nullglob
+# makes both globs collapse to empty when the dir is empty so we never
+# iterate literal "*.yml" / "*.yaml" filenames. set -f is restored
+# immediately after the loop header so the loop body runs with
+# glob-disabled state.
+set +f
 shopt -s nullglob
 changed=0
 total=0
 for f in "$REPO_ROOT/$PINS_DIR"/*.yml "$REPO_ROOT/$PINS_DIR"/*.yaml; do
+    set -f
     [[ -f "$f" ]] || continue
 
     # Filter to files that even contain a matching pin.
