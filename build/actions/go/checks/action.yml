@@ -50,7 +50,7 @@ inputs:
     default: "true"
   govulncheck-version:
     description: |
-      Pinned semver for govulncheck (e.g., "v1.1.4"). validate_inputs.sh
+      Pinned semver for govulncheck (e.g., "vX.Y.Z"). validate_inputs.sh
       enforces a strict semver-tag regex and rejects `@latest`, `@main`,
       branch names, and any other non-pinned ref — `go install` would
       happily resolve those, so the enforcement is wrangle-side. See

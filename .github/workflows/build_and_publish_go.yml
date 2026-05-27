@@ -64,7 +64,7 @@ on:
         default: true
       govulncheck-version:
         description: |
-          Pinned semver for govulncheck (e.g., "v1.1.4"). Defaults to
+          Pinned semver for govulncheck (e.g., "vX.Y.Z"). Defaults to
           wrangle's vetted pin; override only when you need a newer
           version ahead of wrangle's bump cycle (e.g., a CVE response
           that lands in upstream govulncheck before wrangle's 7-day

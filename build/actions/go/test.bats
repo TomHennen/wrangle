@@ -852,12 +852,18 @@ func main() {}
 @test "go.checks: composite's three govulncheck pin literals stay in sync" {
     # The wrangle pin appears three times in checks/action.yml:
     #   1. the composite's own `default:` on the govulncheck-version input
-    #   2. the validate-step env coalesce `${{ ... || 'vX.Y.Z' }}`
-    #   3. the run-checks-step env coalesce `${{ ... || 'vX.Y.Z' }}`
+    #   2. the validate-step env coalesce `INPUT_GOVULN_VERSION: ${{ ... || 'vX.Y.Z' }}`
+    #   3. the run-checks-step env coalesce `GOVULN_VERSION: ${{ ... || 'vX.Y.Z' }}`
     # All three MUST move together when wrangle bumps the pin — a stale
     # default at any one site silently drifts adopter behavior. This
     # test fails on divergence so the next bumper sees it before merge.
-    local default_pin coalesce_pins
+    #
+    # The coalesce match is scoped to the `(INPUT_)?GOVULN_VERSION:` env
+    # names that ARE the load-bearing wires — not any `|| 'vN.N.N'` in
+    # the file — so adding an unrelated version fallback elsewhere in
+    # checks/action.yml (a different tool, a go-version default, etc.)
+    # won't silently shift this assertion onto the wrong literals.
+    local default_pin
     default_pin="$(awk '
         /^  govulncheck-version:/ { in_block = 1; next }
         in_block && /^    default:/ {
@@ -867,8 +873,12 @@ func main() {}
         }
     ' "$CHECKS_ACTION")"
     [[ -n "$default_pin" ]]
-    # Both env coalesces use the form: || 'vX.Y.Z'
-    mapfile -t coalesce_pins < <(grep -oE "\\|\\| '[v0-9.+A-Za-z-]+'" "$CHECKS_ACTION" | sed -E "s/.*'([^']+)'.*/\\1/")
+    # Both env coalesces use the form:
+    #   (INPUT_)?GOVULN_VERSION: ${{ inputs.govulncheck-version || 'vX.Y.Z' }}
+    mapfile -t coalesce_pins < <(
+        grep -oE "(INPUT_)?GOVULN_VERSION:[[:space:]]+\\\$\\{\\{[[:space:]]*inputs\\.govulncheck-version[[:space:]]*\\|\\|[[:space:]]*'[^']+'" "$CHECKS_ACTION" \
+            | sed -E "s/.*'([^']+)'.*/\\1/"
+    )
     # Expect exactly 2 env coalesces (validate-step + run-step).
     [[ "${#coalesce_pins[@]}" -eq 2 ]]
     [[ "${coalesce_pins[0]}" == "$default_pin" ]]

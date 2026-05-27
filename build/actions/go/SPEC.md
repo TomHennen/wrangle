@@ -1,6 +1,6 @@
 # Wrangle Go Build Type — Phase 1 Research
 
-**Status:** Phase 1 ecosystem research per [`docs/HOW_TO_ADD_A_BUILD_TYPE.md`](../../../docs/HOW_TO_ADD_A_BUILD_TYPE.md). Recommends defaults for an eventual `build/actions/go/` implementation. **No `action.yml` exists yet.** Inputs, outputs, and step sequence are sketched at the level needed to justify the picks; the implementation PR will tighten them.
+**Status:** Phase 1 ecosystem research per [`docs/HOW_TO_ADD_A_BUILD_TYPE.md`](../../../docs/HOW_TO_ADD_A_BUILD_TYPE.md). Recommends defaults for the `build/actions/go/` implementation that shipped in #238. The v0.1 implementation is live; the picks below remain the authoritative rationale. See "Inputs" below for the adopter-facing contract; the full input/output table will be backfilled here from `build_and_publish_go.yml` as v0.2 work lands.
 
 ## Overview
 
@@ -11,6 +11,35 @@ Go projects in 2026 fall into three release shapes:
 3. **`go install <repo>@<tag>` for CLI tools whose maintainers chose not to run a release pipeline.** Equivalent to (1) minus the build job; consumers compile from source on their own machines.
 
 **Operating model.** Wrangle owns the build hygiene — test, SBOM, vulnscan, lint, gating, the unified metadata layout — and produces its own L3 SLSA provenance via the upstream generator, stored in `metadata/go/<shortname>/`. The L3 bundle is verifiable offline by any consumer regardless of where the binary is hosted. Same shape python and container ship today, and the picks below preserve it.
+
+## Inputs
+
+The adopter-facing reusable workflow lives at `.github/workflows/build_and_publish_go.yml`. This section captures the contract for inputs whose intent isn't self-evident from the workflow's `description:` field; the other inputs (`path`, `go-version`, `run-tests`, `run-race-detector`, `run-gofmt-check`, `release-events`, `ref`, `verify-provenance`) are listed for completeness and will be expanded in the v0.2 backfill, modeled on `build/actions/python/SPEC.md` §Inputs.
+
+| Input | Required | Default | Description |
+|-------|----------|---------|-------------|
+| `path` | No | `.` | Relative path to the directory containing `go.mod` and `.goreleaser.yml`. |
+| `go-version` | No | (auto-detect) | Go version override. If empty, read from `go.mod`'s `go` directive via `actions/setup-go`'s `go-version-file`. |
+| `run-tests` | No | `true` | Run the `checks` job (gofmt / vet / test / govulncheck) before release. |
+| `run-race-detector` | No | `true` | Run `go test -race`. Set false when CGO is disabled (race detector requires cgo). |
+| `run-gofmt-check` | No | `true` | Run `gofmt -l` before build. `// Code generated ... DO NOT EDIT.` files are auto-skipped. |
+| `govulncheck-version` | No | `""` (wrangle's vetted pin) | Pinned semver tag (e.g., `vX.Y.Z`) overriding wrangle's vetted `govulncheck` pin. See policy below. |
+| `release-events` | No | `tag-only` | Which events trigger wrangle's full pipeline. See [`docs/SPEC.md`](../../../docs/SPEC.md) "Release-events gating." |
+| `ref` | No | `""` (uses `github.sha`) | Git ref to check out. |
+| `verify-provenance` | No | `true` | Run `slsa-verifier verify-artifact` post-publish. |
+
+### `govulncheck-version` policy
+
+`govulncheck-version` is an **escape hatch** for the CVE-response window: upstream `govulncheck` ships a fix or a new reachability check, the adopter needs the newer scanner *now*, and wrangle's 7-day adoption window hasn't closed. The default (empty) resolves to wrangle's vetted pin (currently `v1.1.4`) — and the recommended setting for most adopters is to leave it empty so the wrangle pin moves uniformly on bump cycles.
+
+The contract:
+
+- **Pinned semver only.** `validate_inputs.sh` matches the input against `^v[0-9]+\.[0-9]+\.[0-9]+(-[A-Za-z0-9.-]+)?(\+[A-Za-z0-9.-]+)?$` and rejects `@latest`, `@main`, branch names, and any other floating ref. `go install` would happily resolve those, so the enforcement is wrangle-side — supply-chain discipline per [`CLAUDE.md`](../../../CLAUDE.md).
+- **Fail-fast.** Validation runs before `setup-go`, so an invalid version aborts the checks job before any tool downloads.
+- **No GHA expression injection.** The validated value flows through `with:` and `env:` into the composite, never directly into a `run:` block.
+- **Pin lives at the env coalesce.** The wrangle default appears three times in `build/actions/go/checks/action.yml` (composite input `default:`, validate-step env coalesce, run-step env coalesce). The pin-sync test in `build/actions/go/test.bats` enforces that all three stay aligned; the reusable workflow's `default: ""` deliberately delegates the pin to the composite so the override path and the default path converge on the same code.
+
+The wrangle pin bumps are coordinated; the override is meant for the gap, not for long-lived divergence.
 
 ## Recommended defaults (the picks)
 
