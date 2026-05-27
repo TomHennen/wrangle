@@ -406,8 +406,14 @@ EXIT CODES:
 
 INTEGRITY VERIFICATION (mandatory):
   Every install script MUST verify the downloaded binary before placing it
-  on PATH. Install scripts MUST use lib/download_verify.sh for this.
-  The scan action installs slsa-verifier via the official
+  on PATH. The three methods below (SLSA / Sigstore / SHA-256) apply to
+  install-script-pattern tools — those that download a standalone binary
+  artifact via lib/download_verify.sh. Go-module tools fetched via
+  `go install <module>@<version>` are covered by the separate fourth tier
+  ("GO MODULES" below), which routes integrity through sum.golang.org
+  instead of lib/download_verify.sh; see CLAUDE.md §"Supply Chain
+  Discipline" for the gating conditions. The scan action installs
+  slsa-verifier via the official
   slsa-framework/slsa-verifier/actions/installer action.
 
   Verification method (chosen per tool at development time, not at runtime):
@@ -465,6 +471,16 @@ INTEGRITY VERIFICATION (mandatory):
     after-the-fact, via auditing. The no-fallback rule still applies: if
     `go install` aborts due to a go.sum mismatch, the install MUST fail
     rather than retry under `GOSUMDB=off`.
+
+    Note on the recommended `GOPROXY=https://proxy.golang.org,direct`
+    value: the `,direct` segment is a fallback path that only fires
+    when the proxy itself is unreachable, and it does NOT bypass
+    sum.golang.org — `GOSUMDB` is consulted on both proxy and direct
+    fetches. (This is distinct from a bare `GOPROXY=direct`, which
+    also routes around the proxy but is paired with sumdb the same
+    way.) The integrity claim is preserved across the proxy/direct
+    fallback; only `GOSUMDB=off` (or one of the bypass vars listed in
+    CLAUDE.md §"Supply Chain Discipline") would weaken it.
 
   Tools with sum.golang.org (go install) only: govulncheck
 

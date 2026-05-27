@@ -141,11 +141,41 @@ install_govulncheck() {
     # via `go install`).
     #
     # Assert the module-proxy / sumdb path is in effect so the security
-    # claim is not environment-conditional: if an adopter's env (or an
-    # org-level CI policy) sets GOPROXY=direct or GOSUMDB=off, `go install`
-    # would silently skip the tlog check. Setting these locally for the
-    # subshell that runs `go install` (not exporting workflow-wide) forces
-    # the documented path without overriding the caller's broader env.
+    # claim is not environment-conditional. The Go toolchain exposes
+    # several env knobs that can silently weaken or disable the sumdb
+    # check:
+    #   - GOPROXY=direct or GOPROXY=off bypasses the proxy (`,direct`
+    #     fallback after https://proxy.golang.org is fine — sumdb is
+    #     consulted in both proxy and direct fetches).
+    #   - GOSUMDB=off disables the tlog check entirely.
+    #   - GOPRIVATE=*, GONOSUMDB=*, GOINSECURE=* (any non-empty value)
+    #     skip the sumdb for matching module paths; a wildcard pattern
+    #     skips it for every module path including govulncheck's.
+    #   - GOFLAGS=-insecure (or any GOFLAGS containing -insecure) lets
+    #     the toolchain fetch over plain HTTP and bypass sumdb.
+    # Per CLAUDE.md "NEVER fall back to a weaker verification method,"
+    # if any of these is set in the parent env we fail loudly rather
+    # than silently install with degraded integrity. Detection runs in
+    # the parent shell (before the subshell prefix below) so the unset
+    # values from the subshell don't mask a hostile parent setting.
+    local _bypass_var
+    for _bypass_var in GOPRIVATE GONOSUMDB GOINSECURE; do
+        if [[ -n "${!_bypass_var:-}" ]]; then
+            printf 'install_govulncheck: refusing to install with %s=%q set in the environment — this would skip the sum.golang.org integrity check. Unset it (or run on a clean CI env) and retry.\n' \
+                "$_bypass_var" "${!_bypass_var}" >&2
+            exit 1
+        fi
+    done
+    if [[ "${GOFLAGS:-}" == *-insecure* ]]; then
+        printf 'install_govulncheck: refusing to install with GOFLAGS=%q (contains -insecure) — this would skip the sum.golang.org integrity check. Unset it and retry.\n' \
+            "$GOFLAGS" >&2
+        exit 1
+    fi
+    # Belt-and-braces: pin the proxy + sumdb for the subshell that
+    # runs `go install`. This defeats GOPROXY=direct/off and GOSUMDB=off
+    # in the parent env without overriding the caller's broader env.
+    # Combined with the bypass-var checks above, the security claim
+    # holds regardless of parent env shape.
     GOPROXY="https://proxy.golang.org,direct" GOSUMDB="sum.golang.org" \
         go install "golang.org/x/vuln/cmd/govulncheck@${version}" 1>&2
     printf '%s/govulncheck\n' "$gobin"
