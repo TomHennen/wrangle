@@ -130,6 +130,7 @@ PR CI runs four checks: unit tests (`test.yml`), source scanning (`check_source_
 - **No auto-merge of dependency updates.** New upstream tool versions are adopted after a delay (aim for 7 days) to let the community discover supply chain attacks before wrangle amplifies them.
 - **No `curl | sh` anywhere.** All binary downloads go through `lib/download_verify.sh`.
 - **No downloading checksums from the same source as binaries.** When checksums are used (tools without provenance/signatures), they are hardcoded. Tool version + checksum updates are always a single atomic commit.
+- **Avoid linter / scanner suppressions; do it right.** If `shellcheck`, `actionlint`, `zizmor`, or a similar tool flags something, the default is to restructure the code so the finding goes away — not to add `# zizmor: ignore[...]` / `# shellcheck disable=...`. Suppressions are escape hatches for genuinely-false positives only, must carry a one-line justification, and should be paired with a structural test that pins the safety argument so the comment can't silently disappear.
 
 ## Dogfooding
 
