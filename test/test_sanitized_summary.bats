@@ -192,3 +192,46 @@ teardown() {
     [[ "$output" != *"<script>"* ]]
     [[ "$output" != *"onerror"* ]]
 }
+
+# --- Tool-error marker ---
+#
+# Action-pattern tools (e.g., zizmor) signal tool error via an `error`
+# marker file in the metadata dir. The summary table — the primary
+# adopter output per docs/SPEC.md Composite Action Interface — must
+# reflect that marker, not the fallback empty SARIF the wrapper
+# synthesises.
+
+@test "sanitized summary: error marker renders as Tool error status" {
+    mkdir -p "$TEST_DIR/metadata/zizmor"
+    printf 'zizmor crashed: pull failed\n' > "$TEST_DIR/metadata/zizmor/error"
+    # Empty fallback SARIF as the wrapper writes it.
+    cp "$ORIG_DIR/test/fixtures/empty.sarif" "$TEST_DIR/metadata/zizmor/output.sarif"
+
+    output=$("$FORMATTER" "$TEST_DIR/metadata")
+
+    [[ "$output" == *"Tool error"* ]]
+    # We did NOT silently report "No findings" off the fallback SARIF.
+    [[ "$output" != *"No findings"* ]]
+}
+
+@test "sanitized summary: error marker details surface marker contents" {
+    mkdir -p "$TEST_DIR/metadata/zizmor"
+    printf 'zizmor exited non-zero: image pull failed\n' > "$TEST_DIR/metadata/zizmor/error"
+    cp "$ORIG_DIR/test/fixtures/empty.sarif" "$TEST_DIR/metadata/zizmor/output.sarif"
+
+    output=$("$FORMATTER" "$TEST_DIR/metadata")
+
+    [[ "$output" == *"image pull failed"* ]]
+    [[ "$output" == *"fail-closed"* ]]
+}
+
+@test "sanitized summary: error marker contents are HTML-sanitised" {
+    mkdir -p "$TEST_DIR/metadata/zizmor"
+    printf '<script>alert(1)</script>real error text\n' > "$TEST_DIR/metadata/zizmor/error"
+    cp "$ORIG_DIR/test/fixtures/empty.sarif" "$TEST_DIR/metadata/zizmor/output.sarif"
+
+    output=$("$FORMATTER" "$TEST_DIR/metadata")
+
+    [[ "$output" != *"<script>"* ]]
+    [[ "$output" == *"real error text"* ]]
+}

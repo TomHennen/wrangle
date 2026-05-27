@@ -34,6 +34,19 @@ printf '| ---- | ------ | ------- |\n'
 while IFS= read -r -d '' dir; do
     tool="$(basename "$dir")"
 
+    # The `error` marker (issue #222) takes precedence over the SARIF
+    # count: action-pattern wrappers synthesize an empty fallback SARIF
+    # on tool error so downstream consumers always have a file, but the
+    # marker is the canonical "the tool failed" signal. Without this
+    # branch the summary row would render "No findings" while the run
+    # itself failed via lib/check_results.sh — misleading on the very
+    # surface docs/SPEC.md calls the primary output.
+    if [[ -f "${dir}/error" ]]; then
+        safe_tool="$(printf '%s' "$tool" | wrangle_sanitize_output)"
+        printf '| %s | Tool error | [Details](#%s-details) |\n' "$safe_tool" "$safe_tool"
+        continue
+    fi
+
     if [[ -f "${dir}/output.sarif" ]]; then
         tool_status="No findings"
 
@@ -56,6 +69,17 @@ printf '\n'
 while IFS= read -r -d '' dir; do
     tool="$(basename "$dir")"
     safe_tool="$(printf '%s' "$tool" | wrangle_sanitize_output)"
+
+    # If the tool errored, surface the marker contents in the details
+    # block — the marker is authoritative and the SARIF (if any) is the
+    # synthesised empty fallback.
+    if [[ -f "${dir}/error" ]]; then
+        printf '## %s Details\n' "$safe_tool"
+        printf '\nTool error — wrangle treated this run as fail-closed.\n\n```\n'
+        wrangle_sanitize_output < "${dir}/error"
+        printf '\n```\n'
+        continue
+    fi
 
     if [[ -f "${dir}/output.txt" ]]; then
         printf '## %s Details\n' "$safe_tool"

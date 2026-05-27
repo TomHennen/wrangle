@@ -20,10 +20,19 @@ set -f  # disable globbing — processes external input
 # precedence over the SARIF count to prevent a fallback empty SARIF (0
 # results) from masking a tool error.
 #
+# Marker contract: contents are treated as untrusted — the first line
+# is run through wrangle_sanitize_output before being logged. Wrappers
+# may interpolate upstream output into the marker without re-sanitising
+# themselves.
+#
 # Exit codes:
 #   0  No findings from fail-policy tools
 #   1  At least one fail-policy tool reported findings, errored, or
 #      produced invalid SARIF
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+# shellcheck source=sanitize.sh
+source "$SCRIPT_DIR/sanitize.sh"
 
 if [[ $# -lt 2 ]]; then
     printf 'Usage: check_results.sh <metadata_dir> <tool[:policy]> ...\n' >&2
@@ -67,9 +76,12 @@ for spec in "$@"; do
     # may have synthesized an empty fallback SARIF that would otherwise be
     # misread as "no findings".
     if [[ -f "$error_marker" ]]; then
-        # Read the first line of the marker for context, sanitised to a
-        # single line. Falls back to a generic message if read fails.
-        err_msg="$(head -n1 -- "$error_marker" 2>/dev/null || true)"
+        # Read the first line of the marker for context, sanitised
+        # through wrangle_sanitize_output so a future wrapper that
+        # interpolates upstream text into the marker cannot inject
+        # HTML/markdown into the GitHub Actions log surface. Falls
+        # back to a generic message if read fails.
+        err_msg="$(head -n1 -- "$error_marker" 2>/dev/null | wrangle_sanitize_output || true)"
         if [[ -z "$err_msg" ]]; then
             err_msg="upstream tool failed"
         fi

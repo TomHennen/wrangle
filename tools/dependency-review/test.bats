@@ -109,6 +109,43 @@ teardown() {
     [ -f "$META/error" ]
 }
 
+# --- Robust empty detection (PR #262 review): defend against upstream
+#     swapping the wire format. The detection delegates to jq rather
+#     than literal string compare, so all of these must mark.
+
+@test "mark_error: whitespace-wrapped [] writes error marker" {
+    META="$TMP_DIR/meta-err-ws-arr"
+    METADATA_DIR="$META" OUTCOME=failure VULNERABLE_CHANGES='  [ ]  ' \
+        run "$TOOL_DIR/mark_error.sh"
+    [ "$status" -eq 0 ]
+    [ -f "$META/error" ]
+}
+
+@test "mark_error: pretty-printed empty [\\n] writes error marker" {
+    META="$TMP_DIR/meta-err-pretty-arr"
+    # shellcheck disable=SC2034
+    METADATA_DIR="$META" OUTCOME=failure VULNERABLE_CHANGES=$'[\n]' \
+        run "$TOOL_DIR/mark_error.sh"
+    [ "$status" -eq 0 ]
+    [ -f "$META/error" ]
+}
+
+@test "mark_error: literal null writes error marker" {
+    META="$TMP_DIR/meta-err-null"
+    METADATA_DIR="$META" OUTCOME=failure VULNERABLE_CHANGES='null' \
+        run "$TOOL_DIR/mark_error.sh"
+    [ "$status" -eq 0 ]
+    [ -f "$META/error" ]
+}
+
+@test "mark_error: unparseable JSON writes error marker (cannot trust upstream)" {
+    META="$TMP_DIR/meta-err-bad"
+    METADATA_DIR="$META" OUTCOME=failure VULNERABLE_CHANGES='not json' \
+        run "$TOOL_DIR/mark_error.sh"
+    [ "$status" -eq 0 ]
+    [ -f "$META/error" ]
+}
+
 @test "mark_error: non-empty VULNERABLE_CHANGES does NOT write error marker" {
     # Findings exit: dep-review populated vulnerable-changes. The SARIF
     # produced by collect_outputs.sh already encodes the findings, so

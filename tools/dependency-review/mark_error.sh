@@ -22,13 +22,38 @@ set -f  # disable globbing — processes external tool output
 #   OUTCOME             — the upstream step's outcome string (for context)
 #   VULNERABLE_CHANGES  — the upstream step's vulnerable-changes output
 #
-# Exit: 0 unconditionally — failure to write the marker is non-fatal here
-# because the surrounding step is purely a fail-closed hint.
+# Exit: 0 on success; non-zero on missing required env or an unwritable
+# marker path (set -euo pipefail propagates failures from the redirect
+# and the `: "${METADATA_DIR:?...}"` guard).
 
 : "${METADATA_DIR:?METADATA_DIR is required}"
 : "${OUTCOME:=failure}"
 
-if [[ -z "${VULNERABLE_CHANGES:-}" ]] || [[ "${VULNERABLE_CHANGES}" == "[]" ]]; then
+# Empty-array / unparseable / null detection via jq, so we don't depend
+# on the upstream serialisation (`[]` vs `[ ]` vs pretty-printed vs
+# `null`) staying byte-stable. `jq -e 'length == 0'` is true for `[]`
+# and `{}`, false for non-empty arrays, and exits non-zero on null or
+# parse failure — both of those are "no usable findings array" and
+# count as a tool error.
+should_mark=0
+if [[ -z "${VULNERABLE_CHANGES:-}" ]]; then
+    should_mark=1
+elif ! printf '%s' "${VULNERABLE_CHANGES}" | jq -e 'length == 0' >/dev/null 2>&1; then
+    # jq returns success (0) when length == 0 → empty, mark.
+    # jq returns failure (non-zero) when length != 0 (findings) OR
+    # when input is null/unparseable. Disambiguate by re-checking
+    # whether the input parses at all.
+    if ! printf '%s' "${VULNERABLE_CHANGES}" | jq -e 'type == "array" and length > 0' >/dev/null 2>&1; then
+        # Not a non-empty array — null, unparseable, or wrong type.
+        # Treat as tool error.
+        should_mark=1
+    fi
+else
+    # jq succeeded → length == 0 → empty array, tool error.
+    should_mark=1
+fi
+
+if [[ "$should_mark" -eq 1 ]]; then
     mkdir -p "$METADATA_DIR"
     printf 'upstream dependency-review-action exited non-zero with no vulnerable-changes (outcome=%s)\n' \
         "$OUTCOME" > "$METADATA_DIR/error"

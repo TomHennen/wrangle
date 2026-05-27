@@ -211,3 +211,16 @@ create_sarif() {
     run "$ORIG_DIR/lib/check_results.sh" "$METADATA" "zizmor"
     [ "$status" -eq 0 ]
 }
+
+@test "check_results: error marker contents are sanitised before logging" {
+    # The marker contract (docs/SPEC.md, Two Tool Patterns) is "contents
+    # are untrusted, will be sanitised" — wrappers can interpolate raw
+    # upstream output without worrying about HTML/markdown injection
+    # into the Actions log surface.
+    mkdir -p "$METADATA/depreview"
+    printf '<script>alert(1)</script>genuine error\n' > "$METADATA/depreview/error"
+    run "$ORIG_DIR/lib/check_results.sh" "$METADATA" "depreview"
+    [ "$status" -eq 1 ]
+    [[ "$output" != *"<script>"* ]]
+    [[ "$output" == *"genuine error"* ]]
+}

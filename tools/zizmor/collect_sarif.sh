@@ -83,17 +83,23 @@ if [[ -n "$SARIF_SRC" ]] && [[ -f "$SARIF_SRC" ]] && [[ -s "$SARIF_SRC" ]]; then
     fi
 fi
 
-if [[ "$OUTCOME" == "failure" ]] && (( src_count <= 0 )); then
+if [[ "$OUTCOME" == "failure" ]] && [[ "$src_count" -le 0 ]]; then
     # Tool error: upstream failed and the SARIF either does not exist,
     # is empty, fails to parse, or contains zero results. None of these
     # correspond to "zizmor ran cleanly and found nothing" (that would
     # be outcome=success). Drop the marker so check_results.sh fails
     # closed for :fail and logs informatively for :info.
+    #
+    # `[[ -le ]]` (rather than `(( ))`) is deliberate: arithmetic
+    # contexts exit non-zero when the expression evaluates to 0, which
+    # under `set -e` could short-circuit before the marker write if
+    # a future edit broke the && chain. `[[ ]]` always returns the
+    # comparison result without side effects.
     printf 'upstream zizmor-action exited non-zero with no usable SARIF output (outcome=%s)\n' \
         "$OUTCOME" > "$ERROR_MARKER"
 fi
 
-if (( src_count >= 0 )); then
+if [[ "$src_count" -ge 0 ]]; then
     # SARIF parses — copy as-is. Note that for OUTCOME=failure with
     # src_count == 0 we have already written the marker above, so this
     # copy is purely so the step-summary collector and any Code Scanning
