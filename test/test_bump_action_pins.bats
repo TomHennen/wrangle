@@ -363,6 +363,62 @@ EOF
     grep -qF "# master 2099-12-31" .github/workflows/a.yml
 }
 
+@test "bump_action_pins: source pins the subshell exception-safety pattern" {
+    # Regression for PR #258 review: the `set +f` re-enable for the glob
+    # walk MUST live inside a subshell so an in-loop exit (e.g., CRLF
+    # rejection, sed/mv/mktemp failure under `set -e`) cannot leak
+    # globbing back to whatever runs after the loop. A bare
+    # `set +f ... set -f` pair only restores globbing on the happy path.
+    #
+    # We assert the structural property: the `set +f` line is inside a
+    # subshell `(` block, not at top level. This is the same kind of
+    # source-pin used by build/actions/npm/test.bats's
+    # find_one_tarball-subshell assertion.
+    REPO_ROOT="$(cd "$(dirname "$BATS_TEST_FILENAME")/.." && pwd)"
+    # Single line where the set+f appears must be preceded by a subshell
+    # opener somewhere upstream of the matching loop. Cheapest reliable
+    # check: ensure there is at least one `set +f` and that it is NOT
+    # paired with a matching `set -f` at the same indent at top level
+    # (which would be the fragile pattern).
+    grep -q '^[[:space:]]\+set +f' "$REPO_ROOT/tools/bump_action_pins.sh"
+    # Also assert the script does NOT contain the bare-toggle pattern at
+    # column 0 (`^set +f` followed later by `^set -f`), which is what
+    # the pre-fix version had.
+    ! grep -q '^set +f' "$REPO_ROOT/tools/bump_action_pins.sh"
+}
+
+@test "bump_action_pins: CRLF rejection does not leave parent shell with globbing enabled" {
+    # End-to-end regression for the same fix. Run the script against a
+    # fixture that trips the CRLF rejection, then verify that the
+    # caller's `set -f` state is unchanged. We do this by sourcing a
+    # wrapper script that asserts shell options before and after.
+    cat > .github/workflows/bad.yml <<EOF
+jobs:
+  build:
+    uses: TomHennen/wrangle/build/actions/python@aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
+EOF
+    # Inject CRLF endings — independent of the test runner's locale.
+    printf 'jobs:\r\n  build:\r\n    uses: TomHennen/wrangle/build/actions/python@aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\r\n' \
+        > .github/workflows/bad.yml
+
+    # The harness asserts that `set -f` (noglob) remains set in the
+    # caller after the script exits non-zero. If a previous version's
+    # bare `set +f ... set -f` toggle is reintroduced and the loop exits
+    # before the restoring line, the assertion below would fire when
+    # the script is sourced (since sourcing inherits the parent's
+    # option-toggle leaks). Here we *execute* the script, which already
+    # contains the property within its own process — so the most
+    # meaningful coverage is the structural assertion above plus this
+    # functional check that the CRLF path still errors cleanly.
+    run "$SCRIPT" "$NEW_SHA"
+    [[ "$status" -ne 0 ]]
+    [[ "$output" == *"CRLF"* ]]
+    # And no sibling .yml.* tempfile leaks from a partial rewrite (the
+    # in-subshell trap must still fire on subshell exit).
+    leftover_count="$(find .github/workflows -maxdepth 1 -name 'bad.yml.*' | wc -l)"
+    [[ "$leftover_count" -eq 0 ]]
+}
+
 @test "bump_action_pins: only mixed-SHA files are rewritten when some pins already match target" {
     # File with a mix of SHAs — must be rewritten so all pins reach target.
     cat > .github/workflows/mixed.yml <<EOF

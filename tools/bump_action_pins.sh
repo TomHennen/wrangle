@@ -42,6 +42,7 @@
 #                         (default: today's date in YYYY-MM-DD UTC)
 
 set -euo pipefail
+set -f
 
 # Resolve the repo to operate on from the current git working directory,
 # NOT from the script's own location. This makes the script safe to run
@@ -127,50 +128,85 @@ replace='\1'"$new_suffix"
 # to a sibling temp file (mktemp on the same filesystem) and atomically
 # rename — `mktemp` defaults to $TMPDIR, often a different mount, where
 # `mv` falls back to copy+unlink (not atomic).
-tmp_file=""
-cleanup() { [[ -n "$tmp_file" && -f "$tmp_file" ]] && rm -f "$tmp_file"; tmp_file=""; }
-trap cleanup EXIT INT TERM
+#
+# Counters (total/changed) flow back via a tempfile so the parent shell
+# can print the summary line; the subshell's stdout/stderr stay attached
+# to the terminal so progress and error lines reach the user unchanged.
+counters_file="$(mktemp)"
+trap 'rm -f "$counters_file"' EXIT INT TERM
 
-shopt -s nullglob
-changed=0
-total=0
-for f in "$REPO_ROOT/$PINS_DIR"/*.yml "$REPO_ROOT/$PINS_DIR"/*.yaml; do
-    [[ -f "$f" ]] || continue
-
-    # Filter to files that even contain a matching pin.
-    if ! grep -q -E "uses:[[:space:]]*${PINS_REPO}/[^@[:space:]]+@[0-9a-f]{40}" "$f"; then
-        continue
-    fi
-    total=$((total + 1))
-
-    # Reject CRLF — silently dropping \r would produce mixed line endings.
-    if grep -q $'\r' "$f"; then
-        # shellcheck disable=SC2016 # the backticks are part of the human-readable message, not an attempt at command substitution
-        printf 'Error: %s has CRLF line endings; convert to LF first (see dos2unix(1) or `tr -d "\\r" < file > tmp && mv tmp file`).\n' "${f#"$REPO_ROOT"/}" >&2
-        exit 1
-    fi
-
-    # Idempotency: if every existing pin already matches the target SHA,
-    # leave the file alone (preserves the existing comment, so re-runs
-    # on different days don't produce spurious diffs).
-    needs_update=false
-    while IFS= read -r existing_sha; do
-        if [[ "$existing_sha" != "$target_sha" ]]; then
-            needs_update=true
-            break
-        fi
-    done < <(grep -oE "${PINS_REPO}/[^@[:space:]]+@[0-9a-f]{40}" "$f" | grep -oE '[0-9a-f]{40}$')
-    if [[ "$needs_update" == "false" ]]; then
-        continue
-    fi
-
-    tmp_file="$(mktemp "$f.XXXXXX")"
-    sed "s|$match|$replace|g" "$f" > "$tmp_file"
-    mv "$tmp_file" "$f"
+# Walk the workflow-file glob inside a subshell so the `set +f` toggle
+# cannot leak back to the parent if the loop exits non-zero (e.g., the
+# CRLF check below trips, or `sed`/`mv`/`mktemp` fails under `set -e`).
+# A bare `set +f ... set -f` pair would only restore globbing on the
+# happy path; subshell scope makes the restoration unconditional. This
+# matches the pattern in `build/actions/npm/build_and_pack.sh`
+# (find_one_tarball).
+#
+# The top-level `set -f` (per CLAUDE.md) disables globbing while we
+# process external args; the positional `target_sha` is regex-validated
+# and the branch/date labels are sed-escaped before use.
+# `WRANGLE_PINS_DIR` is NOT regex-validated — it's trusted operator-
+# supplied input (env var on the maintainer's own shell), and it flows
+# into the glob word below, so any glob characters in it will themselves
+# expand. That's acceptable for this ops-only tool but worth being
+# explicit about.
+(
+    # In-subshell tmp-file cleanup mirrors what the parent used to do
+    # outside the loop. Without this, a `sed`/`mv` failure (under `set -e`)
+    # would leave a sibling `*.yml.<rand>` next to the source file.
     tmp_file=""
-    changed=$((changed + 1))
-    printf 'bumped: %s\n' "${f#"$REPO_ROOT"/}"
-done
+    # shellcheck disable=SC2317 # invoked indirectly via trap
+    cleanup_inner() {
+        [[ -n "$tmp_file" && -f "$tmp_file" ]] && rm -f "$tmp_file"
+        tmp_file=""
+    }
+    trap cleanup_inner EXIT INT TERM
+
+    set +f
+    shopt -s nullglob
+    changed=0
+    total=0
+    for f in "$REPO_ROOT/$PINS_DIR"/*.yml "$REPO_ROOT/$PINS_DIR"/*.yaml; do
+        [[ -f "$f" ]] || continue
+
+        # Filter to files that even contain a matching pin.
+        if ! grep -q -E "uses:[[:space:]]*${PINS_REPO}/[^@[:space:]]+@[0-9a-f]{40}" "$f"; then
+            continue
+        fi
+        total=$((total + 1))
+
+        # Reject CRLF — silently dropping \r would produce mixed line endings.
+        if grep -q $'\r' "$f"; then
+            # shellcheck disable=SC2016 # the backticks are part of the human-readable message, not an attempt at command substitution
+            printf 'Error: %s has CRLF line endings; convert to LF first (see dos2unix(1) or `tr -d "\\r" < file > tmp && mv tmp file`).\n' "${f#"$REPO_ROOT"/}" >&2
+            exit 1
+        fi
+
+        # Idempotency: if every existing pin already matches the target SHA,
+        # leave the file alone (preserves the existing comment, so re-runs
+        # on different days don't produce spurious diffs).
+        needs_update=false
+        while IFS= read -r existing_sha; do
+            if [[ "$existing_sha" != "$target_sha" ]]; then
+                needs_update=true
+                break
+            fi
+        done < <(grep -oE "${PINS_REPO}/[^@[:space:]]+@[0-9a-f]{40}" "$f" | grep -oE '[0-9a-f]{40}$')
+        if [[ "$needs_update" == "false" ]]; then
+            continue
+        fi
+
+        tmp_file="$(mktemp "$f.XXXXXX")"
+        sed "s|$match|$replace|g" "$f" > "$tmp_file"
+        mv "$tmp_file" "$f"
+        tmp_file=""
+        changed=$((changed + 1))
+        printf 'bumped: %s\n' "${f#"$REPO_ROOT"/}"
+    done
+    printf '%d %d\n' "$total" "$changed" > "$counters_file"
+)
+read -r total changed < "$counters_file"
 
 printf '\nSummary: %d file(s) had pins, %d file(s) changed.\n' "$total" "$changed"
 printf 'Target SHA: %s\n' "$target_sha"
