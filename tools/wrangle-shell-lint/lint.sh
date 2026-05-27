@@ -28,6 +28,15 @@ set -f  # disable globbing — processes file paths passed as arguments
 #   SC2006  backtick command substitution
 #   SC2086  unquoted variable expansions
 #
+# Out of scope (CLAUDE.md rules NOT enforced by this linter):
+#   - "Inline Shell in GitHub Actions" — inline `run:` blocks longer than
+#     ~5 lines or containing logic should be extracted to scripts. This is
+#     a YAML-level rule and would require a separate YAML scanner.
+#   - "GitHub Actions Expression Injection" — `${{ inputs.* }}` or
+#     `${{ github.event.* }}` interpolated directly into `run:` blocks.
+#     actionlint does not flag this by default; a dedicated YAML rule is
+#     needed. Tracked as a follow-up; see PR #243 review discussion.
+#
 # Note on WSL001 exactness: stricter forms like `set -Eeuo pipefail` (adds
 # ERR trap inheritance) and equivalent forms like `set -e -u -o pipefail`
 # are intentionally rejected. The rule enforces a single canonical preamble
@@ -111,16 +120,54 @@ check_wsl002() {
 #   - `echo` appearing inside string arguments to other commands
 #   - escaped `\$`
 #   - `$` inside single-quoted segments (literal, no expansion)
+#   - lines inside single-quoted heredoc bodies (<<'TAG' / <<"TAG"),
+#     which have no parameter expansion
+# Detected statement-start contexts (where `echo` is the command):
+#   - line start, or after one of: ; | & ( { ) ` && ||
+#   - after a control-flow keyword on the same line: then / do / else
 # Note: shell tokenisation in awk/regex is approximate. A few exotic
-# constructs (mixed quoting, here-docs, command substitutions starting on
-# the same line) may still slip through or false-fire; the heuristic is
-# tuned for the common case where the rest of wrangle's code lives.
+# constructs (mixed quoting, nested command substitutions starting on the
+# same line) may still slip through or false-fire; the heuristic is tuned
+# for the common case where the rest of wrangle's code lives.
 check_wsl003() {
     local file="$1"
     while IFS= read -r lineno; do
         emit "$file" "$lineno" "WSL003" \
             "use printf instead of echo for output containing variables"
     done < <(awk '
+        # Track quoted-heredoc state so literal `echo $foo` text inside a
+        # <<'\''TAG'\'' or <<"TAG" body is not flagged. Unquoted heredocs
+        # (<<TAG) DO expand variables, so we still lint those.
+        function in_quoted_heredoc() { return heredoc_tag != "" }
+
+        {
+            # If we are inside a quoted heredoc, only the terminating tag
+            # line is meaningful; everything else is literal text.
+            if (in_quoted_heredoc()) {
+                # Heredoc terminator: tag on a line by itself, optional
+                # leading tabs only if <<- was used. We accept either,
+                # because the linter is best-effort.
+                tag = heredoc_tag
+                if ($0 == tag || $0 ~ ("^[\t]+" tag "$")) {
+                    heredoc_tag = ""
+                }
+                next
+            }
+
+            # Detect the START of a quoted heredoc on this line. Patterns:
+            #   <<'\''TAG'\''   <<"TAG"   <<-'\''TAG'\''   <<-"TAG"
+            # We capture TAG and switch to heredoc-skip mode for subsequent
+            # lines. We still process the current line normally for echo.
+            if (match($0, /<<-?[[:space:]]*'\''[A-Za-z_][A-Za-z0-9_]*'\''/) ||
+                match($0, /<<-?[[:space:]]*"[A-Za-z_][A-Za-z0-9_]*"/)) {
+                s = substr($0, RSTART, RLENGTH)
+                # Strip leading <<, optional -, whitespace, and surrounding quote.
+                sub(/^<<-?[[:space:]]*['\''""]/, "", s)
+                sub(/['\''""]$/, "", s)
+                heredoc_tag = s
+            }
+        }
+
         # Skip comment-only lines.
         /^[[:space:]]*#/ { next }
 
@@ -146,9 +193,15 @@ check_wsl003() {
 
             # Require `echo` to appear as a command:
             #   - at the start of the (left-trimmed) statement, or
-            #   - immediately after a command separator: ; | & ( { &&  ||
+            #   - immediately after a command separator:
+            #       ; | & ( { ) ` && ||
+            #     ( `)` covers case-arms;  `(` and `` ` `` cover command
+            #     substitutions starting on the same line. )
+            #   - immediately after a control-flow keyword that introduces
+            #     a command on the same line: then / do / else
             # Word-anchor on both sides so xecho / echoes do not match.
-            if (match(line, /(^|[[:space:]]*)(;|\||&&|\|\||\(|\{|^)[[:space:]]*echo([[:space:]]|$)/) ||
+            if (match(line, /(;|\||&&|\|\||\(|\{|\)|`)[[:space:]]*echo([[:space:]]|$)/) ||
+                match(line, /(^|[[:space:]])(then|do|else)[[:space:]]+echo([[:space:]]|$)/) ||
                 match(line, /^[[:space:]]*echo([[:space:]]|$)/)) {
                 print NR
             }
@@ -158,7 +211,7 @@ check_wsl003() {
 
 # WSL004: single-bracket conditionals or `test` command.
 # Flags:
-#   - if/while/until followed by [ (single bracket, not [[)
+#   - if/elif/while/until followed by [ (single bracket, not [[)
 #   - bare [ as a statement (e.g. `[ -n "$x" ] && do_thing`)
 #   - bare `test` as a statement (alias of `[`)
 # Skips comment-only lines.
@@ -181,8 +234,8 @@ check_wsl004() {
             # Strip trailing inline comments.
             sub(/[[:space:]]+#.*$/, "", line)
 
-            # if/while/until [ (not [[)
-            if (match(line, /(^|[[:space:]]|;|&&|\|\|)(if|while|until)[[:space:]]+\[[^[]/)) {
+            # if/elif/while/until [ (not [[)
+            if (match(line, /(^|[[:space:]]|;|&&|\|\|)(if|elif|while|until)[[:space:]]+\[[^[]/)) {
                 print NR; next
             }
             # bare [ as a statement: starts the line/statement, followed by space.
@@ -202,12 +255,27 @@ check_wsl004() {
 # WSL005: shellcheck disable must include an inline justification comment.
 # Justified:   "# shellcheck disable=SC2016 # reason text"
 # Unjustified: "# shellcheck disable=SC2016" (nothing after the code — this is flagged)
+# Trailing whitespace after the disable code does not count as justification
+# (and is itself a style issue, but we report it under WSL005 with a clear
+# remediation hint rather than a separate rule).
 check_wsl005() {
     local file="$1"
     while IFS= read -r lineno; do
         emit "$file" "$lineno" "WSL005" \
-            "# shellcheck disable must have an inline justification (e.g. '# shellcheck disable=SCXXXX # reason')"
-    done < <(grep -nP '# shellcheck disable=[A-Z0-9,]+[[:space:]]*$' "$file" | cut -d: -f1)
+            "add a justification comment after the disable code: '# shellcheck disable=SCXXXX # <reason>'"
+    done < <(awk '
+        # Find: leading whitespace, "# shellcheck disable=CODES", optional
+        # trailing whitespace, end of line. Trailing whitespace is stripped
+        # before matching so an editor-added space/tab does not change the
+        # error message.
+        {
+            line = $0
+            sub(/[[:space:]]+$/, "", line)
+            if (line ~ /# shellcheck disable=[A-Z0-9,]+$/) {
+                print NR
+            }
+        }
+    ' "$file")
 }
 
 check_file() {
@@ -239,9 +307,15 @@ if [[ $# -gt 0 ]]; then
 else
     repo_root="$(git -C "$SCRIPT_DIR" rev-parse --show-toplevel 2>/dev/null)" || \
         repo_root="$(cd "$SCRIPT_DIR/../.." && pwd)"
+    # Walk all regular files and filter via is_shell_script so that
+    # extensionless bash scripts (e.g. a `bin/wrangle` wrapper detected by
+    # shebang) are linted with the same rules as `*.sh` files. This keeps
+    # the repo-walk path consistent with the explicit-args path above.
     while IFS= read -r -d '' file; do
-        check_file "$file"
-    done < <(find "$repo_root" -name '*.sh' \
+        if is_shell_script "$file"; then
+            check_file "$file"
+        fi
+    done < <(find "$repo_root" -type f \
         -not -path '*/.git/*' \
         -not -path '*/.beads/*' \
         -not -path '*/wrangle-shell-lint/fixtures/*' \
