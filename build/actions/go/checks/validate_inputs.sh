@@ -34,16 +34,18 @@ fi
 # pseudo-versions there, so wrangle MUST validate explicitly to enforce
 # the supply-chain-discipline posture documented in CLAUDE.md.
 #
-# Allowed shape: vMAJOR.MINOR.PATCH with an optional `-<prerelease>` or
-# `+<build>` suffix (semver 2.0.0). Examples: v1.1.4, v1.1.4-rc1,
-# v2.0.0-beta.3, v1.0.0+go1.24.
+# Allowed shape: vMAJOR.MINOR.PATCH with an optional `-<prerelease>`
+# AND/OR `+<build>` suffix (semver 2.0.0 order: prerelease before build).
+# Examples: v1.1.4, v1.1.4-rc1, v2.0.0-beta.3, v1.0.0+go1.24,
+# v1.0.0-rc1+build.5, v2.1.0+incompatible, and Go pseudo-versions like
+# v0.0.0-20240101000000-abcdef123456.
 #
 # The composite's env wiring (`${{ inputs.govulncheck-version || 'v1.1.4' }}`)
 # coalesces empty to the pin before we get here, so empty in practice
 # only reaches this script if someone calls it directly. We still reject
 # it with a clear message rather than silently re-defaulting — the env
 # coalesce is the only place the default lives.
-GOVULN_VERSION_REGEX='^v[0-9]+\.[0-9]+\.[0-9]+([+-][A-Za-z0-9.-]+)?$'
+GOVULN_VERSION_REGEX='^v[0-9]+\.[0-9]+\.[0-9]+(-[A-Za-z0-9.-]+)?(\+[A-Za-z0-9.-]+)?$'
 if ! [[ "$INPUT_GOVULN_VERSION" =~ $GOVULN_VERSION_REGEX ]]; then
     printf 'Error: govulncheck-version %q is not a pinned semver tag (e.g. v1.1.4).\n' "$INPUT_GOVULN_VERSION" >&2
     printf 'Wrangle rejects @latest, @main, branch names, and other non-pinned refs — see CLAUDE.md "Supply Chain Discipline".\n' >&2

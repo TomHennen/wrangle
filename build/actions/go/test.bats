@@ -390,6 +390,24 @@ func main() {}
     [[ "$status" -eq 0 ]]
 }
 
+@test "go.checks: validate_inputs.sh accepts semver with both prerelease AND build metadata" {
+    # Per semver 2.0.0, a tag can carry both (e.g., v1.0.0-rc1+build.5).
+    # govulncheck's own tags don't use this shape today, but the regex
+    # should not reject a valid future tag form. Also covers Go's
+    # `+incompatible` build-metadata convention on prerelease tags.
+    local proj="$BATS_TEST_TMPDIR/proj"
+    write_gomod "$proj"
+    cd "$BATS_TEST_TMPDIR"
+    run "$CHECKS_DIR/validate_inputs.sh" "proj" "enabled" "v1.0.0-rc1+build.5"
+    [[ "$status" -eq 0 ]]
+    run "$CHECKS_DIR/validate_inputs.sh" "proj" "enabled" "v2.1.0+incompatible"
+    [[ "$status" -eq 0 ]]
+    # Go pseudo-versions (resolver-produced; still a valid pinned ref)
+    # also slot into the prerelease branch.
+    run "$CHECKS_DIR/validate_inputs.sh" "proj" "enabled" "v0.0.0-20240101000000-abcdef123456"
+    [[ "$status" -eq 0 ]]
+}
+
 @test "go.checks: validate_inputs.sh rejects 'latest' govulncheck version" {
     local proj="$BATS_TEST_TMPDIR/proj"
     write_gomod "$proj"
@@ -829,6 +847,32 @@ func main() {}
     # 3rd arg (after INPUT_PATH and INPUT_CACHE).
     run grep -E 'validate_inputs\.sh".*"\$INPUT_PATH".*"\$INPUT_CACHE".*"\$INPUT_GOVULN_VERSION"' "$CHECKS_ACTION"
     [[ "$status" -eq 0 ]]
+}
+
+@test "go.checks: composite's three govulncheck pin literals stay in sync" {
+    # The wrangle pin appears three times in checks/action.yml:
+    #   1. the composite's own `default:` on the govulncheck-version input
+    #   2. the validate-step env coalesce `${{ ... || 'vX.Y.Z' }}`
+    #   3. the run-checks-step env coalesce `${{ ... || 'vX.Y.Z' }}`
+    # All three MUST move together when wrangle bumps the pin — a stale
+    # default at any one site silently drifts adopter behavior. This
+    # test fails on divergence so the next bumper sees it before merge.
+    local default_pin coalesce_pins
+    default_pin="$(awk '
+        /^  govulncheck-version:/ { in_block = 1; next }
+        in_block && /^    default:/ {
+            match($0, /"[^"]+"/)
+            print substr($0, RSTART+1, RLENGTH-2)
+            exit
+        }
+    ' "$CHECKS_ACTION")"
+    [[ -n "$default_pin" ]]
+    # Both env coalesces use the form: || 'vX.Y.Z'
+    mapfile -t coalesce_pins < <(grep -oE "\\|\\| '[v0-9.+A-Za-z-]+'" "$CHECKS_ACTION" | sed -E "s/.*'([^']+)'.*/\\1/")
+    # Expect exactly 2 env coalesces (validate-step + run-step).
+    [[ "${#coalesce_pins[@]}" -eq 2 ]]
+    [[ "${coalesce_pins[0]}" == "$default_pin" ]]
+    [[ "${coalesce_pins[1]}" == "$default_pin" ]]
 }
 
 @test "go: workflow exports hashes, provenance, metadata, checks-metadata artifact names" {
