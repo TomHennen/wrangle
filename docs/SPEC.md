@@ -1054,10 +1054,8 @@ and a config layer doesn't reduce the irreducible per-adopter inputs
 
 - [ ] Go build type follow-ups: validation-only sub-shape ([#239](https://github.com/TomHennen/wrangle/issues/239)), PR-build cost knob ([#245](https://github.com/TomHennen/wrangle/issues/245)), `govulncheck-version` input ([#246](https://github.com/TomHennen/wrangle/issues/246)), Go workflow reliability ([#254](https://github.com/TomHennen/wrangle/issues/254)), cgo + multi-arch goreleaser ([#259](https://github.com/TomHennen/wrangle/issues/259))
 - [ ] [Ampel](https://github.com/carabiner-dev/ampel) integration — policy verification layer that evaluates attestations against CEL-based policies and produces Verification Summary Attestations. Scoping: [#247](https://github.com/TomHennen/wrangle/issues/247)
-- [ ] Consumer-facing `wrangle verify-artifact` action so adopters and their consumers can verify VSAs without installing Ampel. Tracking: [#198](https://github.com/TomHennen/wrangle/issues/198)
+- [ ] Adopter-side `verify-artifact` action — closes the runner-isolation gap between wrangle's `verify` job and the adopter's publish job (today each download is independent, so the publish job has no machine-checked guarantee its bytes match the attestation). Verifies whatever the build produced (SLSA provenance or VSA) — not tied to Ampel. Downstream-consumer verification is covered by upstream `slsa-verifier` plus a docs page, not a wrapper. Tracking: [#198](https://github.com/TomHennen/wrangle/issues/198) (to be rescoped to adopter-side surface only).
 - [ ] Bundle wrangle attestations into a single in-toto JSONL across all build types (replacing per-build `python-<shortname>.intoto.jsonl` etc.). Tracking: [#181](https://github.com/TomHennen/wrangle/issues/181)
-- [ ] `tools.lock` manifest — single file listing all tool versions, URLs, and checksums per platform. Tracking: [#264](https://github.com/TomHennen/wrangle/issues/264)
-- [ ] Per-tool configuration — prefer native config files over flat passthrough inputs. Tracking: [#221](https://github.com/TomHennen/wrangle/issues/221)
 - [ ] Action-pattern source-scan tools must fail closed when the underlying tool errors (currently fail open). Tracking: [#222](https://github.com/TomHennen/wrangle/issues/222)
 - [ ] Fix wrangle's own SLSA Source Track integration (prerequisite). Tracking: [#174](https://github.com/TomHennen/wrangle/issues/174)
 - [ ] Help adopters adopt the SLSA source track in their repos via `check_source_change.yml`. Tracking: [#201](https://github.com/TomHennen/wrangle/issues/201)
@@ -1067,6 +1065,8 @@ and a config layer doesn't reduce the irreducible per-adopter inputs
 - Profile system and `wrangle init` — see theme paragraph above. Tracking: [#265](https://github.com/TomHennen/wrangle/issues/265)
 - Lightweight adapter sandboxing (bubblewrap/firejail on Linux) — significant design surface; own release. Tracking: [#267](https://github.com/TomHennen/wrangle/issues/267)
 - Additional source tools (Semgrep, Trivy) — additive, not architectural. Tracking: [#268](https://github.com/TomHennen/wrangle/issues/268)
+- `tools.lock` manifest — single file listing all tool versions/URLs/checksums per platform. Marginal value at current tool count (small fixed set, infrequent bumps, atomic per-`install.sh` checksums already work). Tracking: [#264](https://github.com/TomHennen/wrangle/issues/264)
+- Per-tool configuration — prefer native config files over flat passthrough inputs. Tracking: [#221](https://github.com/TomHennen/wrangle/issues/221)
 - Test integration as a profile-level concept — each build type already runs tests inside its own action
 - npm/pnpm/yarn workspaces ([#208](https://github.com/TomHennen/wrangle/issues/208)) — own track
 
