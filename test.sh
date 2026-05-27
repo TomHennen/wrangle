@@ -9,12 +9,12 @@ set -f
 # zizmor, then runs the specified test suite (default: all).
 #
 # Targets:
-#   all|test|ci     Full suite: lint + shellcheck + bats + zizmor (default)
-#   quick           Inner-loop iteration: lint + shellcheck + bats (skip zizmor)
-#   bats            Bats tests only
-#   lint            actionlint only
-#   shellcheck      Shell linter only (runs ShellCheck against all *.sh)
-#   zizmor          Zizmor workflow security linter only
+#   `all`|`test`|`ci`     Full suite: lint + shellcheck + bats + zizmor (default)
+#   `quick`               Inner-loop iteration: lint + shellcheck + bats (skip zizmor)
+#   `bats`                Bats tests only
+#   `lint`                actionlint only
+#   `shellcheck`          ShellCheck against all *.sh
+#   `zizmor`              Zizmor workflow security linter only
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 IMAGE_NAME="wrangle-test"
