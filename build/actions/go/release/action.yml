@@ -83,6 +83,14 @@ runs:
         set -euo pipefail
         "${{ github.action_path }}/validate_inputs.sh" "$INPUT_PATH" "$INPUT_CACHE" "$INPUT_PUBLISH"
 
+    - name: Advisory preflight (cgo + cross-compile)
+      shell: bash
+      env:
+        INPUT_PATH: ${{ inputs.path }}
+      run: |
+        set -euo pipefail
+        "${{ github.action_path }}/cgo_preflight.sh" "$INPUT_PATH"
+
     - name: Compute metadata
       id: metadata
       shell: bash

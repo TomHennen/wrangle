@@ -1044,3 +1044,300 @@ func TestFails(t *testing.T) {
     # trailing slash collapsing the path one level up).
     [[ -f "$BATS_TEST_TMPDIR/metadata/go/_/govulncheck.json" ]]
 }
+
+# ====================================================================
+# cgo_preflight.sh — advisory warning for cgo + cross-compile mismatch
+# ====================================================================
+#
+# These tests pin the behavior described in issue #259: when a project
+# sets CGO_ENABLED=1 with non-amd64 / non-linux build targets, the
+# release composite emits a ::warning:: naming the failure mode before
+# goreleaser runs. The preflight always exits 0 (advisory only) — the
+# tests assert on stdout content, not exit code.
+
+write_goreleaser_content() {
+    # $1: project dir, $2: file contents.
+    local dir="$1"
+    local content="$2"
+    mkdir -p "$dir"
+    printf '%s' "$content" > "$dir/.goreleaser.yml"
+}
+
+@test "go.release: cgo_preflight warns on CGO_ENABLED=1 + linux/arm64" {
+    local proj="$BATS_TEST_TMPDIR/proj"
+    write_goreleaser_content "$proj" 'version: 2
+builds:
+  - env:
+      - CGO_ENABLED=1
+    goos: [linux]
+    goarch: [amd64, arm64]
+'
+    run "$RELEASE_DIR/cgo_preflight.sh" "$proj"
+    [[ "$status" -eq 0 ]]
+    [[ "$output" == *"::warning"*"cgo + cross-compile"* ]]
+    [[ "$output" == *"build_go_cgo.goreleaser.yml"* ]]
+}
+
+@test "go.release: cgo_preflight warns on CGO_ENABLED=1 + darwin target" {
+    local proj="$BATS_TEST_TMPDIR/proj"
+    write_goreleaser_content "$proj" 'version: 2
+builds:
+  - env:
+      - CGO_ENABLED=1
+    goos: [linux, darwin]
+    goarch: [amd64]
+'
+    run "$RELEASE_DIR/cgo_preflight.sh" "$proj"
+    [[ "$status" -eq 0 ]]
+    [[ "$output" == *"::warning"* ]]
+}
+
+@test "go.release: cgo_preflight warns on CGO_ENABLED=1 + windows target" {
+    local proj="$BATS_TEST_TMPDIR/proj"
+    write_goreleaser_content "$proj" 'version: 2
+builds:
+  - env:
+      - CGO_ENABLED=1
+    goos: [linux, windows]
+    goarch: [amd64]
+'
+    run "$RELEASE_DIR/cgo_preflight.sh" "$proj"
+    [[ "$status" -eq 0 ]]
+    [[ "$output" == *"::warning"* ]]
+}
+
+@test "go.release: cgo_preflight warns on quoted CGO_ENABLED value" {
+    # CGO_ENABLED can be set as `"1"` (with quotes) in YAML-flow style,
+    # or as `CGO_ENABLED: "1"` if someone writes the env block as a
+    # map instead of a list (rare but valid).
+    local proj="$BATS_TEST_TMPDIR/proj"
+    write_goreleaser_content "$proj" 'version: 2
+builds:
+  - env:
+      - "CGO_ENABLED=1"
+    goos: [linux]
+    goarch: [amd64, arm64]
+'
+    run "$RELEASE_DIR/cgo_preflight.sh" "$proj"
+    [[ "$status" -eq 0 ]]
+    [[ "$output" == *"::warning"* ]]
+}
+
+@test "go.release: cgo_preflight stays silent on CGO_ENABLED=0" {
+    local proj="$BATS_TEST_TMPDIR/proj"
+    write_goreleaser_content "$proj" 'version: 2
+builds:
+  - env:
+      - CGO_ENABLED=0
+    goos: [linux, darwin, windows]
+    goarch: [amd64, arm64]
+'
+    run "$RELEASE_DIR/cgo_preflight.sh" "$proj"
+    [[ "$status" -eq 0 ]]
+    [[ "$output" != *"::warning"* ]]
+}
+
+@test "go.release: cgo_preflight stays silent on linux/amd64-only CGO build" {
+    local proj="$BATS_TEST_TMPDIR/proj"
+    write_goreleaser_content "$proj" 'version: 2
+builds:
+  - env:
+      - CGO_ENABLED=1
+    goos: [linux]
+    goarch: [amd64]
+'
+    run "$RELEASE_DIR/cgo_preflight.sh" "$proj"
+    [[ "$status" -eq 0 ]]
+    [[ "$output" != *"::warning"* ]]
+}
+
+@test "go.release: cgo_preflight stays silent when CGO_ENABLED unset (default)" {
+    # CGO_ENABLED isn't mentioned at all — goreleaser falls back to
+    # Go's own default (which cross-compiles fine without cgo).
+    local proj="$BATS_TEST_TMPDIR/proj"
+    write_goreleaser_content "$proj" 'version: 2
+builds:
+  - flags: [-trimpath]
+    goos: [linux, darwin]
+    goarch: [amd64, arm64]
+'
+    run "$RELEASE_DIR/cgo_preflight.sh" "$proj"
+    [[ "$status" -eq 0 ]]
+    [[ "$output" != *"::warning"* ]]
+}
+
+@test "go.release: cgo_preflight stays silent when zig cross-toolchain is configured" {
+    # If the adopter already wired zig via CC=zig cc -target ..., they
+    # know what they're doing — suppress the warning.
+    local proj="$BATS_TEST_TMPDIR/proj"
+    write_goreleaser_content "$proj" 'version: 2
+builds:
+  - env:
+      - CGO_ENABLED=1
+      - CC=zig cc -target aarch64-linux-gnu
+    goos: [linux]
+    goarch: [amd64, arm64]
+'
+    run "$RELEASE_DIR/cgo_preflight.sh" "$proj"
+    [[ "$status" -eq 0 ]]
+    [[ "$output" != *"::warning"* ]]
+}
+
+@test "go.release: cgo_preflight stays silent when an explicit CC= override is set" {
+    # Generic CC= override (not necessarily zig) — still treat as
+    # "adopter knows what they're doing" and stay quiet.
+    local proj="$BATS_TEST_TMPDIR/proj"
+    write_goreleaser_content "$proj" 'version: 2
+builds:
+  - env:
+      - CGO_ENABLED=1
+      - CC=aarch64-linux-gnu-gcc
+    goos: [linux]
+    goarch: [amd64, arm64]
+'
+    run "$RELEASE_DIR/cgo_preflight.sh" "$proj"
+    [[ "$status" -eq 0 ]]
+    [[ "$output" != *"::warning"* ]]
+}
+
+@test "go.release: cgo_preflight stays silent when CGO_ENABLED=1 is in a YAML comment line" {
+    # Adopter commenting out a setting to debug, or documenting in prose.
+    # Pre-sanitizer this matched; the awk comment-strip pass fixed it.
+    local proj="$BATS_TEST_TMPDIR/proj"
+    write_goreleaser_content "$proj" 'version: 2
+# Note: CGO_ENABLED=1 here for the future sks dependency (TODO: enable in Q3).
+builds:
+  - env:
+      - CGO_ENABLED=0
+    goos: [linux, darwin]
+    goarch: [amd64, arm64]
+'
+    run "$RELEASE_DIR/cgo_preflight.sh" "$proj"
+    [[ "$status" -eq 0 ]]
+    [[ "$output" != *"::warning"* ]]
+}
+
+@test "go.release: cgo_preflight stays silent when a goos/goarch comment names darwin" {
+    # `# goos: [linux, darwin]` in a comment must not trigger the
+    # non-native-target check.
+    local proj="$BATS_TEST_TMPDIR/proj"
+    write_goreleaser_content "$proj" 'version: 2
+builds:
+  # historical: previously published with goos: [linux, darwin]
+  - env:
+      - CGO_ENABLED=1
+    goos: [linux]
+    goarch: [amd64]
+'
+    run "$RELEASE_DIR/cgo_preflight.sh" "$proj"
+    [[ "$status" -eq 0 ]]
+    [[ "$output" != *"::warning"* ]]
+}
+
+@test "go.release: cgo_preflight stays silent when ignore: excludes the risky cells" {
+    # The adopter has done the right thing — excluded darwin/arm64
+    # explicitly. The non-native-target check used to match the
+    # ignore-block goos/goarch lines. The sanitizer drops that block.
+    local proj="$BATS_TEST_TMPDIR/proj"
+    write_goreleaser_content "$proj" 'version: 2
+builds:
+  - env:
+      - CGO_ENABLED=1
+    goos: [linux]
+    goarch: [amd64]
+    ignore:
+      - goos: darwin
+        goarch: arm64
+      - goos: windows
+        goarch: arm64
+'
+    run "$RELEASE_DIR/cgo_preflight.sh" "$proj"
+    [[ "$status" -eq 0 ]]
+    [[ "$output" != *"::warning"* ]]
+}
+
+@test "go.release: cgo_preflight still warns when ignore: doesnt cover all risky cells" {
+    # ignore: removes darwin/arm64 but linux/arm64 is still in the
+    # matrix → preflight still warns. Pins the sanitizer to skipping
+    # only the ignore block, not the surrounding matrix.
+    local proj="$BATS_TEST_TMPDIR/proj"
+    write_goreleaser_content "$proj" 'version: 2
+builds:
+  - env:
+      - CGO_ENABLED=1
+    goos: [linux]
+    goarch: [amd64, arm64]
+    ignore:
+      - goos: darwin
+        goarch: arm64
+'
+    run "$RELEASE_DIR/cgo_preflight.sh" "$proj"
+    [[ "$status" -eq 0 ]]
+    [[ "$output" == *"::warning"* ]]
+}
+
+@test "go.release: cgo_preflight does not match CGO_ENABLED=10 (regex tightening)" {
+    # The `[^0-9a-zA-Z_]|$` guard rejects multi-digit / multi-char values.
+    local proj="$BATS_TEST_TMPDIR/proj"
+    write_goreleaser_content "$proj" 'version: 2
+builds:
+  - env:
+      - CGO_ENABLED=10
+    goos: [linux, darwin]
+    goarch: [amd64, arm64]
+'
+    run "$RELEASE_DIR/cgo_preflight.sh" "$proj"
+    [[ "$status" -eq 0 ]]
+    [[ "$output" != *"::warning"* ]]
+}
+
+@test "go.release: cgo_preflight handles .goreleaser.yaml (alternate extension)" {
+    local proj="$BATS_TEST_TMPDIR/proj"
+    mkdir -p "$proj"
+    printf 'version: 2\nbuilds:\n  - env: [CGO_ENABLED=1]\n    goos: [darwin]\n    goarch: [arm64]\n' > "$proj/.goreleaser.yaml"
+    run "$RELEASE_DIR/cgo_preflight.sh" "$proj"
+    [[ "$status" -eq 0 ]]
+    [[ "$output" == *"::warning"* ]]
+}
+
+@test "go.release: cgo_preflight exits 0 when config is missing (defensive)" {
+    # validate_inputs.sh enforces presence, but the preflight must
+    # never crash if called in isolation against an empty dir.
+    local proj="$BATS_TEST_TMPDIR/proj"
+    mkdir -p "$proj"
+    run "$RELEASE_DIR/cgo_preflight.sh" "$proj"
+    [[ "$status" -eq 0 ]]
+    [[ "$output" != *"::warning"* ]]
+}
+
+@test "go.release: cgo_preflight rejects wrong arg count" {
+    run "$RELEASE_DIR/cgo_preflight.sh"
+    [[ "$status" -ne 0 ]]
+    [[ "$output" == *"Usage:"* ]]
+}
+
+@test "go.release: cgo_preflight.sh uses set -f" {
+    run grep '^set -f' "$RELEASE_DIR/cgo_preflight.sh"
+    [[ "$status" -eq 0 ]]
+}
+
+@test "go.release: cgo_preflight is wired into release/action.yml" {
+    # Structural guard: if someone removes the preflight step, this
+    # test catches it. Pairs with the unit tests above — together
+    # they pin behavior end-to-end.
+    run grep -E 'cgo_preflight\.sh' "$RELEASE_ACTION"
+    [[ "$status" -eq 0 ]]
+}
+
+@test "go: cgo example .goreleaser.yml exists in gh_workflow_examples" {
+    [[ -f "$REPO_ROOT/gh_workflow_examples/build_go_cgo.goreleaser.yml" ]]
+}
+
+@test "go: cgo example flags the SHA256 placeholder (adopters must replace)" {
+    # The example ships with REPLACE_WITH_PUBLISHED_SHA256 so that an
+    # adopter who copy-pastes without reading the comment fails fast
+    # at sha256sum -c rather than running a fabricated checksum past
+    # supply-chain due diligence.
+    run grep -F 'REPLACE_WITH_PUBLISHED_SHA256' "$REPO_ROOT/gh_workflow_examples/build_go_cgo.goreleaser.yml"
+    [[ "$status" -eq 0 ]]
+}

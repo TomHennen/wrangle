@@ -50,6 +50,20 @@ checksum:
 
 Both `-trimpath` and `-buildvcs=false` are zero-cost reproducibility wins. `CGO_ENABLED=0` is **not** recommended as a default — cgo-backed `net`/`os/user` resolvers and many third-party crypto libraries link C — set it only if you specifically want pure-Go binaries. See [goreleaser customization docs](https://goreleaser.com/customization/) for the full schema.
 
+## Cross-compiling with cgo
+
+The reusable workflow runs on `ubuntu-latest`, which ships an amd64-only C toolchain. If your `.goreleaser.yml` sets `CGO_ENABLED=1` (explicitly or via a cgo dependency) **and** targets anything other than `linux/amd64` (so most multi-arch / multi-OS matrices), the per-cell `go build` will fail inside goreleaser with opaque `# runtime/cgo` assembler errors like `gcc_arm64.S: Error: no such instruction: 'stp x29,x30,[sp,'`. The release composite emits a workflow warning ("cgo + cross-compile may fail on ubuntu-latest") before goreleaser runs when it sees this shape, so the failure mode is named rather than mysterious.
+
+You have three escape hatches; pick the one that matches what you actually need:
+
+| Situation | What to do |
+|---|---|
+| You don't actually use cgo (most projects) | Set `CGO_ENABLED=0` in `builds.env`. Go cross-compiles freely without cgo. |
+| You use cgo but only need linux/amd64 binaries | Restrict `goos: [linux]` and `goarch: [amd64]`. The runner's native gcc handles it. |
+| You use cgo *and* need multi-arch / darwin binaries | Wire zig as a cross-compiler in your `.goreleaser.yml`'s `before.hooks`. Working example: [`gh_workflow_examples/build_go_cgo.goreleaser.yml`](../../../gh_workflow_examples/build_go_cgo.goreleaser.yml). |
+
+Wrangle does not pre-install zig or any C toolchain — adopters bring their own, the same way they bring their `.goreleaser.yml`. The example file demonstrates the canonical pattern: install zig in `before.hooks` (checksummed download), then set per-cell `CC=zig cc -target <triple>` env templates.
+
 ## What the SLSA provenance covers (and what it doesn't)
 
 Wrangle hashes the contents of goreleaser's `dist/checksums.txt` and hands those hashes to the SLSA generator. Anything in `checksums.txt` is a provenance subject; anything outside it is NOT — including artifacts goreleaser pushes to OCI registries, Homebrew taps, or chat webhooks.

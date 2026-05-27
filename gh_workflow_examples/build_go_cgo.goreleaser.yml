@@ -1,0 +1,80 @@
+# Copy this to <path>/.goreleaser.yml (or .yaml) ONLY when you actually
+# need cgo AND want multi-arch / cross-OS binaries from a single
+# linux/amd64 runner. Pure-Go projects should use the simpler
+# `build_go.goreleaser.yml` next to this file — it has none of the zig
+# cross-compile machinery and is materially easier to maintain.
+#
+# Why this config exists: the default ubuntu-latest runner that
+# wrangle's `build_and_publish_go.yml` reuses has an amd64-only gcc.
+# `CGO_ENABLED=1` builds for linux/arm64, darwin/amd64, or darwin/arm64
+# fail there with cryptic `# runtime/cgo` assembler errors. Zig
+# (https://ziglang.org/) ships a single binary that backs cgo for all
+# four common targets, so installing it once in `before.hooks` and
+# pointing `CC`/`CXX` at it via `zig cc -target <triple>` makes the
+# build matrix work end-to-end. This is the goreleaser-documented
+# pattern: https://goreleaser.com/customization/cgo/
+#
+# Adopters can't inject workflow steps into wrangle's reusable
+# workflow, so zig is installed inside `before.hooks` instead.
+# Wrangle's CLAUDE.md "no curl | sh" rule applies to wrangle's own
+# downloads; here in an adopter file the checksummed download below is
+# the safe form — verify before extract, abort on mismatch.
+
+version: 2
+
+before:
+  hooks:
+    # Install zig if it isn't already on PATH. Pinned version +
+    # SHA-256 checksum so the install is reproducible and a tampered
+    # mirror cannot ship a different binary. Bump both fields in the
+    # same commit when upgrading.
+    #
+    # IMPORTANT: the SHA-256 below is a placeholder. Before using this
+    # template, fetch the real checksum for the version you've pinned
+    # from https://ziglang.org/download/ (each release page lists the
+    # tarball's SHA-256) and replace REPLACE_WITH_PUBLISHED_SHA256.
+    - bash -euo pipefail -c '
+        if command -v zig >/dev/null; then exit 0; fi;
+        ZIG_VERSION="0.13.0";
+        ZIG_SHA256="REPLACE_WITH_PUBLISHED_SHA256";
+        TARBALL="zig-linux-x86_64-${ZIG_VERSION}.tar.xz";
+        curl -fsSL -o "/tmp/${TARBALL}" "https://ziglang.org/download/${ZIG_VERSION}/${TARBALL}";
+        printf "%s  /tmp/%s\n" "${ZIG_SHA256}" "${TARBALL}" | sha256sum -c -;
+        sudo tar -xJf "/tmp/${TARBALL}" -C /usr/local;
+        sudo ln -sf "/usr/local/zig-linux-x86_64-${ZIG_VERSION}/zig" /usr/local/bin/zig;
+        rm "/tmp/${TARBALL}";
+      '
+
+builds:
+  - id: example
+    main: ./cmd/example
+
+    # `-trimpath` strips local filesystem paths from the binary; same
+    # reproducibility win as in the pure-Go example.
+    flags:
+      - -trimpath
+
+    env:
+      - CGO_ENABLED=1
+      - GOFLAGS=-buildvcs=false
+
+      # Per-cell CC/CXX. Goreleaser expands the `{{ .Os }}` /
+      # `{{ .Arch }}` templates per (goos, goarch) build cell. Each
+      # supported cell maps to a zig target triple; unsupported cells
+      # (you've added an arch not in this lookup) expand to an empty
+      # `-target` flag and zig will fail loudly with a clear message.
+      - 'CC=zig cc -target {{ if eq .Os "linux" }}{{ if eq .Arch "amd64" }}x86_64-linux-gnu{{ end }}{{ if eq .Arch "arm64" }}aarch64-linux-gnu{{ end }}{{ end }}{{ if eq .Os "darwin" }}{{ if eq .Arch "amd64" }}x86_64-macos-none{{ end }}{{ if eq .Arch "arm64" }}aarch64-macos-none{{ end }}{{ end }}'
+      - 'CXX=zig c++ -target {{ if eq .Os "linux" }}{{ if eq .Arch "amd64" }}x86_64-linux-gnu{{ end }}{{ if eq .Arch "arm64" }}aarch64-linux-gnu{{ end }}{{ end }}{{ if eq .Os "darwin" }}{{ if eq .Arch "amd64" }}x86_64-macos-none{{ end }}{{ if eq .Arch "arm64" }}aarch64-macos-none{{ end }}{{ end }}'
+
+    goos: [linux, darwin]
+    goarch: [amd64, arm64]
+
+# Pin the checksums filename — wrangle base64-encodes
+# dist/checksums.txt for the SLSA generator's subjects input. Custom
+# names break that hand-off.
+checksum:
+  name_template: "checksums.txt"
+
+archives:
+  - formats: [tar.gz]
+    name_template: "{{ .ProjectName }}_{{ .Version }}_{{ .Os }}_{{ .Arch }}"
