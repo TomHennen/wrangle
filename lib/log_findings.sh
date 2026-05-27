@@ -17,11 +17,19 @@ set -f  # disable globbing — processes external input paths
 # exits 0 and never affects the build outcome.
 #
 # Finding fields are sanitized:
-#   - ruleId, uri, line, and message have newlines collapsed and any
-#     character that would break the log line (control chars, pipes
-#     in ruleId/uri to keep them parseable) collapsed to spaces.
+#   - ruleId, uri, and message have \r\n\t collapsed to spaces so a
+#     single finding stays on a single log line (line is numeric).
 #   - HTML tags are stripped via lib/sanitize.sh.
-#   - Messages are truncated to MAX_FINDING_MESSAGE chars (default 100).
+#   - Messages are truncated to MAX_FINDING_MESSAGE bytes (default 100).
+#     Note: head -c is byte-based, not char-based, matching
+#     wrangle_sanitize_output's own truncation. A UTF-8 multibyte
+#     sequence at the boundary may render as a replacement char.
+#
+# Exit codes:
+#   0  Success (including malformed SARIF — skipped silently so this
+#      script does not double-report against check_results.sh, which
+#      is the pass/fail gate)
+#   2  Usage error (missing/extra args)
 #
 # Malformed SARIF is silently skipped — check_results.sh is the place
 # that fails on invalid SARIF; this script is purely informational.
@@ -36,7 +44,9 @@ MAX_FINDING_MESSAGE="${WRANGLE_MAX_FINDING_MESSAGE:-100}"
 
 if [[ $# -ne 1 ]]; then
     printf 'Usage: log_findings.sh <metadata_dir>\n' >&2
-    exit 1
+    # Exit 2 for usage error to match sibling lib/ scripts
+    # (sarif_to_md.sh, check_results.sh).
+    exit 2
 fi
 
 METADATA_DIR="$1"
@@ -57,11 +67,16 @@ while IFS= read -r -d '' dir; do
 
     # Extract findings as TSV: ruleId<TAB>uri<TAB>line<TAB>message.
     # Skip silently on parse errors — check_results.sh is the gate.
+    # Apply gsub("[\r\n\t]"; " ") to every string field (not just
+    # message) so each finding renders as one CI log line regardless
+    # of which attacker-controllable field contains a control char.
+    # We always read .locations[0] (the primary location per SARIF
+    # spec); a single result with multiple locations stays one log line.
     if ! findings="$(jq -r '
       .runs[].results[] |
         [
-          (.ruleId // "unknown-rule"),
-          (.locations[0].physicalLocation.artifactLocation.uri // "unknown"),
+          ((.ruleId // "unknown-rule") | gsub("[\r\n\t]"; " ")),
+          ((.locations[0].physicalLocation.artifactLocation.uri // "unknown") | gsub("[\r\n\t]"; " ")),
           ((.locations[0].physicalLocation.region.startLine // "?") | tostring),
           ((.message.text // "") | gsub("[\r\n\t]"; " "))
         ] | @tsv
@@ -71,6 +86,9 @@ while IFS= read -r -d '' dir; do
 
     [[ -n "$findings" ]] || continue
 
+    # Count findings. $(jq ...) stripped the trailing newline, so for
+    # N findings $findings has N-1 embedded newlines. The printf '%s\n'
+    # wrapper adds the final newline so `wc -l` returns N, not N-1.
     total="$(printf '%s\n' "$findings" | wc -l | tr -d ' ')"
     i=0
 

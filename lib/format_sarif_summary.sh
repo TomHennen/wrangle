@@ -74,11 +74,24 @@ while IFS= read -r -d '' dir; do
         # WHAT was found in the step summary (issue #158) without
         # opening the raw SARIF artifact. Silently skip on invalid SARIF
         # — the table above already flagged it as "Error (invalid SARIF)".
-        if md_table="$("$SCRIPT_DIR/sarif_to_md.sh" "${dir}/output.sarif" 2>/dev/null)"; then
-            printf '## %s Details\n' "$safe_tool"
-            # sarif_to_md.sh already sanitizes its output; pass through.
-            printf '%s\n' "$md_table"
-            printf '\n'
+        # Skip the fallback entirely when there are zero findings: the
+        # top table already shows "No findings" for this tool, and
+        # emitting a redundant "## <tool> Details\nNo findings." section
+        # adds noise without information.
+        # Note on truncation budget: this fallback path is bounded by
+        # wrangle_sanitize_output inside sarif_to_md.sh (so the section
+        # is capped at $WRANGLE_MAX_SUMMARY, 64 KB default) — a separate
+        # budget from the `wrangle_sanitize_output < output.md` path
+        # above. Tools that ship their own output.md effectively get a
+        # second 64 KB headroom. See docs/SPEC.md §Shared Tool Helpers.
+        if num_sarif_findings="$(jq '[.runs[].results[]] | length' "${dir}/output.sarif" 2>/dev/null)" \
+            && [[ "$num_sarif_findings" -gt 0 ]]; then
+            if md_table="$("$SCRIPT_DIR/sarif_to_md.sh" "${dir}/output.sarif" 2>/dev/null)"; then
+                printf '## %s Details\n' "$safe_tool"
+                # sarif_to_md.sh already sanitizes its output; pass through.
+                printf '%s\n' "$md_table"
+                printf '\n'
+            fi
         fi
     fi
 done < <(find "$METADATA_DIR" -mindepth 1 -maxdepth 1 -type d -print0 2>/dev/null | sort -z)

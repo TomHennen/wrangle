@@ -18,7 +18,8 @@ teardown() {
 @test "log_findings: requires metadata_dir argument" {
     run "$SCRIPT"
 
-    [ "$status" -eq 1 ]
+    # Exit 2 matches sibling lib/ scripts (sarif_to_md.sh, check_results.sh).
+    [ "$status" -eq 2 ]
     [[ "$output" == *"Usage"* ]]
 }
 
@@ -131,9 +132,12 @@ teardown() {
     run env WRANGLE_MAX_FINDING_MESSAGE=20 "$SCRIPT" "$METADATA"
 
     [ "$status" -eq 0 ]
-    # Pull the trailing message portion (after " -- ") and verify it's <= 20 chars.
+    # Pull the trailing message portion (after " -- ") and verify it's
+    # truncated to exactly 20 bytes. Pinning -eq (not just -le) catches
+    # the regression where truncation becomes too aggressive (e.g.,
+    # head -c swapped for cut -c1-N with an off-by-one).
     msg="${output##* -- }"
-    [[ ${#msg} -le 20 ]]
+    [[ ${#msg} -eq 20 ]]
 }
 
 @test "log_findings: iterates tools deterministically (sorted)" {
@@ -180,4 +184,36 @@ teardown() {
 
     [ "$status" -eq 0 ]
     [[ "$output" == *"no-rule[1/1] unknown-rule a.yml:3"* ]]
+}
+
+@test "log_findings: result with multiple locations emits exactly one line (primary only)" {
+    # SARIF allows multiple locations[] per result; the primary is
+    # locations[0]. Pin that we always render one log line per result,
+    # not N×M, in case someone "helpfully" switches to .locations[].
+    mkdir -p "$METADATA/multi-loc"
+    jq -n '{
+      "version":"2.1.0",
+      "runs":[{
+        "tool":{"driver":{"name":"multi-loc"}},
+        "results":[{
+          "ruleId":"MULTI-1",
+          "message":{"text":"finding with multiple locations"},
+          "locations":[
+            {"physicalLocation":{"artifactLocation":{"uri":"primary.yml"},"region":{"startLine":1}}},
+            {"physicalLocation":{"artifactLocation":{"uri":"secondary.yml"},"region":{"startLine":2}}},
+            {"physicalLocation":{"artifactLocation":{"uri":"tertiary.yml"},"region":{"startLine":3}}}
+          ]
+        }]
+      }]
+    }' > "$METADATA/multi-loc/output.sarif"
+
+    line_count=$("$SCRIPT" "$METADATA" | wc -l | tr -d ' ')
+    [[ "$line_count" -eq 1 ]]
+
+    run "$SCRIPT" "$METADATA"
+    [ "$status" -eq 0 ]
+    [[ "$output" == *"multi-loc[1/1] MULTI-1 primary.yml:1"* ]]
+    # secondary/tertiary must NOT appear — only locations[0] is rendered.
+    [[ "$output" != *"secondary.yml"* ]]
+    [[ "$output" != *"tertiary.yml"* ]]
 }
