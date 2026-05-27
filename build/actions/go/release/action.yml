@@ -110,7 +110,7 @@ runs:
       shell: bash
       env:
         WRANGLE_ROOT: ${{ github.action_path }}/../../../..
-      run: |
+      run: | # zizmor: ignore[github-env] BIN_DIR is runner-state-derived ($WRANGLE_BIN_DIR with $RUNNER_TEMP fallback), never an adopter input; tools/zig/install.sh has already populated it from a SHA-256-verified tarball. github-env's RCE concern (attacker-controllable string flowing into PATH) does not apply.
         set -euo pipefail
         "$WRANGLE_ROOT/tools/zig/install.sh"
         BIN_DIR="${WRANGLE_BIN_DIR:-${RUNNER_TEMP:-.}/.wrangle/bin}"

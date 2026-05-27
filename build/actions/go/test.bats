@@ -1508,6 +1508,17 @@ builds:
     [[ "$status" -eq 0 ]]
 }
 
+@test "go.release: zig install step's GITHUB_PATH write carries a zizmor suppression with justification" {
+    # zizmor's github-env audit flags writes to $GITHUB_PATH because
+    # attacker-controllable values flowing into PATH are an RCE
+    # vector. Here BIN_DIR is purely runner-state-derived, so the
+    # finding is suppressed inline. Pin the suppression with a
+    # justification so a future contributor can't silently delete
+    # the comment without re-thinking the security argument.
+    run grep -F 'zizmor: ignore[github-env]' "$RELEASE_ACTION"
+    [[ "$status" -eq 0 ]]
+}
+
 # --- Example file + tool installer structural tests ---------------------
 
 @test "go: cgo example .goreleaser.yml exists in gh_workflow_examples" {
