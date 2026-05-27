@@ -6,7 +6,27 @@ Read `docs/SPEC.md` before contributing. It is the source of truth for architect
 
 ## Shell Script Safety
 
-Every shell script MUST start with `set -euo pipefail`. Scripts that process arguments from external input MUST also `set -f` (disable globbing) before processing those arguments.
+Every shell script MUST start with these two lines:
+
+```bash
+set -euo pipefail
+set -f
+```
+
+`set -f` (disable filename globbing) is included by default because unquoted expansions containing `*` / `?` / `[…]` are a recurring source of subtle bugs and shell-injection vectors (e.g., a variable holding `*` expanding to every file in a directory). Wrangle is a supply-chain security tool and defaults to the safer flag rather than relying on every contributor to reason about whether their script "needs" it.
+
+Scripts that genuinely need globbing — e.g., `for f in *.txt; do …` — must wrap the glob in `set +f` / `set -f` with a comment explaining why, scoped as narrowly as possible:
+
+```bash
+# set +f: this loop intentionally expands the glob
+set +f
+for f in *.txt; do
+  process "$f"
+done
+set -f
+```
+
+Sourced libraries (`lib/*.sh`) that change shell options affect their callers. `set -f` leaking from a sourced lib is intentional — callers want the same protection — but a lib that temporarily `set +f`s MUST restore `set -f` before returning.
 
 All variable expansions MUST be double-quoted: `"$var"`, `"${var}"`, `"$@"`. The only exception is intentional word-splitting with a documented comment explaining why it is safe (e.g., `$WRANGLE_TOOLS` in the composite action, which is validated by the orchestrator's regex).
 
