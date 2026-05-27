@@ -22,6 +22,15 @@ first_tag=$(git tag --list | head -1)
 if [[ -z "$first_tag" ]]; then
     printf '::notice title=No git tags::No git tags found. Goreleaser will use "0.0.0" for .Version in templates. Push a v0.0.0 tag if you want meaningful version numbers in artifact filenames.\n'
 else
-    all_tags=$(git tag --list | tr '\n' ' ')
-    printf '::warning title=No semver tags::Non-semver tags found (%s) but no v* semver tag. Goreleaser .Version will not resolve to a valid semver string. Snapshot builds will fail if your .goreleaser.yml snapshot.version_template uses incpatch / incminor / incmajor. Use a commit-hash-based template (e.g. "{{ .ShortCommit }}-snapshot") or push a v0.0.0 tag to establish a semver baseline.\n' "${all_tags}"
+    # Cap the tag list at 5 to avoid overflowing GitHub Actions' 4096-char
+    # annotation budget on repos with hundreds of tags. Show a "(and N
+    # more)" suffix when truncated so the adopter knows what they're
+    # missing.
+    tag_count=$(git tag --list | wc -l | tr -d ' ')
+    sample_tags=$(git tag --list | head -5 | tr '\n' ' ')
+    suffix=""
+    if [[ "$tag_count" -gt 5 ]]; then
+        suffix=" (and $((tag_count - 5)) more)"
+    fi
+    printf '::warning title=No semver tags::Non-semver tags found (%s%s) but no v* semver tag. Goreleaser .Version will not resolve to a valid semver string. Snapshot builds will fail if your .goreleaser.yml snapshot.version_template uses incpatch / incminor / incmajor. Use a commit-hash-based template (e.g. "{{ .ShortCommit }}-snapshot") or push a v0.0.0 tag to establish a semver baseline.\n' "${sample_tags}" "${suffix}"
 fi

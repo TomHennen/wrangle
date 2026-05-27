@@ -101,10 +101,16 @@ runs:
         cache-dependency-path: ${{ inputs.path }}/go.sum
 
     - name: Check for semver tags
+      # On a v* tag push the check is silenced anyway (git describe finds
+      # the tag and exits 0), but skipping the step makes intent explicit
+      # and saves the redundant fork.
+      if: ${{ !startsWith(github.ref, 'refs/tags/v') }}
       shell: bash
+      env:
+        ACTION_PATH: ${{ github.action_path }}
       run: |
         set -euo pipefail
-        "${{ github.action_path }}/check_semver_tags.sh"
+        "$ACTION_PATH/check_semver_tags.sh"
 
     # goreleaser-action is a `uses:` step; can't be wrapped inline
     # by stop_commands_guard.sh `run` mode. Use the begin/end form:

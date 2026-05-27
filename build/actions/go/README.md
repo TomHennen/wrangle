@@ -50,7 +50,17 @@ checksum:
 
 Both `-trimpath` and `-buildvcs=false` are zero-cost reproducibility wins. `CGO_ENABLED=0` is **not** recommended as a default — cgo-backed `net`/`os/user` resolvers and many third-party crypto libraries link C — set it only if you specifically want pure-Go binaries. See [goreleaser customization docs](https://goreleaser.com/customization/) for the full schema.
 
-**Tag naming:** Release tags must be `v`-prefixed semver (e.g. `v1.2.3`) — wrangle's workflow triggers on `tags: ["v*"]` and goreleaser derives `.Version` from the nearest matching tag. If your repo has no semver tags yet (only non-semver tags like `phase-0-complete`, or no tags at all), wrangle emits a warning annotation before invoking goreleaser. The recommended `snapshot.version_template: "{{ .ShortCommit }}-snapshot"` in the example config avoids `.Version` entirely and works regardless of tag history. If you customize the snapshot template with semver functions (`incpatch`, `incminor`, `incmajor`), snapshot builds will fail until you push a `v*` tag — push `v0.0.0` to establish a semver baseline.
+### Tag naming
+
+Release tags must be `v`-prefixed semver (e.g. `v1.2.3`) — wrangle's workflow triggers on `tags: ["v*"]` and goreleaser derives `.Version` from the nearest matching tag.
+
+### Snapshot template pitfall
+
+If your repo has no semver tags yet (only non-semver tags like `phase-0-complete`, or no tags at all), wrangle emits a warning annotation before invoking goreleaser. This warning fires on `release-events: non-pull-request` or `release-events: main-and-tags` runs; a `tag-only` repo (the default) only runs the workflow on a `v*` tag push, so the warning is mostly relevant when you've opted into snapshot builds on main.
+
+The recommended `snapshot.version_template: "{{ .ShortCommit }}-snapshot"` in the [example config](../../../gh_workflow_examples/build_go.goreleaser.yml) avoids `.Version` entirely and works regardless of tag history. If you customize the snapshot template with semver functions (`incpatch`, `incminor`, `incmajor`), snapshot builds will fail until you push a `v*` tag — push `v0.0.0` to establish a semver baseline.
+
+See goreleaser's [snapshot docs](https://goreleaser.com/customization/snapshots/) and [template reference](https://goreleaser.com/customization/templates/) for the full template syntax.
 
 ## What the SLSA provenance covers (and what it doesn't)
 
