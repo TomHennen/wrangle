@@ -58,11 +58,14 @@ Don't `curl | sh` — all binary downloads go through `lib/download_verify.sh`. 
 
 **Integrity verification hierarchy:** SLSA provenance > GitHub release attestation > Sigstore signature > hardcoded SHA-256 checksum. NEVER fall back to a weaker method if a stronger one fails.
 
-**Go modules via `go install`.** Tools fetched as Go modules (`go install <module>@<version>`) are integrity-verified against [sum.golang.org](https://sum.golang.org/), a Trillian-backed transparency log over go.sum-shaped lines. This is an accepted alternative to `lib/download_verify.sh` for Go modules that meet ALL the following:
+**Go modules via `go install`.** Tools fetched as Go modules (`go install <module>@<version>`) are integrity-verified against [sum.golang.org](https://sum.golang.org/), a Trillian-backed transparency log that makes the first-seen `go.sum` line for each `(module, version)` immutable. The tlog provides non-repudiable record-keeping, not publisher authentication — a compromised upstream maintainer's malicious release would still install (and be recorded); detection is after-the-fact, via Sigsum-style auditing. This is a narrowly-scoped tier that slots in BELOW the four above and is accepted in lieu of routing through `lib/download_verify.sh` ONLY when no upstream binary release exists for the tool and ALL the following hold:
 
 1. The module is pinned to a specific semver tag (no `@latest`, no `@main`).
 2. The Go toolchain used to install it has been installed via `lib/download_verify.sh` or equivalent (e.g., `actions/setup-go` with a pinned version).
 3. The integration point documents WHY this path is preferred over a tarball install (typically: no upstream binary release).
+4. The Go module-proxy / sumdb path is in effect: `GOPROXY` is NOT `direct` (or `off`) and `GOSUMDB` is NOT `off`. Default Go env satisfies this, but adopters and CI envs MAY override; install sites SHOULD assert the defaults explicitly (e.g., `export GOPROXY=https://proxy.golang.org,direct GOSUMDB=sum.golang.org`) before `go install` so the security claim is not environment-conditional.
+
+The no-fallback rule still applies: if `sum.golang.org` verification fails (e.g., a `go.sum` mismatch) `go install` exits non-zero and the install MUST abort, not retry under `GOSUMDB=off`.
 
 **Install method hierarchy:** canonical package manager (with adequate verification) > GitHub release binary + attestation > GitHub release binary + sha256. When upstream offers multiple package managers, prefer in order: (1) the one upstream's install docs recommend first, (2) the one with attestation support, (3) the one that doesn't add transitive runtime deps to the test image. If upstream is on pipx/cargo/npm/go-install and the test image already has that runtime, use it. Don't write a custom `install.sh` if upstream supports a canonical package manager with adequate verification — that's the fallback, not the default.
 

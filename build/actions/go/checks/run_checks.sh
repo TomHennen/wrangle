@@ -136,8 +136,18 @@ install_govulncheck() {
     if [[ -z "$gobin" ]]; then
         gobin="$(go env GOPATH)/bin"
     fi
-    # Integrity via sum.golang.org tlog (pinned semver); no upstream binary release. See CLAUDE.md "Supply Chain Discipline".
-    go install "golang.org/x/vuln/cmd/govulncheck@${version}" 1>&2
+    # Integrity via sum.golang.org tlog (pinned semver); no upstream binary
+    # release. See CLAUDE.md "Supply Chain Discipline" (Go modules installed
+    # via `go install`).
+    #
+    # Assert the module-proxy / sumdb path is in effect so the security
+    # claim is not environment-conditional: if an adopter's env (or an
+    # org-level CI policy) sets GOPROXY=direct or GOSUMDB=off, `go install`
+    # would silently skip the tlog check. Setting these locally for the
+    # subshell that runs `go install` (not exporting workflow-wide) forces
+    # the documented path without overriding the caller's broader env.
+    GOPROXY="https://proxy.golang.org,direct" GOSUMDB="sum.golang.org" \
+        go install "golang.org/x/vuln/cmd/govulncheck@${version}" 1>&2
     printf '%s/govulncheck\n' "$gobin"
 }
 
