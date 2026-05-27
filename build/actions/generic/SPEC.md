@@ -18,14 +18,14 @@ The right way to read the contrast with a "wrap-only" shape (where wrangle would
 
 ### Inputs — adopter-supplied scripts plus a small structured set
 
-The adopter places scripts at conventional paths in their repo (proposal: `.wrangle/`, mirroring `.github/`). Wrangle invokes whichever exist, in a fixed order with separated failure semantics:
+The adopter places scripts at conventional paths in their repo. v0.1 proposal: `wrangle/` at the project root (no leading dot — see "Where the scripts live" below for why not `.wrangle/`). Wrangle invokes whichever exist, in a fixed order with separated failure semantics:
 
 | Script | Required? | When wrangle runs it | Failure behavior |
 |--------|-----------|----------------------|------------------|
 | `install-deps.sh` | optional | First — toolchain / dependency setup | Failure stops the pipeline before tests |
 | `test.sh` | optional, recommended | Before the build | Failure stops the pipeline; wrangle attests in metadata that tests were run |
 | `build.sh` | **required** | After tests pass | Failure stops the pipeline; no provenance generated |
-| `lint.sh` | optional | In parallel with or before build | Failure stops the pipeline (lint is a build-stage gate, same as test) |
+| `lint.sh` | optional | Sequentially inside `checks`, before `test.sh` | Failure stops the pipeline (lint is a build-stage gate, same as test). Note: this ordering means a lint failure prevents tests from running. Adopters wanting "run all gates and report all failures" can't get that from this shape today; the v0.1 trade-off favours fail-fast over parallel reporting. |
 
 Plus a small set of structured inputs:
 
@@ -57,15 +57,15 @@ jobs:
 ```
 
 ```bash
-# .wrangle/install-deps.sh in the adopter's repo
+# wrangle/install-deps.sh in the adopter's repo
 set -euo pipefail
 sudo apt-get install -y build-essential cmake
 
-# .wrangle/test.sh
+# wrangle/test.sh
 set -euo pipefail
 ctest --output-on-failure
 
-# .wrangle/build.sh
+# wrangle/build.sh
 set -euo pipefail
 cmake -B build && cmake --build build
 mkdir -p dist
@@ -82,7 +82,7 @@ Pushing the build into a script file delegates *all* of that complexity to the a
 
 - The adopter can `shellcheck` their own `build.sh`, write integration tests for it, code-review changes to it, and pin its dependencies.
 - Wrangle has one wire-format question — "does this script file exist at the declared path?" — instead of N escaping questions.
-- The provenance gets something more meaningful than a command string: the script file is in the source tree, so the recorded source commit is sufficient to recover what built the artifact. Reviewers can `git show <commit>:.wrangle/build.sh` rather than parse a command field out of provenance metadata.
+- The provenance gets something more meaningful than a command string: the script file is in the source tree, so the recorded source commit is sufficient to recover what built the artifact. Reviewers can `git show <commit>:wrangle/build.sh` rather than parse a command field out of provenance metadata.
 
 This sidesteps Tom's L40 question entirely: there is no DSL to design.
 
@@ -112,7 +112,7 @@ All caller-supplied. Generic has no ecosystem trusted-publishing story. The adop
 
 ### Linting
 
-`lint.sh` is the recommendation. The adopter knows their linters; wrangle invokes if the script is present. Source-stage linting wrangle already provides applies independently — the source-scan workflow's `shellcheck` will lint the user's `.wrangle/*.sh` scripts the same as it lints any shell in the repo, with no new wiring.
+`lint.sh` is the recommendation. The adopter knows their linters; wrangle invokes if the script is present. Source-stage linting wrangle already provides applies independently — the source-scan workflow's `shellcheck` will lint the user's `wrangle/*.sh` scripts the same as it lints any shell in the repo, with no new wiring.
 
 ### Stronger upstream alternative (mentioned, not picked)
 
@@ -135,6 +135,10 @@ An adopter could wire `generator_generic_slsa3.yml` directly without wrangle. Th
 
 What wrangle's generic build type does **not** add (vs. python/container): no ecosystem-native attestation analogue (there isn't one), no toolchain auto-setup (the adopter writes `install-deps.sh`), no build-tool detection, no publish step. The candid framing: wrangle's value-add for generic is "everything around the build, packaged consistently with the rest of wrangle." That is real value, but thinner than what python or container adds — adopters comfortable wiring the SLSA generator directly will feel the gap less than a python adopter would.
 
+**Upper boundary: cannibalization risk vs. typed build types.** The doc draws the lower boundary cleanly (shell handles the empty-artifact case; see Awkward cases). The upper boundary — when does generic eat into python, Go, container, or the future Maven/OCI types? — is fuzzier. An adopter with a python project that has unusual packaging (Bazel `py_binary`, non-PyPI distribution channel, custom `MANIFEST.in` that confuses `python -m build`) could plausibly reach for generic and still get L3 + SBOM + scan. They lose the PyPI trusted-publishing path and the ecosystem-native attestation slot — but for generic those weren't on offer anyway, so the framing here is *which build type is the adopter ergonomically locked into?*, not *which gives them more*. The differentiator is "wrangle picks the build tool for you" — and for adopters with unusual setups in a recognized ecosystem, that differentiator flips from feature to liability.
+
+Phase 1 flags the question; Phase 2 picks the policy boundary. Candidates: (a) adopters in a recognized ecosystem are discouraged in docs/README from picking generic and nudged toward filing an issue against the typed build first; (b) `validate_inputs.sh` warns (not fails) if it detects `pyproject.toml` / `package.json` / `go.mod` and is being invoked as generic; (c) no policy — accept the cannibalization risk as the price of generic being usable at all. Filed for Phase 2 in #266.
+
 **Caveat on the value-add list.** The "permission-cascade handling" and the multi-job split assume the upstream generator is `generator_generic_slsa3.yml`. If the "Stronger upstream alternative" pick later flips to the SLSA Docker builder, the permission shape changes (Docker builder uses BYOB's reusable-workflow framework with its own job topology); the value-add list and the step-sequence sketch would both need a refresh pass.
 
 ## Threat model
@@ -142,7 +146,7 @@ What wrangle's generic build type does **not** add (vs. python/container): no ec
 Generic's threat model is sharper than python's or container's because the build command is adopter-defined shell. Phase 1 calls out the surface without committing to validation mechanisms (Phase 2 / [#171](https://github.com/TomHennen/wrangle/issues/171) / [#183](https://github.com/TomHennen/wrangle/issues/183) pick those).
 
 **In-scope (wrangle's job to make hard):**
-- A poisoned `install-deps.sh` that fetches a tampered toolchain over an unverified channel — concretely, `curl http://… | sh` or `wget … && sh foo.sh` shapes. Generic is the build type most likely to attract these patterns precisely because there's no ecosystem package manager doing the lifting. The doc commits to "blocking `curl … | sh`-shaped install patterns" as part of the L3-envelope hygiene; the mechanism is open (source-stage shellcheck-with-custom-rule, an AST scan of `.wrangle/*.sh` before invocation, a runtime egress allowlist, or some combination — [#183](https://github.com/TomHennen/wrangle/issues/183) is the right place to commit).
+- A poisoned `install-deps.sh` that fetches a tampered toolchain over an unverified channel — concretely, `curl http://… | sh` or `wget … && sh foo.sh` shapes. Generic is the build type most likely to attract these patterns precisely because there's no ecosystem package manager doing the lifting. The doc commits to "blocking `curl … | sh`-shaped install patterns" as part of wrangle's pre-build validation; the mechanism is open (source-stage shellcheck-with-custom-rule, an AST scan of `wrangle/*.sh` before invocation, a runtime egress allowlist, or some combination — [#183](https://github.com/TomHennen/wrangle/issues/183) is the right place to commit). The choice of mechanism determines whether the check is transitively in the L3 envelope or only reviewed at source-gate time — see "Honest caveat" at the end of this section.
 - `artifact-paths` entries that escape the workspace via `..` or absolute paths (handled by `lib/validate_path.sh`, same as python).
 - A `build.sh` that writes outside its expected output directory and that wrangle then unintentionally treats as an attested artifact (handled by the "exact list" `artifact-paths` shape — wrangle hashes only what is declared, so an unexpected write produces no subject).
 - Adopter scripts attempting to read secrets out of the runner environment (handled by the same `WRANGLE_EXTRA_*` opt-in mechanism the tool adapters use — adopter scripts get a stripped env unless an input explicitly forwards a named var).
@@ -156,40 +160,69 @@ Generic's threat model is sharper than python's or container's because the build
 - Reproducibility verification.
 - Cross-language SBOM completeness when the build uses out-of-workspace caches (see Awkward cases).
 
-The picks here let wrangle commit to "L3 + workspace SBOM + vulnscan + script-hygiene checks transitively certified by the L3 envelope." That is a substantial uplift over the starter workflow's L3-alone, and it is the boundary the doc draws deliberately.
+The picks here let wrangle commit to "L3 + workspace SBOM + vulnscan + script-hygiene checks at the same review gate as the source." That is a substantial uplift over the starter workflow's L3-alone, and it is the boundary the doc draws deliberately.
+
+**Honest caveat on "transitively certified by the L3 envelope."** Lines 12-14 and the value-add list ("Build hygiene certified by the L3 envelope") lean on the framing that wrangle's hygiene becomes part of what the SLSA envelope attests because wrangle's reusable workflow is what the generator records as `workflow_ref`. That is true **only for hygiene that runs inside the attested workflow context — i.e., inside the reusable workflow on the path between source checkout and provenance generation.** It is not automatically true for every mechanism that might land for `curl … | sh` blocking. Where each candidate mechanism sits:
+
+- **Source-stage `shellcheck` with a custom rule** runs in the source-scan workflow, *before* the attested build workflow ever runs. It is reviewed at the same gate as the source (good), but is not transitively in the L3 envelope.
+- **AST scan of `wrangle/*.sh` before invocation, inside the attested workflow** — yes, this is transitively in the envelope. With the multi-job topology picked above, the scan must run in **both** `checks` (before `install-deps.sh` first runs) and `release` (before `install-deps.sh` is re-run) to be load-bearing for the build job that produces the artifact. Single-job topologies would only need it once.
+- **Runtime egress allowlisting** requires runner-level enforcement (e.g., a StepSecurity-style harness) that wrangle doesn't currently ship. Not in the envelope today.
+
+The pragmatic framing wrangle should adopt until [#183](https://github.com/TomHennen/wrangle/issues/183) picks a mechanism: **"wrangle's script-hygiene checks run at the same review gate as the source they validate, and — where the chosen mechanism runs inside the reusable workflow — additionally inherit the L3 envelope's transitive attestation."** That is honest about the conditional nature without giving up the strong-form claim if the AST-scan mechanism wins. The current "L3 envelope certifies the hygiene" phrasing in the Operating model and value-add sections should be read with this caveat until the mechanism is picked.
 
 ## Step sequence (sketch)
 
-The Go build type (PR [#238](https://github.com/TomHennen/wrangle/pull/238), merged 2026-05-24) split its composite action into **three composites with per-job permission scopes** rather than one composite under a single job — a real defense-in-depth concern: `go test` runs adopter test code and shouldn't hold `contents: write`. Generic should follow that shape, because `install-deps.sh`, `test.sh`, and `lint.sh` are all adopter-controlled shell scripts that wrangle invokes; running them in the same job as `build.sh` (which is followed by the upload-assets cascade that requires `contents: write`) defeats the same isolation.
+The Go build type (PR [#238](https://github.com/TomHennen/wrangle/pull/238), merged 2026-05-24) split its composite action into **multiple jobs with per-job permission scopes** rather than one composite under a single job — a real defense-in-depth concern: `go test` runs adopter test code and shouldn't hold `contents: write`. Generic should follow that shape, because `install-deps.sh`, `test.sh`, and `lint.sh` are all adopter-controlled shell scripts that wrangle invokes; running them in the same job as `build.sh` (which is followed by the upload-assets cascade that requires `contents: write`) defeats the same isolation.
 
-Sketch — three composite actions under `build/actions/generic/`, executed by a reusable workflow `.github/workflows/build_and_publish_generic.yml`:
+Sketch — a reusable workflow `.github/workflows/build_and_publish_generic.yml` composed of **six jobs**, mirroring the topology Go shipped (`guard` → `gate` → `checks` → `release` → `provenance` → `verify`). Both `guard` and `gate` are their own jobs because `permissions: {}` cannot be set on a composite step — only on a job.
 
-**Job: `checks` (`contents: read`)** — runs adopter quality-gate scripts that should not be able to write to the repo.
-1. **Validate inputs.** `path` and each `artifact-paths` entry through `lib/validate_path.sh`. Confirm `build.sh` exists at `<path>/.wrangle/build.sh`. Note presence/absence of the optional scripts. Fast-fail on any validation error before running anything adopter-controlled.
-2. **Run `install-deps.sh` (if present).** `bash -euo pipefail .wrangle/install-deps.sh`, working directory = `path`. Failure aborts.
+**Job: `guard` (`permissions: {}`)** — preflight guard. Refuses to run under any trigger that lets attacker-controlled commits execute with the caller's secrets (`pull_request_target`, `workflow_run` from a forked PR). Must stay first under `jobs:`. This matters more for generic than for Go: generic is the build type most likely to attract `pull_request_target` / `workflow_run` invocation footguns precisely because adopters reach for it when their flow doesn't fit a canonical shape and try triggers they shouldn't. Reuses the existing `actions/preflight_guard` composite. Omitting this would make v0.1 a coin-flip on whether the implementer adds it.
+
+**Job: `gate` (`permissions: {}`, `needs: [guard]`)** — release gate. Computes `should-release` based on the `release-events` input vs. the current event. Exposes `should-release` as a job output that every downstream job's `if:` consumes (`if: needs.gate.outputs.should-release == 'true'`). Reuses the existing `actions/release_gate` composite. This is a separate job — not a step folded into `checks` — for the same `permissions: {}` reason as `guard`.
+
+**Job: `checks` (`contents: read`, `needs: [guard]`)** — runs adopter quality-gate scripts that should not be able to write to the repo. Runs unconditionally (not gated on `should-release`) so PRs still get lint/test signal.
+1. **Validate inputs.** `path` and each `artifact-paths` entry through `lib/validate_path.sh`. Confirm `build.sh` exists at `<path>/wrangle/build.sh`. Note presence/absence of the optional scripts. Fast-fail on any validation error before running anything adopter-controlled.
+2. **Run `install-deps.sh` (if present).** `bash -euo pipefail wrangle/install-deps.sh`, working directory = `path`. Failure aborts.
 3. **Run `lint.sh` (if present).** Same invocation shape. Failure aborts (v0.1 picks block; see Open questions).
 4. **Run `test.sh` (if present).** Same shape. Failure aborts. On success, record in metadata that tests ran.
 
-**Job: `release` (`contents: write`)** — runs the build itself and the artifact/hash pipeline. Depends on `checks` (skipped via `release_gate` for non-release events).
-5. **Run `build.sh`.** Same invocation shape. Failure aborts. Adopter test scripts have already passed in the previous job; this job sees a clean workspace via `actions/checkout`.
-6. **Validate declared outputs.** Each `artifact-paths` entry must exist as a regular file under `path` after `build.sh` exits zero. Missing file → abort with a diagnostic naming which path was missing.
-7. **Compute SHA-256 hashes** over each declared artifact, in the bare-filename `<sha256> <name>` shape `slsa-github-generator`'s `base64-subjects` input expects. The hashing step `cd`s into the artifact's parent directory and uses bare filenames — same fix python carries (cf. python SPEC step 5).
-8. **Generate SBOM.** `syft <path>` → SPDX JSON → `metadata/generic/<shortname>/sbom.spdx.json`.
-9. **Upload artifacts.** `generic-dist-<shortname>` (the declared `artifact-paths`) and `generic-metadata-<shortname>` (the metadata directory).
-10. **Write step summary.** Lists the build scripts that ran (presence of optional scripts), the declared artifacts and their hashes, and the metadata-artifact name.
+**Job: `release` (`contents: write`, `needs: [gate, checks]`, `if: needs.gate.outputs.should-release == 'true'`)** — runs the build itself and the artifact/hash pipeline.
+5. **Re-run `install-deps.sh` (if present).** Because `checks` and `release` run on **separate `ubuntu-latest` runners with separate `actions/checkout` steps**, the toolchain `install-deps.sh` populated in `checks` is not visible here. Generic must re-run `install-deps.sh` in `release`, just as Go re-runs `setup-go` in both jobs. This doubles install-deps execution time; acceptable v0.1 trade-off vs. the alternatives (cache the install output between jobs — pulls in #226's release-vs-PR cache asymmetry; collapse to single-job — defeats the permission isolation that's the entire reason for the split; containerize via `jobs.<id>.container` — convergence with the Docker-builder alternative the doc rejected). Phase 2 may revisit if real adopters surface install-time pain.
+6. **Run `build.sh`.** Same invocation shape. Failure aborts. Adopter test scripts have already passed in `checks`; `release` sees a clean workspace via `actions/checkout`.
+7. **Validate declared outputs.** Each `artifact-paths` entry must exist as a regular file under `path` after `build.sh` exits zero. Missing file → abort with a diagnostic naming which path was missing.
+8. **Compute SHA-256 hashes** over each declared artifact, in the bare-filename `<sha256> <name>` shape `slsa-github-generator`'s `base64-subjects` input expects. The hashing step `cd`s into the artifact's parent directory and uses bare filenames — same fix python carries (cf. python SPEC step 5).
+9. **Generate SBOM.** `syft <path>` → SPDX JSON → `metadata/generic/<shortname>/sbom.spdx.json`.
+10. **Upload artifacts.** `generic-dist-<shortname>` (the declared `artifact-paths`) and `generic-metadata-<shortname>` (the metadata directory).
+11. **Write step summary.** Lists the build scripts that ran (presence of optional scripts), the declared artifacts and their hashes, and the metadata-artifact name.
 
-**Job: `provenance` (`actions: read`, `id-token: write`, `contents: write`)** — calls `generator_generic_slsa3.yml@vX.Y.Z` with the computed `base64-subjects`. Tag-pinned, per [`#147`](https://github.com/TomHennen/wrangle/issues/147). Same shape every other build type uses.
+**Job: `provenance` (`actions: read`, `id-token: write`, `contents: write`, `needs: [gate, release]`, `if: needs.gate.outputs.should-release == 'true'`)** — calls `generator_generic_slsa3.yml@vX.Y.Z` with the computed `base64-subjects`. Tag-pinned, per [`#147`](https://github.com/TomHennen/wrangle/issues/147). Same shape every other build type uses.
 
-**Job: `verify` (default token)** — downloads the published artifacts and provenance and runs `slsa-verifier verify-artifact` end-to-end inside the same workflow run, mirroring the verify-story Go shipped.
+**Job: `verify` (default token, `needs: [gate, provenance]`, `if: needs.gate.outputs.should-release == 'true'`)** — downloads the published artifacts and provenance and runs `slsa-verifier verify-artifact` end-to-end inside the same workflow run, mirroring the verify-story Go shipped.
+
+**Self-hosted-runner caveat.** Generic's `install-deps.sh` is the only adopter-controlled script likely to require `sudo` (typed build types use `setup-*` actions that don't need it). On a self-hosted runner without sudo, the example `sudo apt-get install -y build-essential cmake` aborts at step 2. v0.1 does not pre-validate this — the failure mode is a runtime abort with a clear shell diagnostic. Phase 2 (#266) decides whether wrangle should warn at validate time or document this in the adopter-facing readme.
 
 Likely composite layout:
 ```
 build/actions/generic/
 ├── checks/action.yml     # validate + install-deps + lint + test
-├── release/action.yml    # build + validate outputs + hash + SBOM + upload
+├── release/action.yml    # install-deps (re-run) + build + validate outputs + hash + SBOM + upload
 └── verify/action.yml     # slsa-verifier
 ```
-Phase 2 picks the exact split; this sketch reflects what Go actually shipped, not the pre-#238 single-composite assumption.
+(`guard` and `gate` reuse existing composites under `actions/`, not generic-specific ones.) Phase 2 picks the exact split; this sketch reflects what Go actually shipped, not the pre-#238 single-composite assumption.
+
+### Reusable workflow outputs
+
+The reusable workflow exposes the **same output surface as `build_and_publish_go.yml`**, so a multi-build caller workflow gets a uniform downstream contract. This matters because [`docs/SPEC.md`](../../../docs/SPEC.md) §Unified metadata layout explicitly requires `provenance-artifact-name` so callers don't have to reconstruct the filename convention.
+
+| Output | Source job | Description |
+|--------|------------|-------------|
+| `hashes` | `release` | Base64-encoded SHA-256 hashes of built artifacts (for SLSA provenance) |
+| `version` | `release` | Release version, or `snapshot` for non-tag builds (derived from the event/tag; semantics TBD in Phase 2 since generic has no version-from-toolchain hook like goreleaser) |
+| `dist-artifact-name` | `release` | Name of the uploaded dist artifact (`generic-dist-<shortname>`) |
+| `provenance-artifact-name` | `provenance` | Name of the SLSA provenance workflow artifact. Empty when `should-release` is false. |
+| `metadata-artifact-name` | `release` | Name of the workflow artifact containing `sbom.spdx.json`. Format: `generic-metadata-<shortname>`. |
+| `checks-metadata-artifact-name` | `checks` | Name of the workflow artifact containing test/lint metadata, if any. Format: `generic-checks-metadata-<shortname>`. |
+| `should-release` | `gate` | `"true"` if the event matches `release-events`; `"false"` otherwise. |
 
 ## Awkward cases
 
@@ -210,13 +243,19 @@ These are flagged for adopter-experience awareness; none block v0.1.
 
 These are forward-looking notes for the eventual implementer; expect refinement during Phase 2.
 
-**Script invocation.** Wrangle invokes each script as `bash -euo pipefail .wrangle/<script>` from the project root (`path`). The shebang line in the script is irrelevant — wrangle picks the shell. This guarantees `set -euo pipefail` semantics regardless of what the adopter wrote inside the file.
+**Script invocation.** Wrangle invokes each script as `bash -euo pipefail wrangle/<script>` from the project root (`path`). The shebang line in the script is irrelevant — wrangle picks the shell. This guarantees `set -euo pipefail` semantics regardless of what the adopter wrote inside the file.
 
 **Working directory.** All scripts run with `cwd = path`. If the adopter needs a different working directory for a particular step, they `cd` inside their script.
 
 **Required-vs-optional script handling.** `build.sh` is required: wrangle aborts validation before any step runs if the file is missing. The optional scripts (`install-deps.sh`, `test.sh`, `lint.sh`) are skipped if absent; their absence is logged but is not an error. Their presence-or-absence is recorded in the metadata so consumers can tell whether a given build was tested or linted.
 
-**Where the scripts live.** Proposal: `.wrangle/` at the project root (or at `path` when `path != "."`). This mirrors `.github/` as a familiar convention, scopes wrangle-specific files into one directory, and makes the source-scan-workflow's shellcheck pickup automatic. To be confirmed in Phase 2; alternatives are top-level `wrangle.{build,test,…}.sh`, or a single `wrangle.yml` that points at script paths. Strong preference for the `.wrangle/` directory shape.
+**Where the scripts live.** v0.1 proposal: **`wrangle/` (no leading dot) at the project root** (or at `path` when `path != "."`). This is a deliberate departure from the `.wrangle/` shape sketched in early drafts, because **`.wrangle/` is already wrangle's runtime metadata directory and is `.gitignore`d** by the gitignore stanza wrangle ships ([`docs/SPEC.md`](../../../docs/SPEC.md) §Metadata Directory: *"The `.wrangle/` directory is in `.gitignore` to prevent accidental commits"*). If an adopter committed `.wrangle/build.sh`, the default ignore would silently drop it, and the workflow would fail with "build.sh not found" on the runner's clean checkout.
+
+Picking `wrangle/` (no dot) avoids the collision without overloading another conventional path. It is source-controlled by default (no leading dot, not gitignored), mirrors wrangle's existing `tools/` convention for repo-root visible source, and is unambiguous at a glance for a code reviewer who sees an adopter repo for the first time.
+
+Alternatives considered and rejected for v0.1: (a) top-level `wrangle.{build,test,…}.sh` files — clutters the repo root and is awkward when scripts grow to need helper files; (b) keeping `.wrangle/` and re-scoping wrangle's runtime metadata path to `.wrangle/runtime/` or to `$RUNNER_TEMP` exclusively — a multi-build-type refactor that deserves its own design pass and shouldn't ride on generic's Phase 1; (c) a single `wrangle.yml` pointing at script paths — adds a config-format design conversation generic was specifically structured to avoid.
+
+Phase 2 confirms the final directory shape against #266; the rest of this doc assumes `wrangle/`.
 
 **Toolchain seam for portability.** `install-deps.sh` is the obvious place for an adopter to install language toolchains, since wrangle does not know what to install. It is also the obvious per-platform seam if and when wrangle gains non-GHA portability — the adopter can ship `install-deps.ubuntu.sh`, `install-deps.macos.sh`, etc., or a single script that branches on `$RUNNER_OS`. (This is what makes the scripts shape friendly to #171's eventual portability work, without committing to anything specific now.) `devcontainer.json` is a forward-looking richer shape — wrangle could in a future version offer to invoke the user's devcontainer for build steps — but that is not the v0.1 pick.
 
@@ -226,9 +265,15 @@ These are forward-looking notes for the eventual implementer; expect refinement 
 
 ## Open questions
 
-- **`.wrangle/` directory location vs. alternatives.** Confirmed in Phase 2.
-- **Whether wrangle should refuse to run a build if `test.sh` is absent in opt-in "strict" mode**, or whether absence is always silent-but-recorded. v0.1 picks silent-but-recorded; a future input could tighten this.
-- **Lint failure as block-vs-warn.** v0.1 picks block (consistent with the build-stage failure contract). A `lint-mode: warn` input is a possible follow-up if adopters surface a need.
-- **Devcontainer integration** as a richer toolchain shape. Forward-looking; not v0.1.
-- **Mechanism for blocking `curl … | sh`-shaped install patterns.** The threat-model section commits to the goal; Phase 2 / [#183](https://github.com/TomHennen/wrangle/issues/183) picks the mechanism (source-stage shellcheck with a custom rule, an AST scan of `.wrangle/*.sh` before invocation, runtime egress allowlisting, or some combination).
-- **Convergence with the shell build type.** Whether the existing `build/actions/shell/` shape can absorb a "lint and test, no artifact" generic-shaped project, or whether the two types should converge. See Awkward cases → empty-output case.
+All Phase 2 follow-ups from this doc are tracked in **[#266](https://github.com/TomHennen/wrangle/issues/266)** as a single tracking issue (per the precedent on PR #179 review thread — research-doc follow-ups need their own issue refs or they rot). The `curl … | sh` blocking mechanism is tracked separately at **[#183](https://github.com/TomHennen/wrangle/issues/183)** since it predates this research and has its own scope.
+
+Summary, with the v0.1 pick where one was made:
+
+- **Adopter-script directory location** ([#266](https://github.com/TomHennen/wrangle/issues/266)). v0.1 pick: `wrangle/` (no leading dot — see Implementation notes for why not `.wrangle/`). Phase 2 confirms.
+- **Strict-mode `test.sh` requirement** ([#266](https://github.com/TomHennen/wrangle/issues/266)). Whether wrangle should refuse to build if `test.sh` is absent in opt-in "strict" mode. v0.1: silent-but-recorded. May fold into [#194](https://github.com/TomHennen/wrangle/issues/194) (build-type lint placement).
+- **Lint failure block-vs-warn** ([#266](https://github.com/TomHennen/wrangle/issues/266)). v0.1: block. A `lint-mode: warn` input is a possible follow-up.
+- **Devcontainer integration** ([#266](https://github.com/TomHennen/wrangle/issues/266)) as a richer toolchain shape than `install-deps.sh`. Forward-looking; not v0.1.
+- **Mechanism for blocking `curl … | sh`-shaped install patterns** ([#183](https://github.com/TomHennen/wrangle/issues/183)). Threat-model commits to the goal; #183 picks the mechanism. See "Honest caveat" in the threat-model section for the L3-envelope implications of each candidate.
+- **Convergence with the shell build type** ([#266](https://github.com/TomHennen/wrangle/issues/266)). Whether `build/actions/shell/` absorbs the "lint and test, no artifact" case or whether the two types converge. See Awkward cases → empty-output case.
+- **Cannibalization-policy boundary vs. typed build types** ([#266](https://github.com/TomHennen/wrangle/issues/266)). Whether to discourage adopters in a recognized ecosystem from picking generic. See "Upper boundary" under Wrangle's value-add.
+- **`install-deps.sh` portability for self-hosted runners without sudo** ([#266](https://github.com/TomHennen/wrangle/issues/266)). v0.1: runtime abort with a clear shell diagnostic; no pre-validation. Phase 2 decides whether wrangle warns or documents.
