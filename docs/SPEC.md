@@ -1034,23 +1034,31 @@ The adapter pattern and tool composition logic are candidates for contribution t
 - [ ] Tested on Concordance
 - [ ] AGENTS.md for AI agent adoption
 
-### v0.2.0 — Verify story complete + Go build type + tool plumbing
+### v0.2.0 — Verify story complete + Go hardening + tool plumbing
 
-Theme: complete the verify story end-to-end (producer + consumer), ship the
-Go build type, and tighten tool plumbing. A profile system (`wrangle.yml`
-with `profile:` field) and a `wrangle init` bootstrapper were considered and
-deferred — the existing example workflows in `gh_workflow_examples/` already
-deliver the "one-shot adoption" vision, and a config layer doesn't reduce
-the irreducible per-adopter inputs (`path`, `imagename`, `release-events`).
+Theme: complete the verify story end-to-end (producer + consumer), harden
+the Go build type, and tighten tool plumbing. Go, Python, and npm build
+types all shipped in v0.1 (Go in [#238](https://github.com/TomHennen/wrangle/pull/238));
+v0.2 owns hardening and additional shapes for those, not net-new ecosystems.
+"Verify story complete" for the v0.2 cut means at least one build type
+wired end-to-end through Ampel (#247) plus the consumer-facing verify
+action (#198) shipped — not every Ampel phase in #247.
 
-- [ ] Additional build types: Go (Python and npm shipped in v0.1)
+A profile system (`wrangle.yml` with `profile:` field) and a `wrangle init`
+bootstrapper were considered and deferred — the existing example workflows
+in `gh_workflow_examples/` already deliver the "one-shot adoption" vision,
+and a config layer doesn't reduce the irreducible per-adopter inputs
+(`path`, `imagename`, `release-events`).
+
+- [ ] Go build type follow-ups: validation-only sub-shape ([#239](https://github.com/TomHennen/wrangle/issues/239)), PR-build cost knob ([#245](https://github.com/TomHennen/wrangle/issues/245)), `govulncheck-version` input ([#246](https://github.com/TomHennen/wrangle/issues/246)), Go workflow reliability ([#254](https://github.com/TomHennen/wrangle/issues/254)), cgo + multi-arch goreleaser ([#259](https://github.com/TomHennen/wrangle/issues/259))
 - [ ] [Ampel](https://github.com/carabiner-dev/ampel) integration — policy verification layer that evaluates attestations against CEL-based policies and produces Verification Summary Attestations. Scoping: [#247](https://github.com/TomHennen/wrangle/issues/247)
 - [ ] Consumer-facing `wrangle verify-artifact` action so adopters and their consumers can verify VSAs without installing Ampel. Tracking: [#198](https://github.com/TomHennen/wrangle/issues/198)
 - [ ] Bundle wrangle attestations into a single in-toto JSONL across all build types (replacing per-build `python-<shortname>.intoto.jsonl` etc.). Tracking: [#181](https://github.com/TomHennen/wrangle/issues/181)
 - [ ] `tools.lock` manifest — single file listing all tool versions, URLs, and checksums per platform
 - [ ] Per-tool configuration — prefer native config files over flat passthrough inputs. Tracking: [#221](https://github.com/TomHennen/wrangle/issues/221)
 - [ ] Action-pattern source-scan tools must fail closed when the underlying tool errors (currently fail open). Tracking: [#222](https://github.com/TomHennen/wrangle/issues/222)
-- [ ] Help adopters adopt the SLSA source track in their repos. Tracking: [#201](https://github.com/TomHennen/wrangle/issues/201), [#174](https://github.com/TomHennen/wrangle/issues/174)
+- [ ] Fix wrangle's own SLSA Source Track integration (prerequisite). Tracking: [#174](https://github.com/TomHennen/wrangle/issues/174)
+- [ ] Help adopters adopt the SLSA source track in their repos via `check_source_change.yml`. Tracking: [#201](https://github.com/TomHennen/wrangle/issues/201)
 
 **Deferred from v0.2** (candidates for v0.3+):
 
