@@ -131,6 +131,42 @@ SCRIPT
     [[ "$output" != *"WSL003"* ]]
 }
 
+@test "WSL003: subword like xecho is not flagged" {
+    tmp="$(mktemp /tmp/wsl-test-XXXXXX.sh)"
+    printf '#!/bin/bash\nset -euo pipefail\nset -f\nx="$1"\nxecho() { printf "%%s" "$1"; }\nxecho "$x"\n' > "$tmp"
+    run "$LINTER" "$tmp"
+    rm -f "$tmp"
+    [ "$status" -eq 0 ]
+    [[ "$output" != *"WSL003"* ]]
+}
+
+@test "WSL003: 'echo' inside string arg to another command is not flagged" {
+    tmp="$(mktemp /tmp/wsl-test-XXXXXX.sh)"
+    printf '#!/bin/bash\nset -euo pipefail\nset -f\nvar="x"\nerror_msg="Failed to echo $var"\nprintf "%%s" "$error_msg"\n' > "$tmp"
+    run "$LINTER" "$tmp"
+    rm -f "$tmp"
+    [ "$status" -eq 0 ]
+    [[ "$output" != *"WSL003"* ]]
+}
+
+@test "WSL003: echo with single-quoted literal dollar is not flagged" {
+    tmp="$(mktemp /tmp/wsl-test-XXXXXX.sh)"
+    printf "#!/bin/bash\nset -euo pipefail\nset -f\necho 'literal \$foo'\n" > "$tmp"
+    run "$LINTER" "$tmp"
+    rm -f "$tmp"
+    [ "$status" -eq 0 ]
+    [[ "$output" != *"WSL003"* ]]
+}
+
+@test "WSL003: echo with escaped backslash-dollar is not flagged" {
+    tmp="$(mktemp /tmp/wsl-test-XXXXXX.sh)"
+    printf '#!/bin/bash\nset -euo pipefail\nset -f\necho "literal \\$1"\n' > "$tmp"
+    run "$LINTER" "$tmp"
+    rm -f "$tmp"
+    [ "$status" -eq 0 ]
+    [[ "$output" != *"WSL003"* ]]
+}
+
 # --- WSL004: [ ] not [[ ]] ---------------------------------------------------
 
 @test "WSL004: if [ ] is reported" {
@@ -148,6 +184,33 @@ SCRIPT
 @test "WSL004: while [ ] is reported" {
     tmp="$(mktemp /tmp/wsl-test-XXXXXX.sh)"
     printf '#!/bin/bash\nset -euo pipefail\nset -f\nwhile [ "$x" -gt 0 ]; do x=$((x-1)); done\n' > "$tmp"
+    run "$LINTER" "$tmp"
+    rm -f "$tmp"
+    [ "$status" -eq 1 ]
+    [[ "$output" == *"WSL004"* ]]
+}
+
+@test "WSL004: comment mentioning [ ] is not flagged" {
+    tmp="$(mktemp /tmp/wsl-test-XXXXXX.sh)"
+    printf '#!/bin/bash\nset -euo pipefail\nset -f\n# Old code used: if [ -n "$x" ]; then ...\nprintf done\n' > "$tmp"
+    run "$LINTER" "$tmp"
+    rm -f "$tmp"
+    [ "$status" -eq 0 ]
+    [[ "$output" != *"WSL004"* ]]
+}
+
+@test "WSL004: bare [ statement is reported" {
+    tmp="$(mktemp /tmp/wsl-test-XXXXXX.sh)"
+    printf '#!/bin/bash\nset -euo pipefail\nset -f\n[ -n "$1" ] && printf "yes\\n"\n' > "$tmp"
+    run "$LINTER" "$tmp"
+    rm -f "$tmp"
+    [ "$status" -eq 1 ]
+    [[ "$output" == *"WSL004"* ]]
+}
+
+@test "WSL004: bare test statement is reported" {
+    tmp="$(mktemp /tmp/wsl-test-XXXXXX.sh)"
+    printf '#!/bin/bash\nset -euo pipefail\nset -f\ntest -n "$1" && printf "yes\\n"\n' > "$tmp"
     run "$LINTER" "$tmp"
     rm -f "$tmp"
     [ "$status" -eq 1 ]

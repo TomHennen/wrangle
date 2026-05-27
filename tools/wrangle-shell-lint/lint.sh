@@ -7,22 +7,38 @@ set -f  # disable globbing — processes file paths passed as arguments
 #
 # Rules implemented here (shellcheck gaps):
 #   WSL001  first substantive (non-shebang, non-comment, non-blank) line
-#           must be exactly: set -euo pipefail
+#           must be exactly the literal string: set -euo pipefail
+#           (intentionally strict — see note below)
 #   WSL002  scripts that iterate over "$@" in a for-loop, or named adapter.sh,
-#           must also contain: set -f  (narrow heuristic; see PR description)
+#           must also contain: set -f
+#           NOTE: this is a best-effort heuristic. CLAUDE.md requires set -f
+#           for any script that "processes arguments from external input" —
+#           a broader set than this rule catches. Reviewers must still verify
+#           manually for while-shift loops, $1/$2 positional consumers, etc.
 #   WSL003  echo with variable interpolation: use printf instead
-#   WSL004  if/while/until with [ ] single-bracket: use [[ ]] instead
+#           (only flags `echo` as a command at statement start or after a
+#           command separator, and only when an unescaped $ in a double-quoted
+#           or unquoted context follows — see check_wsl003 for details)
+#   WSL004  single-bracket [ ] or `test` used as a conditional: use [[ ]] instead
+#           Detects: `if/while/until [ ...`, bare `[ ... ]` as a statement,
+#           and `test ...` as a statement. Skips comment-only lines.
 #   WSL005  # shellcheck disable without an inline justification comment
 #
 # Rules already enforced by shellcheck (NOT re-implemented here):
 #   SC2006  backtick command substitution
 #   SC2086  unquoted variable expansions
 #
+# Note on WSL001 exactness: stricter forms like `set -Eeuo pipefail` (adds
+# ERR trap inheritance) and equivalent forms like `set -e -u -o pipefail`
+# are intentionally rejected. The rule enforces a single canonical preamble
+# across the codebase. If you need ERR trap inheritance, add a separate
+# `set -E` line after `set -euo pipefail`.
+#
 # Output: path:line: WSLxxx: message  (one per violation, to stdout)
 # Exit  : 0 if clean, 1 if any violations found
 #
 # Usage:
-#   lint.sh                   walk the repo (excludes fixtures/ directories)
+#   lint.sh                   walk the repo (excludes the linter's own fixtures)
 #   lint.sh <file> [...]      lint specific files only
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -49,7 +65,7 @@ check_wsl001() {
         first_found=true
         if [[ "$line" != "set -euo pipefail" ]]; then
             emit "$file" "$lineno" "WSL001" \
-                "first substantive line must be 'set -euo pipefail' (got: ${line:0:60})"
+                "first substantive line must be exactly 'set -euo pipefail' (no equivalents or stricter forms; see lint.sh header) (got: ${line:0:60})"
         fi
         break
     done < "$file"
@@ -86,29 +102,101 @@ check_wsl002() {
     fi
 }
 
-# WSL003: hard ban on echo with variable interpolation.
-# Flags any non-comment line where "echo" (as a word) precedes content
-# containing "$". Use printf instead for all output that may contain
-# user-controlled data.
+# WSL003: ban echo with variable interpolation.
+# Flags only when `echo` is the command being invoked AND the line contains
+# an unescaped `$` outside of single-quoted text — i.e. a real variable
+# expansion. Filters out:
+#   - comment-only lines (start with #)
+#   - subword matches like `xecho`
+#   - `echo` appearing inside string arguments to other commands
+#   - escaped `\$`
+#   - `$` inside single-quoted segments (literal, no expansion)
+# Note: shell tokenisation in awk/regex is approximate. A few exotic
+# constructs (mixed quoting, here-docs, command substitutions starting on
+# the same line) may still slip through or false-fire; the heuristic is
+# tuned for the common case where the rest of wrangle's code lives.
 check_wsl003() {
     local file="$1"
     while IFS= read -r lineno; do
         emit "$file" "$lineno" "WSL003" \
             "use printf instead of echo for output containing variables"
     done < <(awk '
+        # Skip comment-only lines.
         /^[[:space:]]*#/ { next }
-        /echo[[:space:]]/ && /\$/ { print NR }
+
+        {
+            line = $0
+
+            # Strip single-quoted segments (no variable expansion inside).
+            # Repeatedly remove pairs of single quotes and what is between
+            # them; this is a regex approximation, not a real lexer.
+            while (match(line, /'\''[^'\'']*'\''/)) {
+                line = substr(line, 1, RSTART - 1) substr(line, RSTART + RLENGTH)
+            }
+
+            # Strip trailing inline comments (best-effort: # preceded by
+            # whitespace or at the start of the remaining string).
+            sub(/[[:space:]]+#.*$/, "", line)
+
+            # Strip escaped dollars so they are not seen as expansions.
+            gsub(/\\\$/, "", line)
+
+            # Require an unescaped $ to remain — i.e. real expansion.
+            if (index(line, "$") == 0) next
+
+            # Require `echo` to appear as a command:
+            #   - at the start of the (left-trimmed) statement, or
+            #   - immediately after a command separator: ; | & ( { &&  ||
+            # Word-anchor on both sides so xecho / echoes do not match.
+            if (match(line, /(^|[[:space:]]*)(;|\||&&|\|\||\(|\{|^)[[:space:]]*echo([[:space:]]|$)/) ||
+                match(line, /^[[:space:]]*echo([[:space:]]|$)/)) {
+                print NR
+            }
+        }
     ' "$file")
 }
 
-# WSL004: single-bracket conditionals.
-# Flags if/while/until followed by [ (single bracket, not [[).
+# WSL004: single-bracket conditionals or `test` command.
+# Flags:
+#   - if/while/until followed by [ (single bracket, not [[)
+#   - bare [ as a statement (e.g. `[ -n "$x" ] && do_thing`)
+#   - bare `test` as a statement (alias of `[`)
+# Skips comment-only lines.
 check_wsl004() {
     local file="$1"
     while IFS= read -r lineno; do
         emit "$file" "$lineno" "WSL004" \
-            "use [[ ]] instead of [ ] for conditionals"
-    done < <(grep -nP '\b(if|while|until)[[:space:]]+\[(?!\[)' "$file" | cut -d: -f1)
+            "use [[ ]] instead of [ ] or 'test' for conditionals"
+    done < <(awk '
+        # Skip comment-only lines.
+        /^[[:space:]]*#/ { next }
+
+        {
+            line = $0
+
+            # Strip single-quoted segments so brackets inside literals are ignored.
+            while (match(line, /'\''[^'\'']*'\''/)) {
+                line = substr(line, 1, RSTART - 1) substr(line, RSTART + RLENGTH)
+            }
+            # Strip trailing inline comments.
+            sub(/[[:space:]]+#.*$/, "", line)
+
+            # if/while/until [ (not [[)
+            if (match(line, /(^|[[:space:]]|;|&&|\|\|)(if|while|until)[[:space:]]+\[[^[]/)) {
+                print NR; next
+            }
+            # bare [ as a statement: starts the line/statement, followed by space.
+            # Anchored to: line start, ; , && , || , or `then`/`do`/`else` separators.
+            if (match(line, /(^|[[:space:]]*;[[:space:]]*|[[:space:]]+&&[[:space:]]+|[[:space:]]+\|\|[[:space:]]+|^[[:space:]]*(then|do|else)[[:space:]]+)\[[[:space:]]/) &&
+                !match(line, /(^|[[:space:]]*;[[:space:]]*|[[:space:]]+&&[[:space:]]+|[[:space:]]+\|\|[[:space:]]+|^[[:space:]]*(then|do|else)[[:space:]]+)\[\[/)) {
+                print NR; next
+            }
+            # bare `test` as a statement.
+            if (match(line, /(^|[[:space:]]*;[[:space:]]*|[[:space:]]+&&[[:space:]]+|[[:space:]]+\|\|[[:space:]]+|^[[:space:]]*(then|do|else)[[:space:]]+)test[[:space:]]/)) {
+                print NR; next
+            }
+        }
+    ' "$file")
 }
 
 # WSL005: shellcheck disable must include an inline justification comment.
@@ -156,7 +244,7 @@ else
     done < <(find "$repo_root" -name '*.sh' \
         -not -path '*/.git/*' \
         -not -path '*/.beads/*' \
-        -not -path '*/fixtures/*' \
+        -not -path '*/wrangle-shell-lint/fixtures/*' \
         -print0 | sort -z)
 fi
 
