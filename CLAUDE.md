@@ -6,7 +6,7 @@ Read `docs/SPEC.md` before contributing. It is the source of truth for architect
 
 ## Shell Script Safety
 
-Every shell script MUST start with `set -euo pipefail`. Scripts that process arguments from external input MUST also `set -f` (disable globbing) before processing those arguments.
+Every shell script MUST start with `set -euo pipefail` and `set -f` (disable globbing). Scripts that intentionally need globbing must wrap it in `set +f` / `set -f` with a comment, scoped as narrowly as possible. Sourced libs that toggle `set +f` MUST restore `set -f` before returning.
 
 All variable expansions MUST be double-quoted: `"$var"`, `"${var}"`, `"$@"`. The only exception is intentional word-splitting with a documented comment explaining why it is safe (e.g., `$WRANGLE_TOOLS` in the composite action, which is validated by the orchestrator's regex).
 
