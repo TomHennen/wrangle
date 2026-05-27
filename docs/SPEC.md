@@ -9,7 +9,7 @@ Wrangle is a composable CI/CD framework for GitHub Actions that handles the full
 ### Core principles
 
 1. **Full lifecycle** — wrangle handles source scanning, building, testing, publishing, SBOM generation, signing, and SLSA provenance. Not just one stage.
-2. **One-shot adoption** — a maintainer picks a profile matching their project type, gets one or two workflow files, and everything works
+2. **One-shot adoption** — a maintainer picks a workflow template matching their project type, gets one or two workflow files, and everything works
 3. **Pluggable tools** — new tools are added via adapters without changing adopting repos
 4. **Automatic updates** — adopters reference wrangle's reusable workflows; updates flow to everyone
 5. **AI-agent friendly** — designed so "Claude, adopt wrangle for this repo" just works
@@ -39,8 +39,8 @@ Wrangle covers the entire path from source to published artifact. Each stage has
 | Stage | What wrangle does | Reusable workflow | Status |
 |-------|------------------|-------------------|--------|
 | **Source** | Vulnerability scanning (OSV), workflow linting (Zizmor), supply chain scoring (Scorecard), run tests, SLSA source provenance | `check_source_change.yml` | v0.1 |
-| **Build** | Compile/build the project, generate SBOM, scan SBOM for vulnerabilities | `build_and_publish_*.yml` | v0.1 (container), v0.2+ (others) |
-| **Publish** | Push artifact to registry, sign with Cosign | `build_and_publish_*.yml` | v0.1 (container) |
+| **Build** | Compile/build the project, generate SBOM, scan SBOM for vulnerabilities | `build_and_publish_*.yml` | v0.1 (container, python, npm, go) |
+| **Publish** | Push artifact to registry, sign with Cosign | `build_and_publish_*.yml` | v0.1 (container, python, npm, go) |
 | **Verify** | Generate SLSA L3 build provenance, verify attestations against policy (Ampel) | `build_and_publish_*.yml` / future | v0.1 (provenance), v0.2 (policy) |
 
 ### What adopters get today (container project example)
@@ -929,7 +929,7 @@ Wrangle is a supply chain amplifier — a compromise of wrangle propagates to ev
 - **Signed commits:** All commits to the wrangle repo should be signed.
 - **Minimal permissions:** Wrangle's own workflows request only the permissions they need.
 - **Dependency management:** Dependabot for GitHub Actions dependencies; `make update-tool` for tool binary versions.
-- **SLSA build provenance (v0.2):** When wrangle produces releasable artifacts (e.g., if it ships a CLI or pre-built actions), those artifacts should have SLSA L3 build provenance via `slsa-github-generator`, the same standard wrangle helps adopters achieve.
+- **SLSA build provenance:** When wrangle produces releasable artifacts (e.g., if it ships a CLI or pre-built actions), those artifacts should have SLSA L3 build provenance via `slsa-github-generator`, the same standard wrangle helps adopters achieve. Aspirational — not currently in a numbered release milestone.
 - **Delayed dependency updates:** Wrangle does not auto-merge dependency updates immediately. New versions of upstream tools are adopted only after a delay (e.g., 7 days) to allow the community to discover supply chain attacks before wrangle amplifies them to all adopters. This follows the [OpenSSF Concise Guide for Evaluating Open Source Software](https://best.openssf.org/Concise-Guide-for-Evaluating-Open-Source-Software) principle of not being the first to adopt a new release.
 
 ### Action Reference Pinning
@@ -1005,7 +1005,7 @@ If the project type is unknown (no Dockerfile, no recognized language files), ad
 
 ### Long-term: OpenSSF contribution
 
-The adapter pattern, tool composition logic, and profile system are candidates for contribution to OpenSSF (e.g., as part of Minder or a new working group). The spec and implementation will be designed with this handoff in mind.
+The adapter pattern and tool composition logic are candidates for contribution to OpenSSF (e.g., as part of Minder or a new working group). The spec and implementation will be designed with this handoff in mind.
 
 ---
 
@@ -1034,17 +1034,41 @@ The adapter pattern, tool composition logic, and profile system are candidates f
 - [ ] Tested on Concordance
 - [ ] AGENTS.md for AI agent adoption
 
-### v0.2.0 — Profiles + additional build types
+### v0.2.0 — Verify story complete + Go hardening + tool plumbing
 
-- [ ] Profile system (`wrangle.yml` with `profile: container` / `profile: library` / `profile: python`)
-- [ ] `wrangle init` CLI or GitHub Action for bootstrapping
-- [ ] Test integration — detect and run project tests before build
-- [ ] Additional source tools (e.g., Semgrep, Trivy)
-- [ ] Additional build types (Python, npm, Go)
-- [ ] `tools.lock` manifest — single file listing all tool versions, URLs, and checksums per platform
-- [ ] Lightweight sandboxing for adapters (bubblewrap/firejail on Linux)
-- [ ] [Ampel](https://github.com/carabiner-dev/ampel) integration — policy verification layer that evaluates attestations against CEL-based policies and produces Verification Summary Attestations
-- [ ] Help adopters adopt the SLSA source track in their repos
+Theme: complete the verify story end-to-end (producer + consumer), harden
+the Go build type, and tighten tool plumbing. Go, Python, and npm build
+types have all landed on `main` (Go in [#238](https://github.com/TomHennen/wrangle/pull/238))
+and will ship in the v0.2.0 tag — example workflows in `gh_workflow_examples/`
+already pin `@v0.2.0` in anticipation. v0.2 owns hardening and additional
+shapes for those build types, not net-new ecosystems. "Verify story complete"
+for the v0.2 cut means at least one build type wired end-to-end through
+Ampel (#247) plus the consumer-facing verify action (#198) shipped — not
+every Ampel phase in #247.
+
+A profile system (`wrangle.yml` with `profile:` field) and a `wrangle init`
+bootstrapper were considered and deferred — the existing example workflows
+in `gh_workflow_examples/` already deliver the "one-shot adoption" vision,
+and a config layer doesn't reduce the irreducible per-adopter inputs
+(`path`, `imagename`, `release-events`).
+
+- [ ] Go build type follow-ups: validation-only sub-shape ([#239](https://github.com/TomHennen/wrangle/issues/239)), PR-build cost knob ([#245](https://github.com/TomHennen/wrangle/issues/245)), `govulncheck-version` input ([#246](https://github.com/TomHennen/wrangle/issues/246)), Go workflow reliability ([#254](https://github.com/TomHennen/wrangle/issues/254)), cgo + multi-arch goreleaser ([#259](https://github.com/TomHennen/wrangle/issues/259))
+- [ ] [Ampel](https://github.com/carabiner-dev/ampel) integration — policy verification layer that evaluates attestations against CEL-based policies and produces Verification Summary Attestations. Scoping: [#247](https://github.com/TomHennen/wrangle/issues/247)
+- [ ] Adopter-side `verify-artifact` action — closes the runner-isolation gap between wrangle's `verify` job and the adopter's publish job (today each download is independent, so the publish job has no machine-checked guarantee its bytes match the attestation). Verifies whatever the build produced (SLSA provenance or VSA) — not tied to Ampel. Downstream-consumer verification is covered by upstream `slsa-verifier` plus a docs page, not a wrapper. Tracking: [#198](https://github.com/TomHennen/wrangle/issues/198) (to be rescoped to adopter-side surface only).
+- [ ] Bundle wrangle attestations into a single in-toto JSONL across all build types (replacing per-build `python-<shortname>.intoto.jsonl` etc.). Tracking: [#181](https://github.com/TomHennen/wrangle/issues/181)
+- [ ] Action-pattern source-scan tools must fail closed when the underlying tool errors (currently fail open). Tracking: [#222](https://github.com/TomHennen/wrangle/issues/222)
+- [ ] Fix wrangle's own SLSA Source Track integration (prerequisite). Tracking: [#174](https://github.com/TomHennen/wrangle/issues/174)
+- [ ] Help adopters adopt the SLSA source track in their repos via `check_source_change.yml`. Tracking: [#201](https://github.com/TomHennen/wrangle/issues/201)
+
+**Deferred from v0.2** (candidates for v0.3+):
+
+- Profile system and `wrangle init` — see theme paragraph above. Tracking: [#265](https://github.com/TomHennen/wrangle/issues/265)
+- Lightweight adapter sandboxing (bubblewrap/firejail on Linux) — significant design surface; own release. Tracking: [#267](https://github.com/TomHennen/wrangle/issues/267)
+- Additional source tools (Semgrep, Trivy) — additive, not architectural. Tracking: [#268](https://github.com/TomHennen/wrangle/issues/268)
+- `tools.lock` manifest — single file listing all tool versions/URLs/checksums per platform. Marginal value at current tool count (small fixed set, infrequent bumps, atomic per-`install.sh` checksums already work). Tracking: [#264](https://github.com/TomHennen/wrangle/issues/264)
+- Per-tool configuration — prefer native config files over flat passthrough inputs. Tracking: [#221](https://github.com/TomHennen/wrangle/issues/221)
+- Test integration as a profile-level concept — each build type already runs tests inside its own action
+- npm/pnpm/yarn workspaces ([#208](https://github.com/TomHennen/wrangle/issues/208)) — own track
 
 ### v1.0.0 — OpenSSF ready
 
