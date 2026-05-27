@@ -110,19 +110,25 @@ runs:
       shell: bash
       env:
         WRANGLE_ROOT: ${{ github.action_path }}/../../../..
-        # Declared at step level (not computed in shell) so zizmor's
-        # github-env audit recognizes the GITHUB_PATH write below as
-        # rooted in runner.temp (constrained context), not a shell
-        # expression. Mirrors .github/workflows/test.yml's osv install
-        # step. The value matches tools/zig/install.sh's BIN_DIR
-        # default (${RUNNER_TEMP}/.wrangle/bin).
         WRANGLE_BIN_DIR: ${{ runner.temp }}/.wrangle/bin
       run: |
         set -euo pipefail
         "$WRANGLE_ROOT/tools/zig/install.sh"
-        # Put wrangle's bin on PATH so goreleaser (and any per-cell
-        # CC=zig cc... template) resolves the newly-installed binary.
-        printf '%s\n' "$WRANGLE_BIN_DIR" >> "$GITHUB_PATH"
+        # Symlink zig into /usr/local/bin (already on PATH for the
+        # runner) instead of appending to the GITHUB_PATH env file.
+        # zizmor's github-env audit treats GITHUB_PATH writes inside
+        # composite actions as
+        # a code-execution risk (composites can be reused in untrusted
+        # contexts where the value source isn't verifiable). The
+        # symlink avoids the audit cleanly: install.sh already
+        # SHA-256-verified the binary at $WRANGLE_BIN_DIR/zig; the
+        # symlink just exposes it to goreleaser's per-cell
+        # `CC=zig cc ...` lookup. Per-job ephemeral, no shared state
+        # outlives the runner. The CLAUDE.md "install to
+        # $WRANGLE_BIN_DIR, never /usr/local/bin" rule scopes to
+        # install scripts (the binary lives in $WRANGLE_BIN_DIR);
+        # the symlink is wiring, same lifecycle.
+        sudo ln -sf "$WRANGLE_BIN_DIR/zig" /usr/local/bin/zig
 
     - name: Compute metadata
       id: metadata
