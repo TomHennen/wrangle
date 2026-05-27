@@ -1043,7 +1043,16 @@ The adapter pattern, tool composition logic, and profile system are candidates f
 - [ ] Additional build types (Python, npm, Go)
 - [ ] `tools.lock` manifest — single file listing all tool versions, URLs, and checksums per platform
 - [ ] Lightweight sandboxing for adapters (bubblewrap/firejail on Linux)
-- [ ] [Ampel](https://github.com/carabiner-dev/ampel) integration — policy verification layer that evaluates attestations against CEL-based policies and produces Verification Summary Attestations
+- [ ] [Ampel](https://github.com/carabiner-dev/ampel) integration — policy
+      verification layer that evaluates attestations against CEL-based
+      policies and produces Verification Summary Attestations. Scoping in
+      [`docs/ampel_research.md`](./ampel_research.md) and
+      [#247](https://github.com/TomHennen/wrangle/issues/247); each phase
+      lands as a PR referencing #247. Known limitation: Phases 1–7 keep the build
+      workflow and the verifier in the same GitHub Actions job, which is
+      not strictly SLSA L3-compliant for builder/verifier separation. A
+      separate verifier service (Option C in the scoping doc) is a
+      post-v1.0 work item.
 - [ ] Help adopters adopt the SLSA source track in their repos
 
 ### v1.0.0 — OpenSSF ready
