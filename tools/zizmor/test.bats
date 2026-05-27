@@ -42,3 +42,13 @@ setup() {
 @test "zizmor: action.yml writes to wrangle metadata directory" {
     grep -q '\.wrangle/metadata/zizmor' "$ORIG_DIR/tools/zizmor/action.yml"
 }
+
+@test "zizmor: test/Dockerfile pins ZIZMOR_VERSION" {
+    # The local test container installs zizmor from a pinned version with
+    # checksum verification — mirrors the CI install path (the upstream
+    # Docker action). A version bump here must include matching sha256
+    # checksums for both architectures in the same commit.
+    grep -q '^ARG ZIZMOR_VERSION=[0-9]\+\.[0-9]\+\.[0-9]\+' "$ORIG_DIR/test/Dockerfile"
+    grep -q '^ARG ZIZMOR_CHECKSUM_ARM64=[0-9a-f]\{64\}' "$ORIG_DIR/test/Dockerfile"
+    grep -q '^ARG ZIZMOR_CHECKSUM_AMD64=[0-9a-f]\{64\}' "$ORIG_DIR/test/Dockerfile"
+}

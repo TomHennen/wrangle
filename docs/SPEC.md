@@ -968,6 +968,9 @@ Layers:
 2. **shellcheck** — lints all shell scripts
 3. **bats-core** — unit tests for adapters, install scripts, orchestrator, and formatter
 4. **SARIF schema validation** — validates fixture/output SARIF against the 2.1.0 JSON schema
+5. **zizmor** — workflow security linter; pinned in `test/Dockerfile` and run against `.github/workflows/`, `actions/`, `tools/`, `build/`. Findings fail `make test`; the only suppression surface is `.zizmor.yml`.
+
+`./test.sh` (the canonical preflight) runs all of the above. Use `./test.sh quick` for an inner-loop iteration that skips zizmor when you're only touching shell or bats fixtures — but the full suite must pass before pushing. `./test.sh ci` is an explicit alias for the full suite.
 
 **Adapter testing pattern:** Per-tool `test.bats` files (in `tools/<name>/`) test the adapter and install scripts in isolation using mock tool binaries that produce fixture SARIF. This keeps local tests fast and deterministic. The `test/` directory contains integration tests that exercise the orchestrator and composite action end-to-end, plus shared fixtures (sample SARIF files, SARIF JSON schema) and CI-specific tests that download real tools and run them against the wrangle repo itself (dogfooding).
 

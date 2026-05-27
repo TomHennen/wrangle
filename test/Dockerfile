@@ -74,4 +74,28 @@ RUN set -euo pipefail && \
     mkdir -p /opt/go && \
     go install "golang.org/x/vuln/cmd/govulncheck@${GOVULNCHECK_VERSION}"
 
+# Install zizmor — pinned version with checksum verification. Used by
+# `make zizmor` (and the default `./test.sh`) so wrangle's own workflow
+# security findings surface locally, not just in CI. Version is kept in
+# sync with tools/zizmor/action.yml's default input. Upstream ships
+# GitHub build attestations (actions/attest); we use pinned sha256 here
+# to match actionlint's pattern and avoid pulling gh/cosign into the
+# image just for one tool.
+ARG ZIZMOR_VERSION=1.23.1
+ARG ZIZMOR_CHECKSUM_ARM64=3725d7cd7102e4d70827186389f7d5930b6878232930d0a3eb058d7e5b47e658
+ARG ZIZMOR_CHECKSUM_AMD64=67a8df0a14352dd81882e14876653d097b99b0f4f6b6fe798edc0320cff27aff
+RUN set -euo pipefail && \
+    ARCH="$(uname -m)" && \
+    case "$ARCH" in \
+        aarch64) TRIPLE=aarch64-unknown-linux-gnu; EXPECTED_CHECKSUM="$ZIZMOR_CHECKSUM_ARM64" ;; \
+        x86_64)  TRIPLE=x86_64-unknown-linux-gnu;  EXPECTED_CHECKSUM="$ZIZMOR_CHECKSUM_AMD64" ;; \
+        *) echo "Unsupported arch: $ARCH" >&2; exit 1 ;; \
+    esac && \
+    TARBALL="zizmor-${TRIPLE}.tar.gz" && \
+    curl -sSL -o "/tmp/$TARBALL" \
+        "https://github.com/zizmorcore/zizmor/releases/download/v${ZIZMOR_VERSION}/${TARBALL}" && \
+    echo "$EXPECTED_CHECKSUM  /tmp/$TARBALL" | sha256sum -c - && \
+    tar -xzf "/tmp/$TARBALL" -C /usr/local/bin ./zizmor && \
+    rm "/tmp/$TARBALL"
+
 WORKDIR /wrangle
