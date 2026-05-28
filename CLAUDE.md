@@ -29,7 +29,7 @@ Before approving any PR, ask:
 
 ## Comments
 
-Explain *why* something non-obvious is done, not *what* the code does. Don't narrate history ("previous implementation used X"), don't restate the diff, don't reference PR numbers in code. One line max unless a hidden constraint really requires more.
+Comments should focus on the *why* and avoid the discussion. Explain hidden constraints or non-obvious decisions; don't restate the diff, narrate history, or reference PR numbers, review threads, or comment URLs. One line max unless a hidden constraint really requires more.
 
 ## Shell scripts
 
@@ -43,6 +43,7 @@ These rules are mechanically enforced by `tools/wrangle-shell-lint/` (WSL001–0
 
 - **Inline shell ≤ ~5 lines.** Longer or anything with logic → extract to a script. Mechanical enforcement is a planned follow-up.
 - **No expression injection.** NEVER interpolate `${{ inputs.* }}`, `${{ github.event.* }}`, or any attacker-controllable expression directly in a `run:` block — always thread through `env:` first. Mechanical enforcement is a planned follow-up.
+- **No copy-paste across workflows.** If the same `run:` block or step sequence appears in more than two workflow files, extract to a composite or shared script. Drift between copies is a class of bug, not a one-off.
 
 ## Action reference pinning
 
@@ -64,9 +65,17 @@ These rules are mechanically enforced by `tools/wrangle-shell-lint/` (WSL001–0
 
 **Convenience is not a fallback justification.** "We'd have to install one more tool in the image" or "the attestation flow is awkward at build time" are NOT reasons to drop to a weaker tier. The fallback rule is "stronger verification is genuinely unavailable upstream" — document *why* the stronger tier doesn't exist, not why it'd be inconvenient.
 
-**Drift between two pins.** If a version, checksum, or SHA lives in two files (e.g., a tool pinned in both `test/Dockerfile` and `tools/<name>/action.yml`), either consolidate to a single source or add a regression test that diffs the two locations and fails on divergence.
-
 All downloads go through `lib/download_verify.sh`. Install to `$WRANGLE_BIN_DIR`, never `/usr/local/bin`. Be idempotent. Use atomic `mv` (not `cp`).
+
+## Pins drift across files
+
+If a version, checksum, SHA, or other pin literal lives in more than one file, either consolidate to a single source or add a regression test that diffs the locations and fails on divergence. This applies to:
+
+- A tool pinned in both `test/Dockerfile` and `tools/<name>/action.yml`
+- A version default in a reusable workflow, its composite, and an env coalesce
+- An adapter helper duplicated across multiple per-tool install scripts
+
+Don't rely on humans remembering to update both places.
 
 ## Adapter contract (see SPEC.md §Adapter Script Interface for the full contract)
 
