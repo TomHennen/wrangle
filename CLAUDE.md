@@ -9,7 +9,7 @@ Read `docs/SPEC.md` before contributing. It is the source of truth for architect
 1. **Mechanical enforcement beats prose.** If a rule can be enforced by a lint, test, or CI check, do that — don't put it here. CLAUDE.md describes only what can't (yet) be mechanically caught.
 2. **Prefer language parsers over grep for code analysis.** AST tools (ast-grep, shellcheck, mvdan/sh, semgrep) beat regex/awk for any code-rule enforcer.
 3. **One sentence per rule.** Why → linked issue or commit message. What → here.
-4. **Read upstream docs before integrating a tool.** Custom code (install.sh, CLI shims, verification logic) is the fallback path, not the default — you can't pick canonical package managers, attestation tiers, or built-in CLI options without looking.
+4. **Read upstream docs before integrating a tool.** Custom code (install.sh, CLI shims, verification logic) is the fallback path, not the default — you can't pick canonical package managers, attestation tiers, or built-in CLI options without looking. When adopting a new tool, the PR description must note what upstream install paths and verification mechanisms exist, and why the chosen one was picked.
 
 ## Code review checklist
 
@@ -30,7 +30,7 @@ Comments should focus on the *why* and avoid the discussion. Explain hidden cons
 
 ## Shell scripts
 
-Every shell script MUST start with `set -euo pipefail` and `set -f` (disable globbing). Scripts that intentionally need globbing must wrap it in `set +f` / `set -f` with a comment, scoped as narrowly as possible. Sourced libs that toggle `set +f` MUST restore `set -f` before returning.
+Every shell script MUST start with the exact preamble `set -euo pipefail` followed by `set -f` (disable globbing). Stricter supersets (`set -Eeuo pipefail`) and equivalent decompositions (`set -e -u -o pipefail`) are rejected — one canonical form. If you need ERR trap inheritance, add `set -E` on its own line after the preamble. Scripts that intentionally need globbing must wrap it in `set +f` / `set -f` with a comment, scoped as narrowly as possible. Sourced libs that toggle `set +f` MUST restore `set -f` before returning.
 
 All variable expansions MUST be double-quoted. All scripts MUST pass `shellcheck` — no `# shellcheck disable` without a justifying comment. Use `$(command)` not backticks. Use `[[ ]]` not `[ ]` for conditionals. Use `printf` not `echo` for output that may contain user data.
 
@@ -63,6 +63,8 @@ Don't `curl | sh` — all binary downloads go through `lib/download_verify.sh`. 
 **Convenience is not a fallback justification.** "We'd have to install one more tool in the image" or "the attestation flow is awkward at build time" are NOT reasons to drop to a weaker tier. The fallback rule is "stronger verification is genuinely unavailable upstream" — document *why* the stronger tier doesn't exist, not why it'd be inconvenient.
 
 All downloads go through `lib/download_verify.sh`. Install to `$WRANGLE_BIN_DIR`, never `/usr/local/bin`. Be idempotent. Use atomic `mv` (not `cp`).
+
+**Don't add heavyweight runtimes for single-use tasks.** Use the smallest dependency that does the job — `unzip` over `python3` for archives, `jq` over a python script for JSON, etc. Adding a language runtime to the test image just to run a one-liner expands the supply-chain surface for no gain.
 
 ## Pins drift across files
 
