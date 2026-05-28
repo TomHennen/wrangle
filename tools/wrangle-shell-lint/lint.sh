@@ -24,12 +24,6 @@ set -f
 #     ${{ inputs.* }} interpolated into run: blocks by default
 #   Tracked in issue #273.
 #
-# Why ast-grep: the previous awk/grep implementation produced both
-# false positives and false negatives across heredocs, case arms,
-# subword matches like `xecho`, and `[` inside string literals. AST
-# matching via tree-sitter-bash eliminates this entire class of bug
-# because the linter sees the parsed shell tree, not raw bytes.
-#
 # Usage:
 #   lint.sh                   walk the repo (excludes the linter's own fixtures)
 #   lint.sh <file> [...]      lint specific files only
