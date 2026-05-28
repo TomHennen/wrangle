@@ -34,13 +34,11 @@ printf '| ---- | ------ | ------- |\n'
 while IFS= read -r -d '' dir; do
     tool="$(basename "$dir")"
 
-    # The `error` marker (issue #222) takes precedence over the SARIF
-    # count: action-pattern wrappers synthesize an empty fallback SARIF
-    # on tool error so downstream consumers always have a file, but the
-    # marker is the canonical "the tool failed" signal. Without this
-    # branch the summary row would render "No findings" while the run
-    # itself failed via lib/check_results.sh — misleading on the very
-    # surface docs/SPEC.md calls the primary output.
+    # The `error` marker takes precedence over the SARIF count: action-pattern
+    # wrappers synthesise an empty fallback SARIF on tool error, so without
+    # this branch the summary row would render "No findings" while the run
+    # itself failed via lib/check_results.sh — misleading on the surface
+    # docs/SPEC.md calls the primary output.
     if [[ -f "${dir}/error" ]]; then
         safe_tool="$(printf '%s' "$tool" | wrangle_sanitize_output)"
         printf '| %s | Tool error | [Details](#%s-details) |\n' "$safe_tool" "$safe_tool"

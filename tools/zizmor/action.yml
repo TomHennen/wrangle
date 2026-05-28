@@ -41,11 +41,9 @@ runs:
     - name: Collect SARIF output
       if: always()
       shell: bash
-      # Route step output through env: to prevent expression injection.
-      # Logic lives in collect_sarif.sh, not inline here — see CLAUDE.md
-      # "Inline Shell in GitHub Actions". The script disambiguates a real
-      # tool error from "found issues" and writes the error marker that
-      # lib/check_results.sh consumes to fail closed (issue #222).
+      # Step output routed via env: to prevent expression injection.
+      # collect_sarif.sh disambiguates "found issues" from "tool error"
+      # and writes the marker check_results.sh consumes to fail closed.
       env:
         TOOL_DIR: ${{ github.action_path }}
         SARIF_SRC: ${{ steps.zizmor.outputs.output-file }}

@@ -60,39 +60,25 @@ runs:
       run: |
         "$TOOL_DIR/collect_outputs.sh" "${GITHUB_WORKSPACE}/.wrangle/metadata/dependency-review"
 
-    # Mark tool error so check_results.sh fails closed. The upstream step
-    # uses continue-on-error: true so SARIF collection runs on findings,
-    # but that also swallows genuine errors (API unavailable, network
-    # failure, malformed output). Without this marker, an errored run
-    # produces an empty SARIF that is indistinguishable from "no
-    # vulnerable changes" — fail open. See issue #222.
+    # Mark tool error so check_results.sh fails closed. continue-on-error
+    # above swallows genuine errors (API down, network failure) into the
+    # same outcome as findings; the upstream action distinguishes them by
+    # populating vulnerable-changes on findings and leaving it empty on
+    # error. mark_error.sh writes the marker on the latter. Without it,
+    # an errored run produces an empty SARIF indistinguishable from "no
+    # vulnerable changes" — fail open.
     #
-    # Disambiguating findings-exit from error-exit: the upstream action
-    # populates the vulnerable-changes output even when it exits non-zero
-    # on findings (fail-on-severity). When the action errors out it
-    # leaves vulnerable-changes empty/null. So `outcome == 'failure'`
-    # AND empty vulnerable-changes is a real tool error; non-empty means
-    # findings, which check_results.sh will catch via the SARIF count.
-    # mark_error.sh's jq-based detection covers `''`, `[]`, `null`,
-    # whitespace, and parse failures uniformly.
-    #
-    # Known gap (raised in PR #262 review, deliberately deferred): the
-    # upstream action also has a `outcome=success` mode that produces
-    # nothing useful — e.g., Dependency Graph disabled on the repo, or
-    # a forked PR where the API can't reach the diff base. In that mode
-    # vulnerable-changes is also empty, and there is no signal from the
-    # upstream action to distinguish "Dependency Graph disabled" from
-    # the legitimate "no vulnerable changes introduced" happy path that
-    # every clean PR hits. Gating mark_error.sh on `always()` would
-    # therefore mark every clean PR as a tool error. The proper fix
-    # needs an upstream signal (or a wrangle-side probe of the
-    # Dependency Graph API state) and is tracked separately.
+    # Known gap: the upstream action's `outcome=success` mode can also
+    # produce nothing useful (Dependency Graph disabled, forked PR without
+    # diff base) — same shape as a clean PR. Gating mark_error.sh on
+    # `always()` would mark every clean PR as error. The proper fix needs
+    # an upstream signal we don't currently have.
     - name: Mark dependency-review tool error
       if: always() && steps.depreview.outcome == 'failure'
       shell: bash
-      # VULNERABLE_CHANGES is upstream JSON output (attacker-influenceable via
-      # PR contents); it must reach a parser, never a shell. mark_error.sh
-      # only pipes it into jq — preserve that invariant in future edits.
+      # VULNERABLE_CHANGES is upstream JSON, attacker-influenceable via PR
+      # contents — it must reach a parser, never a shell. mark_error.sh
+      # only pipes it into jq; preserve that invariant in future edits.
       env:
         TOOL_DIR: ${{ github.action_path }}
         METADATA_DIR: ${{ github.workspace }}/.wrangle/metadata/dependency-review

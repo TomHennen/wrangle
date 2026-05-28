@@ -1,14 +1,11 @@
 #!/usr/bin/env bats
 
-# Tests for tools/zizmor/ (action pattern)
+# Tests for tools/zizmor/ (action pattern).
 #
-# Action-pattern tools wrap an upstream GitHub Action, so there is no
-# install.sh or adapter.sh to unit-test. These tests validate the
-# action.yml structure plus the collect_sarif.sh helper which performs
-# the fail-closed disambiguation for issue #222.
-#
-# Full integration testing happens in CI when the scan action invokes
-# tools/zizmor/action.yml against the wrangle repo itself (dogfooding).
+# Action-pattern tools wrap an upstream GitHub Action; there's no
+# install.sh or adapter.sh to unit-test. These cover action.yml
+# structure plus collect_sarif.sh's fail-closed disambiguation. Full
+# integration testing happens via dogfooding in CI.
 
 setup() {
     export ORIG_DIR="$(pwd)"
@@ -118,7 +115,7 @@ make_sarif() {
     [ -x "$TOOL_DIR/collect_sarif.sh" ]
 }
 
-# --- collect_sarif.sh: fail-closed disambiguation (issue #222) ---
+# --- collect_sarif.sh: fail-closed disambiguation ---
 
 @test "collect_sarif: usage error when metadata dir arg missing" {
     run "$TOOL_DIR/collect_sarif.sh"
@@ -174,8 +171,8 @@ make_sarif() {
 }
 
 @test "collect_sarif: outcome=failure + empty SARIF file → marker written" {
-    # Reproduces the original #222 fail-open: upstream `tee` created the
-    # file but docker crashed before zizmor wrote anything.
+    # Upstream `tee` creates the file eagerly; docker crashing before
+    # zizmor writes anything leaves it empty. The original fail-open.
     META="$TMP_DIR/meta-empty"
     mkdir -p "$META"
     SRC="$TMP_DIR/src-empty.sarif"
