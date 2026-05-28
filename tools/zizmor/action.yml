@@ -9,7 +9,7 @@ inputs:
   version:
     description: "Zizmor version to use (pinned for delayed adoption)"
     required: false
-    default: "v1.23.1"
+    default: "v1.25.2"
 
 runs:
   using: "composite"
