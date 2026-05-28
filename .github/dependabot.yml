@@ -11,3 +11,15 @@ updates:
     open-pull-requests-limit: 5
     cooldown:
       default-days: 7
+
+  # zizmor is installed via pipx in test/Dockerfile from a hash-pinned
+  # requirements.txt. Dependabot bumps the version and all sha256 hashes
+  # in one PR — keeps Dockerfile install and tools/zizmor/action.yml in
+  # sync without manual checksum work.
+  - package-ecosystem: "pip"
+    directory: "/tools/zizmor"
+    schedule:
+      interval: "weekly"
+    open-pull-requests-limit: 5
+    cooldown:
+      default-days: 7

@@ -11,7 +11,14 @@ RUN apt-get update -q && \
         make \
         gcc \
         libc6-dev \
+        python3 \
+        python3-venv \
     && rm -rf /var/lib/apt/lists/*
+
+# python3 + python3-venv host the isolated venv that zizmor installs into.
+# (pipx would be a more natural wrapper but it adds an unhashed `<pkg>==<ver>`
+# CLI requirement under the hood, which collides with pip's --require-hashes
+# mode — see pypa/pipx#712. A bare venv + pip install -r ... avoids that.)
 
 # gcc + libc6-dev are pulled in for `go test -race` (the race detector
 # requires cgo, which requires a C toolchain). Without them, Go's
@@ -32,7 +39,7 @@ RUN set -euo pipefail && \
         *) echo "Unsupported arch: $ARCH" >&2; exit 1 ;; \
     esac && \
     TARBALL="actionlint_${ACTIONLINT_VERSION}_linux_${GOARCH}.tar.gz" && \
-    curl -sSL -o "/tmp/$TARBALL" \
+    curl --fail -sSL -o "/tmp/$TARBALL" \
         "https://github.com/rhysd/actionlint/releases/download/v${ACTIONLINT_VERSION}/${TARBALL}" && \
     echo "$EXPECTED_CHECKSUM  /tmp/$TARBALL" | sha256sum -c - && \
     tar -xzf "/tmp/$TARBALL" -C /usr/local/bin actionlint && \
@@ -55,7 +62,7 @@ RUN set -euo pipefail && \
         *) echo "Unsupported arch: $ARCH" >&2; exit 1 ;; \
     esac && \
     TARBALL="go${GO_VERSION}.linux-${GOARCH}.tar.gz" && \
-    curl -sSL -o "/tmp/$TARBALL" \
+    curl --fail -sSL -o "/tmp/$TARBALL" \
         "https://go.dev/dl/${TARBALL}" && \
     echo "$EXPECTED_CHECKSUM  /tmp/$TARBALL" | sha256sum -c - && \
     tar -xzf "/tmp/$TARBALL" -C /usr/local && \
@@ -74,28 +81,21 @@ RUN set -euo pipefail && \
     mkdir -p /opt/go && \
     go install "golang.org/x/vuln/cmd/govulncheck@${GOVULNCHECK_VERSION}"
 
-# Install zizmor — pinned version with checksum verification. Used by
-# `make zizmor` (and the default `./test.sh`) so wrangle's own workflow
-# security findings surface locally, not just in CI. Version is kept in
-# sync with tools/zizmor/action.yml's default input. Upstream ships
-# GitHub build attestations (actions/attest); we use pinned sha256 here
-# to match actionlint's pattern and avoid pulling gh/cosign into the
-# image just for one tool.
-ARG ZIZMOR_VERSION=1.23.1
-ARG ZIZMOR_CHECKSUM_ARM64=3725d7cd7102e4d70827186389f7d5930b6878232930d0a3eb058d7e5b47e658
-ARG ZIZMOR_CHECKSUM_AMD64=67a8df0a14352dd81882e14876653d097b99b0f4f6b6fe798edc0320cff27aff
+# Install zizmor via pip into a managed venv, hash-pinned via
+# tools/zizmor/requirements.txt (managed by Dependabot pip ecosystem; see
+# .github/dependabot.yml). `--require-hashes` makes pip refuse any artifact
+# whose sha256 isn't in the file, so version + hashes always move together.
+# zizmor is a Rust binary published as a Python wheel with zero runtime
+# Python deps, so the requirements file lists only zizmor itself.
+# Used by `make zizmor` (and the default `./test.sh`) so wrangle's own
+# workflow security findings surface locally, not just in CI. Version is kept
+# in sync with tools/zizmor/action.yml's default input (drift-tested in bats).
+COPY tools/zizmor/requirements.txt /tmp/zizmor-requirements.txt
 RUN set -euo pipefail && \
-    ARCH="$(uname -m)" && \
-    case "$ARCH" in \
-        aarch64) TRIPLE=aarch64-unknown-linux-gnu; EXPECTED_CHECKSUM="$ZIZMOR_CHECKSUM_ARM64" ;; \
-        x86_64)  TRIPLE=x86_64-unknown-linux-gnu;  EXPECTED_CHECKSUM="$ZIZMOR_CHECKSUM_AMD64" ;; \
-        *) echo "Unsupported arch: $ARCH" >&2; exit 1 ;; \
-    esac && \
-    TARBALL="zizmor-${TRIPLE}.tar.gz" && \
-    curl -sSL -o "/tmp/$TARBALL" \
-        "https://github.com/zizmorcore/zizmor/releases/download/v${ZIZMOR_VERSION}/${TARBALL}" && \
-    echo "$EXPECTED_CHECKSUM  /tmp/$TARBALL" | sha256sum -c - && \
-    tar -xzf "/tmp/$TARBALL" -C /usr/local/bin ./zizmor && \
-    rm "/tmp/$TARBALL"
+    python3 -m venv /opt/zizmor-venv && \
+    /opt/zizmor-venv/bin/pip install --no-cache-dir \
+        --require-hashes -r /tmp/zizmor-requirements.txt && \
+    ln -s /opt/zizmor-venv/bin/zizmor /usr/local/bin/zizmor && \
+    rm /tmp/zizmor-requirements.txt
 
 WORKDIR /wrangle

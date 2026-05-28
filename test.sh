@@ -37,23 +37,20 @@ fi
 echo "=== Building test container ==="
 docker build -t "$IMAGE_NAME" -f "$SCRIPT_DIR/test/Dockerfile" "$SCRIPT_DIR"
 
-# Map the script-level alias to the Makefile target list.
+# Map the script-level alias to the Makefile target list. Array form so
+# `quick` can pass multiple targets to one `make` invocation without
+# leaning on word-splitting (and the SC2086 disable that used to require).
 case "$TEST_TARGET" in
-    ci)    MAKE_TARGETS="all" ;;
-    quick) MAKE_TARGETS="lint shellcheck bats" ;;
-    *)     MAKE_TARGETS="$TEST_TARGET" ;;
+    ci)    MAKE_TARGETS=(all) ;;
+    quick) MAKE_TARGETS=(lint shellcheck bats) ;;
+    *)     MAKE_TARGETS=("$TEST_TARGET") ;;
 esac
 
 # Run the requested test suite
 echo "=== Running: $TEST_TARGET ==="
 
-# Word-splitting on MAKE_TARGETS is intentional so `quick` can run
-# multiple Makefile targets in one container invocation. Values come
-# from the case statement above (not user input) so there's nothing
-# to glob-expand.
-# shellcheck disable=SC2086
 docker run --rm \
     -v "$SCRIPT_DIR":/wrangle:ro \
     -w /wrangle \
     "$IMAGE_NAME" \
-    make $MAKE_TARGETS
+    make "${MAKE_TARGETS[@]}"

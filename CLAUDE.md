@@ -24,6 +24,8 @@ Before approving any PR, ask:
 
 Then check the diff against the conventions in the rest of this file.
 
+**Re-verification by the original reviewer.** After review findings are addressed, the same reviewer (agent or human) verifies the fixes. Partial fixes and surface compliance are common failure modes; fresh-eye verification catches the absence of obvious tells. For agents: `SendMessage` to the original reviewer with the implementer's commit. For humans: re-approval by the same reviewer who flagged the original finding.
+
 ## Comments
 
 Comments should focus on the *why* and avoid the discussion. Explain hidden constraints or non-obvious decisions; don't restate the diff, narrate history, or reference PR numbers, review threads, or comment URLs. One line max unless a hidden constraint really requires more.
@@ -56,13 +58,15 @@ Don't `curl | sh` — all binary downloads go through `lib/download_verify.sh`. 
 
 ## Install method and verification (see SPEC.md §Install Script Interface for the full contract)
 
-**Integrity verification hierarchy:** SLSA provenance > GitHub release attestation > Sigstore signature > hardcoded SHA-256 checksum. NEVER fall back to a weaker method if a stronger one fails.
+**Strong default: use the canonical package manager.** If upstream publishes via pip / cargo / npm / go install / brew with adequate verification, use it. Binary + attestation and binary + sha256 are fallbacks for tools that publish no package-manager release, not alternatives to choose between. When upstream offers multiple package managers, prefer in order: (1) the one upstream's install docs recommend first, (2) the one with attestation support, (3) the one that doesn't add transitive runtime deps to the test image.
 
-**Install method hierarchy:** canonical package manager (with adequate verification) > GitHub release binary + attestation > GitHub release binary + sha256. When upstream offers multiple package managers, prefer in order: (1) the one upstream's install docs recommend first, (2) the one with attestation support, (3) the one that doesn't add transitive runtime deps to the test image. If upstream is on pipx/cargo/npm/go-install and the test image already has that runtime, use it. Don't write a custom `install.sh` if upstream supports a canonical package manager with adequate verification — that's the fallback, not the default.
+**Integrity tier (within whichever install method):** SLSA provenance > GitHub release attestation > Sigstore signature > hash-pinned package manager (`--require-hashes`, lockfile) > hardcoded SHA-256 against a downloaded binary. NEVER fall back to a weaker tier if a stronger one fails.
+
+**Python tools:** pin via `tools/<tool>/requirements.txt` with `package==version --hash=sha256:...` (one direct dep + all transitive). Install into an isolated venv (`python3 -m venv` + `pip install --require-hashes -r ...`) and symlink the entrypoint into `PATH`. Register the requirements file in `.github/dependabot.yml` (pip ecosystem) so Dependabot updates version + hashes atomically. (pipx is a tempting wrapper but injects an unhashed CLI spec that collides with `--require-hashes`, pypa/pipx#712 — don't use it for hash-pinned installs.)
 
 **Convenience is not a fallback justification.** "We'd have to install one more tool in the image" or "the attestation flow is awkward at build time" are NOT reasons to drop to a weaker tier. The fallback rule is "stronger verification is genuinely unavailable upstream" — document *why* the stronger tier doesn't exist, not why it'd be inconvenient.
 
-All downloads go through `lib/download_verify.sh`. Install to `$WRANGLE_BIN_DIR`, never `/usr/local/bin`. Be idempotent. Use atomic `mv` (not `cp`).
+All downloads in custom install scripts go through `lib/download_verify.sh`. Install to `$WRANGLE_BIN_DIR`, never `/usr/local/bin`. Be idempotent. Use atomic `mv` (not `cp`).
 
 **Don't add heavyweight runtimes for single-use tasks.** Use the smallest dependency that does the job — `unzip` over `python3` for archives, `jq` over a python script for JSON, etc. Adding a language runtime to the test image just to run a one-liner expands the supply-chain surface for no gain.
 
@@ -70,7 +74,7 @@ All downloads go through `lib/download_verify.sh`. Install to `$WRANGLE_BIN_DIR`
 
 If a version, checksum, SHA, or other pin literal lives in more than one file, either consolidate to a single source or add a regression test that diffs the locations and fails on divergence. This applies to:
 
-- A tool pinned in both `test/Dockerfile` and `tools/<name>/action.yml`
+- A tool version pinned in both the local install path (e.g. `tools/<name>/requirements.txt`, `test/Dockerfile`) and `tools/<name>/action.yml`
 - A version default in a reusable workflow, its composite, and an env coalesce
 - An adapter helper duplicated across multiple per-tool install scripts
 

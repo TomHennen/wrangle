@@ -43,12 +43,30 @@ setup() {
     grep -q '\.wrangle/metadata/zizmor' "$ORIG_DIR/tools/zizmor/action.yml"
 }
 
-@test "zizmor: test/Dockerfile pins ZIZMOR_VERSION" {
-    # The local test container installs zizmor from a pinned version with
-    # checksum verification — mirrors the CI install path (the upstream
-    # Docker action). A version bump here must include matching sha256
-    # checksums for both architectures in the same commit.
-    grep -q '^ARG ZIZMOR_VERSION=[0-9]\+\.[0-9]\+\.[0-9]\+' "$ORIG_DIR/test/Dockerfile"
-    grep -q '^ARG ZIZMOR_CHECKSUM_ARM64=[0-9a-f]\{64\}' "$ORIG_DIR/test/Dockerfile"
-    grep -q '^ARG ZIZMOR_CHECKSUM_AMD64=[0-9a-f]\{64\}' "$ORIG_DIR/test/Dockerfile"
+@test "zizmor: requirements.txt and action.yml default agree on version" {
+    # Local test container installs zizmor via pipx using hash-pinned
+    # tools/zizmor/requirements.txt; CI uses the upstream Docker action driven
+    # by tools/zizmor/action.yml's default version input. Drift between these
+    # masks regressions between local pre-push checks and CI. Dependabot bumps
+    # requirements.txt; this test makes sure action.yml's default tracks it.
+    local req_version action_version
+    req_version="$(grep -E '^zizmor==' "$ORIG_DIR/tools/zizmor/requirements.txt" | head -1 | sed -E 's/^zizmor==([0-9]+\.[0-9]+\.[0-9]+).*/\1/')"
+    action_version="$(grep -E '^ +default: "v[0-9]+\.[0-9]+\.[0-9]+"' "$ORIG_DIR/tools/zizmor/action.yml" | sed -E 's/.*"v([0-9]+\.[0-9]+\.[0-9]+)".*/\1/')"
+    [ -n "$req_version" ]
+    [ -n "$action_version" ]
+    [ "$req_version" = "$action_version" ]
+}
+
+@test "zizmor: requirements.txt pins zizmor with sha256 hashes" {
+    # --require-hashes refuses to install if any artifact lacks a sha256 in
+    # this file. Guard against accidental hash removal.
+    grep -qE '^zizmor==[0-9]+\.[0-9]+\.[0-9]+' "$ORIG_DIR/tools/zizmor/requirements.txt"
+    grep -qE '^ +--hash=sha256:[0-9a-f]{64}' "$ORIG_DIR/tools/zizmor/requirements.txt"
+}
+
+@test "zizmor: dependabot tracks tools/zizmor (pip ecosystem)" {
+    # If Dependabot loses sight of this directory, hash + version drift
+    # against upstream and the wrangle action.yml default goes silent.
+    grep -qE 'package-ecosystem: +"pip"' "$ORIG_DIR/.github/dependabot.yml"
+    grep -qE 'directory: +"/tools/zizmor"' "$ORIG_DIR/.github/dependabot.yml"
 }
