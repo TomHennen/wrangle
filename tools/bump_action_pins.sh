@@ -42,6 +42,7 @@
 #                         (default: today's date in YYYY-MM-DD UTC)
 
 set -euo pipefail
+set -f
 
 # Resolve the repo to operate on from the current git working directory,
 # NOT from the script's own location. This makes the script safe to run
@@ -79,7 +80,7 @@ elif git -C "$REPO_ROOT" merge-base --is-ancestor "$target_sha" "$default_branch
     # rather than the cleanup branch's name, which would be misleading.
     branch_label="$default_branch"
 else
-    branch_label="$(git -C "$REPO_ROOT" symbolic-ref --short HEAD 2>/dev/null || echo "$default_branch")"
+    branch_label="$(git -C "$REPO_ROOT" symbolic-ref --short HEAD 2>/dev/null || printf '%s' "$default_branch")"
 fi
 date_label="${WRANGLE_PINS_DATE:-$(date -u +%Y-%m-%d)}"
 
@@ -131,10 +132,20 @@ tmp_file=""
 cleanup() { [[ -n "$tmp_file" && -f "$tmp_file" ]] && rm -f "$tmp_file"; tmp_file=""; }
 trap cleanup EXIT INT TERM
 
+# Expand the workflow-file glob ONCE into an array, then restore the
+# glob-disabled state before iterating. Confining set +f / nullglob to
+# the expansion site (not the loop body) means: (1) `set -f` is restored
+# before any per-file processing, (2) `shopt -u nullglob` is restored
+# too. nullglob makes both globs collapse to empty when the dir is
+# empty so we never iterate literal "*.yml" / "*.yaml" filenames.
+set +f
 shopt -s nullglob
+workflow_files=( "$REPO_ROOT/$PINS_DIR"/*.yml "$REPO_ROOT/$PINS_DIR"/*.yaml )
+shopt -u nullglob
+set -f
 changed=0
 total=0
-for f in "$REPO_ROOT/$PINS_DIR"/*.yml "$REPO_ROOT/$PINS_DIR"/*.yaml; do
+for f in "${workflow_files[@]}"; do
     [[ -f "$f" ]] || continue
 
     # Filter to files that even contain a matching pin.

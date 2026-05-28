@@ -24,6 +24,8 @@ Before approving any PR, ask:
 
 Then check the diff against the conventions in the rest of this file.
 
+**Re-verification by the original reviewer.** After review findings are addressed, the same reviewer verifies the fixes.
+
 ## Comments
 
 Comments should focus on the *why* and avoid the discussion. Explain hidden constraints or non-obvious decisions; don't restate the diff, narrate history, or reference PR numbers, review threads, or comment URLs. One line max unless a hidden constraint really requires more.
@@ -56,22 +58,17 @@ Don't `curl | sh` — all binary downloads go through `lib/download_verify.sh`. 
 
 ## Install method and verification (see SPEC.md §Install Script Interface for the full contract)
 
-**Integrity verification hierarchy:** SLSA provenance > GitHub release attestation > Sigstore signature > hardcoded SHA-256 checksum. NEVER fall back to a weaker method if a stronger one fails.
+**Strong default: use the canonical package manager.** If upstream publishes via pip / cargo / npm / go install / brew with adequate verification, use it. Binary + attestation and binary + sha256 are fallbacks for tools that publish no package-manager release, not alternatives to choose between. When upstream offers multiple package managers, prefer in order: (1) the one upstream's install docs recommend first, (2) the one with attestation support, (3) the one that doesn't add transitive runtime deps to the test image.
 
-**Go modules via `go install`.** Tools fetched as Go modules (`go install <module>@<version>`) are integrity-verified against [sum.golang.org](https://sum.golang.org/), a Trillian-backed transparency log that makes the first-seen `go.sum` line for each `(module, version)` immutable. The tlog provides non-repudiable record-keeping, not publisher authentication — a compromised upstream maintainer's malicious release would still install (and be recorded); detection is after-the-fact, via Sigsum-style auditing. This is a narrowly-scoped tier that slots in BELOW the four above and is accepted in lieu of routing through `lib/download_verify.sh` (the integrity check is built into the Go toolchain itself) ONLY when no upstream binary release exists for the tool and ALL the following hold:
+**Integrity tier (within whichever install method):** SLSA provenance > GitHub release attestation > Sigstore signature > hash-pinned package manager (`--require-hashes`, lockfile) > hardcoded SHA-256 against a downloaded binary. NEVER fall back to a weaker tier if a stronger one fails.
 
-1. The module is pinned to a specific semver tag (no `@latest`, no `@main`).
-2. The Go toolchain used to install it has been installed via `lib/download_verify.sh` or equivalent (e.g., `actions/setup-go` with a pinned version).
-3. The integration point documents that no upstream binary release exists (the only accepted rationale; cross-reference SPEC.md §"GO MODULES").
-4. The Go module-proxy / sumdb path is in effect: `GOPROXY` is NOT `direct` (or `off`) and `GOSUMDB` is NOT `off`. Default Go env satisfies this, but adopters and CI envs MAY override; install sites SHOULD assert the defaults explicitly (e.g., `export GOPROXY=https://proxy.golang.org,direct GOSUMDB=sum.golang.org`) before `go install` so the security claim is not environment-conditional.
+**Python tools:** pin via `tools/<tool>/requirements.txt` (`package==version --hash=sha256:...` for the direct dep plus all transitives), install into a `python3 -m venv` with `pip install --require-hashes`, and let Dependabot's `pip` ecosystem bump version + hashes atomically.
 
-The no-fallback rule still applies: if `sum.golang.org` verification fails (e.g., a `go.sum` mismatch) `go install` exits non-zero and the install MUST abort, not retry under `GOSUMDB=off`.
-
-**Install method hierarchy:** canonical package manager (with adequate verification) > GitHub release binary + attestation > GitHub release binary + sha256. When upstream offers multiple package managers, prefer in order: (1) the one upstream's install docs recommend first, (2) the one with attestation support, (3) the one that doesn't add transitive runtime deps to the test image. If upstream is on pipx/cargo/npm/go-install and the test image already has that runtime, use it. Don't write a custom `install.sh` if upstream supports a canonical package manager with adequate verification — that's the fallback, not the default.
+**Go modules via `go install`.** Tools fetched as Go modules (`go install <module>@<version>`) are integrity-verified against [sum.golang.org](https://sum.golang.org/), a Trillian-backed transparency log that makes the first-seen `go.sum` line for each `(module, version)` immutable. The tlog provides non-repudiable record-keeping, not publisher authentication — a compromised upstream maintainer's malicious release would still install (and be recorded); detection is after-the-fact. Accepted in lieu of routing through `lib/download_verify.sh` ONLY when ALL hold: (1) the module is pinned to a specific semver tag (no `@latest`, no `@main`); (2) the Go toolchain itself was installed via `lib/download_verify.sh` or equivalent; (3) the integration point documents that no upstream binary release exists (the only accepted rationale); (4) install sites assert `GOPROXY=https://proxy.golang.org,direct GOSUMDB=sum.golang.org` before `go install` so the security claim is not environment-conditional. No fallback: if `sum.golang.org` verification fails, abort — never retry under `GOSUMDB=off`.
 
 **Convenience is not a fallback justification.** "We'd have to install one more tool in the image" or "the attestation flow is awkward at build time" are NOT reasons to drop to a weaker tier. The fallback rule is "stronger verification is genuinely unavailable upstream" — document *why* the stronger tier doesn't exist, not why it'd be inconvenient.
 
-All downloads go through `lib/download_verify.sh`. Install to `$WRANGLE_BIN_DIR`, never `/usr/local/bin`. Be idempotent. Use atomic `mv` (not `cp`).
+All downloads in custom install scripts go through `lib/download_verify.sh`. Install to `$WRANGLE_BIN_DIR`, never `/usr/local/bin`. Be idempotent. Use atomic `mv` (not `cp`).
 
 **Don't add heavyweight runtimes for single-use tasks.** Use the smallest dependency that does the job — `unzip` over `python3` for archives, `jq` over a python script for JSON, etc. Adding a language runtime to the test image just to run a one-liner expands the supply-chain surface for no gain.
 
@@ -79,7 +76,7 @@ All downloads go through `lib/download_verify.sh`. Install to `$WRANGLE_BIN_DIR`
 
 If a version, checksum, SHA, or other pin literal lives in more than one file, either consolidate to a single source or add a regression test that diffs the locations and fails on divergence. This applies to:
 
-- A tool pinned in both `test/Dockerfile` and `tools/<name>/action.yml`
+- A tool version pinned in both the local install path (e.g. `tools/<name>/requirements.txt`, `test/Dockerfile`) and `tools/<name>/action.yml`
 - A version default in a reusable workflow, its composite, and an env coalesce
 - An adapter helper duplicated across multiple per-tool install scripts
 

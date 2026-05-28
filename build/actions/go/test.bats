@@ -1182,3 +1182,4 @@ func TestFails(t *testing.T) {
     # trailing slash collapsing the path one level up).
     [[ -f "$BATS_TEST_TMPDIR/metadata/go/_/govulncheck.json" ]]
 }
+

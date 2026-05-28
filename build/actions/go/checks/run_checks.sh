@@ -211,7 +211,7 @@ run_gofmt_step() {
         printf '%s\n' "$unformatted"
         # shellcheck disable=SC2016 # backticks here are human-readable formatting, not command substitution
         printf 'Run `gofmt -w .` locally to fix, then commit.\n'
-        # shellcheck disable=SC2016
+        # shellcheck disable=SC2016 # backticks here are human-readable formatting, not command substitution
         printf 'If the file is generated and missing the `// Code generated ... DO NOT EDIT.` header,\n'
         printf 'add that header (Go convention) — wrangle will auto-skip it. Or disable the gofmt\n'
         printf 'check entirely via run-gofmt-check: false on the action input.\n'

@@ -1,5 +1,6 @@
 #!/bin/bash
 set -euo pipefail
+set -f
 
 # Format Scorecard SARIF results into a readable markdown table.
 #

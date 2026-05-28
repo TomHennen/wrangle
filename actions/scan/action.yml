@@ -89,6 +89,19 @@ runs:
           "$WRANGLE_ROOT/lib/format_sarif_summary.sh" "$WRANGLE_METADATA_DIR" >> "$GITHUB_STEP_SUMMARY"
         fi
 
+    # Per-finding CI-log lines. MUST run before "Check results" so the
+    # finding context appears above the failure line — reordering
+    # silently defeats issue #158.
+    - name: Log findings
+      if: always()
+      shell: bash
+      env:
+        WRANGLE_ROOT: ${{ github.action_path }}/../..
+      run: |
+        # shellcheck source=../../lib/env.sh
+        source "$WRANGLE_ROOT/lib/env.sh"
+        "$WRANGLE_ROOT/lib/log_findings.sh" "$WRANGLE_METADATA_DIR"
+
     # Check results: fail the check if any :fail-policy tool reported
     # findings. Tools with :info policy are noted but don't block.
     - name: Check results

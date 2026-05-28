@@ -1,5 +1,6 @@
 #!/bin/bash
 set -euo pipefail
+set -f
 
 # Install OSV-Scanner binary with SLSA provenance verification.
 # OSV-Scanner publishes SLSA provenance attestations, so provenance is

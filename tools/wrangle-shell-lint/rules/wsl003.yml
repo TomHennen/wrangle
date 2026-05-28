@@ -1,0 +1,44 @@
+# WSL003 — use printf instead of echo for output containing variables
+#
+# CLAUDE.md: "Use `printf` not `echo` for output that may contain user data."
+#
+# AST-aware match: fires on a `command` node whose name field is exactly
+# `echo` AND whose argument subtree contains a variable expansion of any
+# kind (simple `$x`, braced `${x}`, command substitution `$(...)` or
+# `` `...` ``). The argument expansions are looked up with `stopBy: end`
+# so they're found inside nested string concatenations, double-quoted
+# strings, etc.
+#
+# Because the matcher is structural rather than textual, it correctly
+# handles cases that defeat regex-based linting:
+#   - Heredoc bodies (quoted OR unquoted) are not parsed as commands so
+#     `echo $var` literal text inside a heredoc body never matches.
+#   - `xecho "$var"` — different command name, not matched.
+#   - `error_msg="Failed to echo $var"` — `echo` is inside a string
+#     literal, not a command_name, not matched.
+#   - `echo 'literal $foo'` — single-quoted body produces no expansion
+#     node, not matched.
+#   - `echo "literal \\$1"` — escaped dollar is parsed as a raw_string,
+#     not an expansion, not matched.
+#   - `case x in y) echo "$y";; esac` — flagged.
+#   - `if true; then echo "$x"; fi` — flagged.
+#   - `foo="`echo $bar`"` (backticks) — flagged: the echo inside the
+#     command_substitution is a regular command node.
+
+id: wsl003-echo-with-variable
+severity: error
+language: bash
+rule:
+  kind: command
+  has:
+    field: name
+    regex: '^echo$'
+  any:
+    - has: { kind: simple_expansion, stopBy: end }
+    - has: { kind: expansion, stopBy: end }
+    - has: { kind: command_substitution, stopBy: end }
+message: |
+  WSL003: use `printf` instead of `echo` for output containing variables
+  or command substitution. `echo` is unsafe for user-controlled data
+  (interprets backslash escapes on some platforms, swallows `-n`-style
+  flags). See CLAUDE.md "Shell Script Safety".

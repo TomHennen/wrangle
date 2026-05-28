@@ -1,5 +1,6 @@
 #!/bin/bash
 set -euo pipefail
+set -f
 
 # Install syft (Anchore SBOM tool) with Cosign keyless signature verification.
 #

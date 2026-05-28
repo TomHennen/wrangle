@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
 set -euo pipefail
+set -f
 
 # Dispatch an integration test by pushing an ephemeral branch to the companion
 # repo, then waiting for the resulting workflow run to complete.
