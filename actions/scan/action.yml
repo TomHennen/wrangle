@@ -89,15 +89,9 @@ runs:
           "$WRANGLE_ROOT/lib/format_sarif_summary.sh" "$WRANGLE_METADATA_DIR" >> "$GITHUB_STEP_SUMMARY"
         fi
 
-    # Log per-finding lines to the CI log so adopters (and AI agents)
-    # can see WHAT each tool flagged without parsing raw SARIF. Purely
-    # informational — never affects the build outcome (issue #158).
-    #
-    # STEP ORDERING IS LOAD-BEARING: this step MUST run before
-    # "Check results" so the per-finding context appears ABOVE the
-    # red X failure line in the CI log. Reordering would silently
-    # defeat the issue #158 use case (adopters needing to see WHAT
-    # failed without scrolling past the failure summary).
+    # Per-finding CI-log lines. MUST run before "Check results" so the
+    # finding context appears above the failure line — reordering
+    # silently defeats issue #158.
     - name: Log findings
       if: always()
       shell: bash

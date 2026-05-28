@@ -909,11 +909,10 @@ Action-pattern tools call these helpers from their own `action.yml`. The `format
 #   wrangle: <tool>[<i>/<n>] <ruleId> <uri>:<line> -- <truncated message>
 #
 # Environment:
-#   WRANGLE_MAX_FINDING_MESSAGE  Max bytes for per-finding message
-#                                (default 100). Truncation is byte-based;
-#                                a multibyte UTF-8 sequence at the
-#                                boundary may render as a replacement
-#                                char (consistent with wrangle_sanitize_output).
+#   WRANGLE_MAX_FINDING_MESSAGE  Max characters for per-finding message
+#                                (default 100). Truncation runs inside
+#                                jq, so it is char-based — multibyte
+#                                UTF-8 sequences stay intact.
 #
 # Exit codes:
 #   0  Success — including malformed SARIF (silently skipped so this

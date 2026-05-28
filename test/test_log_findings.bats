@@ -90,6 +90,22 @@ teardown() {
     [[ "$output" != *"bad["* ]]
 }
 
+@test "log_findings: silently-skipped malformed SARIF still fails check_results" {
+    # Pins the invariant the silent-skip relies on: the same fixture
+    # that log_findings ignores MUST cause check_results (the gate) to
+    # exit non-zero. If check_results ever softens, log_findings' silent
+    # behaviour becomes a hole and this test should fail loudly.
+    mkdir -p "$METADATA/bad"
+    cp "$ORIG_DIR/test/fixtures/malformed.sarif" "$METADATA/bad/output.sarif"
+
+    run "$SCRIPT" "$METADATA"
+    [ "$status" -eq 0 ]
+
+    run "$ORIG_DIR/lib/check_results.sh" "$METADATA" "bad"
+    [ "$status" -eq 1 ]
+    [[ "$output" == *"invalid SARIF"* ]]
+}
+
 @test "log_findings: not-json SARIF is silently skipped" {
     mkdir -p "$METADATA/bad"
     echo "not json" > "$METADATA/bad/output.sarif"

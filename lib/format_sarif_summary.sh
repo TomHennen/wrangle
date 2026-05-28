@@ -72,26 +72,20 @@ while IFS= read -r -d '' dir; do
         # Fallback: no tool-supplied human-readable output, but we have
         # SARIF. Render a findings table directly so adopters can see
         # WHAT was found in the step summary (issue #158) without
-        # opening the raw SARIF artifact. Silently skip on invalid SARIF
-        # — the table above already flagged it as "Error (invalid SARIF)".
-        # Skip the fallback entirely when there are zero findings: the
-        # top table already shows "No findings" for this tool, and
-        # emitting a redundant "## <tool> Details\nNo findings." section
-        # adds noise without information.
-        # Note on truncation budget: this fallback path is bounded by
-        # wrangle_sanitize_output inside sarif_to_md.sh (so the section
-        # is capped at $WRANGLE_MAX_SUMMARY, 64 KB default) — a separate
-        # budget from the `wrangle_sanitize_output < output.md` path
-        # above. Tools that ship their own output.md effectively get a
-        # second 64 KB headroom. See docs/SPEC.md §Shared Tool Helpers.
-        if num_sarif_findings="$(jq '[.runs[].results[]] | length' "${dir}/output.sarif" 2>/dev/null)" \
-            && [[ "$num_sarif_findings" -gt 0 ]]; then
-            if md_table="$("$SCRIPT_DIR/sarif_to_md.sh" "${dir}/output.sarif" 2>/dev/null)"; then
-                printf '## %s Details\n' "$safe_tool"
-                # sarif_to_md.sh already sanitizes its output; pass through.
-                printf '%s\n' "$md_table"
-                printf '\n'
-            fi
+        # opening the raw SARIF artifact. sarif_to_md.sh exits 2 on
+        # parse failure (already flagged "Error (invalid SARIF)" above)
+        # and prints the literal "No findings." string on zero findings;
+        # skip both cases — the top table already covers them and an
+        # empty "## <tool> Details" section is just noise.
+        # Truncation budget: bounded by wrangle_sanitize_output inside
+        # sarif_to_md.sh ($WRANGLE_MAX_SUMMARY, 64 KB default). See
+        # docs/SPEC.md §Shared Tool Helpers.
+        if md_table="$("$SCRIPT_DIR/sarif_to_md.sh" "${dir}/output.sarif" 2>/dev/null)" \
+            && [[ "$md_table" != "No findings." ]]; then
+            printf '## %s Details\n' "$safe_tool"
+            # sarif_to_md.sh already sanitizes its output; pass through.
+            printf '%s\n' "$md_table"
+            printf '\n'
         fi
     fi
 done < <(find "$METADATA_DIR" -mindepth 1 -maxdepth 1 -type d -print0 2>/dev/null | sort -z)
