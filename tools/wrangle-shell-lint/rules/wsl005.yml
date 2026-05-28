@@ -1,0 +1,32 @@
+# WSL005 — `# shellcheck disable=SCXXXX` must have an inline justification
+#
+# CLAUDE.md: "All scripts MUST pass `shellcheck`. No `# shellcheck disable`
+# without a comment justifying the exception."
+#
+# This is a comment-syntax rule, not a code-AST rule: tree-sitter-bash
+# represents the directive as a `comment` node whose text is the entire
+# `# shellcheck disable=...` line. We filter `comment` nodes whose text
+# matches the directive pattern AND ends immediately after the rule code
+# list (allowing trailing whitespace, which an editor's whitespace-trim
+# toggle may add but does not count as a justification).
+#
+# Justified:   "# shellcheck disable=SC2016 # backticks are markdown"
+# Unjustified: "# shellcheck disable=SC2016"  (FLAGGED)
+# Unjustified: "# shellcheck disable=SC2016   "  (FLAGGED — trailing ws)
+#
+# Why a comment-syntax rule rather than a code rule: the shellcheck
+# directive has no semantic meaning to the shell — only to shellcheck —
+# so there is no AST node to query. Matching the comment's text is the
+# correct level of abstraction.
+
+id: wsl005-shellcheck-disable-needs-justification
+severity: error
+language: bash
+rule:
+  kind: comment
+  regex: '^#[[:space:]]*shellcheck[[:space:]]+disable=[A-Za-z0-9,]+[[:space:]]*$'
+message: |
+  WSL005: add a justification comment after the disable code:
+  `# shellcheck disable=SCXXXX # <reason>`. CLAUDE.md requires every
+  shellcheck-disable to be accompanied by a one-line explanation so
+  reviewers can verify the exception is justified.

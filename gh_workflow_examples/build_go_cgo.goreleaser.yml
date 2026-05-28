@@ -12,10 +12,10 @@
 # for cgo; zig (https://ziglang.org/) ships a single binary that backs
 # cgo for all four common targets.
 #
-# How wrangle helps: the release composite's preflight detects
-# `CC=zig` (or `CXX=zig`) in your env block and installs zig
-# automatically via tools/zig/install.sh (hardcoded SHA-256, pinned
-# version). You do not need a `before.hooks` install step.
+# How wrangle helps: pass `install-zig: true` to the
+# build_and_publish_go.yml reusable workflow. Wrangle then installs
+# zig (via mlugg/setup-zig, minisign-verified) before goreleaser
+# runs. You do not need a `before.hooks` install step.
 #
 # Reference: https://goreleaser.com/customization/cgo/
 

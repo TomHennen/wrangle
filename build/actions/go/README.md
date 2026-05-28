@@ -50,18 +50,28 @@ checksum:
 
 Both `-trimpath` and `-buildvcs=false` are zero-cost reproducibility wins. `CGO_ENABLED=0` is **not** recommended as a default — cgo-backed `net`/`os/user` resolvers and many third-party crypto libraries link C — set it only if you specifically want pure-Go binaries. See [goreleaser customization docs](https://goreleaser.com/customization/) for the full schema.
 
+### Tag naming
+
+Release tags must be `v`-prefixed semver (e.g. `v1.2.3`) — wrangle's workflow triggers on `tags: ["v*"]` and goreleaser derives `.Version` from the nearest matching tag.
+
+### Snapshot template pitfall
+
+Goreleaser derives `.Version` from the nearest git tag. If your repo has no semver tags yet (only non-semver tags like `phase-0-complete`, or no tags at all), any `snapshot.version_template` that calls `incpatch` / `incminor` / `incmajor` will fail until you push a `v*` tag. Use the recommended `snapshot.version_template: "{{ .ShortCommit }}-snapshot"` in the [example config](../../../gh_workflow_examples/build_go.goreleaser.yml) — it avoids `.Version` entirely and works regardless of tag history.
+
+See goreleaser's [snapshot docs](https://goreleaser.com/customization/snapshots/) and [template reference](https://goreleaser.com/customization/templates/).
+
 ## Cross-compiling with cgo
 
-The reusable workflow runs on `ubuntu-latest`, which ships an amd64-only C toolchain. If your `.goreleaser.yml` sets `CGO_ENABLED=1` (explicitly or via a cgo dependency) **and** targets anything other than `linux/amd64` (so most multi-arch / multi-OS matrices), the per-cell `go build` will fail inside goreleaser with opaque `# runtime/cgo` assembler errors like `gcc_arm64.S: Error: no such instruction: 'stp x29,x30,[sp,'`. The release composite parses your `.goreleaser.yml` before goreleaser runs and reacts to what it sees.
+The reusable workflow runs on `ubuntu-latest`, which ships an amd64-only C toolchain. If your `.goreleaser.yml` sets `CGO_ENABLED=1` (explicitly or via a cgo dependency) **and** targets anything other than `linux/amd64`, the per-cell `go build` fails with opaque `# runtime/cgo` assembler errors like `gcc_arm64.S: Error: no such instruction: 'stp x29,x30,[sp,'`.
 
-| Situation | What to do | What wrangle does |
-|---|---|---|
-| You don't actually use cgo (most projects) | Set `CGO_ENABLED=0` in `builds.env`. | Nothing extra. Go cross-compiles freely without cgo. |
-| You use cgo but only need linux/amd64 binaries | Restrict `goos: [linux]` and `goarch: [amd64]`. | Nothing extra. The runner's native gcc handles it. |
-| You use cgo *and* need multi-arch / darwin binaries | Set `CC=zig cc -target <triple>` (and `CXX=zig c++ -target <triple>`) in `builds.env`. Working example: [`gh_workflow_examples/build_go_cgo.goreleaser.yml`](../../../gh_workflow_examples/build_go_cgo.goreleaser.yml). | Detects `CC=zig` and installs a pinned zig automatically via [`tools/zig/install.sh`](../../../tools/zig/install.sh) — SHA-256 verified, no `before.hooks` plumbing required in your config. |
-| You use cgo + cross targets with another toolchain (musl-gcc, mingw, goreleaser-cross) | Set the corresponding `CC=` / `CXX=` in `builds.env` and install the toolchain in `before.hooks`. | Stays out of the way — the preflight detects a non-zig `CC=` override and suppresses warnings. |
+| Situation | What to do |
+|---|---|
+| You don't actually use cgo (most projects) | Set `CGO_ENABLED=0` in `builds.env`. Go cross-compiles freely without cgo. |
+| You use cgo but only need linux/amd64 | Restrict `goos: [linux]` + `goarch: [amd64]`. The runner's native gcc handles it. |
+| You use cgo *and* need multi-arch / darwin binaries | Pass `install-zig: true` to the reusable workflow and set `CC=zig cc -target <triple>` (plus `CXX=zig c++ -target <triple>`) per cell in `builds.env`. Wrangle installs zig via [`mlugg/setup-zig`](https://github.com/mlugg/setup-zig) (minisign-verified against [ziglang.org's master key](https://ziglang.org/download/)). Working example: [`gh_workflow_examples/build_go_cgo.goreleaser.yml`](../../../gh_workflow_examples/build_go_cgo.goreleaser.yml). |
+| You use cgo + cross targets with another toolchain (musl-gcc, mingw, goreleaser-cross) | Install the toolchain yourself in `before.hooks` and set the corresponding `CC=` / `CXX=`. Leave `install-zig` unset. |
 
-If you have `CGO_ENABLED=1` + non-linux/amd64 targets but no `CC=` override, the preflight emits a workflow warning naming the failure mode and pointing at this section, so adopters don't burn time decoding `# runtime/cgo` assembler errors.
+If your `.goreleaser.yml` sets `CGO_ENABLED=1` but you haven't passed `install-zig: true`, the release composite emits a `::warning::` naming the failure mode so adopters don't burn time decoding `# runtime/cgo` errors.
 
 ## What the SLSA provenance covers (and what it doesn't)
 

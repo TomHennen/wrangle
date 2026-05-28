@@ -9,7 +9,7 @@ Wrangle is a composable CI/CD framework for GitHub Actions that handles the full
 ### Core principles
 
 1. **Full lifecycle** — wrangle handles source scanning, building, testing, publishing, SBOM generation, signing, and SLSA provenance. Not just one stage.
-2. **One-shot adoption** — a maintainer picks a profile matching their project type, gets one or two workflow files, and everything works
+2. **One-shot adoption** — a maintainer picks a workflow template matching their project type, gets one or two workflow files, and everything works
 3. **Pluggable tools** — new tools are added via adapters without changing adopting repos
 4. **Automatic updates** — adopters reference wrangle's reusable workflows; updates flow to everyone
 5. **AI-agent friendly** — designed so "Claude, adopt wrangle for this repo" just works
@@ -39,8 +39,8 @@ Wrangle covers the entire path from source to published artifact. Each stage has
 | Stage | What wrangle does | Reusable workflow | Status |
 |-------|------------------|-------------------|--------|
 | **Source** | Vulnerability scanning (OSV), workflow linting (Zizmor), supply chain scoring (Scorecard), run tests, SLSA source provenance | `check_source_change.yml` | v0.1 |
-| **Build** | Compile/build the project, generate SBOM, scan SBOM for vulnerabilities | `build_and_publish_*.yml` | v0.1 (container), v0.2+ (others) |
-| **Publish** | Push artifact to registry, sign with Cosign | `build_and_publish_*.yml` | v0.1 (container) |
+| **Build** | Compile/build the project, generate SBOM, scan SBOM for vulnerabilities | `build_and_publish_*.yml` | v0.1 (container, python, npm, go) |
+| **Publish** | Push artifact to registry, sign with Cosign | `build_and_publish_*.yml` | v0.1 (container, python, npm, go) |
 | **Verify** | Generate SLSA L3 build provenance, verify attestations against policy (Ampel) | `build_and_publish_*.yml` / future | v0.1 (provenance), v0.2 (policy) |
 
 ### What adopters get today (container project example)
@@ -287,7 +287,8 @@ wrangle/
 │       └── test.bats
 ├── lib/                    # Shared helpers
 │   ├── download_verify.sh  # wrangle_download_verify(), wrangle_verify_provenance()
-│   ├── format_sarif_summary.sh  # SARIF → markdown summary
+│   ├── format_sarif_summary.sh  # SARIF → markdown summary (with sarif_to_md.sh fallback)
+│   ├── log_findings.sh     # Per-finding CI log lines (issue #158)
 │   ├── sanitize.sh         # wrangle_sanitize_output() — shared HTML stripping + truncation
 │   ├── sarif_to_md.sh      # SARIF → human-readable markdown (per-tool)
 │   └── tool_banner.sh      # Print visual banner for tool log attribution
@@ -406,8 +407,14 @@ EXIT CODES:
 
 INTEGRITY VERIFICATION (mandatory):
   Every install script MUST verify the downloaded binary before placing it
-  on PATH. Install scripts MUST use lib/download_verify.sh for this.
-  The scan action installs slsa-verifier via the official
+  on PATH. The three methods below (SLSA / Sigstore / SHA-256) apply to
+  install-script-pattern tools — those that download a standalone binary
+  artifact via lib/download_verify.sh. Go-module tools fetched via
+  `go install <module>@<version>` are covered by the separate fourth tier
+  ("GO MODULES" below), which routes integrity through sum.golang.org
+  instead of lib/download_verify.sh; see CLAUDE.md §"Supply Chain
+  Discipline" for the gating conditions. The scan action installs
+  slsa-verifier via the official
   slsa-framework/slsa-verifier/actions/installer action.
 
   Verification method (chosen per tool at development time, not at runtime):
@@ -444,6 +451,40 @@ INTEGRITY VERIFICATION (mandatory):
   Tools with SLSA provenance: OSV-Scanner
   Tools with Sigstore signatures: (to be determined per tool)
   Tools with checksum only: Zizmor
+
+  GO MODULES (`go install`) — narrow fourth tier:
+
+    The three methods above apply to standalone binary installs (downloaded
+    artifact + separate verification step routed through
+    lib/download_verify.sh). Tools fetched as Go modules via
+    `go install <module>@<version>` are integrity-verified by the Go
+    toolchain itself against sum.golang.org, a Trillian-backed transparency
+    log. This path is accepted ONLY when no upstream binary release exists
+    for the tool (so the three methods above cannot be used against an
+    artifact) and the gating conditions in CLAUDE.md §"Supply Chain
+    Discipline" — pinned semver, trusted toolchain, documented rationale,
+    and `GOPROXY`/`GOSUMDB` not disabled — are all met.
+
+    The tlog provides transparency-log immutability ("first-seen go.sum
+    line for this (module, version) is what every consumer that consults
+    sum.golang.org sees" — consumers with `GOSUMDB=off` see whatever
+    their proxy serves), NOT publisher authentication. A compromised upstream maintainer's
+    malicious release would still install and be recorded; detection is
+    after-the-fact, via auditing. The no-fallback rule still applies: if
+    `go install` aborts due to a go.sum mismatch, the install MUST fail
+    rather than retry under `GOSUMDB=off`.
+
+    Note on the recommended `GOPROXY=https://proxy.golang.org,direct`
+    value: the `,direct` segment is a fallback path that only fires
+    when the proxy itself is unreachable, and it does NOT bypass
+    sum.golang.org — `GOSUMDB` is consulted on both proxy and direct
+    fetches. (This is distinct from a bare `GOPROXY=direct`, which
+    also routes around the proxy but is paired with sumdb the same
+    way.) The integrity claim is preserved across the proxy/direct
+    fallback; only `GOSUMDB=off` (or one of the bypass vars listed in
+    CLAUDE.md §"Supply Chain Discipline") would weaken it.
+
+  Tools with sum.golang.org (go install) only: govulncheck
 
   The download/verify flow:
     1. Download binary to a temporary file ($RUNNER_TEMP/wrangle-dl-XXXXX)
@@ -833,8 +874,11 @@ All downloaded binaries are verified before execution:
 | Content | SHA-256 checksum (pinned in install script) | Required for tools without provenance or signatures |
 | Provenance | SLSA attestation via slsa-verifier | Required for tools that publish it; sufficient on its own; failure = hard stop |
 | Signature | Sigstore/Cosign signature verification | Required for tools that publish it; sufficient on its own; failure = hard stop |
+| sum.golang.org tlog (`go install`) | Built-in Go toolchain verification against the transparency log | Narrow fourth tier for Go modules with no upstream binary release; gating conditions in CLAUDE.md §"Supply Chain Discipline"; failure (go.sum mismatch) = hard stop |
 
 For tools verified via SLSA provenance or Sigstore signatures, hardcoded checksums are not required — the cryptographic verification already covers artifact integrity. Checksums are only needed for tools that lack both provenance and signatures, in which case they are hardcoded in each install script (not downloaded alongside the binary) and updated in the same commit as a version bump.
+
+The sum.golang.org tier is accepted only for Go modules installed via `go install` and only when no upstream binary release exists. The tlog provides transparency-log immutability, not publisher authentication — a compromised maintainer's bad release would still install. See CLAUDE.md §"Supply Chain Discipline" for the full acceptance gate (pinned semver, trusted Go toolchain, documented rationale, `GOPROXY`/`GOSUMDB` not disabled).
 
 **No fallback between verification methods.** Each tool's verification method is chosen at development time. If provenance verification fails for a tool configured to use it, the install MUST fail — even if the checksum passed. A verification failure may indicate a supply chain attack; silently downgrading to a weaker method would mask the attack.
 
@@ -898,7 +942,34 @@ All install scripts MUST use `wrangle_download_verify` rather than implementing 
 
 `lib/sanitize.sh` provides `wrangle_sanitize_output()`, a shared function that strips HTML tags and truncates output to `$WRANGLE_MAX_SUMMARY` (default 65536) characters. Sourced by `format_sarif_summary.sh` and `sarif_to_md.sh`. All tool output written to `$GITHUB_STEP_SUMMARY` MUST be passed through this function to prevent HTML/markdown injection.
 
-Action-pattern tools call these helpers from their own `action.yml`. The `format_sarif_summary.sh` script picks up `output.md` (or `output.txt`) to populate the expandable details section in the step summary.
+Action-pattern tools call these helpers from their own `action.yml`. The `format_sarif_summary.sh` script picks up `output.md` (or `output.txt`) to populate the expandable details section in the step summary. **Fallback:** if neither `output.md` nor `output.txt` is present for a tool but `output.sarif` is, `format_sarif_summary.sh` invokes `sarif_to_md.sh` to render the findings table directly. This makes the adapter-contract claim above (orchestrator generates `output.md` from SARIF) hold in the step summary, so adopters can see WHAT was found without opening the raw SARIF artifact. The fallback is skipped when SARIF reports zero findings — the top table already shows "No findings" for that tool. Note: the fallback path is bounded by `wrangle_sanitize_output` inside `sarif_to_md.sh`, so it shares a single `$WRANGLE_MAX_SUMMARY` (64 KB) budget; tools that ship their own `output.md` get a separate 64 KB budget on the `wrangle_sanitize_output < output.md` path.
+
+`lib/log_findings.sh` emits one CI-log line per finding so adopters (and AI agents) can see WHAT each tool flagged without parsing raw SARIF. Invoked once after all adapters by the scan composite action; runs before `lib/check_results.sh` so per-finding context appears above the failure line in the log.
+
+```
+# Usage: log_findings.sh <metadata_dir>
+# Output (one line per finding, to stdout):
+#   wrangle: <tool>[<i>/<n>] <ruleId> <uri>:<line> -- <truncated message>
+#
+# Environment:
+#   WRANGLE_MAX_FINDING_MESSAGE  Max characters for per-finding message
+#                                (default 100). Truncation runs inside
+#                                jq, so it is char-based — multibyte
+#                                UTF-8 sequences stay intact.
+#
+# Exit codes:
+#   0  Success — including malformed SARIF (silently skipped so this
+#      script does not double-report against check_results.sh, which
+#      is the pass/fail gate). Always exits 0 in the happy path so a
+#      missing/empty metadata dir does not break the composite action.
+#   2  Usage error (missing/extra args)
+#
+# All fields (ruleId, uri, message) are passed through
+# wrangle_sanitize_output (HTML strip + WRANGLE_MAX_SUMMARY truncate)
+# and have \r\n\t collapsed to spaces so each finding stays on one
+# log line. Only locations[0] (the SARIF-defined primary location) is
+# rendered — one log line per result, never N×M.
+```
 
 ### Sandboxing and Isolation
 
@@ -929,7 +1000,7 @@ Wrangle is a supply chain amplifier — a compromise of wrangle propagates to ev
 - **Signed commits:** All commits to the wrangle repo should be signed.
 - **Minimal permissions:** Wrangle's own workflows request only the permissions they need.
 - **Dependency management:** Dependabot for GitHub Actions dependencies; `make update-tool` for tool binary versions.
-- **SLSA build provenance (v0.2):** When wrangle produces releasable artifacts (e.g., if it ships a CLI or pre-built actions), those artifacts should have SLSA L3 build provenance via `slsa-github-generator`, the same standard wrangle helps adopters achieve.
+- **SLSA build provenance:** When wrangle produces releasable artifacts (e.g., if it ships a CLI or pre-built actions), those artifacts should have SLSA L3 build provenance via `slsa-github-generator`, the same standard wrangle helps adopters achieve. Aspirational — not currently in a numbered release milestone.
 - **Delayed dependency updates:** Wrangle does not auto-merge dependency updates immediately. New versions of upstream tools are adopted only after a delay (e.g., 7 days) to allow the community to discover supply chain attacks before wrangle amplifies them to all adopters. This follows the [OpenSSF Concise Guide for Evaluating Open Source Software](https://best.openssf.org/Concise-Guide-for-Evaluating-Open-Source-Software) principle of not being the first to adopt a new release.
 
 ### Action Reference Pinning
@@ -968,6 +1039,9 @@ Layers:
 2. **shellcheck** — lints all shell scripts
 3. **bats-core** — unit tests for adapters, install scripts, orchestrator, and formatter
 4. **SARIF schema validation** — validates fixture/output SARIF against the 2.1.0 JSON schema
+5. **zizmor** — workflow security linter run against `.github/workflows/`, `actions/`, `tools/`, `build/`. Findings fail `make test`; the only suppression surface is `.zizmor.yml`.
+
+`./test.sh` (the canonical preflight) runs all of the above. Use `./test.sh quick` for an inner-loop iteration that skips zizmor when you're only touching shell or bats fixtures — but the full suite must pass before pushing. `./test.sh ci` is an explicit alias for the full suite.
 
 **Adapter testing pattern:** Per-tool `test.bats` files (in `tools/<name>/`) test the adapter and install scripts in isolation using mock tool binaries that produce fixture SARIF. This keeps local tests fast and deterministic. The `test/` directory contains integration tests that exercise the orchestrator and composite action end-to-end, plus shared fixtures (sample SARIF files, SARIF JSON schema) and CI-specific tests that download real tools and run them against the wrangle repo itself (dogfooding).
 
@@ -1005,7 +1079,7 @@ If the project type is unknown (no Dockerfile, no recognized language files), ad
 
 ### Long-term: OpenSSF contribution
 
-The adapter pattern, tool composition logic, and profile system are candidates for contribution to OpenSSF (e.g., as part of Minder or a new working group). The spec and implementation will be designed with this handoff in mind.
+The adapter pattern and tool composition logic are candidates for contribution to OpenSSF (e.g., as part of Minder or a new working group). The spec and implementation will be designed with this handoff in mind.
 
 ---
 
@@ -1034,17 +1108,41 @@ The adapter pattern, tool composition logic, and profile system are candidates f
 - [ ] Tested on Concordance
 - [ ] AGENTS.md for AI agent adoption
 
-### v0.2.0 — Profiles + additional build types
+### v0.2.0 — Verify story complete + Go hardening + tool plumbing
 
-- [ ] Profile system (`wrangle.yml` with `profile: container` / `profile: library` / `profile: python`)
-- [ ] `wrangle init` CLI or GitHub Action for bootstrapping
-- [ ] Test integration — detect and run project tests before build
-- [ ] Additional source tools (e.g., Semgrep, Trivy)
-- [ ] Additional build types (Python, npm, Go)
-- [ ] `tools.lock` manifest — single file listing all tool versions, URLs, and checksums per platform
-- [ ] Lightweight sandboxing for adapters (bubblewrap/firejail on Linux)
-- [ ] [Ampel](https://github.com/carabiner-dev/ampel) integration — policy verification layer that evaluates attestations against CEL-based policies and produces Verification Summary Attestations
-- [ ] Help adopters adopt the SLSA source track in their repos
+Theme: complete the verify story end-to-end (producer + consumer), harden
+the Go build type, and tighten tool plumbing. Go, Python, and npm build
+types have all landed on `main` (Go in [#238](https://github.com/TomHennen/wrangle/pull/238))
+and will ship in the v0.2.0 tag — example workflows in `gh_workflow_examples/`
+already pin `@v0.2.0` in anticipation. v0.2 owns hardening and additional
+shapes for those build types, not net-new ecosystems. "Verify story complete"
+for the v0.2 cut means at least one build type wired end-to-end through
+Ampel (#247) plus the consumer-facing verify action (#198) shipped — not
+every Ampel phase in #247.
+
+A profile system (`wrangle.yml` with `profile:` field) and a `wrangle init`
+bootstrapper were considered and deferred — the existing example workflows
+in `gh_workflow_examples/` already deliver the "one-shot adoption" vision,
+and a config layer doesn't reduce the irreducible per-adopter inputs
+(`path`, `imagename`, `release-events`).
+
+- [ ] Go build type follow-ups: validation-only sub-shape ([#239](https://github.com/TomHennen/wrangle/issues/239)), PR-build cost knob ([#245](https://github.com/TomHennen/wrangle/issues/245)), `govulncheck-version` input ([#246](https://github.com/TomHennen/wrangle/issues/246)), Go workflow reliability ([#254](https://github.com/TomHennen/wrangle/issues/254)), cgo + multi-arch goreleaser ([#259](https://github.com/TomHennen/wrangle/issues/259))
+- [ ] [Ampel](https://github.com/carabiner-dev/ampel) integration — policy verification layer that evaluates attestations against CEL-based policies and produces Verification Summary Attestations. Scoping: [#247](https://github.com/TomHennen/wrangle/issues/247)
+- [ ] Adopter-side `verify-artifact` action — closes the runner-isolation gap between wrangle's `verify` job and the adopter's publish job (today each download is independent, so the publish job has no machine-checked guarantee its bytes match the attestation). Verifies whatever the build produced (SLSA provenance or VSA) — not tied to Ampel. Downstream-consumer verification is covered by upstream `slsa-verifier` plus a docs page, not a wrapper. Tracking: [#198](https://github.com/TomHennen/wrangle/issues/198) (to be rescoped to adopter-side surface only).
+- [ ] Bundle wrangle attestations into a single in-toto JSONL across all build types (replacing per-build `python-<shortname>.intoto.jsonl` etc.). Tracking: [#181](https://github.com/TomHennen/wrangle/issues/181)
+- [ ] Action-pattern source-scan tools must fail closed when the underlying tool errors (currently fail open). Tracking: [#222](https://github.com/TomHennen/wrangle/issues/222)
+- [ ] Fix wrangle's own SLSA Source Track integration (prerequisite). Tracking: [#174](https://github.com/TomHennen/wrangle/issues/174)
+- [ ] Help adopters adopt the SLSA source track in their repos via `check_source_change.yml`. Tracking: [#201](https://github.com/TomHennen/wrangle/issues/201)
+
+**Deferred from v0.2** (candidates for v0.3+):
+
+- Profile system and `wrangle init` — see theme paragraph above. Tracking: [#265](https://github.com/TomHennen/wrangle/issues/265)
+- Lightweight adapter sandboxing (bubblewrap/firejail on Linux) — significant design surface; own release. Tracking: [#267](https://github.com/TomHennen/wrangle/issues/267)
+- Additional source tools (Semgrep, Trivy) — additive, not architectural. Tracking: [#268](https://github.com/TomHennen/wrangle/issues/268)
+- `tools.lock` manifest — single file listing all tool versions/URLs/checksums per platform. Marginal value at current tool count (small fixed set, infrequent bumps, atomic per-`install.sh` checksums already work). Tracking: [#264](https://github.com/TomHennen/wrangle/issues/264)
+- Per-tool configuration — prefer native config files over flat passthrough inputs. Tracking: [#221](https://github.com/TomHennen/wrangle/issues/221)
+- Test integration as a profile-level concept — each build type already runs tests inside its own action
+- npm/pnpm/yarn workspaces ([#208](https://github.com/TomHennen/wrangle/issues/208)) — own track
 
 ### v1.0.0 — OpenSSF ready
 

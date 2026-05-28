@@ -11,12 +11,16 @@ RUN apt-get update -q && \
         make \
         gcc \
         libc6-dev \
+        python3 \
+        python3-venv \
     && rm -rf /var/lib/apt/lists/*
 
-# gcc + libc6-dev are pulled in for `go test -race` (the race detector
-# requires cgo, which requires a C toolchain). Without them, Go's
-# layer-4 tests that exercise -race fail with cryptic linker errors.
-# This matches GHA's ubuntu-latest image, which has gcc by default.
+# python3 + python3-venv host the isolated venvs that both zizmor and
+# ast-grep install into (each tool gets its own venv via tools/<tool>/
+# requirements.txt with --require-hashes). See pypa/pipx#712 for why
+# pipx + --require-hashes isn't viable.
+
+# gcc + libc6-dev are pulled in for `go test -race` (cgo needs a C toolchain).
 
 SHELL ["/bin/bash", "-c"]
 
@@ -32,38 +36,11 @@ RUN set -euo pipefail && \
         *) echo "Unsupported arch: $ARCH" >&2; exit 1 ;; \
     esac && \
     TARBALL="actionlint_${ACTIONLINT_VERSION}_linux_${GOARCH}.tar.gz" && \
-    curl -sSL -o "/tmp/$TARBALL" \
+    curl --fail -sSL -o "/tmp/$TARBALL" \
         "https://github.com/rhysd/actionlint/releases/download/v${ACTIONLINT_VERSION}/${TARBALL}" && \
     echo "$EXPECTED_CHECKSUM  /tmp/$TARBALL" | sha256sum -c - && \
     tar -xzf "/tmp/$TARBALL" -C /usr/local/bin actionlint && \
     rm "/tmp/$TARBALL"
-
-# Install mikefarah's yq — pinned binary with checksum verification.
-# Used by build/actions/go/release/cgo_preflight.sh to parse adopter
-# .goreleaser.yml. ubuntu-latest preinstalls yq, so the release
-# composite assumes it on PATH; this RUN block keeps the same binary
-# available inside the test container so bats can exercise the
-# preflight against real fixtures rather than mocks.
-#
-# Apt's `yq` is the kislyuk Python wrapper with different syntax —
-# don't substitute. The mikefarah binary is shipped at github.com/
-# mikefarah/yq/releases/<tag>/yq_linux_<arch>.
-ARG YQ_VERSION=4.53.2
-ARG YQ_CHECKSUM_ARM64=03061b2a50c7a498de2bbb92d7cb078ce433011f085a4994117c2726be4106ea
-ARG YQ_CHECKSUM_AMD64=d56bf5c6819e8e696340c312bd70f849dc1678a7cda9c2ad63eebd906371d56b
-RUN set -euo pipefail && \
-    ARCH="$(uname -m)" && \
-    case "$ARCH" in \
-        aarch64) GOARCH=arm64; EXPECTED_CHECKSUM="$YQ_CHECKSUM_ARM64" ;; \
-        x86_64)  GOARCH=amd64; EXPECTED_CHECKSUM="$YQ_CHECKSUM_AMD64" ;; \
-        *) echo "Unsupported arch: $ARCH" >&2; exit 1 ;; \
-    esac && \
-    BINARY="yq_linux_${GOARCH}" && \
-    curl -sSL -o "/tmp/${BINARY}" \
-        "https://github.com/mikefarah/yq/releases/download/v${YQ_VERSION}/${BINARY}" && \
-    echo "$EXPECTED_CHECKSUM  /tmp/${BINARY}" | sha256sum -c - && \
-    install -m 0755 "/tmp/${BINARY}" /usr/local/bin/yq && \
-    rm "/tmp/${BINARY}"
 
 # Install Go — pinned version with checksum verification. Used by
 # build/actions/go/test.bats layer-3 integration tests (real gofmt,
@@ -82,7 +59,7 @@ RUN set -euo pipefail && \
         *) echo "Unsupported arch: $ARCH" >&2; exit 1 ;; \
     esac && \
     TARBALL="go${GO_VERSION}.linux-${GOARCH}.tar.gz" && \
-    curl -sSL -o "/tmp/$TARBALL" \
+    curl --fail -sSL -o "/tmp/$TARBALL" \
         "https://go.dev/dl/${TARBALL}" && \
     echo "$EXPECTED_CHECKSUM  /tmp/$TARBALL" | sha256sum -c - && \
     tar -xzf "/tmp/$TARBALL" -C /usr/local && \
@@ -100,5 +77,24 @@ ARG GOVULNCHECK_VERSION=v1.1.4
 RUN set -euo pipefail && \
     mkdir -p /opt/go && \
     go install "golang.org/x/vuln/cmd/govulncheck@${GOVULNCHECK_VERSION}"
+
+# zizmor — hash-pinned via tools/zizmor/requirements.txt; Dependabot bumps
+# version + hashes atomically.
+COPY tools/zizmor/requirements.txt /tmp/zizmor-requirements.txt
+RUN set -euo pipefail && \
+    python3 -m venv /opt/zizmor-venv && \
+    /opt/zizmor-venv/bin/pip install --no-cache-dir \
+        --require-hashes -r /tmp/zizmor-requirements.txt && \
+    ln -s /opt/zizmor-venv/bin/zizmor /usr/local/bin/zizmor && \
+    rm /tmp/zizmor-requirements.txt
+
+# ast-grep-cli — same pattern (hash-pinned via tools/wrangle-shell-lint/requirements.txt).
+COPY tools/wrangle-shell-lint/requirements.txt /tmp/ast-grep-requirements.txt
+RUN set -euo pipefail && \
+    python3 -m venv /opt/ast-grep && \
+    /opt/ast-grep/bin/pip install --no-cache-dir \
+        --require-hashes -r /tmp/ast-grep-requirements.txt && \
+    ln -s /opt/ast-grep/bin/ast-grep /usr/local/bin/ast-grep && \
+    rm /tmp/ast-grep-requirements.txt
 
 WORKDIR /wrangle

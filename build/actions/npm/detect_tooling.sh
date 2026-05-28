@@ -34,6 +34,7 @@
 # Usage: build/actions/npm/detect_tooling.sh <path> <node-version-input>
 
 set -euo pipefail
+set -f
 
 WRANGLE_DEFAULT_NODE="22"
 

@@ -1,15 +1,20 @@
-.PHONY: all test lint shellcheck bats bump-action-pins
+.PHONY: all test lint shellcheck shellstyle bats zizmor bump-action-pins
 
 # Default target
 all: test
 
 # Run all local checks
-test: lint shellcheck bats
+test: lint shellcheck shellstyle bats zizmor
 
 # Validate all workflow and action YAML files
 lint:
 	@echo "=== actionlint ==="
 	@actionlint
+
+# Run wrangle-specific shell style linter (CLAUDE.md rules not covered by shellcheck)
+shellstyle:
+	@echo "=== wrangle-shell-lint ==="
+	@./tools/wrangle-shell-lint/lint.sh
 
 # Lint all shell scripts
 shellcheck:
@@ -25,6 +30,14 @@ shellcheck:
 bats:
 	@echo "=== bats ==="
 	@bats test/ test/lib/ test/integration/ tools/*/test.bats actions/*/test.bats build/actions/*/test.bats
+
+# Workflow security linting (matches tools/zizmor/action.yml's CI invocation).
+# --no-online-audits keeps the test container offline-friendly; the
+# online audits (e.g. unpinned-uses against the live registry) are
+# exercised by the same upstream action in CI.
+zizmor:
+	@echo "=== zizmor ==="
+	@zizmor --no-online-audits .github/workflows actions/ tools/ build/
 
 # Bump every TomHennen/wrangle/...@<sha> ref in .github/workflows/ to current HEAD.
 # Idempotent. See tools/bump_action_pins.sh and #165.
