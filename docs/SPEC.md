@@ -287,7 +287,8 @@ wrangle/
 │       └── test.bats
 ├── lib/                    # Shared helpers
 │   ├── download_verify.sh  # wrangle_download_verify(), wrangle_verify_provenance()
-│   ├── format_sarif_summary.sh  # SARIF → markdown summary
+│   ├── format_sarif_summary.sh  # SARIF → markdown summary (with sarif_to_md.sh fallback)
+│   ├── log_findings.sh     # Per-finding CI log lines (issue #158)
 │   ├── sanitize.sh         # wrangle_sanitize_output() — shared HTML stripping + truncation
 │   ├── sarif_to_md.sh      # SARIF → human-readable markdown (per-tool)
 │   └── tool_banner.sh      # Print visual banner for tool log attribution
@@ -898,7 +899,34 @@ All install scripts MUST use `wrangle_download_verify` rather than implementing 
 
 `lib/sanitize.sh` provides `wrangle_sanitize_output()`, a shared function that strips HTML tags and truncates output to `$WRANGLE_MAX_SUMMARY` (default 65536) characters. Sourced by `format_sarif_summary.sh` and `sarif_to_md.sh`. All tool output written to `$GITHUB_STEP_SUMMARY` MUST be passed through this function to prevent HTML/markdown injection.
 
-Action-pattern tools call these helpers from their own `action.yml`. The `format_sarif_summary.sh` script picks up `output.md` (or `output.txt`) to populate the expandable details section in the step summary.
+Action-pattern tools call these helpers from their own `action.yml`. The `format_sarif_summary.sh` script picks up `output.md` (or `output.txt`) to populate the expandable details section in the step summary. **Fallback:** if neither `output.md` nor `output.txt` is present for a tool but `output.sarif` is, `format_sarif_summary.sh` invokes `sarif_to_md.sh` to render the findings table directly. This makes the adapter-contract claim above (orchestrator generates `output.md` from SARIF) hold in the step summary, so adopters can see WHAT was found without opening the raw SARIF artifact. The fallback is skipped when SARIF reports zero findings — the top table already shows "No findings" for that tool. Note: the fallback path is bounded by `wrangle_sanitize_output` inside `sarif_to_md.sh`, so it shares a single `$WRANGLE_MAX_SUMMARY` (64 KB) budget; tools that ship their own `output.md` get a separate 64 KB budget on the `wrangle_sanitize_output < output.md` path.
+
+`lib/log_findings.sh` emits one CI-log line per finding so adopters (and AI agents) can see WHAT each tool flagged without parsing raw SARIF. Invoked once after all adapters by the scan composite action; runs before `lib/check_results.sh` so per-finding context appears above the failure line in the log.
+
+```
+# Usage: log_findings.sh <metadata_dir>
+# Output (one line per finding, to stdout):
+#   wrangle: <tool>[<i>/<n>] <ruleId> <uri>:<line> -- <truncated message>
+#
+# Environment:
+#   WRANGLE_MAX_FINDING_MESSAGE  Max characters for per-finding message
+#                                (default 100). Truncation runs inside
+#                                jq, so it is char-based — multibyte
+#                                UTF-8 sequences stay intact.
+#
+# Exit codes:
+#   0  Success — including malformed SARIF (silently skipped so this
+#      script does not double-report against check_results.sh, which
+#      is the pass/fail gate). Always exits 0 in the happy path so a
+#      missing/empty metadata dir does not break the composite action.
+#   2  Usage error (missing/extra args)
+#
+# All fields (ruleId, uri, message) are passed through
+# wrangle_sanitize_output (HTML strip + WRANGLE_MAX_SUMMARY truncate)
+# and have \r\n\t collapsed to spaces so each finding stays on one
+# log line. Only locations[0] (the SARIF-defined primary location) is
+# rendered — one log line per result, never N×M.
+```
 
 ### Sandboxing and Isolation
 

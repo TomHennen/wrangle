@@ -43,11 +43,11 @@ fi
 if ! results="$(jq -r '
   [.runs[].results[] |
     {
-      ruleId: .ruleId,
+      ruleId: ((.ruleId // "unknown-rule") | gsub("\n"; " ") | gsub("\\|"; "/")),
       level: (.level // "warning"),
-      uri: (.locations[0].physicalLocation.artifactLocation.uri // "unknown"),
+      uri: ((.locations[0].physicalLocation.artifactLocation.uri // "unknown") | gsub("\n"; " ") | gsub("\\|"; "/")),
       line: (.locations[0].physicalLocation.region.startLine // "?"),
-      message: (.message.text | gsub("\n"; " ") | gsub("\\|"; "/"))
+      message: ((.message.text // "") | gsub("\n"; " ") | gsub("\\|"; "/"))
     }
   ]' "$SARIF_FILE" 2>/dev/null)"; then
     printf 'Error: failed to parse SARIF results\n' >&2
