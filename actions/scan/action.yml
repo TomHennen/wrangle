@@ -25,7 +25,7 @@ runs:
     # See actions/install_slsa_verifier for retry policy and alarm
     # preservation rationale.
     # TODO: replace with $/actions/install_slsa_verifier when $/ syntax ships (#136)
-    - uses: TomHennen/wrangle/actions/install_slsa_verifier@c5cbf9e1e135ddb98c3d3230ee47bf36ba5329e5 # main 2026-05-28
+    - uses: TomHennen/wrangle/actions/install_slsa_verifier@d674e695ae625749e1478dd912d00975f00b694e # main 2026-05-28
 
     # Run adapter-pattern tools via the orchestrator (run.sh).
     # run.sh strips :policy suffixes and skips action-pattern tools.

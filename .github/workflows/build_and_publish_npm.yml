@@ -125,7 +125,7 @@ jobs:
     permissions: {}    # reads env only — no workspace, no API, no secrets
     steps:
       # TODO: replace with $/actions/preflight_guard when GitHub ships $/ syntax (#136)
-      - uses: TomHennen/wrangle/actions/preflight_guard@c5cbf9e1e135ddb98c3d3230ee47bf36ba5329e5 # main 2026-05-28
+      - uses: TomHennen/wrangle/actions/preflight_guard@d674e695ae625749e1478dd912d00975f00b694e # main 2026-05-28
 
   gate:
     needs: [guard]
@@ -136,7 +136,7 @@ jobs:
     steps:
       # No checkout: release_gate resolves via ${{ github.action_path }}.
       # TODO: replace with $/actions/release_gate when GitHub ships $/ syntax (#136)
-      - uses: TomHennen/wrangle/actions/release_gate@c5cbf9e1e135ddb98c3d3230ee47bf36ba5329e5 # main 2026-05-28
+      - uses: TomHennen/wrangle/actions/release_gate@d674e695ae625749e1478dd912d00975f00b694e # main 2026-05-28
         id: gate
         with:
           events: ${{ inputs.release-events }}
@@ -160,7 +160,7 @@ jobs:
           ref: ${{ inputs.ref || '' }}
 
       # TODO: replace with $/build/actions/npm when GitHub ships $/ syntax (#136)
-      - uses: TomHennen/wrangle/build/actions/npm@c5cbf9e1e135ddb98c3d3230ee47bf36ba5329e5 # main 2026-05-28
+      - uses: TomHennen/wrangle/build/actions/npm@d674e695ae625749e1478dd912d00975f00b694e # main 2026-05-28
         id: build
         with:
           path: ${{ inputs.path }}
@@ -241,7 +241,7 @@ jobs:
       # See actions/install_slsa_verifier for retry policy and alarm
       # preservation rationale.
       # TODO: replace with $/actions/install_slsa_verifier when $/ syntax ships (#136)
-      - uses: TomHennen/wrangle/actions/install_slsa_verifier@c5cbf9e1e135ddb98c3d3230ee47bf36ba5329e5 # main 2026-05-28
+      - uses: TomHennen/wrangle/actions/install_slsa_verifier@d674e695ae625749e1478dd912d00975f00b694e # main 2026-05-28
 
       - name: Verify SLSA provenance
         env:
