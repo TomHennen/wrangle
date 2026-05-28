@@ -773,7 +773,9 @@ write_pkg_json() {
 @test "npm: reusable workflow has verify job calling slsa-verifier" {
     run grep -E '^  verify:' "$WORKFLOW"
     [[ "$status" -eq 0 ]]
-    run grep 'slsa-verifier/actions/installer' "$WORKFLOW"
+    # slsa-verifier installation is delegated to the shared composite
+    # actions/install_slsa_verifier — workflow must invoke it.
+    run grep 'actions/install_slsa_verifier' "$WORKFLOW"
     [[ "$status" -eq 0 ]]
     run grep 'slsa-verifier verify-artifact' "$WORKFLOW"
     [[ "$status" -eq 0 ]]
@@ -811,7 +813,11 @@ write_pkg_json() {
 # --- Example workflow tests ---
 
 @test "npm: example workflow does NOT install slsa-verifier (verification owned by reusable workflow)" {
+    # Neither the upstream installer nor the wrangle composite wrapper
+    # should appear.
     run grep 'slsa-verifier/actions/installer' "$EXAMPLE"
+    [[ "$status" -ne 0 ]]
+    run grep 'actions/install_slsa_verifier' "$EXAMPLE"
     [[ "$status" -ne 0 ]]
     run grep 'slsa-verifier verify-artifact' "$EXAMPLE"
     [[ "$status" -ne 0 ]]

@@ -716,7 +716,11 @@ func main() {}
 # --- Example workflow tests ---
 
 @test "go: example workflow does NOT install slsa-verifier (verification owned by reusable)" {
+    # Neither the upstream installer nor the wrangle composite wrapper
+    # should appear — adopters shouldn't re-do verify work.
     run grep 'slsa-verifier/actions/installer' "$EXAMPLE"
+    [[ "$status" -ne 0 ]]
+    run grep 'actions/install_slsa_verifier' "$EXAMPLE"
     [[ "$status" -ne 0 ]]
 }
 

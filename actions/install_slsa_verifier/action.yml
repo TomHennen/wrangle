@@ -1,0 +1,59 @@
+name: Wrangle Install slsa-verifier
+description: |
+  Install slsa-verifier with a 3-attempt retry to ride out transient
+  failures of the GitHub release CDN (#190). Single source of truth for
+  the upstream installer pin; every wrangle caller goes through here so
+  a version bump or alarm-policy change lands in one place instead of
+  drifting across five workflows.
+
+  The upstream installer collapses all errors (transport, bootstrap
+  SHA-256 mismatch, SLSA provenance verify) into one `core.setFailed()`,
+  so this retries on *any* failure — that's safe because real tampering
+  is deterministic over identical bytes and still fails all 3 attempts.
+  `@actions/tool-cache` already retries downloads internally (3x with
+  its own backoff), so this outer retry is a backstop after that gives
+  up. Backoff schedule (1s, 2s) mirrors lib/download_verify.sh.
+
+  Alarm preservation: a transient verification failure on attempt 1 or
+  2 that recovers leaves the install steps as outcome=failure but the
+  job conclusion green (continue-on-error). The final step emits a
+  ::warning:: annotation in that case so operators see a paper trail
+  and can investigate (see PR #260 review discussion).
+
+runs:
+  using: "composite"
+  steps:
+    - name: Install slsa-verifier
+      id: install-slsa-verifier
+      uses: slsa-framework/slsa-verifier/actions/installer@ea584f4502babc6f60d9bc799dbbb13c1caa9ee6 # v2.7.1
+      continue-on-error: true
+
+    - name: Wait before retrying slsa-verifier install (1)
+      if: steps.install-slsa-verifier.outcome == 'failure'
+      shell: bash
+      run: sleep 1
+
+    - name: Install slsa-verifier (retry 1)
+      if: steps.install-slsa-verifier.outcome == 'failure'
+      id: install-slsa-verifier-retry-1
+      uses: slsa-framework/slsa-verifier/actions/installer@ea584f4502babc6f60d9bc799dbbb13c1caa9ee6 # v2.7.1
+      continue-on-error: true
+
+    - name: Wait before retrying slsa-verifier install (2)
+      if: steps.install-slsa-verifier-retry-1.outcome == 'failure'
+      shell: bash
+      run: sleep 2
+
+    - name: Install slsa-verifier (retry 2)
+      if: steps.install-slsa-verifier-retry-1.outcome == 'failure'
+      id: install-slsa-verifier-retry-2
+      uses: slsa-framework/slsa-verifier/actions/installer@ea584f4502babc6f60d9bc799dbbb13c1caa9ee6 # v2.7.1
+
+    # Warn iff a retry was needed AND the install ultimately succeeded.
+    # If retry-2 also failed, the step above (no continue-on-error) fails
+    # the job and this step is skipped by the default `if: success()`.
+    - name: Warn on recovered slsa-verifier install failure
+      if: steps.install-slsa-verifier.outcome == 'failure' || steps.install-slsa-verifier-retry-1.outcome == 'failure'
+      shell: bash
+      run: |
+        printf '::warning::slsa-verifier installer needed a retry. Check the failed install step annotation: a transient 5xx from the GitHub release CDN is benign, but a "Unable to verify binary provenance" or checksum error that recovered is worth investigating (#190).\n'

@@ -501,7 +501,11 @@ write_pyproject() {
     # publish job is just download-dist + pypi-publish. If the example
     # regrew per-adopter slsa-verifier wiring, that would be wasted work
     # AND would mask wrangle's verify-job failures by re-verifying.
+    # Neither the upstream installer nor the wrangle composite wrapper
+    # should appear.
     run grep 'slsa-verifier/actions/installer' "$EXAMPLE"
+    [[ "$status" -ne 0 ]]
+    run grep 'actions/install_slsa_verifier' "$EXAMPLE"
     [[ "$status" -ne 0 ]]
     run grep 'slsa-verifier verify-artifact' "$EXAMPLE"
     [[ "$status" -ne 0 ]]
@@ -516,7 +520,9 @@ write_pyproject() {
 @test "python: reusable workflow has verify job calling slsa-verifier" {
     run grep -E '^  verify:' "$WORKFLOW"
     [[ "$status" -eq 0 ]]
-    run grep 'slsa-verifier/actions/installer' "$WORKFLOW"
+    # slsa-verifier installation is delegated to the shared composite
+    # actions/install_slsa_verifier — workflow must invoke it.
+    run grep 'actions/install_slsa_verifier' "$WORKFLOW"
     [[ "$status" -eq 0 ]]
     run grep 'slsa-verifier verify-artifact' "$WORKFLOW"
     [[ "$status" -eq 0 ]]
