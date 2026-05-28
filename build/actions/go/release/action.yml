@@ -100,28 +100,6 @@ runs:
         cache: ${{ inputs.cache != 'disabled' }}
         cache-dependency-path: ${{ inputs.path }}/go.sum
 
-    - name: Check for semver tags
-      # The if-guard is a perf / intent optimization, NOT load-bearing
-      # for correctness: on a v* tag push the script itself already
-      # exits 0 silent (git describe --match 'v[0-9]*' finds the tag).
-      # Skipping the step is just cheaper and signals intent to the
-      # next reader. Do not assume the if-guard is what silences the
-      # warning on tag pushes — that's the script. A future refactor
-      # that drops or weakens this if: must NOT weaken the script's
-      # own silent-on-semver branch.
-      #
-      # Runs from $GITHUB_WORKSPACE (the default cwd), not from
-      # ${{ inputs.path }} — git tags are repo-wide, so the subdir
-      # doesn't affect tag discovery. INPUT_PATH is passed to the
-      # script only so the warning message can point at the right
-      # <path>/.goreleaser.yml file.
-      if: ${{ !startsWith(github.ref, 'refs/tags/v') }}
-      shell: bash
-      env:
-        ACTION_PATH: ${{ github.action_path }}
-        INPUT_PATH: ${{ inputs.path }}
-      run: '"$ACTION_PATH/check_semver_tags.sh" "$INPUT_PATH"'
-
     # goreleaser-action is a `uses:` step; can't be wrapped inline
     # by stop_commands_guard.sh `run` mode. Use the begin/end form:
     # `begin` emits ::stop-commands::<token> + writes the token to

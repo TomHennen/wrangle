@@ -70,21 +70,6 @@ This is the same shape wrangle's container build type uses (`docker push` then `
 
 On non-tag events goreleaser runs `release --clean --snapshot --skip=publish` — `--snapshot` because `release` refuses to run off a tag, `--skip=publish` because there's no release to publish to. PR builds exercise the goreleaser pipeline without publishing.
 
-#### Pre-flight: semver tag check
-
-Before invoking goreleaser, the `build/actions/go/release` composite runs `check_semver_tags.sh` to surface the most common snapshot-mode footgun: a repo whose nearest reachable tag is non-semver (e.g. `phase-0-complete`) makes goreleaser resolve `.Version` to a string that breaks any `snapshot.version_template` that calls `incpatch` / `incminor` / `incmajor`. The check has three branches:
-
-| Condition | Output | Why |
-|---|---|---|
-| A `v[0-9]*` tag is reachable from HEAD | silent, exit 0 | clean releases must not be spammed with annotations |
-| A `<prefix>/v[0-9]*` tag exists (goreleaser monorepo layout) | silent, exit 0 | goreleaser strips the prefix and resolves `.Version` correctly; the user's setup is fine |
-| No tags at all | `::notice` annotation | informational; suggests pushing `v0.0.0` to get meaningful version strings |
-| Only non-semver tags reachable | `::warning` annotation naming the file (`<path>/.goreleaser.yml`) and key (`snapshot.version_template`) | likely fatal for `incpatch` / `incminor` / `incmajor` users; remediation listed inline |
-
-The step is `if: ${{ !startsWith(github.ref, 'refs/tags/v') }}` — a perf/intent guard, not load-bearing for correctness; the script itself already exits 0 silent on a v* tag push because `git describe --match 'v[0-9]*'` finds the tag.
-
-**Fail-open is intentional.** The check is a heuristic — false positives are easy to construct (monorepo prefix tags handled above, calendar versioning that resolves via a custom template, brand-new repos mid-bootstrap). Warning rather than gating keeps the release path unblocked when the heuristic is wrong; goreleaser itself will surface a native error if the template actually fails to resolve. Do not "upgrade" this to a hard gate without revisiting that tradeoff.
-
 **Predicate version (v0.2 vs v1).** `slsa-github-generator` v2.1.0 currently emits `slsa.dev/provenance/v0.2`. `actions/attest-build-provenance` emits `v1`. Wrangle's container, python, and npm specs intentionally stay on `slsa-github-generator` for the L3 isolation property; the Go build type follows the same convention. When upstream ships v1, wrangle adopts it across all build types in one change. The doc shouldn't silently endorse `actions/attest-build-provenance` as a substitute.
 
 #### Alternative: ecosystem-specific Go builder (`builder_go_slsa3.yml`) — not picked
