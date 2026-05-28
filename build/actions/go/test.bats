@@ -929,6 +929,144 @@ EOF
     [[ -x "$first" ]]
 }
 
+# --- install_govulncheck env-var hardening ---------------------------
+#
+# These tests turn the comment block in install_govulncheck into an
+# enforced contract. Without them, a future refactor could drop the
+# GOPROXY/GOSUMDB prefix or the bypass-var checks and the existing
+# tests above would pass identically, silently regressing the
+# sum.golang.org integrity claim.
+#
+# The tests shim `go` to capture the env on the `install` subcommand
+# so they assert behavior without actually hitting the module proxy.
+
+# Helper: build a `go` shim that writes its env to a capture file and
+# exits 0 on `go install`, deferring to the real `go` for `go env`
+# (install_govulncheck calls `go env GOBIN`/`go env GOPATH` before the
+# install). Sets up PATH so the shim wins.
+#
+# Two-stage expansion in the heredoc below: unescaped `$capture` and
+# `$real_go` are expanded NOW (at heredoc build time) so the shim
+# file gets baked-in absolute paths from this test process; the
+# escaped `\$1`, `\$@`, `\${GOPROXY:-UNSET}` etc. survive into the
+# written script and are expanded LATER, when the shim itself runs
+# under the install_govulncheck call. The heredoc uses an unquoted
+# `SH` delimiter for exactly this reason — a quoted `'SH'` would
+# disable the build-time expansion and leave `$capture`/`$real_go`
+# as literal strings in the shim, which would fail at runtime.
+_setup_go_shim() {
+    local shim_dir="$BATS_TEST_TMPDIR/shim"
+    local capture="$BATS_TEST_TMPDIR/captured_env"
+    local real_go
+    real_go="$(command -v go || true)"
+    mkdir -p "$shim_dir"
+    cat > "$shim_dir/go" <<SH
+#!/bin/bash
+if [[ "\$1" == "install" ]]; then
+    {
+        printf 'GOPROXY=%s\n' "\${GOPROXY:-UNSET}"
+        printf 'GOSUMDB=%s\n' "\${GOSUMDB:-UNSET}"
+        printf 'GOPRIVATE=%s\n' "\${GOPRIVATE:-UNSET}"
+        printf 'GONOSUMDB=%s\n' "\${GONOSUMDB:-UNSET}"
+        printf 'GOINSECURE=%s\n' "\${GOINSECURE:-UNSET}"
+        printf 'GOFLAGS=%s\n' "\${GOFLAGS:-UNSET}"
+    } > "$capture"
+    exit 0
+fi
+exec "$real_go" "\$@"
+SH
+    chmod +x "$shim_dir/go"
+    printf '%s\n' "$shim_dir" "$capture"
+}
+
+@test "go.checks (L4): install_govulncheck pins GOPROXY and GOSUMDB on go install (regression: env-var hardening)" {
+    need_go
+    local shim_info shim_dir capture
+    shim_info="$(_setup_go_shim)"
+    shim_dir="$(printf '%s\n' "$shim_info" | sed -n '1p')"
+    capture="$(printf '%s\n' "$shim_info" | sed -n '2p')"
+
+    PATH="$shim_dir:$PATH" \
+        bash -c 'source "$1"; install_govulncheck "v1.1.4"' \
+        -- "$CHECKS_DIR/run_checks.sh"
+
+    [[ -f "$capture" ]]
+    grep -q '^GOPROXY=https://proxy.golang.org,direct$' "$capture"
+    grep -q '^GOSUMDB=sum.golang.org$' "$capture"
+}
+
+@test "go.checks (L4): install_govulncheck refuses to run with GOPRIVATE set (regression: bypass-var detection)" {
+    need_go
+    local shim_info shim_dir
+    shim_info="$(_setup_go_shim)"
+    shim_dir="$(printf '%s\n' "$shim_info" | sed -n '1p')"
+
+    run env PATH="$shim_dir:$PATH" GOPRIVATE='*' \
+        bash -c 'source "$1"; install_govulncheck "v1.1.4"' \
+        -- "$CHECKS_DIR/run_checks.sh"
+
+    [[ "$status" -ne 0 ]]
+    [[ "$output" == *"GOPRIVATE"* ]]
+}
+
+@test "go.checks (L4): install_govulncheck refuses to run with GONOSUMDB set (regression: bypass-var detection)" {
+    need_go
+    local shim_info shim_dir
+    shim_info="$(_setup_go_shim)"
+    shim_dir="$(printf '%s\n' "$shim_info" | sed -n '1p')"
+
+    run env PATH="$shim_dir:$PATH" GONOSUMDB='*' \
+        bash -c 'source "$1"; install_govulncheck "v1.1.4"' \
+        -- "$CHECKS_DIR/run_checks.sh"
+
+    [[ "$status" -ne 0 ]]
+    [[ "$output" == *"GONOSUMDB"* ]]
+}
+
+@test "go.checks (L4): install_govulncheck refuses to run with GOINSECURE set (regression: bypass-var detection)" {
+    need_go
+    local shim_info shim_dir
+    shim_info="$(_setup_go_shim)"
+    shim_dir="$(printf '%s\n' "$shim_info" | sed -n '1p')"
+
+    run env PATH="$shim_dir:$PATH" GOINSECURE='*' \
+        bash -c 'source "$1"; install_govulncheck "v1.1.4"' \
+        -- "$CHECKS_DIR/run_checks.sh"
+
+    [[ "$status" -ne 0 ]]
+    [[ "$output" == *"GOINSECURE"* ]]
+}
+
+@test "go.checks (L4): install_govulncheck refuses to run with GOFLAGS=-insecure (regression: bypass-var detection)" {
+    need_go
+    local shim_info shim_dir
+    shim_info="$(_setup_go_shim)"
+    shim_dir="$(printf '%s\n' "$shim_info" | sed -n '1p')"
+
+    run env PATH="$shim_dir:$PATH" GOFLAGS='-insecure' \
+        bash -c 'source "$1"; install_govulncheck "v1.1.4"' \
+        -- "$CHECKS_DIR/run_checks.sh"
+
+    [[ "$status" -ne 0 ]]
+    [[ "$output" == *"GOFLAGS"* ]]
+}
+
+@test "go.checks (L4): install_govulncheck accepts benign GOFLAGS (no -insecure)" {
+    need_go
+    local shim_info shim_dir capture
+    shim_info="$(_setup_go_shim)"
+    shim_dir="$(printf '%s\n' "$shim_info" | sed -n '1p')"
+    capture="$(printf '%s\n' "$shim_info" | sed -n '2p')"
+
+    # GOFLAGS without -insecure must not trip the bypass-var check.
+    PATH="$shim_dir:$PATH" GOFLAGS='-mod=mod' \
+        bash -c 'source "$1"; install_govulncheck "v1.1.4"' \
+        -- "$CHECKS_DIR/run_checks.sh"
+
+    [[ -f "$capture" ]]
+    grep -q '^GOPROXY=https://proxy.golang.org,direct$' "$capture"
+}
+
 # --- run_checks.sh main() against real fixtures ----------------------
 
 @test "go.checks (L4): main() succeeds on a clean fixture" {
@@ -1044,3 +1182,4 @@ func TestFails(t *testing.T) {
     # trailing slash collapsing the path one level up).
     [[ -f "$BATS_TEST_TMPDIR/metadata/go/_/govulncheck.json" ]]
 }
+

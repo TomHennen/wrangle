@@ -14,6 +14,7 @@
 # Usage: build/actions/npm/validate_inputs.sh <path>
 
 set -euo pipefail
+set -f
 
 if [[ $# -ne 1 ]]; then
     printf 'Usage: %s <path>\n' "$0" >&2

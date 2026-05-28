@@ -11,12 +11,16 @@ RUN apt-get update -q && \
         make \
         gcc \
         libc6-dev \
+        python3 \
+        python3-venv \
     && rm -rf /var/lib/apt/lists/*
 
-# gcc + libc6-dev are pulled in for `go test -race` (the race detector
-# requires cgo, which requires a C toolchain). Without them, Go's
-# layer-4 tests that exercise -race fail with cryptic linker errors.
-# This matches GHA's ubuntu-latest image, which has gcc by default.
+# python3 + python3-venv host the isolated venvs that both zizmor and
+# ast-grep install into (each tool gets its own venv via tools/<tool>/
+# requirements.txt with --require-hashes). See pypa/pipx#712 for why
+# pipx + --require-hashes isn't viable.
+
+# gcc + libc6-dev are pulled in for `go test -race` (cgo needs a C toolchain).
 
 SHELL ["/bin/bash", "-c"]
 
@@ -32,7 +36,7 @@ RUN set -euo pipefail && \
         *) echo "Unsupported arch: $ARCH" >&2; exit 1 ;; \
     esac && \
     TARBALL="actionlint_${ACTIONLINT_VERSION}_linux_${GOARCH}.tar.gz" && \
-    curl -sSL -o "/tmp/$TARBALL" \
+    curl --fail -sSL -o "/tmp/$TARBALL" \
         "https://github.com/rhysd/actionlint/releases/download/v${ACTIONLINT_VERSION}/${TARBALL}" && \
     echo "$EXPECTED_CHECKSUM  /tmp/$TARBALL" | sha256sum -c - && \
     tar -xzf "/tmp/$TARBALL" -C /usr/local/bin actionlint && \
@@ -55,7 +59,7 @@ RUN set -euo pipefail && \
         *) echo "Unsupported arch: $ARCH" >&2; exit 1 ;; \
     esac && \
     TARBALL="go${GO_VERSION}.linux-${GOARCH}.tar.gz" && \
-    curl -sSL -o "/tmp/$TARBALL" \
+    curl --fail -sSL -o "/tmp/$TARBALL" \
         "https://go.dev/dl/${TARBALL}" && \
     echo "$EXPECTED_CHECKSUM  /tmp/$TARBALL" | sha256sum -c - && \
     tar -xzf "/tmp/$TARBALL" -C /usr/local && \
@@ -73,5 +77,24 @@ ARG GOVULNCHECK_VERSION=v1.1.4
 RUN set -euo pipefail && \
     mkdir -p /opt/go && \
     go install "golang.org/x/vuln/cmd/govulncheck@${GOVULNCHECK_VERSION}"
+
+# zizmor — hash-pinned via tools/zizmor/requirements.txt; Dependabot bumps
+# version + hashes atomically.
+COPY tools/zizmor/requirements.txt /tmp/zizmor-requirements.txt
+RUN set -euo pipefail && \
+    python3 -m venv /opt/zizmor-venv && \
+    /opt/zizmor-venv/bin/pip install --no-cache-dir \
+        --require-hashes -r /tmp/zizmor-requirements.txt && \
+    ln -s /opt/zizmor-venv/bin/zizmor /usr/local/bin/zizmor && \
+    rm /tmp/zizmor-requirements.txt
+
+# ast-grep-cli — same pattern (hash-pinned via tools/wrangle-shell-lint/requirements.txt).
+COPY tools/wrangle-shell-lint/requirements.txt /tmp/ast-grep-requirements.txt
+RUN set -euo pipefail && \
+    python3 -m venv /opt/ast-grep && \
+    /opt/ast-grep/bin/pip install --no-cache-dir \
+        --require-hashes -r /tmp/ast-grep-requirements.txt && \
+    ln -s /opt/ast-grep/bin/ast-grep /usr/local/bin/ast-grep && \
+    rm /tmp/ast-grep-requirements.txt
 
 WORKDIR /wrangle

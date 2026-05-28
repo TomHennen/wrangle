@@ -43,6 +43,14 @@ archives:
   - formats: [tar.gz]
     name_template: "{{ .ProjectName }}_{{ .Version }}_{{ .Os }}_{{ .Arch }}"
 
+# Snapshot name for non-release builds (PRs, non-tag pushes).
+# Uses only ShortCommit — avoids .Version, which goreleaser derives from
+# your nearest git tag and may not be valid semver before your first v*
+# release. Functions like incpatch / incminor / incmajor require semver
+# and will fail if your repo has only non-semver tags (e.g. "phase-0-complete").
+snapshot:
+  version_template: "{{ .ShortCommit }}-snapshot"
+
 # (Optional) Goreleaser's downstream verbs — wrangle preserves all of
 # these. Add what your project needs:
 #
