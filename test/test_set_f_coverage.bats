@@ -1,44 +1,23 @@
 #!/usr/bin/env bats
 
 # Meta-test: every shell script in wrangle that processes positional
-# arguments (`$1`, `$2`, `$@`, `$*`, or their `${...}` forms) MUST set
-# `set -f` before those arguments are consumed. See CLAUDE.md
-# "Shell Script Safety" and issue #244.
+# arguments MUST `set -f` before those arguments are consumed. A new
+# script could otherwise slip through without globbing disabled and
+# every per-script test would still pass.
 #
-# Why this lives at the top of test/ and not inside per-script test.bats:
-# a future PR adding a new script under `tools/`, `lib/`, `actions/`,
-# `build/`, or `test/integration/` could ship without `set -f` and every
-# existing per-script test would still pass — the script-level argument-
-# globbing hole would slip through silently. This meta-test enumerates
-# the source tree and fails if a new script is added without disabling
-# globbing.
-#
-# The audit predicate matches the one used to derive #244's scope:
-# scripts that declare `set -euo pipefail` AND reference `$1`/`$2`/`$@`/
-# `$*` (or their `${...}` forms). Scripts that don't take positional
-# arguments — pure function libs sourced into other shells — are not
-# required to `set -f` because the option would leak into the caller's
-# shell (see lib/sanitize.sh for the canonical "no `set -euo pipefail`,
-# pure function lib" exemption).
+# Predicate: scripts that declare `set -euo pipefail` AND reference
+# `$1`/`$2`/`$@`/`$*` (or `${...}` forms). Pure function libs sourced
+# into other shells are excluded — they'd leak the option to callers.
 
 setup() {
     REPO_ROOT="$(cd "$(dirname "$BATS_TEST_FILENAME")/.." && pwd)"
 
-    # Explicit allowlist of scripts that intentionally do NOT `set -f`.
-    # Add a script here ONLY with a rationale in the comment justifying
-    # why argument globbing is impossible or already mitigated.
-    #
-    # Paths are relative to REPO_ROOT.
-    #
-    # TRANSITIONAL EXEMPTIONS — to be removed when PR #243
-    # (wrangle-shell-lint) lands. #243's WSL002 rule bulk-adds `set -f`
-    # to every shell script as part of an atomic rewrite (see also PR
-    # #271, which makes `set -f` the project-wide default). Listing the
-    # 12 currently-non-compliant scripts here lets this meta-test land
-    # ahead of #243 without blocking CI, while still catching brand-new
-    # scripts added in the interim. When #243 lands and removes the
-    # `set -f` gap, this array should be emptied in the same commit
-    # that removes the gap.
+    # Transitional exemptions: scripts pre-dating the project-wide
+    # `set -f` default. The shell-style linter's bulk update will add
+    # `set -f` to all of these in a single atomic change; this list
+    # must be emptied in that same commit. Until then it lets the
+    # meta-test land without blocking CI while still catching newly
+    # added scripts.
     EXEMPT_SCRIPTS=(
         "test.sh"
         "lib/download_verify.sh"
@@ -72,19 +51,14 @@ is_exempt() {
     while IFS= read -r f; do
         rel="${f#"$REPO_ROOT"/}"
 
-        # Predicate 1: script opts into strict mode. Pure function libs
-        # without `set -euo pipefail` (e.g., lib/sanitize.sh) are sourced
-        # into the caller's shell where `set -f` would leak; they are out
-        # of scope by construction.
+        # Strict-mode opt-in. Pure libs without it are sourced where
+        # `set -f` would leak to the caller — out of scope by construction.
         grep -q 'set -euo pipefail' "$f" || continue
 
-        # Predicate 2: script references positional arguments.
+        # References positional arguments.
         grep -qE '\$[12@*]|\$\{[12@*]' "$f" || continue
 
-        # Predicate 3: script disables globbing somewhere before use.
-        # Match either `set -f` at column 0 (the project convention from
-        # CLAUDE.md) or indented after `set -euo pipefail` — both are
-        # acceptable, the position-anchored form keeps the audit deterministic.
+        # Disables globbing (either column 0 or indented).
         if grep -qE '^[[:space:]]*set -f([[:space:]]|$)' "$f"; then
             continue
         fi
@@ -103,10 +77,10 @@ is_exempt() {
         printf '  - %s\n' "${missing[@]}" >&2
         printf '\n' >&2
         printf 'Add `set -f` immediately after `set -euo pipefail` (see\n' >&2
-        printf 'CLAUDE.md "Shell Script Safety" and issue #244). If the\n' >&2
-        printf 'script genuinely cannot disable globbing, add the path to\n' >&2
-        printf 'EXEMPT_SCRIPTS in %s with a written rationale.\n' \
+        printf 'CLAUDE.md "Shell scripts"). If the script genuinely cannot\n' >&2
+        printf 'disable globbing, add the path to EXEMPT_SCRIPTS in %s\n' \
             "$BATS_TEST_FILENAME" >&2
+        printf 'with a written rationale.\n' >&2
         return 1
     fi
 }
