@@ -3,17 +3,18 @@ set -euo pipefail
 set -f
 
 # Run all tests in a container — no local tool installation required.
-# Usage: ./test.sh [all|ci|quick|test|bats|lint|shellcheck|zizmor]
+# Usage: ./test.sh [all|ci|quick|test|bats|lint|shellcheck|shellstyle|zizmor]
 #
-# Builds a test container with actionlint, shellcheck, bats-core, and
-# zizmor, then runs the specified test suite (default: all).
+# Builds a test container with actionlint, shellcheck, ast-grep, bats-core,
+# and zizmor, then runs the specified test suite (default: all).
 #
 # Targets:
-#   `all`|`test`|`ci`     Full suite: lint + shellcheck + bats + zizmor (default)
-#   `quick`               Inner-loop iteration: lint + shellcheck + bats (skip zizmor)
+#   `all`|`test`|`ci`     Full suite: lint + shellcheck + shellstyle + bats + zizmor (default)
+#   `quick`               Inner-loop iteration: skip zizmor for fast feedback
 #   `bats`                Bats tests only
 #   `lint`                actionlint only
 #   `shellcheck`          ShellCheck against all *.sh
+#   `shellstyle`          wrangle-shell-lint (ast-grep WSL rules)
 #   `zizmor`              Zizmor workflow security linter only
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -23,8 +24,8 @@ TEST_TARGET="${1:-all}"
 # Validate test target. `ci` is an alias for `all` so CI configs and humans
 # can use the same name. `quick` runs the inner-loop subset (no zizmor).
 case "$TEST_TARGET" in
-    all|test|ci|quick|bats|lint|shellcheck|zizmor) ;;
-    *) echo "Usage: $0 [all|ci|quick|test|bats|lint|shellcheck|zizmor]" >&2; exit 1 ;;
+    all|test|ci|quick|bats|lint|shellcheck|shellstyle|zizmor) ;;
+    *) printf 'Usage: %s [all|ci|quick|test|bats|lint|shellcheck|shellstyle|zizmor]\n' "$0" >&2; exit 1 ;;
 esac
 
 # Check Docker is available
@@ -42,12 +43,12 @@ docker build -t "$IMAGE_NAME" -f "$SCRIPT_DIR/test/Dockerfile" "$SCRIPT_DIR"
 # leaning on word-splitting (and the SC2086 disable that used to require).
 case "$TEST_TARGET" in
     ci)    MAKE_TARGETS=(all) ;;
-    quick) MAKE_TARGETS=(lint shellcheck bats) ;;
+    quick) MAKE_TARGETS=(lint shellcheck shellstyle bats) ;;
     *)     MAKE_TARGETS=("$TEST_TARGET") ;;
 esac
 
 # Run the requested test suite
-echo "=== Running: $TEST_TARGET ==="
+printf '=== Running: %s ===\n' "$TEST_TARGET"
 
 docker run --rm \
     -v "$SCRIPT_DIR":/wrangle:ro \

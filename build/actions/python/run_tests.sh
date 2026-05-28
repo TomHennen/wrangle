@@ -20,6 +20,7 @@
 #   use_uv:  "true" for `uv run pytest`, anything else for `python -m pytest`
 
 set -euo pipefail
+set -f
 
 # Pure function: returns 0 (run pytest) if the project has a `tests/` or
 # `test/` directory, or a `[tool.pytest` config section in pyproject.toml.
