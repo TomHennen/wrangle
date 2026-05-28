@@ -120,9 +120,7 @@ runs:
       env:
         ACTION_PATH: ${{ github.action_path }}
         INPUT_PATH: ${{ inputs.path }}
-      run: |
-        set -euo pipefail
-        "$ACTION_PATH/check_semver_tags.sh" "$INPUT_PATH"
+      run: '"$ACTION_PATH/check_semver_tags.sh" "$INPUT_PATH"'
 
     # goreleaser-action is a `uses:` step; can't be wrapped inline
     # by stop_commands_guard.sh `run` mode. Use the begin/end form:

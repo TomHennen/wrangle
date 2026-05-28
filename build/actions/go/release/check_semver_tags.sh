@@ -1,4 +1,4 @@
-#!/usr/bin/env bash
+#!/bin/bash
 # Warn when no semver tag is reachable from HEAD.
 #
 # Goreleaser derives .Version from the nearest tag matching v[0-9]*.
@@ -34,7 +34,7 @@ input_path="${1:-.}"
 # "cmd/foo". Cosmetic; tag discovery is repo-wide regardless.
 display_path="${input_path%/}"
 display_path="${display_path#./}"
-[[ -z "$display_path" ]] && display_path="."
+if [[ -z "$display_path" ]]; then display_path="."; fi
 
 semver_tag=$(git describe --tags --match "v[0-9]*" --abbrev=0 2>/dev/null || true)
 if [[ -n "$semver_tag" ]]; then

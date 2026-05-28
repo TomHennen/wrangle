@@ -1069,7 +1069,7 @@ func TestFails(t *testing.T) {
 init_repo() {
     local dir="$1"
     mkdir -p "$dir"
-    git -C "$dir" init -q -b main
+    git -C "$dir" init -q
     git -C "$dir" config user.email "test@example.com"
     git -C "$dir" config user.name "Test"
     # An empty initial commit lets us tag without staging any files.
