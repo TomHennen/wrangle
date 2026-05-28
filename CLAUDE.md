@@ -9,6 +9,7 @@ Read `docs/SPEC.md` before contributing. It is the source of truth for architect
 1. **Mechanical enforcement beats prose.** If a rule can be enforced by a lint, test, or CI check, do that — don't put it here. CLAUDE.md describes only what can't (yet) be mechanically caught.
 2. **Prefer language parsers over grep for code analysis.** AST tools (ast-grep, shellcheck, mvdan/sh, semgrep) beat regex/awk for any code-rule enforcer.
 3. **One sentence per rule.** Why → linked issue or commit message. What → here.
+4. **Read upstream docs before integrating a tool.** Custom code (install.sh, CLI shims, verification logic) is the fallback path, not the default — you can't pick canonical package managers, attestation tiers, or built-in CLI options without looking.
 
 ## Code review checklist
 
@@ -29,12 +30,12 @@ Every shell script MUST start with `set -euo pipefail` and `set -f` (disable glo
 
 All variable expansions MUST be double-quoted. All scripts MUST pass `shellcheck` — no `# shellcheck disable` without a justifying comment. Use `$(command)` not backticks. Use `[[ ]]` not `[ ]` for conditionals. Use `printf` not `echo` for output that may contain user data.
 
-These rules are mechanically enforced by `tools/wrangle-shell-lint/` (WSL001–005). WSL006 (`curl | sh` ban) follows in #273.
+These rules are mechanically enforced by `tools/wrangle-shell-lint/` (WSL001–005). A `curl | sh` ban (WSL006) is a planned follow-up.
 
 ## GitHub Actions
 
-- **Inline shell ≤ ~5 lines.** Longer or anything with logic → extract to a script. Enforcement follow-up: #273.
-- **No expression injection.** NEVER interpolate `${{ inputs.* }}`, `${{ github.event.* }}`, or any attacker-controllable expression directly in a `run:` block — always thread through `env:` first. Enforcement follow-up: #273.
+- **Inline shell ≤ ~5 lines.** Longer or anything with logic → extract to a script. Mechanical enforcement is a planned follow-up.
+- **No expression injection.** NEVER interpolate `${{ inputs.* }}`, `${{ github.event.* }}`, or any attacker-controllable expression directly in a `run:` block — always thread through `env:` first. Mechanical enforcement is a planned follow-up.
 
 ## Action reference pinning
 
@@ -46,13 +47,17 @@ These rules are mechanically enforced by `tools/wrangle-shell-lint/` (WSL001–0
 | Wrangle internal cross-references in reusable workflows | Full SHA (temporary — see #136) |
 | Wrangle internal cross-references elsewhere | Relative path: `./actions/scan` |
 
-`@main` MUST NOT appear in any `uses:` line, including examples and docs. Dependabot manages third-party action updates; tool binary versions are manual (see audit #277). When composite actions change, update the SHA in any reusable-workflow self-references in the same commit.
+`@main` MUST NOT appear in any `uses:` line, including examples and docs. Dependabot manages third-party action updates; tool binary versions are manual. When composite actions change, update the SHA in any reusable-workflow self-references in the same commit.
 
 ## Install method and verification (see SPEC.md §Install Script Interface for the full contract)
 
 **Integrity verification hierarchy:** SLSA provenance > Sigstore signature > GitHub release attestation > hardcoded SHA-256 checksum. NEVER fall back to a weaker method if a stronger one fails.
 
-**Install method hierarchy:** canonical package manager (with adequate verification) > GitHub release binary + attestation > GitHub release binary + sha256. When upstream offers multiple package managers, prefer in order: (1) the one upstream's install docs recommend first, (2) the one with attestation support, (3) the one that doesn't add transitive runtime deps to the test image. Don't write a custom `install.sh` if upstream supports a canonical package manager (pip / cargo / npm / go install) with adequate verification — that's the fallback, not the default.
+**Install method hierarchy:** canonical package manager (with adequate verification) > GitHub release binary + attestation > GitHub release binary + sha256. When upstream offers multiple package managers, prefer in order: (1) the one upstream's install docs recommend first, (2) the one with attestation support, (3) the one that doesn't add transitive runtime deps to the test image. If upstream is on pipx/cargo/npm/go-install and the test image already has that runtime, use it. Don't write a custom `install.sh` if upstream supports a canonical package manager with adequate verification — that's the fallback, not the default.
+
+**Convenience is not a fallback justification.** "We'd have to install one more tool in the image" or "the attestation flow is awkward at build time" are NOT reasons to drop to a weaker tier. The fallback rule is "stronger verification is genuinely unavailable upstream" — document *why* the stronger tier doesn't exist, not why it'd be inconvenient.
+
+**Drift between two pins.** If a version, checksum, or SHA lives in two files (e.g., a tool pinned in both `test/Dockerfile` and `tools/<name>/action.yml`), either consolidate to a single source or add a regression test that diffs the two locations and fails on divergence.
 
 All downloads go through `lib/download_verify.sh`. Install to `$WRANGLE_BIN_DIR`, never `/usr/local/bin`. Be idempotent. Use atomic `mv` (not `cp`).
 
@@ -62,7 +67,7 @@ Adapters take `<src_dir>` (read-only) and `<output_dir>` (writable), write `outp
 
 ## Per-tool directory layout
 
-Each tool lives in `tools/<name>/`. Two patterns: **adapter** (`install.sh` + `adapter.sh` + `test.bats`) for standalone binaries; **action** (`action.yml` + `test.bats`) for tools with official GitHub Actions. Copy an existing tool dir and adapt; wire into `actions/scan/action.yml`.
+Tools live in `tools/<name>/`. Three patterns: **adapter** (`install.sh` + `adapter.sh` + `test.bats`, wired into `actions/scan/action.yml`) for scan tools; **action** (`action.yml` + `test.bats`) for tools with official GitHub Actions; **developer tooling** (whatever the tool needs + `test.bats`) for things used only during development, not by adopters (e.g., `bump_action_pins`, `wrangle-shell-lint`).
 
 ## Path resolution
 
@@ -100,3 +105,4 @@ Adapters do NOT receive secrets (env stripped by the orchestrator). If a tool ne
 - All PRs must pass CI (`make test` via GitHub Actions); shellcheck cleanly; actionlint cleanly.
 - Spec changes (`docs/SPEC.md`) require discussion — open an issue first.
 - Update `AGENTS.md` if the adoption interface changes.
+- For personal-environment preferences that shouldn't be checked in (your local test command, your shell, your editor's quirks), use `CLAUDE.local.md` — it's git-ignored.
