@@ -56,8 +56,12 @@ inputs:
       happily resolve those, so the enforcement is wrangle-side. See
       CLAUDE.md "Supply Chain Discipline." sum.golang.org's Trillian-
       backed Merkle log provides install-time integrity.
+
+      Empty (default) resolves to wrangle's vetted pin via the
+      `Resolve govulncheck version` step below — the pin literal lives
+      there exactly once.
     required: false
-    default: "v1.1.4"
+    default: ""
 
 outputs:
   shortname:
@@ -70,17 +74,27 @@ outputs:
 runs:
   using: "composite"
   steps:
+    # Single coalesce site: the wrangle govulncheck pin literal lives
+    # here and only here. Downstream steps reference steps.govuln.outputs.version
+    # so a pin bump is a one-line edit. Both the composite's input
+    # `default: ""` and the reusable workflow's `default: ""` deliberately
+    # delegate to this step — passing "" explicitly through `with:` would
+    # otherwise shadow any other `default:` on the chain.
+    - name: Resolve govulncheck version
+      id: govuln
+      shell: bash
+      env:
+        INPUT_GOVULN_VERSION: ${{ inputs.govulncheck-version || 'v1.1.4' }}
+      run: |
+        set -euo pipefail
+        printf 'version=%s\n' "$INPUT_GOVULN_VERSION" >> "$GITHUB_OUTPUT"
+
     - name: Validate inputs
       shell: bash
       env:
         INPUT_PATH: ${{ inputs.path }}
         INPUT_CACHE: ${{ inputs.cache }}
-        # Coalesce the same way the "Run quality checks" step does
-        # below — the reusable workflow's `default: ""` shadows this
-        # composite's `default:` whenever the caller passes "" through,
-        # so the wrangle pin lives at the env boundary. The two literals
-        # MUST stay in sync (both move when wrangle bumps).
-        INPUT_GOVULN_VERSION: ${{ inputs.govulncheck-version || 'v1.1.4' }}
+        INPUT_GOVULN_VERSION: ${{ steps.govuln.outputs.version }}
       run: |
         set -euo pipefail
         "${{ github.action_path }}/validate_inputs.sh" "$INPUT_PATH" "$INPUT_CACHE" "$INPUT_GOVULN_VERSION"
@@ -112,15 +126,7 @@ runs:
       env:
         INPUT_PATH: ${{ inputs.path }}
         METADATA_DIR: ${{ steps.metadata.outputs.metadata-dir }}
-        # Explicit fallback: when the reusable workflow exposes
-        # `govulncheck-version` and an adopter omits it, GHA passes ""
-        # through to this composite (the reusable workflow's input
-        # `default: ""` overrides this composite's `default:` because
-        # the input IS provided, just empty). Coalesce to the wrangle
-        # pin so adopter-omitted == wrangle's vetted version. Keep the
-        # literal in sync with the `default:` value above (both lines
-        # move together when wrangle bumps the pin).
-        GOVULN_VERSION: ${{ inputs.govulncheck-version || 'v1.1.4' }}
+        GOVULN_VERSION: ${{ steps.govuln.outputs.version }}
         RUN_RACE: ${{ inputs.run-race-detector }}
         RUN_GOFMT: ${{ inputs.run-gofmt-check }}
       run: |

@@ -447,10 +447,10 @@ func main() {}
 }
 
 @test "go.checks: validate_inputs.sh rejects empty govulncheck version" {
-    # The composite's env wiring `${{ inputs.govulncheck-version || 'v1.1.4' }}`
-    # coalesces empty to the pin before this script runs, so empty
-    # only reaches validate_inputs.sh on direct invocation. Reject it
-    # explicitly so the env coalesce remains the only default site.
+    # The composite's `Resolve govulncheck version` step coalesces empty
+    # to the pin before this script runs, so empty only reaches
+    # validate_inputs.sh on direct invocation. Reject it explicitly so
+    # the resolve step remains the only default site.
     local proj="$BATS_TEST_TMPDIR/proj"
     write_gomod "$proj"
     cd "$BATS_TEST_TMPDIR"
@@ -825,64 +825,62 @@ func main() {}
     grep -qE 'govulncheck-version:[[:space:]]+\$\{\{[[:space:]]*inputs\.govulncheck-version' <<<"$section"
 }
 
-@test "go.checks: composite coalesces empty govulncheck-version to the pinned default" {
-    # The reusable workflow's `default: ""` overrides this composite's
-    # own `default: v1.1.4` whenever the adopter omits the input (the
-    # input IS provided to the composite, just empty). The fallback
-    # at the env wiring is what restores the wrangle pin in that case.
-    # Without it, run_checks.sh would receive an empty GOVULN_VERSION
-    # and try to `go install ...@""`.
-    run grep -E "GOVULN_VERSION:[[:space:]]+\\\$\\{\\{[[:space:]]+inputs\\.govulncheck-version[[:space:]]+\\|\\|[[:space:]]+'v[0-9]+\\.[0-9]+\\.[0-9]+'" "$CHECKS_ACTION"
+@test "go.checks: composite resolves govulncheck-version in a single coalesce step" {
+    # The wrangle pin lives in exactly ONE place: the Resolve step's
+    # env coalesce `INPUT_GOVULN_VERSION: ${{ inputs.govulncheck-version || 'vX.Y.Z' }}`.
+    # Downstream steps read steps.govuln.outputs.version instead of
+    # re-coalescing. A pin bump is a one-line edit — no drift surface.
+    #
+    # Three structural assertions enforce that contract:
+    #   1. There is exactly ONE `|| 'vX.Y.Z'` coalesce on
+    #      `inputs.govulncheck-version` in the whole file.
+    #   2. The composite input's own `default:` is `""` (deliberately
+    #      empty so the reusable workflow's pass-through `""` doesn't
+    #      shadow it; the Resolve step is the single default site).
+    #   3. Both consuming steps (Validate inputs, Run quality checks)
+    #      reference `steps.govuln.outputs.version`, not a re-coalesce.
+    mapfile -t coalesces < <(
+        grep -oE "\\\$\\{\\{[[:space:]]*inputs\\.govulncheck-version[[:space:]]*\\|\\|[[:space:]]*'[^']+'" "$CHECKS_ACTION"
+    )
+    [[ "${#coalesces[@]}" -eq 1 ]]
+
+    # Pin literal must look like a semver tag.
+    pin="$(printf '%s\n' "${coalesces[0]}" | sed -E "s/.*'([^']+)'.*/\\1/")"
+    [[ "$pin" =~ ^v[0-9]+\.[0-9]+\.[0-9]+ ]]
+
+    # Composite input `default:` must be empty — the single coalesce
+    # site is the Resolve step, not the input default. Prefer a YAML
+    # parser when available (yq) so the assertion survives input-block
+    # reordering or whitespace changes; fall back to awk for hosts
+    # that don't ship yq (the wrangle test image doesn't currently).
+    if command -v yq >/dev/null 2>&1; then
+        default_value="$(yq -r '.inputs."govulncheck-version".default' "$CHECKS_ACTION")"
+    else
+        default_value="$(awk '
+            /^  govulncheck-version:/ { in_block = 1; next }
+            in_block && /^    default:/ {
+                match($0, /"[^"]*"/)
+                print substr($0, RSTART+1, RLENGTH-2)
+                exit
+            }
+        ' "$CHECKS_ACTION")"
+    fi
+    [[ "$default_value" == "" ]]
+
+    # Both consumer steps reference the resolved output, not a fresh coalesce.
+    run grep -E "INPUT_GOVULN_VERSION:[[:space:]]+\\\$\\{\\{[[:space:]]*steps\\.govuln\\.outputs\\.version[[:space:]]*\\}\\}" "$CHECKS_ACTION"
+    [[ "$status" -eq 0 ]]
+    run grep -E "GOVULN_VERSION:[[:space:]]+\\\$\\{\\{[[:space:]]*steps\\.govuln\\.outputs\\.version[[:space:]]*\\}\\}" "$CHECKS_ACTION"
     [[ "$status" -eq 0 ]]
 }
 
 @test "go.checks: composite passes govulncheck-version into validate_inputs.sh (fail fast)" {
-    # The validate step MUST coalesce empty AND pass the resulting
-    # version to validate_inputs.sh as the 3rd positional arg, so an
-    # invalid version like `latest` is rejected BEFORE setup-go and
-    # the whole checks job runs. Same `||` fallback as the run step.
-    run grep -E "INPUT_GOVULN_VERSION:[[:space:]]+\\\$\\{\\{[[:space:]]+inputs\\.govulncheck-version[[:space:]]+\\|\\|[[:space:]]+'v[0-9]+\\.[0-9]+\\.[0-9]+'" "$CHECKS_ACTION"
-    [[ "$status" -eq 0 ]]
-    # The validate_inputs.sh invocation must pass the env var as the
-    # 3rd arg (after INPUT_PATH and INPUT_CACHE).
+    # The Validate step MUST pass the resolved version to
+    # validate_inputs.sh as the 3rd positional arg, so an invalid
+    # version like `latest` is rejected BEFORE setup-go and the whole
+    # checks job runs.
     run grep -E 'validate_inputs\.sh".*"\$INPUT_PATH".*"\$INPUT_CACHE".*"\$INPUT_GOVULN_VERSION"' "$CHECKS_ACTION"
     [[ "$status" -eq 0 ]]
-}
-
-@test "go.checks: composite's three govulncheck pin literals stay in sync" {
-    # The wrangle pin appears three times in checks/action.yml:
-    #   1. the composite's own `default:` on the govulncheck-version input
-    #   2. the validate-step env coalesce `INPUT_GOVULN_VERSION: ${{ ... || 'vX.Y.Z' }}`
-    #   3. the run-checks-step env coalesce `GOVULN_VERSION: ${{ ... || 'vX.Y.Z' }}`
-    # All three MUST move together when wrangle bumps the pin — a stale
-    # default at any one site silently drifts adopter behavior. This
-    # test fails on divergence so the next bumper sees it before merge.
-    #
-    # The coalesce match is scoped to the `(INPUT_)?GOVULN_VERSION:` env
-    # names that ARE the load-bearing wires — not any `|| 'vN.N.N'` in
-    # the file — so adding an unrelated version fallback elsewhere in
-    # checks/action.yml (a different tool, a go-version default, etc.)
-    # won't silently shift this assertion onto the wrong literals.
-    local default_pin
-    default_pin="$(awk '
-        /^  govulncheck-version:/ { in_block = 1; next }
-        in_block && /^    default:/ {
-            match($0, /"[^"]+"/)
-            print substr($0, RSTART+1, RLENGTH-2)
-            exit
-        }
-    ' "$CHECKS_ACTION")"
-    [[ -n "$default_pin" ]]
-    # Both env coalesces use the form:
-    #   (INPUT_)?GOVULN_VERSION: ${{ inputs.govulncheck-version || 'vX.Y.Z' }}
-    mapfile -t coalesce_pins < <(
-        grep -oE "(INPUT_)?GOVULN_VERSION:[[:space:]]+\\\$\\{\\{[[:space:]]*inputs\\.govulncheck-version[[:space:]]*\\|\\|[[:space:]]*'[^']+'" "$CHECKS_ACTION" \
-            | sed -E "s/.*'([^']+)'.*/\\1/"
-    )
-    # Expect exactly 2 env coalesces (validate-step + run-step).
-    [[ "${#coalesce_pins[@]}" -eq 2 ]]
-    [[ "${coalesce_pins[0]}" == "$default_pin" ]]
-    [[ "${coalesce_pins[1]}" == "$default_pin" ]]
 }
 
 @test "go: workflow exports hashes, provenance, metadata, checks-metadata artifact names" {

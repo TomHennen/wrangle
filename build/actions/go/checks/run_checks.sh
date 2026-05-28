@@ -37,7 +37,7 @@
 #   metadata_dir:         workspace-relative dir for govulncheck.json
 #                         (e.g., metadata/go/_/). MUST exist; caller
 #                         creates it.
-#   govulncheck_version:  pinned semver (e.g., v1.1.4). Wrangle never
+#   govulncheck_version:  pinned semver (e.g., vX.Y.Z). Wrangle never
 #                         takes `latest`/`main` — see CLAUDE.md
 #                         "Supply Chain Discipline."
 #   run_race:             "true" → `go test -race`; anything else →

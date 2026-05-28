@@ -1,6 +1,6 @@
-# Wrangle Go Build Type — Phase 1 Research
+# Wrangle Go Build Type
 
-**Status:** Phase 1 ecosystem research per [`docs/HOW_TO_ADD_A_BUILD_TYPE.md`](../../../docs/HOW_TO_ADD_A_BUILD_TYPE.md). Recommends defaults for the `build/actions/go/` implementation that shipped in #238. The v0.1 implementation is live; the picks below remain the authoritative rationale. See "Inputs" below for the adopter-facing contract; the full input/output table will be backfilled here from `build_and_publish_go.yml` as v0.2 work lands.
+**Status:** v0.1 live (`build/actions/go/` shipped in #238). This SPEC is the authoritative contract for the build type — adopter-facing inputs, validation rules, and the design rationale behind each pick. The full input/output table will be backfilled from `build_and_publish_go.yml` as v0.2 work lands.
 
 ## Overview
 
@@ -37,7 +37,7 @@ The contract:
 - **Pinned semver only.** `validate_inputs.sh` matches the input against `^v[0-9]+\.[0-9]+\.[0-9]+(-[A-Za-z0-9.-]+)?(\+[A-Za-z0-9.-]+)?$` and rejects `@latest`, `@main`, branch names, and any other floating ref. `go install` would happily resolve those, so the enforcement is wrangle-side — supply-chain discipline per [`CLAUDE.md`](../../../CLAUDE.md).
 - **Fail-fast.** Validation runs before `setup-go`, so an invalid version aborts the checks job before any tool downloads.
 - **No GHA expression injection.** The validated value flows through `with:` and `env:` into the composite, never directly into a `run:` block.
-- **Pin lives at the env coalesce.** The wrangle default appears three times in `build/actions/go/checks/action.yml` (composite input `default:`, validate-step env coalesce, run-step env coalesce). The pin-sync test in `build/actions/go/test.bats` enforces that all three stay aligned; the reusable workflow's `default: ""` deliberately delegates the pin to the composite so the override path and the default path converge on the same code.
+- **Pin lives in a single Resolve step.** `build/actions/go/checks/action.yml` has one `Resolve govulncheck version` step that coalesces `${{ inputs.govulncheck-version || 'vX.Y.Z' }}` into a step output; both the Validate-inputs step and the Run-quality-checks step read `steps.govuln.outputs.version`. A pin bump is a one-line edit. The composite input's `default:` is `""` (deliberately empty) so the reusable workflow's pass-through `""` doesn't shadow the Resolve step. The structural test in `build/actions/go/test.bats` fails if the pin literal grows back to more than one site.
 
 The wrangle pin bumps are coordinated; the override is meant for the gap, not for long-lived divergence.
 
