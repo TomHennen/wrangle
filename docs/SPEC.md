@@ -465,8 +465,9 @@ INTEGRITY VERIFICATION (mandatory):
     and `GOPROXY`/`GOSUMDB` not disabled — are all met.
 
     The tlog provides transparency-log immutability ("first-seen go.sum
-    line for this (module, version) is what every consumer sees"), NOT
-    publisher authentication. A compromised upstream maintainer's
+    line for this (module, version) is what every consumer that consults
+    sum.golang.org sees" — consumers with `GOSUMDB=off` see whatever
+    their proxy serves), NOT publisher authentication. A compromised upstream maintainer's
     malicious release would still install and be recorded; detection is
     after-the-fact, via auditing. The no-fallback rule still applies: if
     `go install` aborts due to a go.sum mismatch, the install MUST fail

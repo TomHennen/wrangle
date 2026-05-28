@@ -158,6 +158,13 @@ install_govulncheck() {
     # than silently install with degraded integrity. Detection runs in
     # the parent shell (before the subshell prefix below) so the unset
     # values from the subshell don't mask a hostile parent setting.
+    # Detect+abort rather than `env -u`-unsetting: operator misconfig
+    # surfaces loudly instead of being silently papered over.
+    # _bypass_var is loop-controlled — the values are the hardcoded
+    # literals on the `for` line, never external input. The indirect
+    # expansion `${!_bypass_var:-}` is safe here for that reason; do
+    # NOT extend this loop to iterate over a caller-supplied list
+    # without re-validating, or the indirection becomes injection-prone.
     local _bypass_var
     for _bypass_var in GOPRIVATE GONOSUMDB GOINSECURE; do
         if [[ -n "${!_bypass_var:-}" ]]; then

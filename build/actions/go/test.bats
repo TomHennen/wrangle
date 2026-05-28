@@ -944,6 +944,16 @@ EOF
 # exits 0 on `go install`, deferring to the real `go` for `go env`
 # (install_govulncheck calls `go env GOBIN`/`go env GOPATH` before the
 # install). Sets up PATH so the shim wins.
+#
+# Two-stage expansion in the heredoc below: unescaped `$capture` and
+# `$real_go` are expanded NOW (at heredoc build time) so the shim
+# file gets baked-in absolute paths from this test process; the
+# escaped `\$1`, `\$@`, `\${GOPROXY:-UNSET}` etc. survive into the
+# written script and are expanded LATER, when the shim itself runs
+# under the install_govulncheck call. The heredoc uses an unquoted
+# `SH` delimiter for exactly this reason — a quoted `'SH'` would
+# disable the build-time expansion and leave `$capture`/`$real_go`
+# as literal strings in the shim, which would fail at runtime.
 _setup_go_shim() {
     local shim_dir="$BATS_TEST_TMPDIR/shim"
     local capture="$BATS_TEST_TMPDIR/captured_env"
