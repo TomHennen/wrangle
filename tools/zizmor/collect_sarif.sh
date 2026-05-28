@@ -117,3 +117,9 @@ else
         "runs": [{"tool": {"driver": {"name": "zizmor"}}, "results": []}]
     }' > "$SARIF_DST"
 fi
+
+# Explicit exit 0: this script's role is to drop the marker and a SARIF
+# file for the downstream gate (check_results.sh) to consume. Whether
+# the upstream tool errored or found issues is communicated via those
+# artifacts, not our exit code, so we always succeed.
+exit 0

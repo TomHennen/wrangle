@@ -90,6 +90,9 @@ runs:
     - name: Mark dependency-review tool error
       if: always() && steps.depreview.outcome == 'failure'
       shell: bash
+      # VULNERABLE_CHANGES is upstream JSON output (attacker-influenceable via
+      # PR contents); it must reach a parser, never a shell. mark_error.sh
+      # only pipes it into jq — preserve that invariant in future edits.
       env:
         TOOL_DIR: ${{ github.action_path }}
         METADATA_DIR: ${{ github.workspace }}/.wrangle/metadata/dependency-review
