@@ -305,7 +305,7 @@ func main() {}
     write_gomod "$proj"
     write_goreleaser "$proj"
     cd "$BATS_TEST_TMPDIR"
-    run "$RELEASE_DIR/validate_inputs.sh" "proj" "enabled" "false"
+    run "$RELEASE_DIR/validate_inputs.sh" "proj" "enabled" "false" "false"
     [[ "$status" -eq 0 ]]
 }
 
@@ -314,7 +314,7 @@ func main() {}
     write_gomod "$proj"
     printf 'version: 2\n' > "$proj/.goreleaser.yaml"
     cd "$BATS_TEST_TMPDIR"
-    run "$RELEASE_DIR/validate_inputs.sh" "proj" "enabled" "false"
+    run "$RELEASE_DIR/validate_inputs.sh" "proj" "enabled" "false" "false"
     [[ "$status" -eq 0 ]]
 }
 
@@ -322,10 +322,29 @@ func main() {}
     local proj="$BATS_TEST_TMPDIR/proj"
     write_gomod "$proj"
     cd "$BATS_TEST_TMPDIR"
-    run "$RELEASE_DIR/validate_inputs.sh" "proj" "enabled" "false"
+    run "$RELEASE_DIR/validate_inputs.sh" "proj" "enabled" "false" "false"
     [[ "$status" -ne 0 ]]
     [[ "$output" == *"no .goreleaser.yml"* ]]
     [[ "$output" == *"build_go.goreleaser.yml"* ]]
+}
+
+@test "go.release: validate_inputs.sh rejects invalid install-zig value" {
+    local proj="$BATS_TEST_TMPDIR/proj"
+    write_gomod "$proj"
+    write_goreleaser "$proj"
+    cd "$BATS_TEST_TMPDIR"
+    run "$RELEASE_DIR/validate_inputs.sh" "proj" "enabled" "false" "garbage"
+    [[ "$status" -ne 0 ]]
+    [[ "$output" == *"install-zig input must be one of true|false"* ]]
+}
+
+@test "go.release: validate_inputs.sh accepts install-zig=true" {
+    local proj="$BATS_TEST_TMPDIR/proj"
+    write_gomod "$proj"
+    write_goreleaser "$proj"
+    cd "$BATS_TEST_TMPDIR"
+    run "$RELEASE_DIR/validate_inputs.sh" "proj" "enabled" "false" "true"
+    [[ "$status" -eq 0 ]]
 }
 
 @test "go.checks: validate_inputs.sh rejects absolute path" {
@@ -354,7 +373,7 @@ func main() {}
 }
 
 @test "go.release: validate_inputs.sh rejects path traversal" {
-    run "$RELEASE_DIR/validate_inputs.sh" "../escape" "enabled" "false"
+    run "$RELEASE_DIR/validate_inputs.sh" "../escape" "enabled" "false" "false"
     [[ "$status" -ne 0 ]]
     [[ "$output" == *"path traversal not allowed"* ]]
 }
@@ -545,8 +564,18 @@ func main() {}
     [[ "$status" -eq 0 ]]
 }
 
-@test "go.release: action installs syft via tools/syft (not curl | sh)" {
-    run grep -E 'curl[^|]*\| *sh|/usr/local/bin' "$RELEASE_ACTION"
+@test "go.release: action installs syft via tools/syft (not curl | sh, no install-to-/usr/local/bin)" {
+    # No curl-pipe-shell anywhere.
+    run grep -E 'curl[^|]*\| *sh' "$RELEASE_ACTION"
+    [[ "$status" -ne 0 ]]
+    # No INSTALL/COPY/MOVE writes to /usr/local/bin (per CLAUDE.md
+    # "install to $WRANGLE_BIN_DIR, never /usr/local/bin"). A
+    # `sudo ln -sf` symlink from $WRANGLE_BIN_DIR to /usr/local/bin
+    # is explicitly NOT a CLAUDE.md violation — the binary stays in
+    # $WRANGLE_BIN_DIR; the symlink is wiring for downstream PATH
+    # lookups (see the zig install step), and zig was already
+    # SHA-256 verified by tools/zig/install.sh.
+    run grep -E '(cp|install|mv|tar)[^|]*/usr/local/bin' "$RELEASE_ACTION"
     [[ "$status" -ne 0 ]]
     run grep 'tools/syft/install.sh' "$RELEASE_ACTION"
     [[ "$status" -eq 0 ]]
@@ -1181,5 +1210,140 @@ func TestFails(t *testing.T) {
     # JSON should be at metadata/go/_/govulncheck.json (without the
     # trailing slash collapsing the path one level up).
     [[ -f "$BATS_TEST_TMPDIR/metadata/go/_/govulncheck.json" ]]
+}
+
+# ====================================================================
+# cgo cross-compile escape hatch — install-zig input + grep warning
+# ====================================================================
+#
+# The release composite ships two things for cgo + cross-compile (#259):
+#   1. An `install-zig` input (default false) that, when true, brings up
+#      zig via mlugg/setup-zig so goreleaser's per-cell CC=zig cc ...
+#      templates resolve.
+#   2. A ~5-line grep that scans .goreleaser.yml for CGO_ENABLED=1 and,
+#      when install-zig is false, emits a ::warning:: naming the input.
+#
+# We deliberately avoid yq + jq parsing here — earlier drafts of this
+# PR went down that path and the complexity wasn't worth it. The
+# warning is opt-out via the input rather than opt-in via auto-detect,
+# so a coarse grep is fine.
+
+@test "go.release: install-zig input exists with default false" {
+    run grep -F 'install-zig:' "$RELEASE_ACTION"
+    [[ "$status" -eq 0 ]]
+    # The default must be the literal string 'false' so the if:
+    # comparison below behaves predictably.
+    run grep -E "default:\s*['\"]?false['\"]?" "$RELEASE_ACTION"
+    [[ "$status" -eq 0 ]]
+}
+
+@test "go.release: setup-zig step is gated on install-zig input" {
+    # If the gate ever silently becomes always-on, every Go release
+    # pays the zig install latency for no reason.
+    run grep -F "inputs.install-zig == 'true'" "$RELEASE_ACTION"
+    [[ "$status" -eq 0 ]]
+}
+
+@test "go.release: zig is installed via mlugg/setup-zig (SHA-pinned)" {
+    # mlugg/setup-zig verifies the zig tarball against ziglang.org's
+    # published minisign signature — stronger than the hardcoded
+    # SHA-256 our previous tools/zig/install.sh used. The action
+    # itself is SHA-pinned per CLAUDE.md third-party action rule.
+    run grep -E 'uses: mlugg/setup-zig@[a-f0-9]{40} #' "$RELEASE_ACTION"
+    [[ "$status" -eq 0 ]]
+}
+
+@test "go.release: cgo_warning.sh exists and is executable" {
+    [[ -x "$RELEASE_DIR/cgo_warning.sh" ]]
+}
+
+@test "go.release: cgo_warning.sh wired into release/action.yml" {
+    run grep -F 'cgo_warning.sh' "$RELEASE_ACTION"
+    [[ "$status" -eq 0 ]]
+}
+
+@test "go.release: cgo_warning step is suppressed when install-zig is true" {
+    # The warning only fires when adopters have CGO_ENABLED=1 *and*
+    # haven't opted into zig. If install-zig is true we're handling
+    # the toolchain — stay quiet.
+    run grep -F "inputs.install-zig != 'true'" "$RELEASE_ACTION"
+    [[ "$status" -eq 0 ]]
+}
+
+@test "go.release: cgo_warning.sh emits ::warning:: with install-zig hint on CGO_ENABLED=1" {
+    local proj="$BATS_TEST_TMPDIR/proj"
+    mkdir -p "$proj"
+    printf 'version: 2\nbuilds:\n  - env: [CGO_ENABLED=1]\n' > "$proj/.goreleaser.yml"
+    run "$RELEASE_DIR/cgo_warning.sh" "$proj"
+    [[ "$status" -eq 0 ]]
+    [[ "$output" == *"::warning"* ]]
+    [[ "$output" == *"install-zig"* ]]
+}
+
+@test "go.release: cgo_warning.sh stays silent on CGO_ENABLED=0" {
+    local proj="$BATS_TEST_TMPDIR/proj"
+    mkdir -p "$proj"
+    printf 'version: 2\nbuilds:\n  - env: [CGO_ENABLED=0]\n' > "$proj/.goreleaser.yml"
+    run "$RELEASE_DIR/cgo_warning.sh" "$proj"
+    [[ "$status" -eq 0 ]]
+    [[ "$output" != *"::warning"* ]]
+}
+
+@test "go.release: cgo_warning.sh stays silent when no .goreleaser.yml is present" {
+    local proj="$BATS_TEST_TMPDIR/proj"
+    mkdir -p "$proj"
+    run "$RELEASE_DIR/cgo_warning.sh" "$proj"
+    [[ "$status" -eq 0 ]]
+    [[ "$output" != *"::warning"* ]]
+}
+
+@test "go.release: cgo_warning.sh handles .goreleaser.yaml (alternate extension)" {
+    local proj="$BATS_TEST_TMPDIR/proj"
+    mkdir -p "$proj"
+    printf 'version: 2\nbuilds:\n  - env: [CGO_ENABLED=1]\n' > "$proj/.goreleaser.yaml"
+    run "$RELEASE_DIR/cgo_warning.sh" "$proj"
+    [[ "$status" -eq 0 ]]
+    [[ "$output" == *"::warning"* ]]
+}
+
+@test "go.release: cgo_warning.sh rejects wrong arg count" {
+    run "$RELEASE_DIR/cgo_warning.sh"
+    [[ "$status" -ne 0 ]]
+    [[ "$output" == *"Usage:"* ]]
+}
+
+@test "go.release: no leftover cgo_preflight.sh wiring" {
+    # Earlier revisions of this PR had a yq+jq preflight script.
+    # Tom asked us to drop it in favor of the input + grep above.
+    # This guard catches accidental reintroduction.
+    run grep -F 'cgo_preflight' "$RELEASE_ACTION"
+    [[ "$status" -ne 0 ]]
+    [[ ! -e "$RELEASE_DIR/cgo_preflight.sh" ]]
+}
+
+@test "go.release: no leftover tools/zig/install.sh" {
+    # We swapped the custom installer for mlugg/setup-zig (which
+    # verifies minisign — stronger than our hardcoded SHA-256).
+    [[ ! -e "$REPO_ROOT/tools/zig/install.sh" ]]
+    [[ ! -d "$REPO_ROOT/tools/zig" ]]
+}
+
+@test "go: cgo example .goreleaser.yml exists in gh_workflow_examples" {
+    [[ -f "$REPO_ROOT/gh_workflow_examples/build_go_cgo.goreleaser.yml" ]]
+}
+
+@test "go: cgo example uses CC=zig env templates" {
+    run grep -F 'CC=zig cc -target' "$REPO_ROOT/gh_workflow_examples/build_go_cgo.goreleaser.yml"
+    [[ "$status" -eq 0 ]]
+}
+
+@test "go: cgo example does NOT install zig in before.hooks (wrangle owns that)" {
+    # Adopters set install-zig: true on the reusable workflow; they
+    # don't need a curl + sha256 + sudo plumbing block in their
+    # .goreleaser.yml.
+    run grep -F 'sha256sum' "$REPO_ROOT/gh_workflow_examples/build_go_cgo.goreleaser.yml"
+    [[ "$status" -ne 0 ]]
+    run grep -F 'before:' "$REPO_ROOT/gh_workflow_examples/build_go_cgo.goreleaser.yml"
+    [[ "$status" -ne 0 ]]
 }
 

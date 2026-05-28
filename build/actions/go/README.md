@@ -60,6 +60,19 @@ Goreleaser derives `.Version` from the nearest git tag. If your repo has no semv
 
 See goreleaser's [snapshot docs](https://goreleaser.com/customization/snapshots/) and [template reference](https://goreleaser.com/customization/templates/).
 
+## Cross-compiling with cgo
+
+The reusable workflow runs on `ubuntu-latest`, which ships an amd64-only C toolchain. If your `.goreleaser.yml` sets `CGO_ENABLED=1` (explicitly or via a cgo dependency) **and** targets anything other than `linux/amd64`, the per-cell `go build` fails with opaque `# runtime/cgo` assembler errors like `gcc_arm64.S: Error: no such instruction: 'stp x29,x30,[sp,'`.
+
+| Situation | What to do |
+|---|---|
+| You don't actually use cgo (most projects) | Set `CGO_ENABLED=0` in `builds.env`. Go cross-compiles freely without cgo. |
+| You use cgo but only need linux/amd64 | Restrict `goos: [linux]` + `goarch: [amd64]`. The runner's native gcc handles it. |
+| You use cgo *and* need multi-arch / darwin binaries | Pass `install-zig: true` to the reusable workflow and set `CC=zig cc -target <triple>` (plus `CXX=zig c++ -target <triple>`) per cell in `builds.env`. Wrangle installs zig via [`mlugg/setup-zig`](https://github.com/mlugg/setup-zig) (minisign-verified against [ziglang.org's master key](https://ziglang.org/download/)). Working example: [`gh_workflow_examples/build_go_cgo.goreleaser.yml`](../../../gh_workflow_examples/build_go_cgo.goreleaser.yml). |
+| You use cgo + cross targets with another toolchain (musl-gcc, mingw, goreleaser-cross) | Install the toolchain yourself in `before.hooks` and set the corresponding `CC=` / `CXX=`. Leave `install-zig` unset. |
+
+If your `.goreleaser.yml` sets `CGO_ENABLED=1` but you haven't passed `install-zig: true`, the release composite emits a `::warning::` naming the failure mode so adopters don't burn time decoding `# runtime/cgo` errors.
+
 ## What the SLSA provenance covers (and what it doesn't)
 
 Wrangle hashes the contents of goreleaser's `dist/checksums.txt` and hands those hashes to the SLSA generator. Anything in `checksums.txt` is a provenance subject; anything outside it is NOT — including artifacts goreleaser pushes to OCI registries, Homebrew taps, or chat webhooks.

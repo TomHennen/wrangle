@@ -103,6 +103,7 @@ Always run `./test.sh` before pushing — CI runs the same checks. `./test.sh qu
 - **No auto-merge of dependency updates.** New upstream tool versions are adopted after a delay (aim for 7 days) to let the community discover supply chain attacks before wrangle amplifies them.
 - **No `curl | sh` anywhere.** All binary downloads go through `lib/download_verify.sh`.
 - **No downloading checksums from the same source as binaries.** When checksums are used, they are hardcoded; version + checksum updates are always a single atomic commit.
+- **Avoid linter / scanner suppressions; do it right.** If `shellcheck`, `actionlint`, `zizmor`, or a similar tool flags something, the default is to restructure the code so the finding goes away — not to add `# zizmor: ignore[...]` / `# shellcheck disable=...`. Suppressions are escape hatches for genuinely-false positives only, and carry a one-line justification.
 
 ## Dogfooding
 
