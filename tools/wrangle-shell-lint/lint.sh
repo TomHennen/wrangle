@@ -33,14 +33,14 @@ set -f
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 SGCONFIG="${SCRIPT_DIR}/sgconfig.yml"
 
-# Locate ast-grep on PATH. The test image installs ast-grep-cli via
-# pipx (see test/Dockerfile + requirements.txt), which lands a shim in
-# /usr/local/bin — i.e. on the default PATH. Local developers install
-# the same way (`pipx install ast-grep-cli==<pinned>`). Anything else
-# (brew, cargo) also ends up on PATH. CI hard-fails if it isn't there.
+# Locate ast-grep on PATH. The test image installs ast-grep-cli into a
+# managed venv via `pip install --require-hashes` (see test/Dockerfile +
+# requirements.txt) and symlinks the entrypoint into /usr/local/bin.
+# Local developers can use the same pattern, or any install (brew, cargo)
+# that lands on PATH. CI hard-fails if it isn't there.
 if ! command -v ast-grep >/dev/null 2>&1; then
     printf 'wrangle-shell-lint: ast-grep not found on PATH.\n' >&2
-    printf 'wrangle-shell-lint: install via pipx using the pinned version in tools/wrangle-shell-lint/requirements.txt\n' >&2
+    printf 'wrangle-shell-lint: install the pinned version in tools/wrangle-shell-lint/requirements.txt into a venv (see test/Dockerfile)\n' >&2
     exit 2
 fi
 ast_grep_bin="$(command -v ast-grep)"

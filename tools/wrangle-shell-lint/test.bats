@@ -12,7 +12,8 @@
 #
 # These tests exercise the wrapper end-to-end (which invokes ast-grep).
 # ast-grep must be on PATH — the test container's Dockerfile installs
-# it via pipx (see test/Dockerfile + tools/wrangle-shell-lint/requirements.txt).
+# it via pip --require-hashes into a venv (see test/Dockerfile +
+# tools/wrangle-shell-lint/requirements.txt).
 
 setup() {
     ORIG_DIR="$(pwd)"
@@ -20,12 +21,12 @@ setup() {
     FIXTURES="$ORIG_DIR/tools/wrangle-shell-lint/fixtures"
     export ORIG_DIR LINTER FIXTURES
 
-    # Skip every test if ast-grep is not installed. The CI image's
-    # Dockerfile is responsible for installing ast-grep up front via
-    # pipx; if a local dev hasn't done the same we skip rather than
-    # fail so `bats` against a fresh checkout still reports cleanly.
+    # Fail loud if ast-grep is missing. The linter is mandatory in CI
+    # and in the test image; a silent skip would let a broken image
+    # (or a local dev without the install) ship green.
     if ! command -v ast-grep >/dev/null 2>&1; then
-        skip "ast-grep not on PATH — install via pipx (see tools/wrangle-shell-lint/requirements.txt)"
+        printf 'ast-grep not on PATH — run via ./test.sh (Docker image installs it) or set up the venv from tools/wrangle-shell-lint/requirements.txt\n' >&2
+        return 1
     fi
 }
 
@@ -563,10 +564,10 @@ SCRIPT
 # --- Dockerfile / requirements.txt drift guard ------------------------------
 # The ast-grep-cli version lives in tools/wrangle-shell-lint/requirements.txt
 # (the pip-ecosystem source of truth) and is consumed by test/Dockerfile via
-# `pip download --require-hashes -r requirements.txt`. Because requirements.txt
-# IS the only pinned-version source, drift is impossible by construction:
-# bumping the version anywhere else has no effect on what the image installs.
-# No drift-guard test is needed here.
+# `pip install --require-hashes -r requirements.txt` into a venv. Because
+# requirements.txt IS the only pinned-version source, drift is impossible by
+# construction: bumping the version anywhere else has no effect on what the
+# image installs. No drift-guard test is needed here.
 
 # --- Dogfood self-check: linter must pass on the entire wrangle repo --------
 # Without this, a violation introduced in run.sh or lib/ only fails in

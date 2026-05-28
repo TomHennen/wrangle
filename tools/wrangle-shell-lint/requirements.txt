@@ -1,9 +1,9 @@
 # ast-grep-cli — backing CLI for wrangle-shell-lint (WSL001-005).
 #
-# Installed via pipx (see test/Dockerfile and CLAUDE.md "Install method").
-# Hashes pin the exact wheels for every platform pipx might select; the
-# install fails closed (`--require-hashes`) if upstream rotates or
-# re-uploads a wheel.
+# Installed via `pip install --require-hashes` into an isolated venv
+# (see test/Dockerfile and CLAUDE.md "Install method"). Hashes cover
+# every wheel pip might select on a supported platform plus the sdist
+# fallback; pip refuses any artifact whose sha256 isn't listed here.
 #
 # Dependabot manages version bumps (pip ecosystem watches this directory).
 # When you bump the version manually, run:

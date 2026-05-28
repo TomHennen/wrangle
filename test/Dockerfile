@@ -6,25 +6,19 @@ RUN apt-get update -q && \
         curl \
         git \
         jq \
-        pipx \
-        python3-pip \
         shellcheck \
         ca-certificates \
         make \
         gcc \
         libc6-dev \
+        python3 \
+        python3-venv \
     && rm -rf /var/lib/apt/lists/*
 
-# pipx + python3-pip are required to install ast-grep-cli for
-# tools/wrangle-shell-lint (see the pipx RUN block below). pipx itself
-# pulls in python3 as a transitive dep; python3-pip is requested
-# explicitly because we use `pip download --require-hashes` to stage a
-# hash-verified wheel before handing it to pipx.
+# python3 + python3-venv host the isolated venv that ast-grep-cli installs into.
 
-# gcc + libc6-dev are pulled in for `go test -race` (the race detector
-# requires cgo, which requires a C toolchain). Without them, Go's
-# layer-4 tests that exercise -race fail with cryptic linker errors.
-# This matches GHA's ubuntu-latest image, which has gcc by default.
+# gcc + libc6-dev are pulled in for `go test -race` (cgo needs a C
+# toolchain). Matches GHA's ubuntu-latest image.
 
 SHELL ["/bin/bash", "-c"]
 
@@ -82,27 +76,17 @@ RUN set -euo pipefail && \
     mkdir -p /opt/go && \
     go install "golang.org/x/vuln/cmd/govulncheck@${GOVULNCHECK_VERSION}"
 
-# Install ast-grep-cli via pipx with hash-locked verification. Hashes
-# live in tools/wrangle-shell-lint/requirements.txt so Dependabot's pip
-# ecosystem can bump them. pipx's own CLI requires a package spec
-# positional and `pip install --require-hashes <spec> -r req.txt` is
-# rejected (the bare positional has no hash), so we stage a verified
-# wheel first with `pip download --require-hashes` (which DOES fail
-# closed on any hash mismatch) and hand the resulting wheel to pipx.
-# PIPX_HOME / PIPX_BIN_DIR are pinned to /usr/local so the shim lands
-# on PATH for every user.
-ENV PIPX_HOME=/opt/pipx \
-    PIPX_BIN_DIR=/usr/local/bin
+# Install ast-grep-cli via pip into a managed venv, hash-pinned via
+# tools/wrangle-shell-lint/requirements.txt (Dependabot pip ecosystem;
+# see .github/dependabot.yml). `--require-hashes` makes pip refuse any
+# artifact whose sha256 isn't in the file, so version + hashes always
+# move together.
 COPY tools/wrangle-shell-lint/requirements.txt /tmp/ast-grep-requirements.txt
 RUN set -euo pipefail && \
-    mkdir -p /tmp/ast-grep-wheel && \
-    python3 -m pip download \
-        --require-hashes \
-        --requirement /tmp/ast-grep-requirements.txt \
-        --no-deps \
-        --dest /tmp/ast-grep-wheel && \
-    pipx install /tmp/ast-grep-wheel/ast_grep_cli-*.whl && \
-    rm -rf /tmp/ast-grep-wheel /tmp/ast-grep-requirements.txt && \
-    ast-grep --version
+    python3 -m venv /opt/ast-grep && \
+    /opt/ast-grep/bin/pip install --no-cache-dir \
+        --require-hashes -r /tmp/ast-grep-requirements.txt && \
+    ln -s /opt/ast-grep/bin/ast-grep /usr/local/bin/ast-grep && \
+    rm /tmp/ast-grep-requirements.txt
 
 WORKDIR /wrangle
