@@ -68,5 +68,5 @@ setup() {
     # If Dependabot loses sight of this directory, hash + version drift
     # against upstream and the wrangle action.yml default goes silent.
     grep -qE 'package-ecosystem: +"pip"' "$ORIG_DIR/.github/dependabot.yml"
-    grep -qE 'directory: +"/tools/zizmor"' "$ORIG_DIR/.github/dependabot.yml"
+    grep -qE '"/tools/(zizmor|\*\*)"' "$ORIG_DIR/.github/dependabot.yml"
 }

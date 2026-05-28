@@ -968,7 +968,7 @@ Layers:
 2. **shellcheck** — lints all shell scripts
 3. **bats-core** — unit tests for adapters, install scripts, orchestrator, and formatter
 4. **SARIF schema validation** — validates fixture/output SARIF against the 2.1.0 JSON schema
-5. **zizmor** — workflow security linter; installed via `pip --require-hashes` into a venv in `test/Dockerfile` from the hash-pinned `tools/zizmor/requirements.txt` (Dependabot pip ecosystem) and run against `.github/workflows/`, `actions/`, `tools/`, `build/`. Findings fail `make test`; the only suppression surface is `.zizmor.yml`.
+5. **zizmor** — workflow security linter run against `.github/workflows/`, `actions/`, `tools/`, `build/`. Findings fail `make test`; the only suppression surface is `.zizmor.yml`.
 
 `./test.sh` (the canonical preflight) runs all of the above. Use `./test.sh quick` for an inner-loop iteration that skips zizmor when you're only touching shell or bats fixtures — but the full suite must pass before pushing. `./test.sh ci` is an explicit alias for the full suite.
 

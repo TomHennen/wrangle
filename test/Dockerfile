@@ -81,15 +81,9 @@ RUN set -euo pipefail && \
     mkdir -p /opt/go && \
     go install "golang.org/x/vuln/cmd/govulncheck@${GOVULNCHECK_VERSION}"
 
-# Install zizmor via pip into a managed venv, hash-pinned via
-# tools/zizmor/requirements.txt (managed by Dependabot pip ecosystem; see
-# .github/dependabot.yml). `--require-hashes` makes pip refuse any artifact
-# whose sha256 isn't in the file, so version + hashes always move together.
-# zizmor is a Rust binary published as a Python wheel with zero runtime
-# Python deps, so the requirements file lists only zizmor itself.
-# Used by `make zizmor` (and the default `./test.sh`) so wrangle's own
-# workflow security findings surface locally, not just in CI. Version is kept
-# in sync with tools/zizmor/action.yml's default input (drift-tested in bats).
+# zizmor is hash-pinned via tools/zizmor/requirements.txt; Dependabot bumps
+# version + hashes atomically. Drift against tools/zizmor/action.yml's
+# default input is enforced by a bats drift-guard.
 COPY tools/zizmor/requirements.txt /tmp/zizmor-requirements.txt
 RUN set -euo pipefail && \
     python3 -m venv /opt/zizmor-venv && \

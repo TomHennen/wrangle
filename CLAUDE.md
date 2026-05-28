@@ -24,7 +24,7 @@ Before approving any PR, ask:
 
 Then check the diff against the conventions in the rest of this file.
 
-**Re-verification by the original reviewer.** After review findings are addressed, the same reviewer (agent or human) verifies the fixes. Partial fixes and surface compliance are common failure modes; fresh-eye verification catches the absence of obvious tells. For agents: `SendMessage` to the original reviewer with the implementer's commit. For humans: re-approval by the same reviewer who flagged the original finding.
+**Re-verification by the original reviewer.** After review findings are addressed, the same reviewer verifies the fixes.
 
 ## Comments
 
@@ -62,7 +62,7 @@ Don't `curl | sh` — all binary downloads go through `lib/download_verify.sh`. 
 
 **Integrity tier (within whichever install method):** SLSA provenance > GitHub release attestation > Sigstore signature > hash-pinned package manager (`--require-hashes`, lockfile) > hardcoded SHA-256 against a downloaded binary. NEVER fall back to a weaker tier if a stronger one fails.
 
-**Python tools:** pin via `tools/<tool>/requirements.txt` with `package==version --hash=sha256:...` (one direct dep + all transitive). Install into an isolated venv (`python3 -m venv` + `pip install --require-hashes -r ...`) and symlink the entrypoint into `PATH`. Register the requirements file in `.github/dependabot.yml` (pip ecosystem) so Dependabot updates version + hashes atomically. (pipx is a tempting wrapper but injects an unhashed CLI spec that collides with `--require-hashes`, pypa/pipx#712 — don't use it for hash-pinned installs.)
+**Python tools:** pin via `tools/<tool>/requirements.txt` (`package==version --hash=sha256:...` for the direct dep plus all transitives), install into a `python3 -m venv` with `pip install --require-hashes`, and let Dependabot's `pip` ecosystem bump version + hashes atomically.
 
 **Convenience is not a fallback justification.** "We'd have to install one more tool in the image" or "the attestation flow is awkward at build time" are NOT reasons to drop to a weaker tier. The fallback rule is "stronger verification is genuinely unavailable upstream" — document *why* the stronger tier doesn't exist, not why it'd be inconvenient.
 
