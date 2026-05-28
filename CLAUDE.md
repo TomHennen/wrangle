@@ -14,6 +14,13 @@ Read `docs/SPEC.md` before contributing. It is the source of truth for architect
 ## Code review checklist
 
 Before approving any PR, ask:
+
+**Big picture:**
+- Does it adhere to `docs/SPEC.md` — both the explicit contracts and the design intent?
+- Are the architectural choices consistent with the rest of the codebase, or do they invent new patterns without clear justification?
+- Overall code quality: is this code we'd be comfortable maintaining a year from now?
+
+**Specific failure modes we've hit:**
 - Does this fail closed on tool error?
 - Is every new invariant pinned by a regression test?
 - Does it prefer mechanical enforcement over prose CLAUDE.md additions?
