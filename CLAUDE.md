@@ -15,17 +15,14 @@ Read `docs/SPEC.md` before contributing. It is the source of truth for architect
 
 Before approving any PR, ask:
 
-**Big picture:**
 - Does it adhere to `docs/SPEC.md` — both the explicit contracts and the design intent?
 - Are the architectural choices consistent with the rest of the codebase, or do they invent new patterns without clear justification?
-- Overall code quality: is this code we'd be comfortable maintaining a year from now?
+- Does it introduce needless complexity?
+- Does it make adopters' lives easier, or harder?
+- Is this code we'd be comfortable maintaining a year from now?
+- Do CI checks pass?
 
-**Specific failure modes we've hit:**
-- Does this fail closed on tool error?
-- Is every new invariant pinned by a regression test?
-- Does it prefer mechanical enforcement over prose CLAUDE.md additions?
-- Does it use canonical package managers / strongest available verification, not a "this is awkward" deflection?
-- Are comments load-bearing (`# Why:`) rather than narrating history or restating the diff?
+Then check the diff against the conventions in the rest of this file.
 
 ## Comments
 
@@ -37,12 +34,12 @@ Every shell script MUST start with `set -euo pipefail` and `set -f` (disable glo
 
 All variable expansions MUST be double-quoted. All scripts MUST pass `shellcheck` — no `# shellcheck disable` without a justifying comment. Use `$(command)` not backticks. Use `[[ ]]` not `[ ]` for conditionals. Use `printf` not `echo` for output that may contain user data.
 
-These rules are mechanically enforced by `tools/wrangle-shell-lint/` (WSL001–005). A `curl | sh` ban (WSL006) is a planned follow-up.
+Don't `curl | sh` — all binary downloads go through `lib/download_verify.sh`. These rules are mechanically enforced by `tools/wrangle-shell-lint/` (WSL001–005).
 
 ## GitHub Actions
 
-- **Inline shell ≤ ~5 lines.** Longer or anything with logic → extract to a script. Mechanical enforcement is a planned follow-up.
-- **No expression injection.** NEVER interpolate `${{ inputs.* }}`, `${{ github.event.* }}`, or any attacker-controllable expression directly in a `run:` block — always thread through `env:` first. Mechanical enforcement is a planned follow-up.
+- **Inline shell ≤ ~5 lines.** Longer or anything with logic → extract to a script.
+- **No expression injection.** NEVER interpolate `${{ inputs.* }}`, `${{ github.event.* }}`, or any attacker-controllable expression directly in a `run:` block — always thread through `env:` first.
 - **No copy-paste across workflows.** If the same `run:` block or step sequence appears in more than two workflow files, extract to a composite or shared script. Drift between copies is a class of bug, not a one-off.
 
 ## Action reference pinning
@@ -52,14 +49,14 @@ These rules are mechanically enforced by `tools/wrangle-shell-lint/` (WSL001–0
 | Third-party actions | Full commit SHA with version comment: `uses: actions/checkout@<sha> # v4.2.2` |
 | SLSA generator (exception) | Release tag only: `@v2.1.0` ([slsa-verifier#12](https://github.com/slsa-framework/slsa-verifier/issues/12)) |
 | Wrangle's own actions in examples | Release tag: `@v0.1.0` |
-| Wrangle internal cross-references in reusable workflows | Full SHA (temporary — see #136) |
+| Wrangle internal cross-references in reusable workflows | Full SHA with `# main` or `# vX.Y.Z` comment (never a branch name — zizmor flags it). Temporary — see #136 |
 | Wrangle internal cross-references elsewhere | Relative path: `./actions/scan` |
 
-`@main` MUST NOT appear in any `uses:` line, including examples and docs. Dependabot manages third-party action updates; tool binary versions are manual. When composite actions change, update the SHA in any reusable-workflow self-references in the same commit.
+`@main` MUST NOT appear in any `uses:` line, including examples and docs. Dependabot manages third-party action updates; tool binary versions are manual. After merging a PR (or a batch) that changes a referenced composite action, bump the SHA in any reusable-workflow self-references — `tools/bump_action_pins.sh` (or `make bump-action-pins`) handles this and writes the `# main` comment correctly.
 
 ## Install method and verification (see SPEC.md §Install Script Interface for the full contract)
 
-**Integrity verification hierarchy:** SLSA provenance > Sigstore signature > GitHub release attestation > hardcoded SHA-256 checksum. NEVER fall back to a weaker method if a stronger one fails.
+**Integrity verification hierarchy:** SLSA provenance > GitHub release attestation > Sigstore signature > hardcoded SHA-256 checksum. NEVER fall back to a weaker method if a stronger one fails.
 
 **Install method hierarchy:** canonical package manager (with adequate verification) > GitHub release binary + attestation > GitHub release binary + sha256. When upstream offers multiple package managers, prefer in order: (1) the one upstream's install docs recommend first, (2) the one with attestation support, (3) the one that doesn't add transitive runtime deps to the test image. If upstream is on pipx/cargo/npm/go-install and the test image already has that runtime, use it. Don't write a custom `install.sh` if upstream supports a canonical package manager with adequate verification — that's the fallback, not the default.
 
@@ -122,3 +119,7 @@ Adapters do NOT receive secrets (env stripped by the orchestrator). If a tool ne
 - Spec changes (`docs/SPEC.md`) require discussion — open an issue first.
 - Update `AGENTS.md` if the adoption interface changes.
 - For personal-environment preferences that shouldn't be checked in (your local test command, your shell, your editor's quirks), use `CLAUDE.local.md` — it's git-ignored.
+
+## Open work and future ideas
+
+Open conventions still missing mechanical enforcement, scoped feature work, and design ideas live as GitHub issues. Search there before filing a new issue or scoping a new PR — the work you want to do may already be tracked.
