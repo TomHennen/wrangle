@@ -64,6 +64,8 @@ Don't `curl | sh` — all binary downloads go through `lib/download_verify.sh`. 
 
 **Python tools:** pin via `tools/<tool>/requirements.txt` (`package==version --hash=sha256:...` for the direct dep plus all transitives), install into a `python3 -m venv` with `pip install --require-hashes`, and let Dependabot's `pip` ecosystem bump version + hashes atomically.
 
+**Go modules via `go install`.** Accepted only when no upstream binary release exists: pin to a specific semver tag, install the Go toolchain itself via `lib/download_verify.sh`, and assert `GOPROXY=https://proxy.golang.org,direct GOSUMDB=sum.golang.org` at the install site so [sum.golang.org](https://sum.golang.org/) verification isn't environment-conditional. Note: the sumdb attests immutability of the first-seen `(module, version)`, NOT publisher authenticity.
+
 **Convenience is not a fallback justification.** "We'd have to install one more tool in the image" or "the attestation flow is awkward at build time" are NOT reasons to drop to a weaker tier. The fallback rule is "stronger verification is genuinely unavailable upstream" — document *why* the stronger tier doesn't exist, not why it'd be inconvenient.
 
 All downloads in custom install scripts go through `lib/download_verify.sh`. Install to `$WRANGLE_BIN_DIR`, never `/usr/local/bin`. Be idempotent. Use atomic `mv` (not `cp`).

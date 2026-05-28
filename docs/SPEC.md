@@ -407,8 +407,14 @@ EXIT CODES:
 
 INTEGRITY VERIFICATION (mandatory):
   Every install script MUST verify the downloaded binary before placing it
-  on PATH. Install scripts MUST use lib/download_verify.sh for this.
-  The scan action installs slsa-verifier via the official
+  on PATH. The three methods below (SLSA / Sigstore / SHA-256) apply to
+  install-script-pattern tools — those that download a standalone binary
+  artifact via lib/download_verify.sh. Go-module tools fetched via
+  `go install <module>@<version>` are covered by the separate fourth tier
+  ("GO MODULES" below), which routes integrity through sum.golang.org
+  instead of lib/download_verify.sh; see CLAUDE.md §"Supply Chain
+  Discipline" for the gating conditions. The scan action installs
+  slsa-verifier via the official
   slsa-framework/slsa-verifier/actions/installer action.
 
   Verification method (chosen per tool at development time, not at runtime):
@@ -445,6 +451,40 @@ INTEGRITY VERIFICATION (mandatory):
   Tools with SLSA provenance: OSV-Scanner
   Tools with Sigstore signatures: (to be determined per tool)
   Tools with checksum only: Zizmor
+
+  GO MODULES (`go install`) — narrow fourth tier:
+
+    The three methods above apply to standalone binary installs (downloaded
+    artifact + separate verification step routed through
+    lib/download_verify.sh). Tools fetched as Go modules via
+    `go install <module>@<version>` are integrity-verified by the Go
+    toolchain itself against sum.golang.org, a Trillian-backed transparency
+    log. This path is accepted ONLY when no upstream binary release exists
+    for the tool (so the three methods above cannot be used against an
+    artifact) and the gating conditions in CLAUDE.md §"Supply Chain
+    Discipline" — pinned semver, trusted toolchain, documented rationale,
+    and `GOPROXY`/`GOSUMDB` not disabled — are all met.
+
+    The tlog provides transparency-log immutability ("first-seen go.sum
+    line for this (module, version) is what every consumer that consults
+    sum.golang.org sees" — consumers with `GOSUMDB=off` see whatever
+    their proxy serves), NOT publisher authentication. A compromised upstream maintainer's
+    malicious release would still install and be recorded; detection is
+    after-the-fact, via auditing. The no-fallback rule still applies: if
+    `go install` aborts due to a go.sum mismatch, the install MUST fail
+    rather than retry under `GOSUMDB=off`.
+
+    Note on the recommended `GOPROXY=https://proxy.golang.org,direct`
+    value: the `,direct` segment is a fallback path that only fires
+    when the proxy itself is unreachable, and it does NOT bypass
+    sum.golang.org — `GOSUMDB` is consulted on both proxy and direct
+    fetches. (This is distinct from a bare `GOPROXY=direct`, which
+    also routes around the proxy but is paired with sumdb the same
+    way.) The integrity claim is preserved across the proxy/direct
+    fallback; only `GOSUMDB=off` (or one of the bypass vars listed in
+    CLAUDE.md §"Supply Chain Discipline") would weaken it.
+
+  Tools with sum.golang.org (go install) only: govulncheck
 
   The download/verify flow:
     1. Download binary to a temporary file ($RUNNER_TEMP/wrangle-dl-XXXXX)
@@ -834,8 +874,11 @@ All downloaded binaries are verified before execution:
 | Content | SHA-256 checksum (pinned in install script) | Required for tools without provenance or signatures |
 | Provenance | SLSA attestation via slsa-verifier | Required for tools that publish it; sufficient on its own; failure = hard stop |
 | Signature | Sigstore/Cosign signature verification | Required for tools that publish it; sufficient on its own; failure = hard stop |
+| sum.golang.org tlog (`go install`) | Built-in Go toolchain verification against the transparency log | Narrow fourth tier for Go modules with no upstream binary release; gating conditions in CLAUDE.md §"Supply Chain Discipline"; failure (go.sum mismatch) = hard stop |
 
 For tools verified via SLSA provenance or Sigstore signatures, hardcoded checksums are not required — the cryptographic verification already covers artifact integrity. Checksums are only needed for tools that lack both provenance and signatures, in which case they are hardcoded in each install script (not downloaded alongside the binary) and updated in the same commit as a version bump.
+
+The sum.golang.org tier is accepted only for Go modules installed via `go install` and only when no upstream binary release exists. The tlog provides transparency-log immutability, not publisher authentication — a compromised maintainer's bad release would still install. See CLAUDE.md §"Supply Chain Discipline" for the full acceptance gate (pinned semver, trusted Go toolchain, documented rationale, `GOPROXY`/`GOSUMDB` not disabled).
 
 **No fallback between verification methods.** Each tool's verification method is chosen at development time. If provenance verification fails for a tool configured to use it, the install MUST fail — even if the checksum passed. A verification failure may indicate a supply chain attack; silently downgrading to a weaker method would mask the attack.
 
