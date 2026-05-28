@@ -22,7 +22,7 @@ set -f
 #   - "Inline Shell in GitHub Actions" length cap
 #   - "GitHub Actions Expression Injection" — actionlint does not flag
 #     ${{ inputs.* }} interpolated into run: blocks by default
-#   Tracked as follow-up: see PR #243 for the issue link.
+#   Tracked in issue #273.
 #
 # Why ast-grep: the previous awk/grep implementation produced both
 # false positives and false negatives across heredocs, case arms,
@@ -39,43 +39,23 @@ set -f
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 SGCONFIG="${SCRIPT_DIR}/sgconfig.yml"
 
-# Locate ast-grep. Prefer $WRANGLE_BIN_DIR (where install.sh places it)
-# but fall back to anything on $PATH so local developers who installed
-# via `brew install ast-grep` or `cargo install` aren't forced through
-# the wrangle install script.
-#
-# When falling back to PATH, log which binary and which version we
-# picked so CI logs make it obvious if the pinned install.sh binary
-# wasn't used (PR #243 review 4369032065 / comment 3308126456).
-ast_grep_bin=""
-ast_grep_source=""
-if [[ -n "${WRANGLE_BIN_DIR:-}" && -x "${WRANGLE_BIN_DIR}/ast-grep" ]]; then
-    ast_grep_bin="${WRANGLE_BIN_DIR}/ast-grep"
-    ast_grep_source="WRANGLE_BIN_DIR"
-elif command -v ast-grep >/dev/null 2>&1; then
-    ast_grep_bin="$(command -v ast-grep)"
-    ast_grep_source="PATH"
-fi
-
-if [[ -z "$ast_grep_bin" ]]; then
-    printf 'wrangle-shell-lint: ast-grep not found.\n' >&2
-    printf 'wrangle-shell-lint: install via tools/wrangle-shell-lint/install.sh\n' >&2
-    printf 'wrangle-shell-lint: or place ast-grep on PATH.\n' >&2
+# Locate ast-grep on PATH. The test image installs ast-grep-cli via
+# pipx (see test/Dockerfile + requirements.txt), which lands a shim in
+# /usr/local/bin — i.e. on the default PATH. Local developers install
+# the same way (`pipx install ast-grep-cli==<pinned>`). Anything else
+# (brew, cargo) also ends up on PATH. CI hard-fails if it isn't there.
+if ! command -v ast-grep >/dev/null 2>&1; then
+    printf 'wrangle-shell-lint: ast-grep not found on PATH.\n' >&2
+    printf 'wrangle-shell-lint: install via pipx using the pinned version in tools/wrangle-shell-lint/requirements.txt\n' >&2
     exit 2
 fi
-
-if [[ "$ast_grep_source" == "PATH" ]]; then
-    ast_grep_version="$("$ast_grep_bin" --version 2>/dev/null | head -n1 || true)"
-    printf 'wrangle-shell-lint: using ast-grep from PATH: %s (%s)\n' \
-        "$ast_grep_bin" "${ast_grep_version:-version unknown}" >&2
-    printf 'wrangle-shell-lint: set WRANGLE_BIN_DIR to the pinned install dir for CI parity.\n' >&2
-fi
+ast_grep_bin="$(command -v ast-grep)"
 
 # is_shell_script: true if $1 is a *.sh file or an extensionless file
 # whose first line is a bash shebang. Matches the file-discovery rules
 # of the explicit-args path and the repo-walk path so a future
 # extensionless `bin/wrangle` wrapper is linted with the same rules as
-# the `*.sh` files. See round-2 review thread 3307715530.
+# the `*.sh` files.
 is_shell_script() {
     local file="$1"
     [[ "$file" == *.sh ]] && return 0
@@ -116,15 +96,17 @@ if [[ ${#targets[@]} -eq 0 ]]; then
 fi
 
 # Extensionless shebang scripts are not auto-associated with the bash
-# parser by ast-grep (its file-language matching is extension-based).
-# To run the rules over them, symlink each extensionless target into a
-# tmp staging dir with a `.sh` suffix, then ast-grep treats it as bash.
-# `.sh`-named targets are linted in place — no symlink, no copy.
+# parser by ast-grep (its file-language matching is extension-based,
+# and `scan` has no --lang flag — only `run` does). To run the rules
+# over them, symlink each extensionless target into a tmp staging dir
+# with a `.sh` suffix, then ast-grep treats it as bash. `.sh`-named
+# targets are linted in place — no symlink, no copy.
 #
 # Why this approach over a stdin-pipe loop: ast-grep's --stdin mode
-# only supports one rule at a time, which would mean five passes per
-# file. The staging-dir approach is one ast-grep invocation total,
-# which is dramatically faster and produces unified output.
+# scans only one file's worth of content per invocation, which would
+# mean N processes for N extensionless scripts. The staging-dir
+# approach is one ast-grep invocation total, which is dramatically
+# faster and produces unified output.
 
 STAGE_DIR="$(mktemp -d "${TMPDIR:-/tmp}/wrangle-shell-lint-XXXXXX")"
 trap 'rm -rf "$STAGE_DIR"' EXIT
@@ -151,7 +133,6 @@ for t in "${targets[@]}"; do
         # symlink that doesn't resolve from inside STAGE_DIR, causing
         # ast-grep to print `ERROR: ... No such file or directory` to
         # stderr but still exit 0 — a silent fail-open.
-        # See PR #243 review 4369032065 / comment 3308126441.
         abs_t="$(readlink -f "$t" 2>/dev/null || true)"
         if [[ -z "$abs_t" || ! -e "$abs_t" ]]; then
             printf 'wrangle-shell-lint: cannot resolve %s\n' "$t" >&2
@@ -172,8 +153,7 @@ done
 # MUST inspect stderr: ast-grep can exit 0 while writing `ERROR: ...`
 # to stderr (e.g. unresolvable file path, unreadable file). For a
 # security linter, fail-closed on tool error is mandatory — silently
-# treating those as pass is a fail-open bug (PR #243 review 4369032065
-# / comment 3308126441; CLAUDE.md Adapter Contract analogue).
+# treating those as pass is a fail-open bug.
 ast_grep_stdout_file="$(mktemp "${STAGE_DIR}/stdout.XXXXXX")"
 ast_grep_stderr_file="$(mktemp "${STAGE_DIR}/stderr.XXXXXX")"
 "$ast_grep_bin" scan \

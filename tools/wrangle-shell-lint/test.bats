@@ -7,12 +7,12 @@
 #   - One positive fixture per rule under fixtures/ (committed) that
 #     each violate exactly their rule.
 #   - good.sh (committed) is the negative fixture — must pass cleanly.
-#   - Inline tmp-file fixtures cover edge cases surfaced in the PR #243
-#     review rounds 1-3.
+#   - Inline tmp-file fixtures cover edge cases (heredocs, case arms,
+#     subword matches, multi-shape top-level nodes, etc.).
 #
 # These tests exercise the wrapper end-to-end (which invokes ast-grep).
-# ast-grep must be on PATH or in $WRANGLE_BIN_DIR — the test container's
-# Dockerfile preinstalls it via tools/wrangle-shell-lint/install.sh.
+# ast-grep must be on PATH — the test container's Dockerfile installs
+# it via pipx (see test/Dockerfile + tools/wrangle-shell-lint/requirements.txt).
 
 setup() {
     ORIG_DIR="$(pwd)"
@@ -20,15 +20,12 @@ setup() {
     FIXTURES="$ORIG_DIR/tools/wrangle-shell-lint/fixtures"
     export ORIG_DIR LINTER FIXTURES
 
-    # Skip every test if ast-grep is not installed. We do this rather
-    # than auto-installing inside the bats run because the install
-    # script downloads from the internet — a flaky test failure would
-    # be misattributed to the linter. The CI image's Dockerfile is
-    # responsible for installing ast-grep up front.
-    if [[ -z "${WRANGLE_BIN_DIR:-}" || ! -x "${WRANGLE_BIN_DIR}/ast-grep" ]]; then
-        if ! command -v ast-grep >/dev/null 2>&1; then
-            skip "ast-grep not installed — run tools/wrangle-shell-lint/install.sh first"
-        fi
+    # Skip every test if ast-grep is not installed. The CI image's
+    # Dockerfile is responsible for installing ast-grep up front via
+    # pipx; if a local dev hasn't done the same we skip rather than
+    # fail so `bats` against a fresh checkout still reports cleanly.
+    if ! command -v ast-grep >/dev/null 2>&1; then
+        skip "ast-grep not on PATH — install via pipx (see tools/wrangle-shell-lint/requirements.txt)"
     fi
 }
 
@@ -96,7 +93,7 @@ teardown() {
     [[ "$output" == *"WSL001"* ]]
 }
 
-# --- WSL002: set -f as the second substantive line (UNIVERSAL per #271) -----
+# --- WSL002: set -f as the second substantive line (universal preamble) -----
 
 @test "WSL002: missing set -f after preamble is reported" {
     run "$LINTER" "$FIXTURES/bad_wsl002.sh"
@@ -122,8 +119,8 @@ teardown() {
 }
 
 @test "WSL002: arbitrary script without set -f is reported (universal rule)" {
-    # Per PR #271 (universal set -f), ANY script missing set -f on line
-    # 2 is a violation — not just adapter.sh or for-over-$@ scripts.
+    # Universal `set -f` preamble: ANY script missing set -f on line 2
+    # is a violation — not just adapter.sh or for-over-$@ scripts.
     tmp="$(mktemp /tmp/wsl-test-XXXXXX.sh)"
     printf '#!/bin/bash\nset -euo pipefail\nprintf hello\n' > "$tmp"
     run "$LINTER" "$tmp"
@@ -369,7 +366,7 @@ SCRIPT
 
 @test "WSL005: trailing whitespace after disable code is still flagged" {
     # An editor's whitespace-trim toggle can add trailing spaces/tabs; the
-    # rule must not treat that as a justification. See review id 4368542425.
+    # rule must not treat that as a justification.
     tmp="$(mktemp /tmp/wsl-test-XXXXXX.sh)"
     printf '#!/bin/bash\nset -euo pipefail\nset -f\n# shellcheck disable=SC2016   \nprintf done\n' > "$tmp"
     run "$LINTER" "$tmp"
@@ -385,6 +382,31 @@ SCRIPT
     rm -f "$tmp"
     [ "$status" -eq 1 ]
     [[ "$output" == *"WSL005"* ]]
+}
+
+@test "WSL005: shellcheck source= directive is not flagged" {
+    # `# shellcheck source=path/to/lib.sh` is a sourcing hint for the
+    # `shellcheck -x` follow-the-source pass — it is NOT a suppression
+    # and must never trigger WSL005. The regex anchors on `disable=`;
+    # this test pins that contract.
+    tmp="$(mktemp /tmp/wsl-test-XXXXXX.sh)"
+    printf '#!/bin/bash\nset -euo pipefail\nset -f\n# shellcheck source=../../lib/download_verify.sh\nprintf done\n' > "$tmp"
+    run "$LINTER" "$tmp"
+    rm -f "$tmp"
+    [ "$status" -eq 0 ]
+    [[ "$output" != *"WSL005"* ]]
+}
+
+@test "WSL005: shellcheck shell= directive is not flagged" {
+    # `# shellcheck shell=bash` declares the dialect for shellcheck and
+    # is not a suppression. Like source= above, it must never trigger
+    # WSL005.
+    tmp="$(mktemp /tmp/wsl-test-XXXXXX.sh)"
+    printf '#!/bin/bash\nset -euo pipefail\nset -f\n# shellcheck shell=bash\nprintf done\n' > "$tmp"
+    run "$LINTER" "$tmp"
+    rm -f "$tmp"
+    [ "$status" -eq 0 ]
+    [[ "$output" != *"WSL005"* ]]
 }
 
 # --- Output format -----------------------------------------------------------
@@ -411,20 +433,14 @@ SCRIPT
     [ -z "$output" ]
 }
 
-@test "install.sh itself passes all wrangle-shell-lint rules" {
-    run "$LINTER" "$ORIG_DIR/tools/wrangle-shell-lint/install.sh"
-    [ "$status" -eq 0 ]
-    [ -z "$output" ]
-}
-
 # --- Repo walk -------------------------------------------------------------
 
 # --- WSL001/WSL002 false-negative regression: pipeline/list/negated_command ---
-# Round-1 review 4369033574 / comments 3308127865 + 3308127868: tree-sitter-bash
-# parses `cmd | cmd`, `cmd; cmd` / `cmd && cmd`, and `! cmd` as `pipeline`,
-# `list`, and `negated_command` nodes respectively — NOT `command`. Before the
-# fix in rules/wsl001.yml + rules/wsl002.yml, a script whose first (or second)
-# top-level node was one of those shapes silently bypassed WSL001 / WSL002.
+# tree-sitter-bash parses `cmd | cmd`, `cmd; cmd` / `cmd && cmd`, and `! cmd`
+# as `pipeline`, `list`, and `negated_command` nodes respectively — NOT
+# `command`. Without enumerating those kinds in rules/wsl001.yml +
+# rules/wsl002.yml, a script whose first (or second) top-level node was one
+# of those shapes silently bypassed WSL001 / WSL002.
 
 @test "WSL001: pipeline as first top-level node is flagged (regression)" {
     tmp="$(mktemp /tmp/wsl-test-XXXXXX.sh)"
@@ -490,9 +506,9 @@ SCRIPT
 }
 
 # --- WSL003 regression pin: echo with literal-only args + redirect/pipe ------
-# Round-1 review 4369033574 / comment 3308127872 item 4: echo with no variable
-# expansion piped to another command must not be flagged. A regression here
-# would surface as a false positive that is annoying to debug.
+# `echo` with no variable expansion piped to another command must not be
+# flagged. A regression here would surface as a false positive that is
+# annoying to debug.
 
 @test "WSL003: echo with literal-only args piped to another command is not flagged" {
     tmp="$(mktemp /tmp/wsl-test-XXXXXX.sh)"
@@ -514,10 +530,10 @@ SCRIPT
 }
 
 # --- Symlink behavior: contract documentation -------------------------------
-# Per PR #243 review 4369033574: the repo walk uses `find -type f` which
-# SKIPS symlinks (it does not follow them). The real file is linted via its
-# own filesystem path. This test pins that contract so a future change to
-# `find -L` or `find -type f,l` would have to update the test consciously.
+# The repo walk uses `find -type f` which SKIPS symlinks (it does not follow
+# them). The real file is linted via its own filesystem path. This test pins
+# that contract so a future change to `find -L` or `find -type f,l` would
+# have to update the test consciously.
 
 @test "repo walk skips symlinks (real file linted via its own path)" {
     tmp_repo="$(mktemp -d /tmp/wsl-repo-XXXXXX)"
@@ -544,48 +560,18 @@ SCRIPT
     [[ "$output" != *"link.sh"* ]]
 }
 
-# --- Dockerfile / install.sh checksum drift guard ----------------------------
-# Round-1 review 4369032065 / comment 3308126453: ast-grep checksums live in
-# both test/Dockerfile and tools/wrangle-shell-lint/install.sh. A version bump
-# that updates one but not the other is silent drift. This test extracts the
-# four checksums from each source and diffs them — a mismatch fails CI.
-
-@test "ast-grep checksums match between Dockerfile and install.sh (drift guard)" {
-    dockerfile="$ORIG_DIR/test/Dockerfile"
-    install="$ORIG_DIR/tools/wrangle-shell-lint/install.sh"
-    [ -f "$dockerfile" ] || skip "test/Dockerfile not present"
-    [ -f "$install" ] || skip "install.sh not present"
-
-    # ast-grep version must match (single ARG / VERSION default).
-    docker_version="$(grep -E '^ARG AST_GREP_VERSION=' "$dockerfile" | cut -d= -f2)"
-    install_version="$(grep -E '^VERSION="\$\{1:-' "$install" | sed -E 's/^.*-([0-9.]+)\}".*$/\1/')"
-    [ -n "$docker_version" ]
-    [ -n "$install_version" ]
-    [ "$docker_version" = "$install_version" ]
-
-    # The two Linux checksums in install.sh (linux/x86_64, linux/aarch64) must
-    # match the AMD64 and ARM64 checksums in the Dockerfile respectively.
-    docker_amd64="$(grep -E '^ARG AST_GREP_CHECKSUM_AMD64=' "$dockerfile" | cut -d= -f2)"
-    docker_arm64="$(grep -E '^ARG AST_GREP_CHECKSUM_ARM64=' "$dockerfile" | cut -d= -f2)"
-    # The install.sh checksums are anchored to OS/arch case arms.
-    install_amd64="$(awk '/linux\/x86_64\)/{f=1} f && /EXPECTED_SHA=/{print; exit}' "$install" \
-        | grep -oE '[a-f0-9]{64}')"
-    install_arm64="$(awk '/linux\/aarch64\|linux\/arm64\)/{f=1} f && /EXPECTED_SHA=/{print; exit}' "$install" \
-        | grep -oE '[a-f0-9]{64}')"
-
-    [ -n "$docker_amd64" ]
-    [ -n "$docker_arm64" ]
-    [ -n "$install_amd64" ]
-    [ -n "$install_arm64" ]
-    [ "$docker_amd64" = "$install_amd64" ]
-    [ "$docker_arm64" = "$install_arm64" ]
-}
+# --- Dockerfile / requirements.txt drift guard ------------------------------
+# The ast-grep-cli version lives in tools/wrangle-shell-lint/requirements.txt
+# (the pip-ecosystem source of truth) and is consumed by test/Dockerfile via
+# `pip download --require-hashes -r requirements.txt`. Because requirements.txt
+# IS the only pinned-version source, drift is impossible by construction:
+# bumping the version anywhere else has no effect on what the image installs.
+# No drift-guard test is needed here.
 
 # --- Dogfood self-check: linter must pass on the entire wrangle repo --------
-# Round-1 review 4369033574 / comment 3308127872 item 3: nothing in the bats
-# suite enforces the dogfood invariant. If someone introduces a violation in
-# run.sh or lib/ it only fails in `make test` integration, not here. Run the
-# linter against the whole repo and assert exit 0.
+# Without this, a violation introduced in run.sh or lib/ only fails in
+# `make test` integration, not in this bats suite. Run the linter against
+# the whole repo and assert exit 0.
 
 @test "dogfood: linter passes on the entire wrangle repo (exit 0)" {
     cd "$ORIG_DIR"

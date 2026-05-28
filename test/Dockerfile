@@ -6,7 +6,8 @@ RUN apt-get update -q && \
         curl \
         git \
         jq \
-        python3 \
+        pipx \
+        python3-pip \
         shellcheck \
         ca-certificates \
         make \
@@ -14,9 +15,11 @@ RUN apt-get update -q && \
         libc6-dev \
     && rm -rf /var/lib/apt/lists/*
 
-# python3 is required by tools/wrangle-shell-lint/install.sh to unzip
-# the ast-grep release archive (avoids pulling `unzip` as an extra
-# apt dependency).
+# pipx + python3-pip are required to install ast-grep-cli for
+# tools/wrangle-shell-lint (see the pipx RUN block below). pipx itself
+# pulls in python3 as a transitive dep; python3-pip is requested
+# explicitly because we use `pip download --require-hashes` to stage a
+# hash-verified wheel before handing it to pipx.
 
 # gcc + libc6-dev are pulled in for `go test -race` (the race detector
 # requires cgo, which requires a C toolchain). Without them, Go's
@@ -79,37 +82,27 @@ RUN set -euo pipefail && \
     mkdir -p /opt/go && \
     go install "golang.org/x/vuln/cmd/govulncheck@${GOVULNCHECK_VERSION}"
 
-# Install ast-grep — used by tools/wrangle-shell-lint/lint.sh to run
-# the WSL001-005 rules. Checksums hardcoded here mirror the values in
-# tools/wrangle-shell-lint/install.sh; both MUST be bumped together
-# when the version changes. ast-grep does not publish SLSA provenance
-# or Sigstore signatures (see install.sh header for the integrity-
-# tier discussion), so hardcoded SHA-256 is the strongest tier
-# available for this upstream.
-ARG AST_GREP_VERSION=0.43.0
-ARG AST_GREP_CHECKSUM_ARM64=e706846148493967f3ab8011334817edd86ce5acbec10718b2a7b40799c640ff
-ARG AST_GREP_CHECKSUM_AMD64=a26253a9c821d935f7e383e40f0de7c2ca62a4121de1f73a6d81ec32eae631e0
+# Install ast-grep-cli via pipx with hash-locked verification. Hashes
+# live in tools/wrangle-shell-lint/requirements.txt so Dependabot's pip
+# ecosystem can bump them. pipx's own CLI requires a package spec
+# positional and `pip install --require-hashes <spec> -r req.txt` is
+# rejected (the bare positional has no hash), so we stage a verified
+# wheel first with `pip download --require-hashes` (which DOES fail
+# closed on any hash mismatch) and hand the resulting wheel to pipx.
+# PIPX_HOME / PIPX_BIN_DIR are pinned to /usr/local so the shim lands
+# on PATH for every user.
+ENV PIPX_HOME=/opt/pipx \
+    PIPX_BIN_DIR=/usr/local/bin
+COPY tools/wrangle-shell-lint/requirements.txt /tmp/ast-grep-requirements.txt
 RUN set -euo pipefail && \
-    ARCH="$(uname -m)" && \
-    case "$ARCH" in \
-        aarch64) TARGET=aarch64-unknown-linux-gnu; EXPECTED_CHECKSUM="$AST_GREP_CHECKSUM_ARM64" ;; \
-        x86_64)  TARGET=x86_64-unknown-linux-gnu;  EXPECTED_CHECKSUM="$AST_GREP_CHECKSUM_AMD64" ;; \
-        *) echo "Unsupported arch: $ARCH" >&2; exit 1 ;; \
-    esac && \
-    ZIP="app-${TARGET}.zip" && \
-    curl -sSL -o "/tmp/${ZIP}" \
-        "https://github.com/ast-grep/ast-grep/releases/download/${AST_GREP_VERSION}/${ZIP}" && \
-    echo "$EXPECTED_CHECKSUM  /tmp/${ZIP}" | sha256sum -c - && \
-    python3 -c "import zipfile; zipfile.ZipFile('/tmp/${ZIP}').extract('ast-grep', '/usr/local/bin/')" && \
-    chmod +x /usr/local/bin/ast-grep && \
-    rm "/tmp/${ZIP}" && \
+    mkdir -p /tmp/ast-grep-wheel && \
+    python3 -m pip download \
+        --require-hashes \
+        --requirement /tmp/ast-grep-requirements.txt \
+        --no-deps \
+        --dest /tmp/ast-grep-wheel && \
+    pipx install /tmp/ast-grep-wheel/ast_grep_cli-*.whl && \
+    rm -rf /tmp/ast-grep-wheel /tmp/ast-grep-requirements.txt && \
     ast-grep --version
-
-# Point WRANGLE_BIN_DIR at the directory where ast-grep was installed
-# above so tools/wrangle-shell-lint/lint.sh picks it up via its
-# preferred-path branch (not the PATH fallback, which prints a CI-parity
-# warning to stderr). Keeps bats `[ -z "$output" ]` assertions on
-# clean-run tests passing under the image. See PR #243 follow-up.
-ENV WRANGLE_BIN_DIR=/usr/local/bin
 
 WORKDIR /wrangle

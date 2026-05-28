@@ -1,0 +1,22 @@
+# ast-grep-cli — backing CLI for wrangle-shell-lint (WSL001-005).
+#
+# Installed via pipx (see test/Dockerfile and CLAUDE.md "Install method").
+# Hashes pin the exact wheels for every platform pipx might select; the
+# install fails closed (`--require-hashes`) if upstream rotates or
+# re-uploads a wheel.
+#
+# Dependabot manages version bumps (pip ecosystem watches this directory).
+# When you bump the version manually, run:
+#   pip download ast-grep-cli==<new> --no-deps --dest /tmp/ag \
+#     && python3 -m pip hash /tmp/ag/*
+# and replace every hash below in the same commit.
+
+ast-grep-cli==0.42.3 \
+    --hash=sha256:ea4c65222d2794c0d1d9165d5d77464e94e51d91209968040fbf2eb3e6a4ac50 \
+    --hash=sha256:ae81004c465b5a53585e50acc6a700fee16c51a5b8cd38938854def2bc03bd2c \
+    --hash=sha256:52394e24b3caf00266e41b894561fdd250668c56f4879f11102b0c0dc9d559dc \
+    --hash=sha256:0a23ff5bcbeac165a44b1bb3a9c14270cdfea4916fe62364b4c3cf8a64910b1c \
+    --hash=sha256:650ea2b65b7059603a5d0872d85ce976cdc8173bfb7994648a9dab1b5caee568 \
+    --hash=sha256:e3dd282b60c547e916b0e77a33a01131b2a52a488cf44960547c64cffe09a444 \
+    --hash=sha256:4bccbfa124eae9d7ee437505fa4d26b5de6348a8c4e68b39ecb016af5c7871e2 \
+    --hash=sha256:81c08507cc3e9b18afdf417b704a8bd3e0bf0d956b2c5e62332e747e554adc70

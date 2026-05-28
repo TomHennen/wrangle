@@ -20,8 +20,8 @@
 #    enumeration: tree-sitter-bash parses `cmd1 | cmd2` as a `pipeline`,
 #    `cmd1 && cmd2` / `cmd1 ; cmd2` as a `list`, and `! cmd` as a
 #    `negated_command` — none of those are `command` nodes, so omitting
-#    them lets a script silently bypass WSL001 by making its first
-#    top-level node one of those shapes (PR #243 review 4369033574).
+#    them would let a script silently bypass WSL001 by making its first
+#    top-level node one of those shapes.
 #  - Files containing only comments (or only a shebang) produce no match
 #    and pass cleanly — there is no command to flag.
 

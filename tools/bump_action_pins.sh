@@ -136,10 +136,8 @@ trap cleanup EXIT INT TERM
 # glob-disabled state before iterating. Confining set +f / nullglob to
 # the expansion site (not the loop body) means: (1) `set -f` is restored
 # before any per-file processing, (2) `shopt -u nullglob` is restored
-# too (previously the nullglob change leaked past the loop), (3) the
-# code matches its comment. Per PR #243 review 4369032065 / comment
-# 3308126449. nullglob makes both globs collapse to empty when the dir
-# is empty so we never iterate literal "*.yml" / "*.yaml" filenames.
+# too. nullglob makes both globs collapse to empty when the dir is
+# empty so we never iterate literal "*.yml" / "*.yaml" filenames.
 set +f
 shopt -s nullglob
 workflow_files=( "$REPO_ROOT/$PINS_DIR"/*.yml "$REPO_ROOT/$PINS_DIR"/*.yaml )

@@ -1,11 +1,10 @@
 # WSL002 — second substantive command must be exactly: set -f
 #
-# CLAUDE.md (post-#271): "Every shell script MUST start with these two
-# lines: set -euo pipefail / set -f". This is universal per the spec
-# change in PR #271 (originally surfaced in PR #243 review 4351699820):
-# wrangle is a supply-chain security tool and defaults to the safer
-# flag rather than requiring contributors to judge "does my script
-# really need globbing disabled?".
+# CLAUDE.md: "Every shell script MUST start with the exact preamble
+# `set -euo pipefail` followed by `set -f` (disable globbing)." This is
+# universal — wrangle is a supply-chain security tool and defaults to
+# the safer flag rather than requiring contributors to judge "does my
+# script really need globbing disabled?".
 #
 # Escape hatch: scripts that genuinely need globbing wrap the glob in
 # an explicit `set +f` / `set -f` block with an explanatory comment.
@@ -17,7 +16,7 @@
 # `pipeline`, `list`, and `negated_command` are included in the kinds
 # enumeration to prevent the same bypass class as WSL001: e.g.
 # `true | false` or `set -f && printf hi` at position 2 would silently
-# pass if those kinds were omitted (PR #243 review 4369033574).
+# pass if those kinds were omitted.
 
 id: wsl002-set-f-must-be-second
 severity: error
