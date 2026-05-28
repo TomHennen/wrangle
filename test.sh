@@ -3,19 +3,29 @@ set -euo pipefail
 set -f
 
 # Run all tests in a container — no local tool installation required.
-# Usage: ./test.sh [bats|lint|shellcheck|shellstyle|all]
+# Usage: ./test.sh [all|ci|quick|test|bats|lint|shellcheck|shellstyle|zizmor]
 #
-# Builds a test container with actionlint, shellcheck, ast-grep, and
-# bats-core, then runs the specified test suite (default: all).
+# Builds a test container with actionlint, shellcheck, ast-grep, bats-core,
+# and zizmor, then runs the specified test suite (default: all).
+#
+# Targets:
+#   `all`|`test`|`ci`     Full suite: lint + shellcheck + shellstyle + bats + zizmor (default)
+#   `quick`               Inner-loop iteration: skip zizmor for fast feedback
+#   `bats`                Bats tests only
+#   `lint`                actionlint only
+#   `shellcheck`          ShellCheck against all *.sh
+#   `shellstyle`          wrangle-shell-lint (ast-grep WSL rules)
+#   `zizmor`              Zizmor workflow security linter only
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 IMAGE_NAME="wrangle-test"
 TEST_TARGET="${1:-all}"
 
-# Validate test target
+# Validate test target. `ci` is an alias for `all` so CI configs and humans
+# can use the same name. `quick` runs the inner-loop subset (no zizmor).
 case "$TEST_TARGET" in
-    all|test|bats|lint|shellcheck|shellstyle) ;;
-    *) printf 'Usage: %s [all|test|bats|lint|shellcheck|shellstyle]\n' "$0" >&2; exit 1 ;;
+    all|test|ci|quick|bats|lint|shellcheck|shellstyle|zizmor) ;;
+    *) printf 'Usage: %s [all|ci|quick|test|bats|lint|shellcheck|shellstyle|zizmor]\n' "$0" >&2; exit 1 ;;
 esac
 
 # Check Docker is available
@@ -28,6 +38,15 @@ fi
 echo "=== Building test container ==="
 docker build -t "$IMAGE_NAME" -f "$SCRIPT_DIR/test/Dockerfile" "$SCRIPT_DIR"
 
+# Map the script-level alias to the Makefile target list. Array form so
+# `quick` can pass multiple targets to one `make` invocation without
+# leaning on word-splitting (and the SC2086 disable that used to require).
+case "$TEST_TARGET" in
+    ci)    MAKE_TARGETS=(all) ;;
+    quick) MAKE_TARGETS=(lint shellcheck shellstyle bats) ;;
+    *)     MAKE_TARGETS=("$TEST_TARGET") ;;
+esac
+
 # Run the requested test suite
 printf '=== Running: %s ===\n' "$TEST_TARGET"
 
@@ -35,4 +54,4 @@ docker run --rm \
     -v "$SCRIPT_DIR":/wrangle:ro \
     -w /wrangle \
     "$IMAGE_NAME" \
-    make "$TEST_TARGET"
+    make "${MAKE_TARGETS[@]}"
