@@ -44,7 +44,7 @@ setup() {
 }
 
 @test "zizmor: requirements.txt and action.yml default agree on version" {
-    # Local test container installs zizmor via pipx using hash-pinned
+    # Local test container installs zizmor via pip --require-hashes from
     # tools/zizmor/requirements.txt; CI uses the upstream Docker action driven
     # by tools/zizmor/action.yml's default version input. Drift between these
     # masks regressions between local pre-push checks and CI. Dependabot bumps
