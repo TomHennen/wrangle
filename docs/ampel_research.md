@@ -47,7 +47,7 @@ The output VSA conforms to SLSA v1.0/v1.1 `https://slsa.dev/verification_summary
 
 This is exactly what `slsa-verifier verify-vsa` consumes. Google publishes VSAs for GKE Container-Optimized OS images via the same flow (`cli/slsa-verifier/testdata/vsa/gce/v1/gke-gce-pre.bcid-vsa.jsonl`).
 
-Nothing in the consumer-side verification path requires AMPEL: verification works with `cosign verify-blob-attestation --bundle <artifact>.intoto.jsonl --new-bundle-format …` or `slsa-verifier verify-vsa`. The AMPEL-specific bits (HJSON+CEL, transformers, `predicates[].data…` runtime, `context.foo` interpolation) are *internal* to wrangle. This is the architectural split the rollout bets on — keep it intact and the engine stays swappable. (`slsa-verifier verify-vsa`'s acceptance of an arbitrary `verifier.id` URL is an open question — see §8.)
+Nothing in the consumer-side verification path requires AMPEL: verification works with `cosign verify-blob-attestation --bundle <artifact>.intoto.jsonl --new-bundle-format …` or `slsa-verifier verify-vsa`. The AMPEL-specific bits (HJSON+CEL, transformers, `predicates[].data…` runtime, `context.foo` interpolation) are *internal* to wrangle. This is the architectural split the rollout bets on — keep it intact and the engine stays swappable; expose AMPEL-specific semantics to consumers and the bet breaks, which matters given AMPEL's youth (§3). (`slsa-verifier verify-vsa`'s acceptance of an arbitrary `verifier.id` URL is an open question — see §8.)
 
 ### 3. AMPEL maturity is the dominant risk
 
@@ -174,6 +174,8 @@ Three back-to-back PRs, landing over roughly a week. The plan is sequential beca
 - **`slsa-verifier verify-vsa` matching:** does it accept an arbitrary `verifier.id` URL, or require allowlisting? (Read `verifiers.VerifyVSA`.) Affects whether Layer-1 consumer docs (§9) can offer a slsa-verifier-native command alongside `cosign verify-blob-attestation`. Until confirmed, `cosign verify-blob-attestation` is the primary recommended consumer command.
 - **AMPEL provenance verification:** does `slsa-verifier verify-artifact` accept the sigstore-bundle format AMPEL ships at `ampel-v<ver>.provenance.json`? If not, PR 1 falls back to the hardcoded-SHA pattern.
 - **VSA `inputAttestations[].uri` portability:** does the URI survive repo rename or release-asset deletion? (Pull a real Fritoto VSA and check.)
+- **Upstream policy bodies not yet retrieved verbatim:** `carabiner-dev/policies#vsa/slsa-source-level3.json` and its siblings weren't pulled in this pass. Before authoring `policies/wrangle-default-v1.hjson`, fetch them at the SHA to pin — they document the `context` inputs each one requires.
+- **Air-gapped signing:** the sigstore-keyless trust chain is the dominant trust assumption. An air-gapped path needs AMPEL's `--signing-backend=key`, which requires wrangle to publish and rotate a public key. Out of scope until an adopter needs it.
 
 ### 9. Downstream consumer UX
 
@@ -209,33 +211,15 @@ Land the three PRs from §7 in order. Review focus for this scoping PR: the four
 - SLSA v1.2+ adds VSA fields — bump `wrangle-default-v2`.
 - [#174](https://github.com/TomHennen/wrangle/issues/174) lands — add the source-commit tenet currently gated out of `wrangle-default-v1` (§6).
 
-**Do not:**
-- Require consumers to install AMPEL. VSA is the only consumer contract (§2).
-- Block PR 3 on perfection of PRs 1–2. If PR 2 ships a clean release in parallel, PR 3 is safe.
-- Delay PR 1 waiting for OpenSSF donation or v2 schema.
-
-## Caveats
-
-- The architecture bets on the engine being swappable (§2); if that bet is broken — e.g., by exposing AMPEL-specific semantics to consumers — the risk profile changes substantially given AMPEL's youth (§3).
-- **The OpenSSF donation is a stated plan, not a fait accompli.** Don't let the migration plan depend on it.
-- **Some upstream policy file contents and exact CEL strings** (e.g., `carabiner-dev/policies#vsa/slsa-source-level3.json`'s body) were not retrieved verbatim in this research pass. Before authoring `policies/wrangle-default-v1.hjson`, pull the files at the SHA we plan to pin — they document the `context` inputs each one requires.
-- **Sigstore keyless trust chain is the dominant trust assumption.** An air-gapped path needs AMPEL's `--signing-backend=key`, which requires wrangle to publish and rotate a public key.
+The migration must not depend on the OpenSSF donation landing (§3), and PR 1 must not wait on it. Consumers never install AMPEL — the VSA is the only consumer contract (§2).
 
 ## Revision history
 
-**Revision 7 — 2026-05-28:** Names removed — the blog post / OSSEU session / Conforma demo are now referenced by talk title and venue and the AMPEL maintainer by `@puerco` handle, matching the doc's repo/handle citation style. Aggressive dedup: §4 renamed "Paths not taken" and made the canonical home for all rejected alternatives (engines, integration architectures, install method, self-verification, identity-stability hedge); §5/§7 cross-reference §4 instead of restating; old §9 file table folded into §7; §2 absorbed the `verifier.id` open-question paragraph (cross-ref to §8); risk 8 / §6 emit paragraph / §5 SARIF paragraph tightened; older revision-history entries condensed.
+**Revision 8 — 2026-05-29:** Second dedup pass (round-5 review). Removed the Caveats section — its swappability/youth points duplicated §2/§3, and its two unique items (unretrieved upstream policy bodies, air-gapped signing) moved to §8 open questions. Dropped the Recommendations "Do not" list — each point was already stated in §2/§7, now a single trailing line. Condensed the revision history.
 
-**Revision 6 — 2026-05-28:** First dedup pass — TL;DR trimmed; §6 hoisted the per-tenet locator form; §10 risks 1/6/8 made cross-refs; Recommendations parallel list collapsed to a §8 pointer.
+**Revision 7 — 2026-05-28:** Names removed (talks cited by title/venue, maintainer by `@puerco`). First aggressive dedup: §4 made the canonical "Paths not taken" home; §5/§7 cross-reference it instead of restating; §2 absorbed the `verifier.id` open question.
 
-**Revision 5 — 2026-05-28:** Reversed Decision 2 — dropped vendoring of `carabiner-dev/policies` for SHA-pinned VCS locators; cascaded through §5/§6/§8/§9/§10; `make update-policies` replaced by an optional `make bump-policies` shim.
-
-**Revision 4 — 2026-05-28:** §8 collapsed from seven phases to three PRs; §6 source-commit tenet gated on #174; VSA filename switched to `<artifact>.intoto.jsonl`; §10 step-summary rendering switched from HTML to Markdown.
-
-**Revision 3 — 2026-05-28:** Considered and rejected `go install` for Ampel; added "Pin drift across files" risk; fixed §10 numbering; stripped inline revision parentheticals.
-
-**Revision 2 — 2026-05-26:** Factual fixes (install action rename, collector-prefix list, `carabiner-dev/actions` v1.2.0, default-sign behavior); internal contradictions resolved (patch-pin v1.2.1; bats-only harness); added Decisions block and Appendix A.
-
-**Revision 1 — initial cloud-agent research pass.**
+**Revisions 1–6 — 2026-05-26..28:** Initial cloud-agent research pass, then iterative review fixes — Decisions block + Appendix A added (R2); `go install` rejected and pin-drift risk added (R3); seven phases collapsed to three PRs, source-commit tenet gated on #174, VSA filename → `<artifact>.intoto.jsonl`, step summary → Markdown (R4); Decision 2 reversed from vendoring to SHA-pinned VCS locators (R5); first dedup pass (R6).
 
 ---
 
