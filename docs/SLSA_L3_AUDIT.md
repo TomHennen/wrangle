@@ -29,12 +29,22 @@ adopter consuming wrangle through one of wrangle's **reusable workflows**:
 | python path (pip sub-path) | **Build L3** | — |
 | python path (uv sub-path) | **Build L2** | Build L3 (Finding 1) |
 | container path | **Build L2** | Build L3 (Finding 2) |
+| Go path | **Build L3** [^go] | — |
 | shell path | **N/A** — no provenance produced | — |
 
 [^npmci]: Conditional on the install command being `npm ci`, which re-verifies
     each cached tarball's SHA against `package-lock.json` on every install.
     `npm ci` is the command wrangle invokes, so the precondition holds
     by-construction; full detail at [npm path (npm sub-path)](#npm-path-npm-sub-path).
+
+[^go]: The Go build type landed after this audit's 2026-05-14 date, so it has
+    no point-in-time row; this row reflects its current state. Go meets Build L3
+    by the same generic-generator isolation as the other paths, with the
+    release-vs-PR cache asymmetry applied to `actions/setup-go`'s module + build
+    caches (the module cache is `npm ci`-like — re-verified against `go.sum`; the
+    build cache is disabled on release builds). Per-builder analysis lives in
+    [`build/actions/go/SPEC.md`](../build/actions/go/SPEC.md) "Cache isolation",
+    not in this historical document.
 
 > **Update — 2026-05-17.** Findings 1 and 2 are now **resolved** by
 > [PR #226](https://github.com/TomHennen/wrangle/pull/226) (issue

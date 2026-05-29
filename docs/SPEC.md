@@ -230,7 +230,7 @@ Why opt-out exists. Some adopters run custom verification policies (different `-
 
 ### Build Track level
 
-Every wrangle build-type reusable workflow that produces provenance — `build_and_publish_npm.yml` (npm and pnpm), `build_and_publish_python.yml` (pip and uv), and `build_and_publish_container.yml` — meets **SLSA v1.2 Build L3**. `build_shell.yml` produces no artifact and no provenance, so no Build Track level applies to it.
+Every wrangle build-type reusable workflow that produces provenance — `build_and_publish_npm.yml` (npm and pnpm), `build_and_publish_python.yml` (pip and uv), `build_and_publish_container.yml`, and `build_and_publish_go.yml` — meets **SLSA v1.2 Build L3**. `build_shell.yml` produces no artifact and no provenance, so no Build Track level applies to it.
 
 Wrangle's user-facing docs claim exactly **one** Build Track level per workflow — Build L2 or Build L3 — and never a finer-grained, requirement-by-requirement breakdown. An adopter should not have to reason about individual SLSA L3 requirements ("Provenance is Unforgeable" versus "Isolated") to know what a workflow delivers; the single Build Track level is the claim. The full per-builder analysis behind the L3 verdicts is [`docs/SLSA_L3_AUDIT.md`](SLSA_L3_AUDIT.md).
 
