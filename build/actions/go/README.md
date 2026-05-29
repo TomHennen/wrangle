@@ -108,7 +108,7 @@ Source-stage `gofmt` / `golangci-lint` is tracked in [#194](https://github.com/T
 
 ## Build Track level
 
-Consumed through wrangle's reusable workflow (`build_and_publish_go.yml`), the Go build targets **SLSA v1.2 Build L3**. Two conditions narrow it:
+Consumed through wrangle's reusable workflow (`build_and_publish_go.yml`), the Go build meets **SLSA v1.2 Build L3**. Two conditions narrow it:
 
 - **Reusable consumption only.** Calling the `build/actions/go/*` composites directly from a workflow you author yourself forfeits the build-vs-sign job separation and is **not** a supported L3 path.
 - **GitHub-hosted runners only.** Self-hosted runners invalidate the build-environment isolation the L3 verdict assumes.
