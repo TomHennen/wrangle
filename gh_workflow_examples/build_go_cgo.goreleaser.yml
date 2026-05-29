@@ -1,0 +1,55 @@
+# Copy this to <path>/.goreleaser.yml (or .yaml) ONLY when you actually
+# need cgo AND want multi-arch / cross-OS binaries from a single
+# linux/amd64 runner. Pure-Go projects should use `build_go.goreleaser.yml`
+# next to this file — it has none of the cgo cross-compile machinery
+# and is materially easier to maintain.
+#
+# Why this config exists: the default ubuntu-latest runner that
+# wrangle's `build_and_publish_go.yml` reuses has an amd64-only gcc.
+# `CGO_ENABLED=1` builds for linux/arm64, darwin/amd64, or darwin/arm64
+# fail there with cryptic `# runtime/cgo` assembler errors. Setting
+# `CC=zig cc -target <triple>` per cell makes zig the C cross-compiler
+# for cgo; zig (https://ziglang.org/) ships a single binary that backs
+# cgo for all four common targets.
+#
+# How wrangle helps: pass `install-zig: true` to the
+# build_and_publish_go.yml reusable workflow. Wrangle then installs
+# zig (via mlugg/setup-zig, minisign-verified) before goreleaser
+# runs. You do not need a `before.hooks` install step.
+#
+# Reference: https://goreleaser.com/customization/cgo/
+
+version: 2
+
+builds:
+  - id: example
+    main: ./cmd/example
+
+    # `-trimpath` strips local filesystem paths from the binary —
+    # zero runtime cost, materially improves reproducibility.
+    flags:
+      - -trimpath
+
+    env:
+      - CGO_ENABLED=1
+      - GOFLAGS=-buildvcs=false
+
+      # Per-cell CC/CXX. Goreleaser expands `{{ .Os }}` / `{{ .Arch }}`
+      # per (goos, goarch) build cell. Each supported cell maps to a
+      # zig target triple; if you add an arch not in this lookup, the
+      # `-target` flag expands empty and zig fails loudly.
+      - 'CC=zig cc -target {{ if eq .Os "linux" }}{{ if eq .Arch "amd64" }}x86_64-linux-gnu{{ end }}{{ if eq .Arch "arm64" }}aarch64-linux-gnu{{ end }}{{ end }}{{ if eq .Os "darwin" }}{{ if eq .Arch "amd64" }}x86_64-macos-none{{ end }}{{ if eq .Arch "arm64" }}aarch64-macos-none{{ end }}{{ end }}'
+      - 'CXX=zig c++ -target {{ if eq .Os "linux" }}{{ if eq .Arch "amd64" }}x86_64-linux-gnu{{ end }}{{ if eq .Arch "arm64" }}aarch64-linux-gnu{{ end }}{{ end }}{{ if eq .Os "darwin" }}{{ if eq .Arch "amd64" }}x86_64-macos-none{{ end }}{{ if eq .Arch "arm64" }}aarch64-macos-none{{ end }}{{ end }}'
+
+    goos: [linux, darwin]
+    goarch: [amd64, arm64]
+
+# Pin the checksums filename — wrangle base64-encodes
+# dist/checksums.txt for the SLSA generator's subjects input. Custom
+# names break that hand-off.
+checksum:
+  name_template: "checksums.txt"
+
+archives:
+  - formats: [tar.gz]
+    name_template: "{{ .ProjectName }}_{{ .Version }}_{{ .Os }}_{{ .Arch }}"

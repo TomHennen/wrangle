@@ -42,6 +42,7 @@
 #                         (default: today's date in YYYY-MM-DD UTC)
 
 set -euo pipefail
+set -f
 
 # Resolve the repo to operate on from the current git working directory,
 # NOT from the script's own location. This makes the script safe to run
@@ -79,7 +80,7 @@ elif git -C "$REPO_ROOT" merge-base --is-ancestor "$target_sha" "$default_branch
     # rather than the cleanup branch's name, which would be misleading.
     branch_label="$default_branch"
 else
-    branch_label="$(git -C "$REPO_ROOT" symbolic-ref --short HEAD 2>/dev/null || echo "$default_branch")"
+    branch_label="$(git -C "$REPO_ROOT" symbolic-ref --short HEAD 2>/dev/null || printf '%s' "$default_branch")"
 fi
 date_label="${WRANGLE_PINS_DATE:-$(date -u +%Y-%m-%d)}"
 
@@ -123,20 +124,33 @@ new_suffix="@${target_sha} # ${escaped_branch} ${escaped_date}"
 match='\(^[[:space:]]*-\{0,1\}[[:space:]]*uses:[[:space:]]*'"$escaped_repo"'/[^@[:space:]]*\)@[0-9a-f]\{40\}\([[:space:]]*#.*\)\{0,1\}'
 replace='\1'"$new_suffix"
 
-# Walk every YAML file in the target dir and rewrite in place. We write
-# to a sibling temp file (mktemp on the same filesystem) and atomically
-# rename — `mktemp` defaults to $TMPDIR, often a different mount, where
-# `mv` falls back to copy+unlink (not atomic).
-tmp_file=""
-cleanup() { [[ -n "$tmp_file" && -f "$tmp_file" ]] && rm -f "$tmp_file"; tmp_file=""; }
-trap cleanup EXIT INT TERM
+# Expand the workflow-file glob inside a subshell so the `set +f` toggle
+# is unconditionally scoped — even if collection fails, the parent stays
+# noglob. Files then iterate in the parent with `set -f` still on.
+files=()
+while IFS= read -r f; do
+    files+=("$f")
+done < <(
+    set +f
+    shopt -s nullglob
+    for g in "$REPO_ROOT/$PINS_DIR"/*.yml "$REPO_ROOT/$PINS_DIR"/*.yaml; do
+        [[ -f "$g" ]] && printf '%s\n' "$g"
+    done
+)
 
-shopt -s nullglob
+# Write to a sibling tempfile (same filesystem as the source) and atomic-mv
+# — $TMPDIR is often a different mount where `mv` falls back to copy+unlink.
+tmp_file=""
+# shellcheck disable=SC2317 # invoked indirectly via trap
+cleanup_tmp() {
+    [[ -n "$tmp_file" && -f "$tmp_file" ]] && rm -f "$tmp_file"
+    tmp_file=""
+}
+trap cleanup_tmp EXIT INT TERM
+
 changed=0
 total=0
-for f in "$REPO_ROOT/$PINS_DIR"/*.yml "$REPO_ROOT/$PINS_DIR"/*.yaml; do
-    [[ -f "$f" ]] || continue
-
+for f in "${files[@]}"; do
     # Filter to files that even contain a matching pin.
     if ! grep -q -E "uses:[[:space:]]*${PINS_REPO}/[^@[:space:]]+@[0-9a-f]{40}" "$f"; then
         continue

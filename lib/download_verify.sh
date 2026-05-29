@@ -8,6 +8,7 @@
 #   wrangle_verify_signature  — verify Sigstore signature via cosign
 
 set -euo pipefail
+set -f
 
 # Download a file and verify its SHA-256 checksum.
 # Retries up to 3 times with exponential backoff (1s, 2s, 4s) on transient

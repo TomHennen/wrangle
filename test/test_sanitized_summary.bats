@@ -133,3 +133,62 @@ teardown() {
     [[ "$output" != *"<pre>"* ]]
     [[ "$output" != *"<code>"* ]]
 }
+
+# --- Findings rendering (issue #158) ---
+
+@test "sanitized summary: SARIF-only tool falls back to rendering findings table" {
+    # Tool produced SARIF but no human-readable output.md/output.txt —
+    # the summary must still show WHAT was found (issue #158).
+    mkdir -p "$TEST_DIR/metadata/raw-tool"
+    cp "$ORIG_DIR/test/fixtures/findings.sarif" "$TEST_DIR/metadata/raw-tool/output.sarif"
+
+    output=$("$FORMATTER" "$TEST_DIR/metadata")
+
+    # Details section header is present
+    [[ "$output" == *"## raw-tool Details"* ]]
+    # Rule ID and location appear (sourced from SARIF via sarif_to_md.sh)
+    [[ "$output" == *"TEST-001"* ]]
+    [[ "$output" == *"src/main.c:10"* ]]
+    [[ "$output" == *"src/utils.c:42"* ]]
+    [[ "$output" == *"A test vulnerability was found"* ]]
+}
+
+@test "sanitized summary: SARIF-only tool with no findings produces no findings rows" {
+    mkdir -p "$TEST_DIR/metadata/clean"
+    cp "$ORIG_DIR/test/fixtures/empty.sarif" "$TEST_DIR/metadata/clean/output.sarif"
+
+    output=$("$FORMATTER" "$TEST_DIR/metadata")
+
+    # Status row still shows "No findings"
+    [[ "$output" == *"No findings"* ]]
+    # No table header rendered (no findings to show)
+    [[ "$output" != *"| Severity | Rule | Location | Message |"* ]]
+}
+
+@test "sanitized summary: output.md takes precedence over SARIF fallback" {
+    # When a tool supplies its own output.md (e.g., zizmor/OSV), use it
+    # rather than the generic SARIF fallback.
+    mkdir -p "$TEST_DIR/metadata/with-md"
+    cp "$ORIG_DIR/test/fixtures/findings.sarif" "$TEST_DIR/metadata/with-md/output.sarif"
+    printf '%s' "Tool-specific markdown content" > "$TEST_DIR/metadata/with-md/output.md"
+
+    output=$("$FORMATTER" "$TEST_DIR/metadata")
+
+    [[ "$output" == *"Tool-specific markdown content"* ]]
+    # Generic findings table would include "TEST-001" rows — must not appear.
+    [[ "$output" != *"TEST-001"* ]]
+}
+
+@test "sanitized summary: SARIF fallback sanitizes injection content" {
+    mkdir -p "$TEST_DIR/metadata/injected"
+    cp "$ORIG_DIR/test/fixtures/injection.sarif" "$TEST_DIR/metadata/injected/output.sarif"
+
+    output=$("$FORMATTER" "$TEST_DIR/metadata")
+
+    # The injection fixture has 1 finding with HTML in the message
+    [[ "$output" == *"INJECT-001"* ]]
+    # HTML tags from message must be stripped
+    [[ "$output" != *"<img"* ]]
+    [[ "$output" != *"<script>"* ]]
+    [[ "$output" != *"onerror"* ]]
+}

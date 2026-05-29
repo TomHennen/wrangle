@@ -1,5 +1,6 @@
 #!/bin/bash
 set -euo pipefail
+set -f
 
 # lib/tool_banner.sh — Print a visual banner for tool log attribution.
 #

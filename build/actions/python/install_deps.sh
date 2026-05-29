@@ -9,6 +9,7 @@
 #   use_uv:  "true" for the uv path, anything else for pip
 
 set -euo pipefail
+set -f
 
 if [[ $# -ne 2 ]]; then
     printf 'Usage: %s <path> <use_uv>\n' "$0" >&2

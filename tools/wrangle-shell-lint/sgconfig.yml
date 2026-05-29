@@ -1,0 +1,6 @@
+# ast-grep project config for wrangle-shell-lint.
+#
+# Discovered by `ast-grep scan -c sgconfig.yml`. All rule YAMLs under
+# `rules/` are loaded automatically and applied to every input file.
+ruleDirs:
+  - rules

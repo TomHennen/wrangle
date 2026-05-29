@@ -10,3 +10,13 @@
 | Default policy | `:fail` — workflow security issues block the check |
 | Suppression | `.zizmor.yml` at repo root configures accepted findings. Suppress only documented false positives, not convenience silencing |
 | Known limitations | `continue-on-error: true` on the upstream step is required so the SARIF collection step can access outputs after zizmor finds issues (exit code 14). The "Check results" step in the scan action is the actual pass/fail gate. |
+
+## Install paths
+
+Zizmor has two install paths and they are kept deliberately in sync:
+
+1. **CI (adopter-facing)** — `actions/scan/action.yml` invokes `tools/zizmor/action.yml`, which wraps the upstream `zizmorcore/zizmor-action`. That upstream action handles fetching and verifying the binary in the workflow runner.
+2. **Local test container** — `test/Dockerfile` installs zizmor via `pip --require-hashes` into a managed venv from `tools/zizmor/requirements.txt`, which hash-pins zizmor and is updated by Dependabot (pip ecosystem; see `.github/dependabot.yml`). Pip refuses any artifact whose sha256 isn't in the file — version and hashes always move together. `make zizmor` (and the default `./test.sh`) runs this copy against the wrangle repo so workflow security findings surface in the same `make test` loop as shellcheck and actionlint, not only in CI.
+
+`tools/zizmor/action.yml`'s default `version` input and `tools/zizmor/requirements.txt`'s `zizmor==` pin must track each other; a structural test in `test.bats` enforces this. Bumping one without the other masks regressions between the local pre-push check and CI.
+
