@@ -59,3 +59,30 @@ runs:
         VULNERABLE_CHANGES: ${{ steps.depreview.outputs.vulnerable-changes }}
       run: |
         "$TOOL_DIR/collect_outputs.sh" "${GITHUB_WORKSPACE}/.wrangle/metadata/dependency-review"
+
+    # Mark tool error so check_results.sh fails closed. continue-on-error
+    # above swallows genuine errors (API down, network failure) into the
+    # same outcome as findings; the upstream action distinguishes them by
+    # populating vulnerable-changes on findings and leaving it empty on
+    # error. mark_error.sh writes the marker on the latter. Without it,
+    # an errored run produces an empty SARIF indistinguishable from "no
+    # vulnerable changes" — fail open.
+    #
+    # Known gap: the upstream action's `outcome=success` mode can also
+    # produce nothing useful (Dependency Graph disabled, forked PR without
+    # diff base) — same shape as a clean PR. Gating mark_error.sh on
+    # `always()` would mark every clean PR as error. The proper fix needs
+    # an upstream signal we don't currently have.
+    - name: Mark dependency-review tool error
+      if: always() && steps.depreview.outcome == 'failure'
+      shell: bash
+      # VULNERABLE_CHANGES is upstream JSON, attacker-influenceable via PR
+      # contents — it must reach a parser, never a shell. mark_error.sh
+      # only pipes it into jq; preserve that invariant in future edits.
+      env:
+        TOOL_DIR: ${{ github.action_path }}
+        METADATA_DIR: ${{ github.workspace }}/.wrangle/metadata/dependency-review
+        OUTCOME: ${{ steps.depreview.outcome }}
+        VULNERABLE_CHANGES: ${{ steps.depreview.outputs.vulnerable-changes }}
+      run: |
+        "$TOOL_DIR/mark_error.sh"

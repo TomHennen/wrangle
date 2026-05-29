@@ -123,3 +123,104 @@ create_sarif() {
     run "$ORIG_DIR/lib/check_results.sh" "$METADATA" "bad:info"
     [ "$status" -eq 0 ]
 }
+
+# --- Tool-error marker (issue #222) ---
+#
+# Action-pattern wrappers write a per-tool `error` marker file when the
+# upstream step fails in a way that does NOT correspond to "found issues".
+# check_results.sh must treat the marker as fail-closed for :fail policy,
+# and as informational-only for :info policy. The marker must take
+# precedence over the SARIF count so a fallback empty SARIF (0 results)
+# cannot mask the error.
+
+@test "check_results: error marker on :fail tool exits 1" {
+    mkdir -p "$METADATA/depreview"
+    printf 'API unavailable\n' > "$METADATA/depreview/error"
+    run "$ORIG_DIR/lib/check_results.sh" "$METADATA" "depreview"
+    [ "$status" -eq 1 ]
+    [[ "$output" == *"depreview errored"* ]]
+    [[ "$output" == *"API unavailable"* ]]
+}
+
+@test "check_results: error marker on explicit :fail tool exits 1" {
+    mkdir -p "$METADATA/depreview"
+    printf 'API unavailable\n' > "$METADATA/depreview/error"
+    run "$ORIG_DIR/lib/check_results.sh" "$METADATA" "depreview:fail"
+    [ "$status" -eq 1 ]
+    [[ "$output" == *"depreview errored"* ]]
+}
+
+@test "check_results: error marker on :info tool does not fail" {
+    mkdir -p "$METADATA/scorecard"
+    printf 'scorecard transient failure\n' > "$METADATA/scorecard/error"
+    run "$ORIG_DIR/lib/check_results.sh" "$METADATA" "scorecard:info"
+    [ "$status" -eq 0 ]
+    [[ "$output" == *"scorecard errored"* ]]
+    [[ "$output" == *"informational"* ]]
+}
+
+@test "check_results: error marker wins over empty SARIF (no double-counting)" {
+    # The wrapper synthesises an empty SARIF as a fallback so downstream
+    # steps (Code Scanning upload, step summary) always have a file to
+    # read. check_results.sh must NOT read the empty SARIF as "0 findings"
+    # and pass — it must see the marker and fail.
+    mkdir -p "$METADATA/zizmor"
+    printf 'zizmor crashed\n' > "$METADATA/zizmor/error"
+    jq -n '{"version":"2.1.0","runs":[{"tool":{"driver":{"name":"zizmor"}}, "results":[]}]}' \
+        > "$METADATA/zizmor/output.sarif"
+    run "$ORIG_DIR/lib/check_results.sh" "$METADATA" "zizmor"
+    [ "$status" -eq 1 ]
+    [[ "$output" == *"zizmor errored"* ]]
+    # We did not silently fall back to a finding count.
+    [[ "$output" != *"finding(s)"* ]]
+}
+
+@test "check_results: error marker affects only listed tools" {
+    # Marker for a tool not present in the args is ignored.
+    mkdir -p "$METADATA/other"
+    printf 'noise\n' > "$METADATA/other/error"
+    create_sarif "osv" 0
+    run "$ORIG_DIR/lib/check_results.sh" "$METADATA" "osv"
+    [ "$status" -eq 0 ]
+}
+
+@test "check_results: empty error marker still fails closed" {
+    # A zero-byte marker should still trigger failure with a generic
+    # message — never accidentally read as "no error".
+    mkdir -p "$METADATA/depreview"
+    : > "$METADATA/depreview/error"
+    run "$ORIG_DIR/lib/check_results.sh" "$METADATA" "depreview"
+    [ "$status" -eq 1 ]
+    [[ "$output" == *"depreview errored"* ]]
+}
+
+@test "check_results: error marker + findings still exits 1 with error message" {
+    # If both findings and error marker exist (shouldn't happen, but be
+    # defensive), the marker takes precedence — fail-closed is correct.
+    mkdir -p "$METADATA/zizmor"
+    printf 'zizmor crashed\n' > "$METADATA/zizmor/error"
+    create_sarif "zizmor" 3
+    run "$ORIG_DIR/lib/check_results.sh" "$METADATA" "zizmor"
+    [ "$status" -eq 1 ]
+    [[ "$output" == *"zizmor errored"* ]]
+}
+
+@test "check_results: no error marker and no findings still passes" {
+    # Regression guard: the existing happy path is unchanged.
+    create_sarif "zizmor" 0
+    run "$ORIG_DIR/lib/check_results.sh" "$METADATA" "zizmor"
+    [ "$status" -eq 0 ]
+}
+
+@test "check_results: error marker contents are sanitised before logging" {
+    # The marker contract (docs/SPEC.md, Two Tool Patterns) is "contents
+    # are untrusted, will be sanitised" — wrappers can interpolate raw
+    # upstream output without worrying about HTML/markdown injection
+    # into the Actions log surface.
+    mkdir -p "$METADATA/depreview"
+    printf '<script>alert(1)</script>genuine error\n' > "$METADATA/depreview/error"
+    run "$ORIG_DIR/lib/check_results.sh" "$METADATA" "depreview"
+    [ "$status" -eq 1 ]
+    [[ "$output" != *"<script>"* ]]
+    [[ "$output" == *"genuine error"* ]]
+}
