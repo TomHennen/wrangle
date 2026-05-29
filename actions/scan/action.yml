@@ -89,6 +89,19 @@ runs:
           "$WRANGLE_ROOT/lib/format_sarif_summary.sh" "$WRANGLE_METADATA_DIR" >> "$GITHUB_STEP_SUMMARY"
         fi
 
+    # Per-finding CI-log lines. MUST run before "Check results" so the
+    # finding context appears above the failure line — reordering
+    # silently defeats issue #158.
+    - name: Log findings
+      if: always()
+      shell: bash
+      env:
+        WRANGLE_ROOT: ${{ github.action_path }}/../..
+      run: |
+        # shellcheck source=../../lib/env.sh
+        source "$WRANGLE_ROOT/lib/env.sh"
+        "$WRANGLE_ROOT/lib/log_findings.sh" "$WRANGLE_METADATA_DIR"
+
     # Check results: fail the check if any :fail-policy tool reported
     # findings. Tools with :info policy are noted but don't block.
     - name: Check results
@@ -114,7 +127,7 @@ runs:
     # produced — see issue #189.
     - name: Upload OSV SARIF
       if: always() && contains(inputs.tools, 'osv')
-      uses: github/codeql-action/upload-sarif@95e58e9a2cdfd71adc6e0353d5c52f41a045d225 # v4.35.2
+      uses: github/codeql-action/upload-sarif@7211b7c8077ea37d8641b6271f6a365a22a5fbfa # v4.36.0
       continue-on-error: true
       with:
         sarif_file: ${{ github.workspace }}/.wrangle/metadata/osv/output.sarif
@@ -126,7 +139,7 @@ runs:
 
     - name: Upload Scorecard SARIF
       if: always() && contains(inputs.tools, 'scorecard') && github.event_name != 'pull_request'
-      uses: github/codeql-action/upload-sarif@95e58e9a2cdfd71adc6e0353d5c52f41a045d225 # v4.35.2
+      uses: github/codeql-action/upload-sarif@7211b7c8077ea37d8641b6271f6a365a22a5fbfa # v4.36.0
       continue-on-error: true
       with:
         sarif_file: ${{ github.workspace }}/.wrangle/metadata/scorecard/output.sarif
@@ -134,7 +147,7 @@ runs:
 
     - name: Upload Dependency Review SARIF
       if: always() && contains(inputs.tools, 'dependency-review') && github.event_name == 'pull_request'
-      uses: github/codeql-action/upload-sarif@95e58e9a2cdfd71adc6e0353d5c52f41a045d225 # v4.35.2
+      uses: github/codeql-action/upload-sarif@7211b7c8077ea37d8641b6271f6a365a22a5fbfa # v4.36.0
       continue-on-error: true
       with:
         sarif_file: ${{ github.workspace }}/.wrangle/metadata/dependency-review/output.sarif

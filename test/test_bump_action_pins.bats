@@ -363,6 +363,15 @@ EOF
     grep -qF "# master 2099-12-31" .github/workflows/a.yml
 }
 
+@test "bump_action_pins: source pins the subshell exception-safety pattern" {
+    # The `set +f` toggle for the glob expansion MUST live inside a
+    # subshell so an early exit cannot leak globbing into the parent.
+    # A bare `set +f ... set -f` pair only restores on the happy path.
+    REPO_ROOT="$(cd "$(dirname "$BATS_TEST_FILENAME")/.." && pwd)"
+    grep -q '^[[:space:]]\+set +f' "$REPO_ROOT/tools/bump_action_pins.sh"
+    ! grep -q '^set +f' "$REPO_ROOT/tools/bump_action_pins.sh"
+}
+
 @test "bump_action_pins: only mixed-SHA files are rewritten when some pins already match target" {
     # File with a mix of SHAs — must be rewritten so all pins reach target.
     cat > .github/workflows/mixed.yml <<EOF

@@ -55,6 +55,18 @@ inputs:
                the pipeline is exercised without publishing.
     required: false
     default: "false"
+  install-zig:
+    description: |
+      When true, install zig (via mlugg/setup-zig) before goreleaser
+      runs. zig acts as a drop-in C/C++ cross-compiler so adopters
+      can build cgo binaries for linux/{amd64,arm64} +
+      darwin/{amd64,arm64} from the single linux/amd64 GHA runner
+      using per-cell `CC=zig cc -target <triple>` templates in
+      .goreleaser.yml. Default is false — most projects don't need
+      cgo cross-compile, and zig install costs ~20-30s + ~50MB.
+      See build/actions/go/README.md "Cross-compiling with cgo."
+    required: false
+    default: "false"
 
 outputs:
   version:
@@ -79,9 +91,39 @@ runs:
         INPUT_PATH: ${{ inputs.path }}
         INPUT_CACHE: ${{ inputs.cache }}
         INPUT_PUBLISH: ${{ inputs.publish }}
+        INPUT_INSTALL_ZIG: ${{ inputs.install-zig }}
       run: |
         set -euo pipefail
-        "${{ github.action_path }}/validate_inputs.sh" "$INPUT_PATH" "$INPUT_CACHE" "$INPUT_PUBLISH"
+        "${{ github.action_path }}/validate_inputs.sh" "$INPUT_PATH" "$INPUT_CACHE" "$INPUT_PUBLISH" "$INPUT_INSTALL_ZIG"
+
+    # cgo cross-compile warning — coarse grep over .goreleaser.yml.
+    # Adopters with CGO_ENABLED=1 + a multi-arch / cross-OS matrix who
+    # haven't opted into zig will hit opaque `# runtime/cgo` assembler
+    # errors during goreleaser's per-cell build. cgo_warning.sh surfaces
+    # the cause and names the input that fixes it. Suppressed when
+    # install-zig is already true.
+    - name: Cgo cross-compile warning
+      if: inputs.install-zig != 'true'
+      shell: bash
+      env:
+        INPUT_PATH: ${{ inputs.path }}
+      run: |
+        set -euo pipefail
+        "${{ github.action_path }}/cgo_warning.sh" "$INPUT_PATH"
+
+    # mlugg/setup-zig verifies the zig tarball against ziglang.org's
+    # published minisign signature (master public key
+    # RWSGOq2NVecA2UPNdBUZykf1CCb147pkmdtYxgb3Ti+JO/wCYvhbAb/U). That's
+    # a stronger integrity tier than a hardcoded SHA-256 we'd own in
+    # tools/zig/install.sh — per CLAUDE.md "Install method and
+    # verification", we prefer the canonical-package-manager
+    # equivalent (a wrapper action) when it provides better
+    # verification. Pinned by SHA per third-party-action rule.
+    - name: Install zig (cgo cross-compile toolchain)
+      if: inputs.install-zig == 'true'
+      uses: mlugg/setup-zig@d1434d08867e3ee9daa34448df10607b98908d29 # v2.2.1
+      with:
+        version: "0.16.0"
 
     - name: Compute metadata
       id: metadata

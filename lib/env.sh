@@ -1,5 +1,6 @@
 #!/bin/bash
 set -euo pipefail
+set -f
 
 # lib/env.sh — Set up wrangle environment paths.
 #

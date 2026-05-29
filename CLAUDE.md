@@ -2,169 +2,133 @@
 
 Wrangle is a composable CI/CD security framework for GitHub Actions. Because it is a **supply chain security tool**, its own code must be exemplary. A compromise of wrangle propagates to every adopter.
 
-Read `docs/SPEC.md` before contributing. It is the source of truth for architecture and contracts.
+Read `docs/SPEC.md` before contributing. It is the source of truth for architecture and contracts; this file covers conventions and judgment calls that are not yet mechanically enforced.
 
-## Shell Script Safety
+## How to think about wrangle conventions
 
-Every shell script MUST start with `set -euo pipefail`. Scripts that process arguments from external input MUST also `set -f` (disable globbing) before processing those arguments.
+1. **Mechanical enforcement beats prose.** If a rule can be enforced by a lint, test, or CI check, do that — don't put it here. CLAUDE.md describes only what can't (yet) be mechanically caught.
+2. **Prefer language parsers over grep for code analysis.** AST tools (ast-grep, shellcheck, mvdan/sh, semgrep) beat regex/awk for any code-rule enforcer.
+3. **One sentence per rule.** Why → linked issue or commit message. What → here.
+4. **Read upstream docs before integrating a tool.** Custom code (install.sh, CLI shims, verification logic) is the fallback path, not the default — you can't pick canonical package managers, attestation tiers, or built-in CLI options without looking. When adopting a new tool, the PR description must note what upstream install paths and verification mechanisms exist, and why the chosen one was picked.
 
-All variable expansions MUST be double-quoted: `"$var"`, `"${var}"`, `"$@"`. The only exception is intentional word-splitting with a documented comment explaining why it is safe (e.g., `$WRANGLE_TOOLS` in the composite action, which is validated by the orchestrator's regex).
+## Code review checklist
 
-All scripts MUST pass `shellcheck`. No `# shellcheck disable` without a comment justifying the exception.
+Before approving any PR, ask:
 
-Use `$(command)` not backticks. Use `[[ ]]` not `[ ]` for conditionals. Use `printf` not `echo` for output that may contain user data.
+- Does it adhere to `docs/SPEC.md` — both the explicit contracts and the design intent?
+- Are the architectural choices consistent with the rest of the codebase, or do they invent new patterns without clear justification?
+- Does it introduce needless complexity?
+- Does it make adopters' lives easier, or harder?
+- Is this code we'd be comfortable maintaining a year from now?
+- Do CI checks pass?
 
-## Inline Shell in GitHub Actions
+Then check the diff against the conventions in the rest of this file.
 
-Prefer standalone scripts (in `lib/` or `tools/<name>/`) over inline `run:` shell blocks in action YAML files. Inline shell is harder to test, harder to lint, and harder to review. If a `run:` block exceeds ~5 lines or contains logic (conditionals, loops), extract it to a script and call that script from the `run:` block instead.
+**Re-verification by the original reviewer.** After review findings are addressed, the same reviewer verifies the fixes.
 
-## GitHub Actions Expression Injection
+## Comments
 
-NEVER interpolate `${{ inputs.* }}`, `${{ github.event.* }}`, or any attacker-controllable expression directly in a `run:` block. Always pass these through `env:` first:
+Comments should focus on the *why* and avoid the discussion. Explain hidden constraints or non-obvious decisions; don't restate the diff, narrate history, or reference PR numbers, review threads, or comment URLs. One line max unless a hidden constraint really requires more.
 
-```yaml
-# CORRECT
-env:
-  VALUE: ${{ inputs.tools }}
-run: echo "$VALUE"
+## Shell scripts
 
-# WRONG — enables injection
-run: echo "${{ inputs.tools }}"
-```
+Every shell script MUST start with the exact preamble `set -euo pipefail` followed by `set -f` (disable globbing). Stricter supersets (`set -Eeuo pipefail`) and equivalent decompositions (`set -e -u -o pipefail`) are rejected — one canonical form. If you need ERR trap inheritance, add `set -E` on its own line after the preamble. Scripts that intentionally need globbing must wrap it in `set +f` / `set -f` with a comment, scoped as narrowly as possible. Sourced libs that toggle `set +f` MUST restore `set -f` before returning.
 
-This applies to all workflow files, composite actions, and example workflows in `gh_workflow_examples/`.
+All variable expansions MUST be double-quoted. All scripts MUST pass `shellcheck` — no `# shellcheck disable` without a justifying comment. Use `$(command)` not backticks. Use `[[ ]]` not `[ ]` for conditionals. Use `printf` not `echo` for output that may contain user data.
 
-## Action Reference Pinning
+Don't `curl | sh` — all binary downloads go through `lib/download_verify.sh`. These rules are mechanically enforced by `tools/wrangle-shell-lint/` (WSL001–005).
+
+## GitHub Actions
+
+- **Inline shell ≤ ~5 lines.** Longer or anything with logic → extract to a script.
+- **No expression injection.** NEVER interpolate `${{ inputs.* }}`, `${{ github.event.* }}`, or any attacker-controllable expression directly in a `run:` block — always thread through `env:` first.
+- **No copy-paste across workflows.** If the same `run:` block or step sequence appears in more than two workflow files, extract to a composite or shared script. Drift between copies is a class of bug, not a one-off.
+
+## Action reference pinning
 
 | Context | Required format |
-|---------|----------------|
-| Third-party actions in wrangle workflows | Full commit SHA with version comment: `uses: actions/checkout@<sha> # v4.2.2` |
-| SLSA generator (exception) | Release tag only: `@v2.1.0` — the generator requires tag invocation for OIDC provenance verification ([slsa-verifier#12](https://github.com/slsa-framework/slsa-verifier/issues/12)) |
+|---|---|
+| Third-party actions | Full commit SHA with version comment: `uses: actions/checkout@<sha> # v4.2.2` |
+| SLSA generator (exception) | Release tag only: `@v2.1.0` ([slsa-verifier#12](https://github.com/slsa-framework/slsa-verifier/issues/12)) |
 | Wrangle's own actions in examples | Release tag: `@v0.1.0` |
-| Wrangle internal cross-references (in reusable workflows) | Full SHA: `TomHennen/wrangle/actions/scan@<sha>` (temporary — see #136) |
-| Wrangle internal cross-references (elsewhere) | Relative path: `./actions/scan` |
+| Wrangle internal cross-references in reusable workflows | Full SHA with `# main` or `# vX.Y.Z` comment (never a branch name — zizmor flags it). Temporary — see #136 |
+| Wrangle internal cross-references elsewhere | Relative path: `./actions/scan` |
 
-**Temporary: hardcoded self-references in reusable workflows.** GitHub resolves `uses: ./` relative to the caller's workspace, not the reusable workflow's repo. This means `uses: ./actions/scan` breaks for any external caller. Until GitHub ships the `$/` syntax (#136), reusable workflows use fully-qualified SHA-pinned refs (`TomHennen/wrangle/actions/scan@<sha>`). When composite actions change, update the SHA in the reusable workflow in the same commit. Non-reusable-workflow contexts (composite actions referencing other local actions) can still use `./` paths.
+`@main` MUST NOT appear in any `uses:` line, including examples and docs. Dependabot manages third-party action updates; tool binary versions are manual. After merging a PR (or a batch) that changes a referenced composite action, bump the SHA in any reusable-workflow self-references — `tools/bump_action_pins.sh` (or `make bump-action-pins`) handles this and writes the `# main` comment correctly.
 
-The `@main` ref MUST NOT appear in any `uses:` line in the repo, including examples and docs.
+## Install method and verification (see SPEC.md §Install Script Interface for the full contract)
 
-Dependabot manages GitHub Actions dependency updates. Tool binary versions are managed separately via `make update-tool` because Dependabot cannot update hardcoded checksums.
+**Strong default: use the canonical package manager.** If upstream publishes via pip / cargo / npm / go install / brew with adequate verification, use it. Binary + attestation and binary + sha256 are fallbacks for tools that publish no package-manager release, not alternatives to choose between. When upstream offers multiple package managers, prefer in order: (1) the one upstream's install docs recommend first, (2) the one with attestation support, (3) the one that doesn't add transitive runtime deps to the test image.
 
-## Per-Tool Directory Structure
+**Integrity tier (within whichever install method):** SLSA provenance > GitHub release attestation > Sigstore signature > hash-pinned package manager (`--require-hashes`, lockfile) > hardcoded SHA-256 against a downloaded binary. NEVER fall back to a weaker tier if a stronger one fails.
 
-Every tool lives in `tools/<name>/`. There are two patterns:
+**Python tools:** pin via `tools/<tool>/requirements.txt` (`package==version --hash=sha256:...` for the direct dep plus all transitives), install into a `python3 -m venv` with `pip install --require-hashes`, and let Dependabot's `pip` ecosystem bump version + hashes atomically.
 
-**Adapter pattern** (standalone binaries, e.g., OSV-Scanner):
-```
-tools/<name>/
-├── install.sh    # Downloads + verifies the tool binary
-├── adapter.sh    # Runs the tool, produces SARIF
-└── test.bats     # Tests for both scripts
-```
+**Go modules via `go install`.** Accepted only when no upstream binary release exists: pin to a specific semver tag, install the Go toolchain itself via `lib/download_verify.sh`, and assert `GOPROXY=https://proxy.golang.org,direct GOSUMDB=sum.golang.org` at the install site so [sum.golang.org](https://sum.golang.org/) verification isn't environment-conditional. Note: the sumdb attests immutability of the first-seen `(module, version)`, NOT publisher authenticity.
 
-**Action pattern** (tools with official GitHub Actions, e.g., Zizmor, Scorecard):
-```
-tools/<name>/
-├── action.yml    # Composite action wrapping upstream action
-└── test.bats     # Structural tests
-```
+**Convenience is not a fallback justification.** "We'd have to install one more tool in the image" or "the attestation flow is awkward at build time" are NOT reasons to drop to a weaker tier. The fallback rule is "stronger verification is genuinely unavailable upstream" — document *why* the stronger tier doesn't exist, not why it'd be inconvenient.
 
-Everything for one tool lives in one directory. To add a new tool, copy an existing `tools/<name>/` directory matching the appropriate pattern and adapt it. Then wire it into `actions/scan/action.yml`.
+All downloads in custom install scripts go through `lib/download_verify.sh`. Install to `$WRANGLE_BIN_DIR`, never `/usr/local/bin`. Be idempotent. Use atomic `mv` (not `cp`).
 
-## Adapter Contract
+**Don't add heavyweight runtimes for single-use tasks.** Use the smallest dependency that does the job — `unzip` over `python3` for archives, `jq` over a python script for JSON, etc. Adding a language runtime to the test image just to run a one-liner expands the supply-chain surface for no gain.
 
-Adapters take exactly two positional arguments: `<src_dir>` (read-only) and `<output_dir>` (writable). They MUST:
-- Write `output.sarif` (SARIF 2.1.0) to `output_dir`
-- Exit 0 (no findings), 1 (findings found), or 2 (tool error)
-- NOT write files outside `output_dir`
-- NOT access secrets (environment is stripped by the orchestrator)
-- Check `jq` exit codes — malformed SARIF must cause exit 2, not silent success
+## Pins drift across files
 
-## Install Script Contract
+If a version, checksum, SHA, or other pin literal lives in more than one file, either consolidate to a single source or add a regression test that diffs the locations and fails on divergence. This applies to:
 
-Install scripts MUST:
-- Use `lib/download_verify.sh` for all downloads (never raw `curl | sh`)
-- Verify integrity using the strongest method the upstream tool supports: SLSA provenance > Sigstore signature > hardcoded SHA-256 checksum. Provenance or signature verification is sufficient on its own — tools with SLSA/Sigstore do not need additional checksums.
-- **NEVER fall back to a weaker verification method if a stronger one fails.** If a tool is configured for SLSA provenance verification and it fails, the install MUST abort. A verification failure may be a supply chain attack.
-- Install to `$WRANGLE_BIN_DIR` (default: `$RUNNER_TEMP/.wrangle/bin`), never `/usr/local/bin`
-- Be idempotent (skip if correct version already installed)
-- Use atomic `mv` (not `cp`) to prevent TOCTOU races
+- A tool version pinned in both the local install path (e.g. `tools/<name>/requirements.txt`, `test/Dockerfile`) and `tools/<name>/action.yml`
+- A version default in a reusable workflow, its composite, and an env coalesce
+- An adapter helper duplicated across multiple per-tool install scripts
 
-For tools without SLSA provenance or Sigstore signatures, checksums are hardcoded in the install script (not downloaded alongside the binary). A version bump and its checksum update MUST be in the same commit.
+Don't rely on humans remembering to update both places.
 
-## Path Resolution
+## Adapter contract (see SPEC.md §Adapter Script Interface for the full contract)
 
-The composite action at `actions/scan/action.yml` resolves the orchestrator via `${{ github.action_path }}/../../run.sh`. This means:
-- The scan action MUST remain at depth `actions/scan/` (two directories below root)
-- Moving it to a different depth breaks all adopters
-- If the layout changes, update paths in the same commit
+Adapters take `<src_dir>` (read-only) and `<output_dir>` (writable), write `output.sarif` (SARIF 2.1.0), exit 0 (no findings) / 1 (findings) / 2 (tool error). Do not write outside `output_dir`. Do not access secrets (env is stripped by the orchestrator). `jq` exit codes are checked — malformed SARIF MUST cause exit 2, not silent success.
 
-All shell scripts resolve paths relative to their own location using `SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"`, never relative to `$PWD`.
+## Per-tool directory layout
+
+Tools live in `tools/<name>/`. Three patterns: **adapter** (`install.sh` + `adapter.sh` + `test.bats`, wired into `actions/scan/action.yml`) for scan tools; **action** (`action.yml` + `test.bats`) for tools with official GitHub Actions; **developer tooling** (whatever the tool needs + `test.bats`) for things used only during development, not by adopters (e.g., `bump_action_pins`, `wrangle-shell-lint`).
+
+## Path resolution
+
+Scripts resolve paths relative to their own location via `SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"`, never relative to `$PWD`. The scan action at `actions/scan/` must remain at that depth — moving it breaks all adopters.
 
 ## Testing
 
-### Running tests
+Always run `./test.sh` before pushing — CI runs the same checks. `./test.sh quick` skips zizmor for inner-loop iteration. Every adapter and install script gets a `test.bats`. See SPEC.md §Testing Strategy for the test-layer breakdown.
 
-```bash
-./test.sh          # Run all tests in Docker (preferred — no local deps needed)
-make test          # Run locally if you have actionlint, shellcheck, bats installed
-```
-
-Always run `./test.sh` before pushing. CI runs the same checks.
-
-### Test expectations
-
-Every adapter and install script gets a `test.bats`. Write tests before or alongside the implementation. See `docs/SPEC.md` §Testing for the full test layer breakdown (actionlint, shellcheck, bats, SARIF validation) and fixture requirements.
-
-### CI testing workflow
-
-PR CI runs four checks: unit tests (`test.yml`), source scanning (`check_source_change.yml`), integration tests (`integration-test.yml`, which exercises reusable workflows cross-repo via the companion repo), and the Kusari Inspector.
-
-**Before requesting review:**
-- Confirm CI passes on the PR — check the Actions tab, not just local tests
-- For tool changes: inspect the step summary (markdown table) and the `wrangle-scan-results` artifact in the CI logs to verify correct SARIF output and metadata
-- If CI fails on something local tests don't catch, investigate — it may reveal a real environment difference
-
-## Supply Chain Discipline
+## Supply chain discipline
 
 - **No auto-merge of dependency updates.** New upstream tool versions are adopted after a delay (aim for 7 days) to let the community discover supply chain attacks before wrangle amplifies them.
 - **No `curl | sh` anywhere.** All binary downloads go through `lib/download_verify.sh`.
-- **No downloading checksums from the same source as binaries.** When checksums are used (tools without provenance/signatures), they are hardcoded. Tool version + checksum updates are always a single atomic commit.
+- **No downloading checksums from the same source as binaries.** When checksums are used, they are hardcoded; version + checksum updates are always a single atomic commit.
+- **Avoid linter / scanner suppressions; do it right.** If `shellcheck`, `actionlint`, `zizmor`, or a similar tool flags something, the default is to restructure the code so the finding goes away — not to add `# zizmor: ignore[...]` / `# shellcheck disable=...`. Suppressions are escape hatches for genuinely-false positives only, and carry a one-line justification.
 
 ## Dogfooding
 
-Wrangle uses its own workflows. If a wrangle feature does not work on the wrangle repo itself, it is broken. See `docs/SPEC.md` §Dogfooding for the full list of requirements.
+Wrangle uses its own workflows. If a wrangle feature does not work on the wrangle repo itself, it is broken.
 
 ## Permissions
 
-Workflows request minimum required permissions. Never use blanket `permissions: write-all`. The standard set for source scanning is:
+Workflows request minimum required permissions. Never blanket `permissions: write-all`. The standard set for source scanning is `actions: read`, `contents: read`, `security-events: write`. Add permissions only as needed, with a comment explaining why.
 
-```yaml
-permissions:
-  actions: read
-  contents: read
-  security-events: write
-```
+## Input validation
 
-Add permissions only as needed, with a comment explaining why.
-
-## Input Validation
-
-The orchestrator validates tool names against `^[a-z][a-z0-9_-]*$`. This prevents path traversal, shell injection, and glob expansion. Any new input that flows into a shell command or file path MUST be validated against a strict allowlist or regex before use.
+The orchestrator validates tool names against `^[a-z][a-z0-9_-]*$`. Any new input that flows into a shell command or file path MUST be validated against a strict allowlist or regex before use.
 
 ## Secrets
 
-- Adapters do NOT receive secrets. The orchestrator strips sensitive environment variables.
-- If a tool needs an authenticated API, use the `WRANGLE_EXTRA_` prefix mechanism (see SPEC.md adapter environment section).
-- Never log secrets. Never write secrets to SARIF, step summaries, or artifacts.
-- `GITHUB_TOKEN` is only used where strictly necessary (e.g., Scorecard, container registry login) and is never passed to adapter scripts.
-- The integration-test companion repo (see `test/integration/SPEC.md`) MUST NOT hold release signing keys, Cosign credentials, cross-repo tokens, GitHub App credentials, or SSH keys. Its only permitted secrets are `GITHUB_TOKEN` (scoped to the companion repo) and whatever each wrangle reusable workflow requires at dispatch time.
+Adapters do NOT receive secrets (env stripped by the orchestrator). If a tool needs an authenticated API, use the `WRANGLE_EXTRA_` prefix mechanism (see SPEC.md). Never log secrets. `GITHUB_TOKEN` only where strictly necessary. The integration-test companion repo (see `test/integration/SPEC.md`) MUST NOT hold release signing keys, Cosign credentials, cross-repo tokens, GitHub App credentials, or SSH keys.
 
-## Contributing Process
+## Contributing process
 
-- Branch from `main`, use descriptive branch names
-- All PRs must pass CI (`make test` via GitHub Actions)
-- All shell scripts must pass shellcheck with zero warnings
-- All action YAML must pass actionlint
-- Spec changes (`docs/SPEC.md`) require discussion — open an issue first
-- Update `AGENTS.md` if the adoption interface changes
+- Branch from `main`, descriptive branch names.
+- All PRs must pass CI (`make test` via GitHub Actions); shellcheck cleanly; actionlint cleanly.
+- Spec changes (`docs/SPEC.md`) require discussion — open an issue first.
+- Update `AGENTS.md` if the adoption interface changes.
+- For personal-environment preferences that shouldn't be checked in (your local test command, your shell, your editor's quirks), use `CLAUDE.local.md` — it's git-ignored.
+
+## Open work and future ideas
+
+Open conventions still missing mechanical enforcement, scoped feature work, and design ideas live as GitHub issues. Search there before filing a new issue or scoping a new PR — the work you want to do may already be tracked.
