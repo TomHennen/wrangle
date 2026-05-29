@@ -86,7 +86,7 @@ Pushing the build into a script file delegates *all* of that complexity to the a
 - Wrangle has one wire-format question — "does this script file exist at the declared path?" — instead of N escaping questions.
 - The provenance gets something more meaningful than a command string: the script file is in the source tree, so the recorded source commit is sufficient to recover what built the artifact. Reviewers can `git show <commit>:wrangle/build.sh` rather than parse a command field out of provenance metadata.
 
-This sidesteps Tom's L40 question entirely: there is no DSL to design.
+This sidesteps the "why no `command:` DSL?" question entirely: there is no DSL to design.
 
 ### Build tool
 
@@ -106,7 +106,7 @@ The adopter's `build.sh`. By definition there is no canonical pick — that is w
 
 **SLSA L3 provenance via `slsa-framework/slsa-github-generator/.github/workflows/generator_generic_slsa3.yml`.** Wrangle's reusable workflow computes SHA-256 over each declared `artifact-paths` entry, base64-encodes them in the `<sha256> <name>` shape the generator expects, and hands them to the generator as `base64-subjects`. Same construction python and Pattern-B Go use; same L3 ceiling.
 
-**L3 isolation, restated.** The generator runs in an isolated reusable workflow → that's where the L3 envelope is minted. Wrangle's reusable workflow is what invokes `build.sh` → wrangle's hygiene becomes part of what the envelope transitively certifies. (Addresses the L29 concern that the original draft was too dismissive of wrangle's role here.)
+**L3 isolation, restated.** The generator runs in an isolated reusable workflow → that's where the L3 envelope is minted. Wrangle's reusable workflow is what invokes `build.sh` → wrangle's hygiene becomes part of what the envelope transitively certifies. The "L3 attaches to the signing path, not to the build" framing is true upstream but understates wrangle's role: wrangle *is* the workflow in the signing path, so the hygiene wrangle layers in becomes part of what the signed envelope attests.
 
 ### Authentication
 
@@ -128,7 +128,7 @@ It is **not the v0.1 pick.** Adopting a different upstream interface for one bui
 
 An adopter could wire `generator_generic_slsa3.yml` directly without wrangle. The starter workflow at [`actions/starter-workflows`](https://github.com/actions/starter-workflows/blob/main/ci/generator-generic-ossf-slsa3-publish.yml) shows that path. Wrangle's generic build type adds, on top of that:
 
-- **Test attestation.** `test.sh` is a separate input from `build.sh`, with separate failure semantics. When the workflow succeeds, the metadata records that tests ran — a downstream consumer reading wrangle's metadata directory sees that the build was tested, not just built. (Addresses Tom's L38: tests should not be bundled into the build command.) The starter workflow has no notion of tests.
+- **Test attestation.** `test.sh` is a separate input from `build.sh`, with separate failure semantics. When the workflow succeeds, the metadata records that tests ran — a downstream consumer reading wrangle's metadata directory sees that the build was tested, not just built. Tests are deliberately kept out of the build command itself so that "was this build tested?" is independently legible in the metadata rather than buried inside an opaque shell script. The starter workflow has no notion of tests.
 - **SBOM and vulnerability scan.** `syft` over the workspace, `osv-scanner` over the SBOM. Both run for free; the starter has neither.
 - **Hash-format correctness.** Wrangle owns the bare-filename hashing pattern that makes `slsa-verifier verify-artifact` work without each adopter rediscovering the `cd dist && sha256sum *` trick (see python SPEC step 5).
 - **Automated artifact enumeration.** The adopter declares `artifact-paths` once. Wrangle wires that single declaration into both the artifact upload and the base64-subjects fed to the generator. Adding a new artifact is one edit, not two.
@@ -158,6 +158,7 @@ Generic's threat model is sharper than python's or container's because the build
 **Assumed-trusted (out of scope for wrangle to validate):**
 - The *content* of `build.sh`, `test.sh`, and `lint.sh` themselves. These live in the adopter's repo, get source-stage shellcheck via the existing scan workflow, and are reviewed at the same gate as any other code change. Wrangle does not statically analyze the build's semantics — that's the adopter's job.
 - The toolchain `install-deps.sh` installs once the install method itself passes wrangle's hygiene check. Generic cannot meaningfully validate "is this compiler trustworthy"; that's why it produces L3 provenance, not perfect security.
+- The **verification tier** of whatever `install-deps.sh` uses to fetch packages, when it isn't `curl … | sh`-shaped. Wrangle's own tooling follows the CLAUDE.md hierarchy (canonical package manager with the strongest verification upstream supports — SLSA provenance > release attestation > Sigstore > hash-pinned package manager > raw SHA-256), but an adopter `install-deps.sh` that runs `pip install foo` without `--require-hashes`, `go install example.com/foo@latest` (unpinned), or `npm install bar` against a non-lockfile-pinned tree inherits the same supply-chain exposure wrangle avoids for its own tools. Opting into generic means owning this hygiene in the adopter's own script.
 
 **Explicitly out of scope (until research lands):**
 - Sandboxing adopter scripts (no namespace isolation, no egress control beyond what GHA itself offers).
@@ -168,7 +169,7 @@ The picks here let wrangle commit to "L3 + workspace SBOM + vulnscan + script-hy
 
 **Honest caveat on "transitively certified by the L3 envelope."** Lines 12-14 and the value-add list ("Build hygiene certified by the L3 envelope") lean on the framing that wrangle's hygiene becomes part of what the SLSA envelope attests because wrangle's reusable workflow is what the generator records as `workflow_ref`. That is true **only for hygiene that runs inside the attested workflow context — i.e., inside the reusable workflow on the path between source checkout and provenance generation.** It is not automatically true for every mechanism that might land for `curl … | sh` blocking. Where each candidate mechanism sits:
 
-- **Source-stage `shellcheck` with a custom rule** runs in the source-scan workflow, *before* the attested build workflow ever runs. It is reviewed at the same gate as the source (good), but is not transitively in the L3 envelope. The custom-rule infrastructure for this is already in flight as **wrangle-shell-lint** (PR [#243](https://github.com/TomHennen/wrangle/pull/243), rules WSL001–WSL005) — `curl … | sh`-style detection would be a new WSL rule rather than greenfield tooling.
+- **Source-stage `shellcheck` with a custom rule** runs in the source-scan workflow, *before* the attested build workflow ever runs. It is reviewed at the same gate as the source (good), but is not transitively in the L3 envelope. The custom-rule infrastructure for this already exists as **wrangle-shell-lint** at `tools/wrangle-shell-lint/` (rules WSL001–WSL005) — `curl … | sh`-style detection would be a new WSL rule rather than greenfield tooling.
 - **AST scan of `wrangle/*.sh` before invocation, inside the attested workflow** — yes, this is transitively in the envelope. The mechanism here is the same wrangle-shell-lint engine — running the AST scan inside the attested workflow (in addition to or instead of at source-gate time) is what moves it into the L3 envelope; the rule definitions can be shared between the two invocation points. With the multi-job topology picked above, the scan must run in **both** `checks` (before `install-deps.sh` first runs) and `release` (before `install-deps.sh` is re-run) to be load-bearing for the build job that produces the artifact. Single-job topologies would only need it once.
 - **Runtime egress allowlisting** requires runner-level enforcement (e.g., a StepSecurity-style harness) that wrangle doesn't currently ship. Not in the envelope today.
 
@@ -176,11 +177,13 @@ The pragmatic framing wrangle should adopt until [#183](https://github.com/TomHe
 
 ## Step sequence (sketch)
 
-The Go build type (PR [#238](https://github.com/TomHennen/wrangle/pull/238), merged 2026-05-24) split its composite action into **multiple jobs with per-job permission scopes** rather than one composite under a single job — a real defense-in-depth concern: `go test` runs adopter test code and shouldn't hold `contents: write`. Generic should follow that shape, because `install-deps.sh`, `test.sh`, and `lint.sh` are all adopter-controlled shell scripts that wrangle invokes; running them in the same job as `build.sh` (which is followed by the upload-assets cascade that requires `contents: write`) defeats the same isolation.
+The Go build type at `build/actions/go/` splits its composite action into **multiple jobs with per-job permission scopes** rather than one composite under a single job — a real defense-in-depth concern: `go test` runs adopter test code and shouldn't hold `contents: write`. Generic should follow that shape, because `install-deps.sh`, `test.sh`, and `lint.sh` are all adopter-controlled shell scripts that wrangle invokes; running them in the same job as `build.sh` (which is followed by the upload-assets cascade that requires `contents: write`) defeats the same isolation.
 
 Sketch — a reusable workflow `.github/workflows/build_and_publish_generic.yml` composed of **six jobs**, mirroring the topology Go shipped (`guard` → `gate` → `checks` → `release` → `provenance` → `verify`). Both `guard` and `gate` are their own jobs because `permissions: {}` cannot be set on a composite step — only on a job.
 
-**Topology-duplication flag (revisit before generic ships).** This same six-job topology (`guard` → `gate` → `checks` → `release` → `provenance` → `verify`) is now present in `build_and_publish_go.yml` (#238), and the python and npm reusable workflows carry a near-identical shape modulo per-build-type composite swaps. With generic adding a fourth copy, the CLAUDE.md "no copy-paste across workflows — if the same step sequence appears in more than two workflow files, extract to a composite" rule is squarely triggered. Phase 2 should revisit before generic's reusable workflow lands: the leading candidate is a parameterized reusable workflow (or a "topology" composite) that owns the six-job skeleton and per-job permissions, with each build type plugging in its own `checks`/`release`/`verify` composites. Filed under #266. Not blocking Phase 1, but the longer this drift continues the more painful the eventual extraction.
+**Topology-duplication flag and sequencing pick.** The six-job topology (`guard` → `gate` → `checks` → `release` → `provenance` → `verify`) is now present in `build_and_publish_go.yml`, and the python and npm reusable workflows carry a near-identical shape modulo per-build-type composite swaps. With generic, that becomes a fourth copy — the CLAUDE.md "no copy-paste across workflows: if the same step sequence appears in more than two workflow files, extract to a composite" rule is squarely triggered. The leading extraction candidate is a parameterized reusable workflow (or a "topology" composite) that owns the six-job skeleton and per-job permissions, with each build type plugging in its own `checks`/`release`/`verify` composites; filed under #266.
+
+**Sequencing pick: ship generic as the fourth copy, then extract the topology in Phase 2 as immediate follow-on work** — not "extract first, then build generic on the shared skeleton." Rationale: four concrete build types are better inputs to the abstraction than three, the extraction is its own substantial design exercise that shouldn't block adopter-visible generic progress, and `tools/wrangle-shell-lint/` plus the integration suite already mean drift between the four copies is detectable. The trade-off, named explicitly so future readers see it: this accepts one round of four-way copy-paste living in `main`, which must be paid down promptly in Phase 2 or the extraction gets steadily harder as the four copies diverge.
 
 **Job: `guard` (`permissions: {}`)** — preflight guard. Refuses to run under any trigger that lets attacker-controlled commits execute with the caller's secrets (`pull_request_target`, `workflow_run` from a forked PR). Must stay first under `jobs:`. This matters more for generic than for Go: generic is the build type most likely to attract `pull_request_target` / `workflow_run` invocation footguns precisely because adopters reach for it when their flow doesn't fit a canonical shape and try triggers they shouldn't. Reuses the existing `actions/preflight_guard` composite. Omitting this would make v0.1 a coin-flip on whether the implementer adds it.
 
@@ -214,7 +217,7 @@ build/actions/generic/
 ├── release/action.yml    # install-deps (re-run) + build + validate outputs + hash + SBOM + upload
 └── verify/action.yml     # slsa-verifier
 ```
-(`guard` and `gate` reuse existing composites under `actions/`, not generic-specific ones.) Phase 2 picks the exact split; this sketch reflects what Go actually shipped, not the pre-#238 single-composite assumption.
+(`guard` and `gate` reuse existing composites under `actions/`, not generic-specific ones.) Phase 2 picks the exact split; this sketch reflects the multi-job split the Go build type at `build/actions/go/` actually shipped, not the single-composite shape earlier drafts assumed.
 
 ### Reusable workflow outputs
 
@@ -271,7 +274,7 @@ Phase 2 confirms the final directory shape against #266; the rest of this doc as
 
 ## Open questions
 
-All Phase 2 follow-ups from this doc are tracked in **[#266](https://github.com/TomHennen/wrangle/issues/266)** as a single tracking issue (per the precedent on PR #179 review thread — research-doc follow-ups need their own issue refs or they rot). The `curl … | sh` blocking mechanism is tracked separately at **[#183](https://github.com/TomHennen/wrangle/issues/183)** since it predates this research and has its own scope.
+All Phase 2 follow-ups from this doc are tracked in **[#266](https://github.com/TomHennen/wrangle/issues/266)** as a single tracking issue — research-doc follow-ups need their own issue refs or they rot inside the doc that flagged them. The `curl … | sh` blocking mechanism is tracked separately at **[#183](https://github.com/TomHennen/wrangle/issues/183)** since it predates this research and has its own scope.
 
 Summary, with the v0.1 pick where one was made:
 
