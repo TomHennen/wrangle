@@ -1141,7 +1141,16 @@ and a config layer doesn't reduce the irreducible per-adopter inputs
 (`path`, `imagename`, `release-events`).
 
 - [ ] Go build type follow-ups: validation-only sub-shape ([#239](https://github.com/TomHennen/wrangle/issues/239)), PR-build cost knob ([#245](https://github.com/TomHennen/wrangle/issues/245)), `govulncheck-version` input ([#246](https://github.com/TomHennen/wrangle/issues/246)), Go workflow reliability ([#254](https://github.com/TomHennen/wrangle/issues/254)), cgo + multi-arch goreleaser ([#259](https://github.com/TomHennen/wrangle/issues/259))
-- [ ] [Ampel](https://github.com/carabiner-dev/ampel) integration — policy verification layer that evaluates attestations against CEL-based policies and produces Verification Summary Attestations. Scoping: [#247](https://github.com/TomHennen/wrangle/issues/247)
+- [ ] [Ampel](https://github.com/carabiner-dev/ampel) integration — policy
+      verification layer that evaluates attestations against CEL-based
+      policies and produces Verification Summary Attestations. Scoping in
+      [`docs/ampel_research.md`](./ampel_research.md) and
+      [#247](https://github.com/TomHennen/wrangle/issues/247); each phase
+      lands as a PR referencing #247. Known limitation: Phases 1–7 keep the build
+      workflow and the verifier in the same GitHub Actions job, which is
+      not strictly SLSA L3-compliant for builder/verifier separation. A
+      separate verifier service (Option C in the scoping doc) is a
+      post-v1.0 work item.
 - [ ] Adopter-side `verify-artifact` action — closes the runner-isolation gap between wrangle's `verify` job and the adopter's publish job (today each download is independent, so the publish job has no machine-checked guarantee its bytes match the attestation). Verifies whatever the build produced (SLSA provenance or VSA) — not tied to Ampel. Downstream-consumer verification is covered by upstream `slsa-verifier` plus a docs page, not a wrapper. Tracking: [#198](https://github.com/TomHennen/wrangle/issues/198) (to be rescoped to adopter-side surface only).
 - [ ] Bundle wrangle attestations into a single in-toto JSONL across all build types (replacing per-build `python-<shortname>.intoto.jsonl` etc.). Tracking: [#181](https://github.com/TomHennen/wrangle/issues/181)
 - [ ] Action-pattern source-scan tools must fail closed when the underlying tool errors (currently fail open). Tracking: [#222](https://github.com/TomHennen/wrangle/issues/222)
