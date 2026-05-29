@@ -1,10 +1,5 @@
 # Integrating Ampel into wrangle: Design Analysis and Implementation Plan
 
-> **Revision 2 — 2026-05-26.** Corrects external claims against upstream
-> sources, fixes in-repo citation drift, resolves internal contradictions,
-> and adds the SPEC.md edit required by issue #247.
-> See [Revision history](#revision-history) for the diff against revision 1.
-
 ## Decisions (issue #247 acceptance criteria)
 
 | # | Decision | Rationale |
@@ -18,7 +13,7 @@ Phasing is in [§8](#8-migration-from-slsa-verifier); the per-phase what-ships t
 
 ## TL;DR
 
-- **Adopt AMPEL as wrangle's internal verifier and VSA issuer, but never put it on the consumer trust contract.** The signed SLSA Verification Summary Attestation (`predicateType: https://slsa.dev/verification_summary/v1`) is the only thing adopters trust; they verify it with `cosign verify-blob-attestation --new-bundle-format`, no AMPEL install required. This is the architectural split issue #247 proposed; revision 2 commits to it.
+- **Adopt AMPEL as wrangle's internal verifier and VSA issuer, but never put it on the consumer trust contract.** The signed SLSA Verification Summary Attestation (`predicateType: https://slsa.dev/verification_summary/v1`) is the only thing adopters trust; they verify it with `cosign verify-blob-attestation --new-bundle-format`, no AMPEL install required. This is the architectural split issue #247 proposed.
 - **AMPEL is the right tool for the multi-attestation job slsa-verifier cannot do**, but it is young (carabiner-dev/ampel, v1.2.1 released 2026-04-22, 49 stars at time of writing, primarily maintained by Adolfo García Veytia / @puerco, Carabiner Systems). It natively produces VSAs, supports sigstore signing, has a published GitHub Action, and a working end-to-end demo (`carabiner-dev/demo-slsa-e2e`) that does most of what wrangle wants. Conforma/Rego is a credible alternative but doesn't natively emit a VSA.
 - **Ship in phases as issue #247 outlines.** Front-load (a) a policy test harness with fixture bundles, because HJSON+CEL+context bindings will drift; (b) a vendored copy of the community policies we depend on, so a CI run does not depend on `carabiner-dev/policies` being reachable. Keep `slsa-verifier` for bootstrap only.
 
@@ -30,7 +25,7 @@ AMPEL ("The Amazing Multi-Purpose Policy Engine (and L)"), at `github.com/carabi
 
 - Consumes in-toto Statements (signed in sigstore bundles or DSSE envelopes) and evaluates **policies-as-code** written in JSON or HJSON, with executable tenets in **CEL** (`runtime: "cel@v0"`). Cedar, Rego, and JavaScript runtimes are on Carabiner's roadmap but not shipping.
 - Has a first-class concept of `PolicySet` — a remote-referenceable, hash-pinnable bundle of policies (`git+https://github.com/org/repo#path/policy.json`), each of which can be linked to OSCAL controls.
-- Loads attestations from pluggable **collector drivers**. The driver prefix list is not exhaustively documented; the demo, action, and source code reference at least `coci:`, `oci:`, `github:`, `jsonl:`, `fs:`, `note:`, `dnote:`, `release:`, and `http(s):`. *[The collector-prefix list in revision 1 included `ossrebuild:`, which could not be confirmed in upstream source; dropped.]*
+- Loads attestations from pluggable **collector drivers**. The driver prefix list is not exhaustively documented; the demo, action, and source code reference at least `coci:`, `oci:`, `github:`, `jsonl:`, `fs:`, `note:`, `dnote:`, `release:`, and `http(s):`.
 - Emits results in three formats via `--attest-format`: `ampel` (default; `https://carabiner.dev/ampel/resultset/v0`), **`vsa` (`https://slsa.dev/verification_summary/v1`)**, or `svr` (`https://in-toto.io/attestation/svr/v0.1`).
 - Signs results via the bundled `bnd statement` tool (sigstore-keyless when in GitHub Actions via OIDC; key-based otherwise). The published action does not require an explicit `--sign` flag; signing is the default when an OIDC token is available.
 - Supports **subject chaining**: a CEL selector inside a policy pivots from one in-toto subject (e.g., a binary) to another (e.g., the source commit named in its provenance) and re-fetches attestations for the chained subject. Concrete example from the demo's `fritoto-gate-publish.hjson`:
@@ -42,7 +37,7 @@ AMPEL ("The Amazing Multi-Purpose Policy Engine (and L)"), at `github.com/carabi
 
   This is the only practical way to write a single policy that simultaneously gates "binary built from SLSA Source L3 commit by a SLSA Build L3 builder with a clean OSV scan and an SBOM."
 - **Transformers** are Go-compiled adapters (e.g., VEX, vuln-scanner-to-OSV) loaded on demand so one rule covers Grype/Trivy/OSV uniformly. Upstream flags the transformer framework as "still under development."
-- Has a published GitHub Action at `carabiner-dev/actions/ampel/verify`, plus an installer action at `carabiner-dev/actions/install/ampel-bootstrap` (the latter uses hardcoded SHA-256 hashes as its trust root). Latest `carabiner-dev/actions` tag at time of writing is v1.2.0 (2026-05-06). *[Revision 1 incorrectly named the install action `install/ampel`; the correct path is `install/ampel-bootstrap`.]*
+- Has a published GitHub Action at `carabiner-dev/actions/ampel/verify`, plus an installer action at `carabiner-dev/actions/install/ampel-bootstrap` (the latter uses hardcoded SHA-256 hashes as its trust root). Latest `carabiner-dev/actions` tag at time of writing is v1.2.0 (2026-05-06).
 
 The canonical reference is `carabiner-dev/demo-slsa-e2e` ("Fritoto"), walked through in García Veytia's SLSA-foundation blog post *"SLSA End-to-End With AMPEL & Friends"* (2025-10-21). The demo performs exactly the workflow wrangle wants: verify source commit, verify builder image, gate on SBOM + OSV + VEX + test results, build, generate SLSA provenance with Tejolote, re-verify and emit per-binary VSAs, attach the VSAs to the release.
 
@@ -61,7 +56,7 @@ Whether `slsa-verifier verify-vsa` accepts an arbitrary `verifier.id` URL (e.g.,
 - **Project age**: first commit January 2025; v1.2.1 released 2026-04-22; roughly monthly release cadence. `slsa-verifier`, by contrast, has been in continuous use as the canonical SLSA Build verifier since June 2022.
 - **Stars / community**: 49 stars, 13 forks, primarily one author. The OSPS Baseline community-policy set is contributed back to `carabiner-dev/policies`. OpenSSF donation is *planned* per García Veytia & McNamara's *"From Mild to Wild"* session at Open Source SecurityCon Europe 2026 (Amsterdam, 2026-03-23), recapped by TLDRecap.tech, but no sandbox/incubating entry exists yet.
 - **Governance**: a `GOVERNANCE.md` exists; the project is effectively single-vendor (Carabiner Systems, Apache-2.0).
-- **Spec stability**: result-attestation predicate URIs include `v0` (`https://carabiner.dev/ampel/resultset/v0`); the policy schema is protobuf-generated (`carabiner-dev/policy`) and still evolving. **Wrangle pins AMPEL to a specific patch version (v1.2.1 initially), not a minor range**, and re-tests on every bump. *[Revision 1 simultaneously said "pin v1.2.1" and "pin AMPEL minor"; rev 2 commits to patch-pinning.]*
+- **Spec stability**: result-attestation predicate URIs include `v0` (`https://carabiner.dev/ampel/resultset/v0`); the policy schema is protobuf-generated (`carabiner-dev/policy`) and still evolving. **Wrangle pins AMPEL to a specific patch version (v1.2.1 initially), not a minor range**, and re-tests on every bump.
 
 ### 4. Alternatives considered and why AMPEL still wins for wrangle
 
@@ -80,17 +75,19 @@ AMPEL natively emits a SLSA-standard VSA, natively understands sigstore-bundle a
 **Where things live:**
 
 - **`tools/ampel/install.sh`** — new installer mirroring `tools/osv/install.sh` (which is the closest existing pattern: download binary, fetch provenance, call `wrangle_verify_provenance`). AMPEL releases ship `ampel-v<ver>.provenance.json` as a sigstore-bundle SLSA provenance signed by `carabiner-dev/ampel`'s release workflow — `slsa-verifier verify-artifact` should accept it. If it doesn't, fall back statically to the hardcoded SHA-256 pattern used by `carabiner-dev/actions/install/ampel-bootstrap` (concrete v1.2.1 hashes are in Appendix A, Phase 1). *Pick one statically per CLAUDE.md's "never fall back to a weaker method at runtime" rule.*
+
+  **Why not `go install github.com/carabiner-dev/ampel/cmd/ampel@v1.2.1`?** CLAUDE.md's "Strong default: use the canonical package manager" treats `go install` as a canonical PM tier, so it has to be considered. It is rejected here because of the integrity-tier rule in the same section: SLSA provenance > GitHub release attestation > Sigstore signature > hash-pinned package manager > hardcoded SHA-256. AMPEL's upstream `ampel-v<ver>.provenance.json` is a sigstore-bundle SLSA provenance signed by Carabiner's release workflow, which is the top tier; `go install` via the Go module proxy + sum.golang.org sits at the hash-pinned-package-manager tier — per CLAUDE.md, "the sumdb attests immutability of the first-seen `(module, version)`, NOT publisher authenticity." Adopting `go install` would *downgrade* the verification AMPEL already offers, which CLAUDE.md's "NEVER fall back to a weaker tier if a stronger one fails" rule explicitly disallows. Mirroring `tools/osv/install.sh` keeps Ampel at the same SLSA-provenance tier as OSV-Scanner. The Go toolchain itself is not added to the test image for this; the upstream binary is downloaded and verified directly.
 - **`policies/`** — new top-level directory:
   - `policies/_lib/` — vendored community policies from `carabiner-dev/policies` (per Decision 2). Each file has a header comment naming source URL and commit SHA. A `make update-policies` target re-vendors them.
   - `policies/python-build-l3.hjson` and `policies/npm-build-l3.hjson` — concrete bindings consumed by the publish workflows.
   - `policies/wrangle-default-v1.hjson` and `policies/wrangle-strict-v1.hjson` — Phase 5 PolicySets composing the above.
-- **`policies/testdata/`** — fixture attestation bundles (`good-*.jsonl`, `bad-*-missing-sbom.jsonl`, etc.) plus golden VSAs. A new bats target runs `ampel verify` against fixtures and asserts verification result and `verifiedLevels`. **This is the single most important Phase 1 deliverable** — HJSON+CEL+context drift is silent otherwise. Bats matches existing wrangle test style; no Go dependency. *[Revision 1 proposed a Go test wrapper; rev 2 drops it as unnecessary cost for a shell-and-composite-actions project.]*
+- **`policies/testdata/`** — fixture attestation bundles (`good-*.jsonl`, `bad-*-missing-sbom.jsonl`, etc.) plus golden VSAs. A new bats target runs `ampel verify` against fixtures and asserts verification result and `verifiedLevels`. **This is the single most important Phase 1 deliverable** — HJSON+CEL+context drift is silent otherwise. Bats matches existing wrangle test style; no Go dependency.
 - **`actions/verify/action.yml`** — new composite action that takes `subject`, `policy`, `collector`, and calls `carabiner-dev/actions/ampel/verify@<sha>` with `--attest-format=vsa --push-attestation=true`. Uploads the VSA as a workflow artifact and (on tagged releases) attaches it to the GitHub release.
 - **Scanner outputs** continue to come out of `actions/scan` as today; each scanner's adapter is augmented to wrap its SARIF in an in-toto Statement (via `bnd predicate`/`bnd statement`) and append to `.attestations/attestations.bundle.jsonl`. That bundle is the input to verify. The SARIF predicate type is **not standardized** in `in-toto/attestation` (the vetted list as of 2026-05: CycloneDX, Link, Reference, Release, Runtime Traces, SCAI Report, SLSA Provenance, SLSA VSA, SPDX2, SPDX3, Simple Verification Result, Test Result, VULNS — no SARIF). **Decision: wrangle defines `https://github.com/TomHennen/wrangle/attestation/sarif/v0.1` and uses it for the zizmor / OSV / Scorecard SARIF wrapping.** Same namespace shape as the `verifier.id` (§6). Upstreaming to `in-toto/attestation` is a v1.0 work item if anyone outside wrangle adopts it.
 
 **Where the VSA gets signed and published:**
 
-- **Signing:** sigstore keyless via GitHub OIDC, by the published `carabiner-dev/actions/ampel/verify` action (no custom flag wrapping required — the action calls `bnd statement` internally when an OIDC token is available). *[Revision 1 suggested wrapping with `--sign --sigstore-oidc-token-file=$ACTIONS_ID_TOKEN_REQUEST_*`; that flag set is not on the published action and is unnecessary.]* The verifier identity is the wrangle release workflow's Fulcio cert (`https://github.com/TomHennen/wrangle/.github/workflows/verify.yml@refs/tags/v.+`). Treat this workflow path as part of the public API.
+- **Signing:** sigstore keyless via GitHub OIDC, by the published `carabiner-dev/actions/ampel/verify` action (no custom flag wrapping required — the action calls `bnd statement` internally when an OIDC token is available). The verifier identity is the wrangle release workflow's Fulcio cert (`https://github.com/TomHennen/wrangle/.github/workflows/verify.yml@refs/tags/v.+`). Treat this workflow path as part of the public API.
 - **Publishing (Decision 4):** the canonical sink is a GitHub release asset (`*.vsa.sigstore.json`). The verify action also pushes to the GH attestations store (`gh attestation verify` works for free) and uploads the VSA as a workflow artifact for debugging. If the three diverge, the release asset wins.
 
 **Policy evaluation runs in two stages**, mirroring Fritoto:
@@ -173,7 +170,7 @@ Issue #247's phased plan is correct. Tightenings:
 
 **Two different slsa-verifier roles, do not confuse:**
 - **Parallel-correctness run** (Phases 2–3): run slsa-verifier alongside AMPEL inside a publish workflow for exactly one tagged release; drop slsa-verifier from that workflow on the next release.
-- **Install-time bootstrap** (`lib/download_verify.sh:84`, `actions/scan/action.yml:25-26`): slsa-verifier stays until Phase 7 because *wrangle's own AMPEL install* depends on it. *[Revision 1 conflated these as "parallel" vs "bootstrap-only"; rev 2 disambiguates.]*
+- **Install-time bootstrap** (`lib/download_verify.sh:84`, `actions/scan/action.yml:25-26`): slsa-verifier stays until Phase 7 because *wrangle's own AMPEL install* depends on it.
 
 "One release cycle" means **one wrangle tagged release** (current cadence is roughly biweekly; see recent tags).
 
@@ -186,14 +183,14 @@ Issue #247's phased plan is correct. Tightenings:
 | `actions/scan/action.yml:25-26` | Phase 1: add `tools/ampel/install.sh` step alongside slsa-verifier install. Phase 7: remove slsa-verifier installer. |
 | `lib/download_verify.sh:84` (`wrangle_verify_provenance`) | Phase 7: rewrite to invoke `ampel verify` with a tool-install policy. |
 | `tools/ampel/install.sh` | New (Phase 1) — mirrors `tools/osv/install.sh`. |
-| `tools/osv/install.sh:69`, `tools/syft/install.sh:112` | Phase 7: `osv` currently calls `wrangle_verify_provenance` (SLSA path) and `syft` currently calls `wrangle_download_verify` (checksum path); both follow `lib/download_verify.sh` into AMPEL when that helper is rewritten. *[Revision 1's §9 table implied both needed adopting a new helper; both already source `lib/download_verify.sh`. Only the helper changes.]* |
+| `tools/osv/install.sh:69`, `tools/syft/install.sh:112` | Phase 7: `osv` currently calls `wrangle_verify_provenance` (SLSA path) and `syft` currently calls `wrangle_download_verify` (checksum path); both follow `lib/download_verify.sh` into AMPEL when that helper is rewritten. |
 | `.github/workflows/build_and_publish_python.yml:243-251` | Phase 2: replace `slsa-verifier verify-artifact` with AMPEL verify + VSA emit. |
 | `.github/workflows/build_and_publish_npm.yml:241-249` | Phase 3: same. |
 | `policies/` (new) | HJSON PolicySets + `_lib/` vendored community policies + `testdata/` fixtures. |
 | `actions/verify/action.yml` (new) | Phase 1: composite action wrapping `carabiner-dev/actions/ampel/verify`. |
 | `build/actions/{python,npm,container}/README.md` | Phase 5: document `cosign verify-blob-attestation` consumer flow. |
 | `build/actions/container/SPEC.md:153` | Phase 6: replace the separate `cosign verify` + `slsa-verifier verify-image` row with a single-VSA flow. |
-| `docs/SPEC.md:1046` | Phase 0 (this scoping): replace the v0.2.0 Ampel bullet with a pointer to this doc + issue #247. See [Appendix A](#appendix-a-docsspecmd-edit). *[Revision 1 cited line 1036; correct line is 1046.]* |
+| `docs/SPEC.md:1046` | Phase 0 (this scoping): replace the v0.2.0 Ampel bullet with a pointer to this doc + issue #247. See [Appendix A](#appendix-a-docsspecmd-edit). |
 
 ### 10. Risks and open questions
 
@@ -203,9 +200,10 @@ Issue #247's phased plan is correct. Tightenings:
 2. **Single-vendor governance.** AMPEL is effectively a Carabiner Systems project. OpenSSF donation is planned but unconfirmed. *Mitigation:* consumers depend only on VSA, not on AMPEL — engine substitution stays contained.
 3. **CEL expressivity in unfamiliar territory.** Writing CEL that traverses `predicates[0].data.…` with `context.foo` is debuggable but unfamiliar. *Mitigation:* heavy HJSON commenting; `error.guidance` on each tenet; HTML rendering of results in `$GITHUB_STEP_SUMMARY` via the action's built-in `--format=html`.
 4. **VSA signing-identity churn.** If the wrangle verify workflow path changes, adopters' `--certificate-identity-regexp` breaks. *Mitigation:* commit to a stable identity regex from day one; treat `verify.yml`'s path as part of the public API; consider a thin wrapper repo for stable identity (the `slsa-framework/source-actions` model) only if it bites.
-7. **Repo-rename churn for `verifier.id` and the SARIF predicate type.** Both use `https://github.com/TomHennen/wrangle/...` because no `wrangle.dev`/`wrangle.io` domain is available. If the repo is later renamed or donated (the v1.0 OpenSSF goal), adopters' policies that pin the current URI break. *Mitigation:* treat this as a `v1` → `v2` bump event (Decision 4 rule in §6): only break consumers when a previously-passing artifact would now fail. Continue emitting `v1` URIs for the old policy during a transition window if needed. Grabbing a project-owned domain remains the cleanest long-term fix and is worth a passing attempt before v1.0.
-5. **Performance.** CEL evaluation is fast; the cost is collector network calls. *Mitigation:* vendoring community policies (Decision 2) removes the runtime `git+https://` fetch entirely.
-6. **Failure-mode opacity.** If AMPEL can't fetch a referenced attestation, today's CI-readable error story is uneven. *Mitigation:* run with `--format=html` into `$GITHUB_STEP_SUMMARY`; the verify action dumps the attestations bundle on failure.
+5. **Repo-rename churn for `verifier.id` and the SARIF predicate type.** Both use `https://github.com/TomHennen/wrangle/...` because no `wrangle.dev`/`wrangle.io` domain is available. If the repo is later renamed or donated (the v1.0 OpenSSF goal), adopters' policies that pin the current URI break. *Mitigation:* treat this as a `v1` → `v2` bump event (Decision 4 rule in §6): only break consumers when a previously-passing artifact would now fail. Continue emitting `v1` URIs for the old policy during a transition window if needed. Grabbing a project-owned domain remains the cleanest long-term fix and is worth a passing attempt before v1.0.
+6. **Performance.** CEL evaluation is fast; the cost is collector network calls. *Mitigation:* vendoring community policies (Decision 2) removes the runtime `git+https://` fetch entirely.
+7. **Failure-mode opacity.** If AMPEL can't fetch a referenced attestation, today's CI-readable error story is uneven. *Mitigation:* run with `--format=html` into `$GITHUB_STEP_SUMMARY`; the verify action dumps the attestations bundle on failure.
+8. **Pin drift across files.** The Ampel v1.2.1 pin will live in at least four places: `tools/ampel/install.sh` (binary version + hardcoded SHA-256 fallback), `actions/verify/action.yml` (`carabiner-dev/actions/ampel/verify@<sha>`), and the verifier-identity regex in adopter-facing docs. CLAUDE.md's "Pins drift across files" rule applies. *Mitigation:* either consolidate to a single source (e.g., a `tools/ampel/VERSION` file sourced by both the installer and the composite action) or add a regression test that diffs the locations and fails on divergence, following the `make bump-action-pins` / pins-drift test precedent already in the repo.
 
 **Open questions remaining for the implementation issues:**
 
@@ -244,7 +242,9 @@ Issue #247's phased plan is correct. Tightenings:
 
 ## Revision history
 
-**Revision 2 — 2026-05-26** (this revision):
+**Revision 3 — 2026-05-28:** §5 now explicitly considers and rejects `go install` for Ampel against CLAUDE.md's integrity-tier ladder; §10 adds a "Pin drift across files" risk pointing at the `make bump-action-pins` precedent; §10 risk numbering corrected from `1,2,3,4,7,5,6` to sequential; inline `*[Revision N …]*` parentheticals stripped throughout (history lives only in this section, per CLAUDE.md "no narrating history").
+
+**Revision 2 — 2026-05-26:**
 
 - **Factual fixes against upstream:**
   - Install action renamed `install/ampel` → `install/ampel-bootstrap`.
