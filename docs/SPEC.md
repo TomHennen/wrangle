@@ -707,7 +707,7 @@ tools/<name>/
 
 **Tool-error marker contract (action pattern).** Action-pattern wrappers cannot rely on the upstream action's exit code alone: `continue-on-error: true` is typically required so wrangle's own collection step runs after the upstream exits non-zero on findings, which also swallows genuine tool errors. Without a separate signal an errored run produces an empty SARIF that `lib/check_results.sh` reads as "no findings" — silently fail-open (issue [#222](https://github.com/TomHennen/wrangle/issues/222)).
 
-To close that gap, action-pattern wrappers SHOULD write a per-tool marker file at `$WRANGLE_METADATA_DIR/<tool>/error` whenever the upstream step fails in a way that does NOT correspond to "found issues" (e.g., API unavailable, dependency database disabled, malformed upstream output, image-pull failure mid-run). Contract:
+To close that gap, action-pattern wrappers SHOULD write a per-tool marker file at `$WRANGLE_METADATA_DIR/<tool>/error` (via `lib/write_tool_error_marker.sh`) whenever the upstream step fails in a way that does NOT correspond to "found issues" (e.g., API unavailable, dependency database disabled, malformed upstream output, image-pull failure mid-run). Contract:
 
 1. The marker is a plain text file. Its first line is logged by `lib/check_results.sh` after passing through `wrangle_sanitize_output`, so wrappers do not need to pre-sanitize upstream output.
 2. `lib/check_results.sh` treats the marker as **fail-closed** for `:fail` policy (non-zero exit) and **informational** for `:info` policy.
