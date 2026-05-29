@@ -705,6 +705,17 @@ tools/<name>/
 └── test.bats     # Structural tests + CI integration tests
 ```
 
+**Tool-error marker contract (action pattern).** Action-pattern wrappers cannot rely on the upstream action's exit code alone: `continue-on-error: true` is typically required so wrangle's own collection step runs after the upstream exits non-zero on findings, which also swallows genuine tool errors. Without a separate signal an errored run produces an empty SARIF that `lib/check_results.sh` reads as "no findings" — silently fail-open (issue [#222](https://github.com/TomHennen/wrangle/issues/222)).
+
+To close that gap, action-pattern wrappers SHOULD write a per-tool marker file at `$WRANGLE_METADATA_DIR/<tool>/error` (via `lib/write_tool_error_marker.sh`) whenever the upstream step fails in a way that does NOT correspond to "found issues" (e.g., API unavailable, dependency database disabled, malformed upstream output, image-pull failure mid-run). Contract:
+
+1. The marker is a plain text file. Its first line is logged by `lib/check_results.sh` after passing through `wrangle_sanitize_output`, so wrappers do not need to pre-sanitize upstream output.
+2. `lib/check_results.sh` treats the marker as **fail-closed** for `:fail` policy (non-zero exit) and **informational** for `:info` policy.
+3. The marker takes precedence over the SARIF count. Wrappers MAY also write a synthesized empty SARIF as a fallback so downstream consumers (step summary, Code Scanning upload) always have a file; the marker prevents that fallback from being misread as zero findings.
+4. `lib/format_sarif_summary.sh` surfaces a `Tool error` status in the step-summary table when the marker is present, and the per-tool Code Scanning upload in `actions/scan/action.yml` SHOULD be gated on the marker's absence to avoid overwriting prior valid runs with an empty SARIF.
+
+The marker is the canonical signal — adapter-pattern tools already disambiguate via their exit code (0/1/2) per the Adapter Contract above, so they do not write a marker.
+
 Use the action pattern when:
 - The tool has a well-maintained official GitHub Action
 - The tool's recommended installation method requires an ecosystem runtime (cargo, pip, etc.) that wrangle shouldn't depend on
@@ -762,11 +773,14 @@ Structure after a scan:
 │   └── output.sarif
 ├── zizmor/
 │   ├── output.sarif
-│   └── output.md
+│   ├── output.md
+│   └── error           # optional: tool-error marker (action pattern only)
 └── scorecard/
     ├── output.sarif
     └── output.md
 ```
+
+The optional `error` file is the tool-error marker for action-pattern tools — see "Tool-error marker contract" under [Two Tool Patterns](#two-tool-patterns).
 
 The `.wrangle/` directory is in `.gitignore` to prevent accidental commits. The orchestrator's filesystem check (`run.sh`) excludes the metadata directory from its pre/post snapshots.
 

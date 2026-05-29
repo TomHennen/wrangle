@@ -42,9 +42,16 @@ Every change except `change_type: "removed"` is converted — a `"removed"` entr
 
 A vulnerable change is converted regardless of its `scope` — a vulnerable `development`/build-time dependency is flagged exactly like a `runtime` one. That is deliberate and matches the default policy of blocking on any introduced vulnerability; scope-aware policy (à la dependency-review-action's `fail-on-scopes`) would belong with the per-tool configuration design in [#221](https://github.com/TomHennen/wrangle/issues/221).
 
+## Tool-error handling
+
+`continue-on-error: true` on the upstream step is required so the SARIF collection step runs even when dep-review exits non-zero on findings. `lib/check_results.sh` is the actual pass/fail gate via the produced SARIF.
+
+A tool error (Dependency Review API unavailable, Dependency Graph disabled, network failure) also surfaces as a non-zero upstream exit but with an empty `vulnerable-changes` output. The wrapper distinguishes the two cases:
+
+- Non-zero exit with a non-empty `vulnerable-changes` array → findings → SARIF contains the entries → `check_results.sh` fails on the SARIF count.
+- Non-zero exit with empty/`[]` `vulnerable-changes` → tool error → `mark_error.sh` writes an `error` marker into the metadata directory → `check_results.sh` fails closed on the marker (issue [#222](https://github.com/TomHennen/wrangle/issues/222)).
+
 ## Known limitations
 
-- The `continue-on-error: true` on the upstream step is required so the SARIF collection step runs even when dep-review exits non-zero on findings. `lib/check_results.sh` is the actual pass/fail gate via the produced SARIF.
 - License-policy findings (`invalid-license-changes`) and denied-package findings (`denied-changes`) are **not** currently converted to SARIF. Only `vulnerable-changes` flow into `output.sarif`. Adopters relying on license / deny-list policies should rely on the upstream action's own failure exit code; the wrangle wrapper preserves that exit semantics via `lib/check_results.sh` only for vulnerability findings.
-- The upstream action calls the GitHub Dependency Review API, which requires the PR's diff to be reachable. Forks of repositories that disable the GitHub Dependency Graph will not get useful output.
-- **A tool error fails open.** `continue-on-error: true` on the upstream step means an error (Dependency Review API unavailable, Dependency Graph disabled, network failure) produces an empty `vulnerable-changes` output — indistinguishable from "no vulnerable changes". The result is an empty SARIF and a passing `check_results.sh` gate, so a dep-review *failure* does not block a PR. This matches `zizmor`'s current behavior; tracked for a consistent cross-tool fix in [#222](https://github.com/TomHennen/wrangle/issues/222).
+- The upstream action calls the GitHub Dependency Review API, which requires the PR's diff to be reachable. Forks of repositories that disable the GitHub Dependency Graph will not get useful output, but the error marker above ensures this fails closed rather than fails open.

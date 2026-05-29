@@ -6,14 +6,20 @@ set -f  # disable globbing — processes external input
 #
 # Usage: check_results.sh <metadata_dir> <tool[:policy]> [tool[:policy]] ...
 #
-# Each tool argument is a name with an optional :fail or :info suffix.
-# Default policy is :fail. Tools with :fail policy cause a non-zero exit
-# if they reported findings. Tools with :info policy are informational —
-# findings are noted but do not affect the exit code.
+# Each tool has a :fail (default) or :info policy. :fail blocks the exit
+# on findings, :info logs them. The exit is non-zero if any :fail tool
+# reported findings, errored, or produced invalid SARIF.
 #
-# Exit codes:
-#   0  No findings from fail-policy tools
-#   1  At least one fail-policy tool reported findings or produced invalid SARIF
+# Error-marker contract: <metadata_dir>/<tool>/error, if present, signals
+# the upstream tool failed (API down, network failure) — distinct from
+# "ran and found nothing". It takes precedence over the SARIF count so a
+# wrapper-synthesised empty fallback SARIF can't mask a tool error.
+# Contents are treated as untrusted — sanitised before logging — so
+# wrappers may interpolate upstream output without re-sanitising.
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+# shellcheck source=sanitize.sh
+source "$SCRIPT_DIR/sanitize.sh"
 
 if [[ $# -lt 2 ]]; then
     printf 'Usage: check_results.sh <metadata_dir> <tool[:policy]> ...\n' >&2
@@ -46,7 +52,24 @@ for spec in "$@"; do
         continue
     fi
 
+    error_marker="${METADATA_DIR}/${tool}/error"
     sarif="${METADATA_DIR}/${tool}/output.sarif"
+
+    if [[ -f "$error_marker" ]]; then
+        # First line only, sanitised — wrapper-supplied marker text is
+        # untrusted (see header) and reaches the GitHub Actions log here.
+        err_msg="$(head -n1 -- "$error_marker" 2>/dev/null | wrangle_sanitize_output || true)"
+        if [[ -z "$err_msg" ]]; then
+            err_msg="upstream tool failed"
+        fi
+        if [[ "$policy" == "fail" ]]; then
+            printf 'wrangle: %s errored: %s\n' "$tool" "$err_msg" >&2
+            exit_code=1
+        else
+            printf 'wrangle: %s errored: %s (informational)\n' "$tool" "$err_msg"
+        fi
+        continue
+    fi
 
     if [[ ! -f "$sarif" ]]; then
         # No SARIF means the tool didn't run or didn't produce output.

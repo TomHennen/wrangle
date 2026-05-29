@@ -145,8 +145,15 @@ runs:
         sarif_file: ${{ github.workspace }}/.wrangle/metadata/scorecard/output.sarif
         category: wrangle/scorecard
 
+    # Skip Code Scanning upload on a dep-review tool error: collect_outputs.sh
+    # / mark_error.sh write the error marker exactly when the upstream
+    # produced no usable findings, and any SARIF on disk in that case is
+    # either absent or an empty fallback. Uploading an empty SARIF would
+    # overwrite the previous run's findings in the Security tab with
+    # `results: []`, silently scrubbing real findings on a transient API
+    # failure. Gating on the marker preserves the prior valid state.
     - name: Upload Dependency Review SARIF
-      if: always() && contains(inputs.tools, 'dependency-review') && github.event_name == 'pull_request'
+      if: always() && contains(inputs.tools, 'dependency-review') && github.event_name == 'pull_request' && hashFiles('.wrangle/metadata/dependency-review/error') == ''
       uses: github/codeql-action/upload-sarif@7211b7c8077ea37d8641b6271f6a365a22a5fbfa # v4.36.0
       continue-on-error: true
       with:
