@@ -10,6 +10,9 @@ The goal is to declare tool versions in real package manifests:
 `tools/<tool>/requirements.txt` for the pip dev tools (today), and a `tools/go.mod`
 `tool` manifest for the Go tools (**being introduced** — the Go-tool migration is
 in flight), with per-tool install scripts only for what no package manager ships.
+<!-- TODO: when the Go-tool migration lands, drop the "being introduced / in
+flight" qualifier here, the "today" / "added alongside the Go-tool manifest"
+notes under Keeping things current, and the "once #247 adds it" note in branch 2. -->
 
 ## Choosing how to install a dependency
 
@@ -66,7 +69,7 @@ to install one more tool" is not a reason; "the stronger tier is genuinely
 unavailable upstream" is (and the PR must say which):
 
 > **SLSA provenance > GitHub release attestation > sigstore signature >
-> hash-pinned package manager (lockfile / `--require-hashes` / sum.golang.org) >
+> hash-pinned package manager (lockfile, `--require-hashes`) >
 > hardcoded SHA-256.**
 
 This interacts with the freshness-first rule deliberately. A package manager sits
