@@ -7,16 +7,15 @@ set -f
 # ampel ships a single sigstore-bundle SLSA provenance
 # (ampel-v<ver>.provenance.json) covering every release binary as a subject,
 # produced by GitHub's actions/attest-build-provenance (predicate
-# slsa.dev/provenance/v1, buildType actions.github.io/buildtypes/workflow/v1).
-# Verification goes through slsa-verifier with an explicit --builder-id naming
-# ampel's release workflow: unlike slsa-github-generator provenance,
-# slsa-verifier cannot infer a trusted builder for this build type.
+# slsa.dev/provenance/v1). Verification goes through the gh CLI's native
+# attestation verifier rather than slsa-verifier: slsa-verifier's
+# verify-artifact only handles slsa-github-generator output, and its
+# verify-github-attestation is allowlisted to a fixed set of builders, so
+# neither accepts ampel's bundle. gh attestation verify is the provenance-tier
+# verifier for this build type and supports arbitrary repos.
 #
 # No fallback: if provenance verification fails, the install aborts. A failed
-# check may indicate a supply chain attack. (If slsa-verifier ever stops
-# accepting ampel's bundle, the documented fallback is a hardcoded SHA-256
-# pin per carabiner-dev/actions/install/ampel-bootstrap — never a weaker
-# runtime fallback; see CLAUDE.md integrity tiers.)
+# check may indicate a supply chain attack.
 #
 # Usage: install.sh [version]
 
@@ -27,9 +26,9 @@ source "${SCRIPT_DIR}/../../lib/download_verify.sh"
 VERSION="${1:-1.2.1}"
 TOOL_NAME="ampel"
 SOURCE_REPO="carabiner-dev/ampel"
-# attest-build-provenance signs with the release workflow's OIDC identity;
-# slsa-verifier matches this against the provenance builder.id.
-BUILDER_ID="https://github.com/${SOURCE_REPO}/.github/workflows/release.yaml@refs/tags/v${VERSION}"
+# The release workflow's identity, validated against the attestation's
+# signing certificate (gh --signer-workflow: owner/repo/path, no ref).
+SIGNER_WORKFLOW="${SOURCE_REPO}/.github/workflows/release.yaml"
 BIN_DIR="${WRANGLE_BIN_DIR:-${RUNNER_TEMP:-.}/.wrangle/bin}"
 
 # Idempotency: skip if the requested version is already on disk.
@@ -58,8 +57,8 @@ URL="https://github.com/${SOURCE_REPO}/releases/download/v${VERSION}/${BINARY_NA
 mkdir -p "$BIN_DIR"
 
 # Download binary to a temporary file. Raw curl is intentional: integrity is
-# established by slsa-verifier below, not by this download. Retry flags match
-# the other installers (see #190).
+# established by gh attestation verify below, not by this download. Retry flags
+# match the other installers (see #190).
 TMP_BINARY="$(mktemp "${BIN_DIR}/wrangle-dl-XXXXX")"
 if ! curl -fsSL --retry 5 --retry-all-errors --retry-max-time 60 -o "$TMP_BINARY" "$URL"; then
     printf 'wrangle: FATAL: failed to download %s %s\n' "$TOOL_NAME" "$VERSION" >&2
@@ -67,21 +66,19 @@ if ! curl -fsSL --retry 5 --retry-all-errors --retry-max-time 60 -o "$TMP_BINARY
     exit 1
 fi
 
-# Download the SLSA provenance bundle. Saved as <binary>.intoto.jsonl so the
-# shared helper finds it; upstream's filename is ampel-v<ver>.provenance.json.
-# Verifying the provenance's own integrity would be circular — it IS the trust
-# anchor.
+# Download the SLSA provenance bundle. Verifying the bundle's own integrity
+# would be circular — it IS the trust anchor.
 PROVENANCE_URL="https://github.com/${SOURCE_REPO}/releases/download/v${VERSION}/${TOOL_NAME}-v${VERSION}.provenance.json"
-PROVENANCE_PATH="${TMP_BINARY}.intoto.jsonl"
+PROVENANCE_PATH="${TMP_BINARY}.provenance.json"
 if ! curl -fsSL --retry 5 --retry-all-errors --retry-max-time 60 -o "$PROVENANCE_PATH" "$PROVENANCE_URL"; then
     printf 'wrangle: FATAL: failed to download SLSA provenance for %s %s\n' "$TOOL_NAME" "$VERSION" >&2
     rm -f "$TMP_BINARY" "$PROVENANCE_PATH"
     exit 1
 fi
 
-# Verify SLSA provenance — the sole verification method. If this fails, the
-# binary MUST NOT be installed.
-if ! wrangle_verify_provenance "$TMP_BINARY" "$SOURCE_REPO" "v${VERSION}" "$BUILDER_ID"; then
+# Verify the build provenance — the sole verification method. If this fails,
+# the binary MUST NOT be installed.
+if ! wrangle_verify_gh_attestation "$TMP_BINARY" "$PROVENANCE_PATH" "$SOURCE_REPO" "$SIGNER_WORKFLOW"; then
     printf 'wrangle: FATAL: SLSA provenance verification failed for %s %s\n' "$TOOL_NAME" "$VERSION" >&2
     printf 'wrangle: this may indicate a supply chain attack — aborting\n' >&2
     rm -f "$TMP_BINARY" "$PROVENANCE_PATH"

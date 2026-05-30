@@ -77,26 +77,20 @@ wrangle_download_verify() {
 # Prerequisite: slsa-verifier must be on PATH. The scan action installs
 # it via the official slsa-framework/slsa-verifier/actions/installer.
 #
-# Usage: wrangle_verify_provenance <artifact_path> <source_repo> <expected_tag> [builder_id]
+# Usage: wrangle_verify_provenance <artifact_path> <source_repo> <expected_tag>
 # Returns: 0 on success, 1 on verification failure or tool not available
-#
-# The optional builder_id is required for provenance produced by GitHub's
-# actions/attest-build-provenance (buildType .../workflow/v1): slsa-verifier
-# cannot infer a trusted builder for that build type, so the caller must name
-# the signing workflow's identity. slsa-github-generator provenance omits it.
 #
 # IMPORTANT: Callers MUST NOT fall back to a weaker verification method
 # on failure — a failed provenance check may indicate a supply chain attack.
 wrangle_verify_provenance() {
-    if [[ $# -lt 3 || $# -gt 4 ]]; then
-        printf 'Usage: wrangle_verify_provenance <artifact_path> <source_repo> <expected_tag> [builder_id]\n' >&2
+    if [[ $# -ne 3 ]]; then
+        printf 'Usage: wrangle_verify_provenance <artifact_path> <source_repo> <expected_tag>\n' >&2
         return 1
     fi
 
     local artifact_path="$1"
     local source_repo="$2"
     local expected_tag="$3"
-    local builder_id="${4:-}"
 
     if ! command -v slsa-verifier >/dev/null 2>&1; then
         printf 'wrangle: slsa-verifier not found on PATH\n' >&2
@@ -104,20 +98,58 @@ wrangle_verify_provenance() {
         return 1
     fi
 
-    local -a verify_args=(
-        verify-artifact "$artifact_path"
-        --provenance-path "${artifact_path}.intoto.jsonl"
-        --source-uri "github.com/${source_repo}"
-        --source-tag "$expected_tag"
-    )
-    if [[ -n "$builder_id" ]]; then
-        verify_args+=(--builder-id "$builder_id")
-    fi
-
-    if slsa-verifier "${verify_args[@]}"; then
+    if slsa-verifier verify-artifact "$artifact_path" \
+        --provenance-path "${artifact_path}.intoto.jsonl" \
+        --source-uri "github.com/${source_repo}" \
+        --source-tag "$expected_tag"; then
         return 0
     else
         printf 'wrangle: SLSA provenance verification FAILED for %s\n' "$artifact_path" >&2
+        return 1
+    fi
+}
+
+# Verify a GitHub attest-build-provenance attestation bundle via the gh CLI.
+#
+# gh attestation verify is the native verifier for the attest-build-provenance
+# build type (predicate slsa.dev/provenance/v1). It is used instead of
+# wrangle_verify_provenance for tools whose provenance is a sigstore bundle
+# from actions/attest-build-provenance: slsa-verifier's verify-artifact only
+# handles slsa-github-generator output, and its verify-github-attestation is
+# allowlisted to a fixed set of builders (no arbitrary repos).
+#
+# Prerequisites: gh on PATH (preinstalled on GitHub-hosted runners) and
+# GH_TOKEN in the environment (gh needs it to resolve the sigstore trust
+# domain, even for an on-disk --bundle).
+#
+# Usage: wrangle_verify_gh_attestation <artifact_path> <bundle_path> <repo> <signer_workflow>
+# Returns: 0 on success, 1 on verification failure or tool not available
+#
+# IMPORTANT: Callers MUST NOT fall back to a weaker verification method
+# on failure — a failed provenance check may indicate a supply chain attack.
+wrangle_verify_gh_attestation() {
+    if [[ $# -ne 4 ]]; then
+        printf 'Usage: wrangle_verify_gh_attestation <artifact_path> <bundle_path> <repo> <signer_workflow>\n' >&2
+        return 1
+    fi
+
+    local artifact_path="$1"
+    local bundle_path="$2"
+    local repo="$3"
+    local signer_workflow="$4"
+
+    if ! command -v gh >/dev/null 2>&1; then
+        printf 'wrangle: gh not found on PATH — required to verify GitHub build provenance\n' >&2
+        return 1
+    fi
+
+    if gh attestation verify "$artifact_path" \
+        --bundle "$bundle_path" \
+        --repo "$repo" \
+        --signer-workflow "$signer_workflow"; then
+        return 0
+    else
+        printf 'wrangle: GitHub attestation verification FAILED for %s\n' "$artifact_path" >&2
         return 1
     fi
 }
