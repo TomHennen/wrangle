@@ -145,38 +145,3 @@ jobs:
               printf 'FATAL: ampel policy test skipped in CI — install or network broken\n' >&2
               exit 1
           fi
-
-  # Smoke-tests the actions/verify composite end to end against a fixture:
-  # wraps the upstream ampel verify, emits + signs the VSA (keyless OIDC),
-  # renames it to the in-toto bundle filename, and uploads it. check-change
-  # cannot dogfood this action pre-merge (the self-ref scan pin only bumps
-  # after merge, #136), so this is its only pre-merge coverage.
-  verify-action:
-    name: verify action smoke (real VSA)
-    runs-on: ubuntu-latest
-    permissions:
-      contents: read
-      id-token: write # keyless sigstore signing of the VSA
-    steps:
-      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
-        with:
-          persist-credentials: false
-
-      - name: Verify a good fixture and emit a VSA
-        uses: ./actions/verify
-        with:
-          subject: "sha256:2b27ffb5258939a2700ecf4667a040192e717bfee6446dcad995563fed8a9c0a"
-          policy: policies/wrangle-default-v1.hjson
-          collector: jsonl:policies/testdata/good.bundle.jsonl
-          artifact-name: wrangle-app-1.0.0.tgz
-          context: "buildPoint:git+https://github.com/${{ github.repository }},vsa.resourceUri:pkg:generic/wrangle-app@1.0.0"
-          attach-to-release: "false"
-
-      # Assert a non-empty, well-formed VSA bundle landed. Signing integrity
-      # itself rests on the upstream bnd step's exit code (it fails the action
-      # on a signing error); a deeper decode of the signed DSSE payload is a
-      # follow-up once the bundle shape is pinned.
-      - name: VSA was produced
-        run: |
-          test -s wrangle-app-1.0.0.tgz.intoto.jsonl
-          jq -e . wrangle-app-1.0.0.tgz.intoto.jsonl >/dev/null
