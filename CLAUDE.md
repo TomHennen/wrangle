@@ -48,13 +48,13 @@ Don't `curl | sh` — all binary downloads go through `lib/download_verify.sh`. 
 
 Required pin format per context (third-party actions, the SLSA-generator tag exception, self-references, examples), the `@main` prohibition, and how self-references are bumped: see [DEP_MGMT.md](DEP_MGMT.md).
 
-## Install method and verification (see SPEC.md §Install Script Interface for the full contract)
+## Installing and verifying tools
 
-The decision tree for choosing an install method and verification tier (canonical-package-manager strong default, the integrity-tier ladder, never-downgrade-for-convenience, minimal footprint) and the per-category verification mechanisms are in [DEP_MGMT.md](DEP_MGMT.md). Install-script mechanics (`lib/download_verify.sh`, `$WRANGLE_BIN_DIR`, idempotency, atomic `mv`) are the Install Script Interface contract in SPEC.md.
+How to choose an install method and verification tier — the decision tree, the integrity-tier ladder, and the freshness-first rule — is in [DEP_MGMT.md](DEP_MGMT.md). Install-script mechanics (`lib/download_verify.sh`, `$WRANGLE_BIN_DIR`, idempotency, atomic `mv`) are the Install Script Interface contract in SPEC.md.
 
 ## Pins drift across files
 
-How wrangle keeps the same pin literal in more than one file from drifting (single-source or a divergence-fail test): see [DEP_MGMT.md § Drift risks and mitigations](DEP_MGMT.md).
+Prevent the same pin literal drifting across files (single-source or a divergence-fail test): see [DEP_MGMT.md § Drift](DEP_MGMT.md#drift).
 
 ## Adapter contract (see SPEC.md §Adapter Script Interface for the full contract)
 
