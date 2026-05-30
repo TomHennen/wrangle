@@ -8,11 +8,8 @@ carries the one-line rules and points here.
 
 The goal is to declare tool versions in real package manifests:
 `tools/<tool>/requirements.txt` for the pip dev tools (today), and a `tools/go.mod`
-`tool` manifest for the Go tools (**being introduced** — the Go-tool migration is
-in flight), with per-tool install scripts only for what no package manager ships.
-<!-- TODO: when the Go-tool migration lands, drop the "being introduced / in
-flight" qualifier here, the "today" / "added alongside the Go-tool manifest"
-notes under Keeping things current, and the "once #247 adds it" note in branch 2. -->
+`tool` manifest for the Go tools (pending completion of #247), with per-tool
+install scripts only for what no package manager ships.
 
 ## Choosing how to install a dependency
 
