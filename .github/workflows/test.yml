@@ -74,3 +74,36 @@ jobs:
               printf 'FATAL: osv e2e test was skipped in CI — install or network broken, or the assertion silently degraded\n' >&2
               exit 1
           fi
+
+  # Dogfoods tools/ampel/install.sh against the real release on a runner
+  # with network + sigstore reach. The Docker unit suite shims slsa-verifier,
+  # so this job is the only place ampel's live SLSA provenance check
+  # (attest-build-provenance sigstore bundle + --builder-id) actually runs:
+  # the scan action's install step can't validate it pre-merge because the
+  # dogfooding self-ref pin only bumps after merge (#136). Mirrors osv-e2e.
+  ampel-install:
+    name: ampel install (real provenance verification)
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+
+      # slsa-verifier is required by tools/ampel/install.sh — ampel's sole
+      # verification method is SLSA provenance.
+      - name: Install slsa-verifier
+        uses: slsa-framework/slsa-verifier/actions/installer@ea584f4502babc6f60d9bc799dbbb13c1caa9ee6 # v2.7.1
+
+      - name: Install ampel via tools/ampel/install.sh
+        env:
+          WRANGLE_BIN_DIR: ${{ runner.temp }}/.wrangle/bin
+        run: |
+          ./tools/ampel/install.sh
+          printf '%s\n' "$WRANGLE_BIN_DIR" >> "$GITHUB_PATH"
+
+      # Proves the verified binary landed on PATH — install.sh only reaches
+      # the final mv after slsa-verifier returns 0.
+      - name: Verify ampel is on PATH
+        run: ampel version
