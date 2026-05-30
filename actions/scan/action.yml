@@ -21,9 +21,23 @@ runs:
       run: "$WRANGLE_ROOT/lib/setup.sh"
 
     # Install slsa-verifier for tools that use SLSA provenance verification
-    # (e.g., OSV-Scanner). Required before running adapter-pattern tools.
+    # (e.g., OSV-Scanner). Required before running adapter-pattern tools,
+    # and the trust anchor ampel's installer uses to verify its provenance.
     - name: Install slsa-verifier
       uses: slsa-framework/slsa-verifier/actions/installer@ea584f4502babc6f60d9bc799dbbb13c1caa9ee6 # v2.7.1
+
+    # Install ampel (policy engine) alongside slsa-verifier. Not yet consumed
+    # by the scan path — installed here ahead of the verify-stage wiring so the
+    # bootstrap anchor and the engine it will use live in one place. Runs after
+    # slsa-verifier because its provenance check depends on it.
+    - name: Install ampel
+      shell: bash
+      env:
+        WRANGLE_ROOT: ${{ github.action_path }}/../..
+      run: |
+        # shellcheck source=../../lib/env.sh
+        source "$WRANGLE_ROOT/lib/env.sh"
+        "$WRANGLE_ROOT/tools/ampel/install.sh"
 
     # Run adapter-pattern tools via the orchestrator (run.sh).
     # run.sh strips :policy suffixes and skips action-pattern tools.
