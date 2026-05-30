@@ -4,13 +4,14 @@
 #
 # ampel is an install-only tool (no adapter): the verify stage invokes the
 # binary directly, so there is no adapter.sh/render_md.sh to test. These
-# tests shim curl and slsa-verifier so no real download or signature check
-# happens — they cover the exit-code contract, the no-install-on-failure
-# guarantee, and that the attest-build-provenance --builder-id is forwarded.
+# tests shim curl and gh so no real download or signature check happens —
+# they cover the exit-code contract, the no-install-on-failure guarantee,
+# and that the gh attestation verify identity flags are forwarded.
 #
-# The live verification path (slsa-verifier against the real ampel sigstore
-# bundle) is exercised when the scan action runs ampel's installer on a real
-# runner in CI, where sigstore's TUF root is reachable.
+# The live verification path (gh attestation verify against the real ampel
+# sigstore bundle) is exercised by the `ampel-install` job in
+# .github/workflows/test.yml, which runs on a real runner with network,
+# sigstore reach, and GH_TOKEN.
 
 setup() {
     ORIG_DIR="$(pwd)"
@@ -87,7 +88,7 @@ MOCK
     [[ "$output" == *"FATAL"* ]]
     [[ "$output" == *"provenance"* ]]
     [ ! -f "$WRANGLE_BIN_DIR/ampel" ]
-    leftover=$(find "$WRANGLE_BIN_DIR" -name 'wrangle-dl-*' -o -name '*.intoto.jsonl' 2>/dev/null | wc -l)
+    leftover=$(find "$WRANGLE_BIN_DIR" -name 'wrangle-dl-*' -o -name '*.provenance.json' 2>/dev/null | wc -l)
     [ "$leftover" -eq 0 ]
 }
 
@@ -104,11 +105,11 @@ done
 exit 0
 MOCK
     chmod +x "$TMP_DIR/curl"
-    cat > "$TMP_DIR/slsa-verifier" <<'MOCK'
+    cat > "$TMP_DIR/gh" <<'MOCK'
 #!/bin/bash
 exit 1
 MOCK
-    chmod +x "$TMP_DIR/slsa-verifier"
+    chmod +x "$TMP_DIR/gh"
     PATH="$TMP_DIR:$PATH"
 
     run "$INSTALL" "1.2.1"
@@ -117,7 +118,7 @@ MOCK
     [ ! -f "$WRANGLE_BIN_DIR/ampel" ]
 }
 
-@test "ampel install: verified binary is installed and --builder-id forwarded" {
+@test "ampel install: verified binary is installed and identity flags forwarded" {
     export WRANGLE_BIN_DIR="$TMP_DIR/bin"
     cat > "$TMP_DIR/curl" <<'MOCK'
 #!/bin/bash
@@ -130,22 +131,24 @@ done
 exit 0
 MOCK
     chmod +x "$TMP_DIR/curl"
-    # Record args so the test can assert the builder-id is passed through.
-    cat > "$TMP_DIR/slsa-verifier" <<'MOCK'
+    # Record args so the test can assert the identity flags are passed through.
+    cat > "$TMP_DIR/gh" <<'MOCK'
 #!/bin/bash
-printf '%s\n' "$@" > "$TMP_DIR/slsa_args"
+printf '%s\n' "$@" > "$TMP_DIR/gh_args"
 exit 0
 MOCK
-    chmod +x "$TMP_DIR/slsa-verifier"
+    chmod +x "$TMP_DIR/gh"
     PATH="$TMP_DIR:$PATH"
 
     run "$INSTALL" "1.2.1"
     [ "$status" -eq 0 ]
     [[ "$output" == *"provenance verified"* ]]
     [ -x "$WRANGLE_BIN_DIR/ampel" ]
-    grep -q -- '--builder-id' "$TMP_DIR/slsa_args"
-    grep -q 'carabiner-dev/ampel/.github/workflows/release.yaml@refs/tags/v1.2.1' "$TMP_DIR/slsa_args"
+    grep -q -- '--bundle' "$TMP_DIR/gh_args"
+    grep -q -- '--signer-workflow' "$TMP_DIR/gh_args"
+    grep -q 'carabiner-dev/ampel/.github/workflows/release.yaml' "$TMP_DIR/gh_args"
+    grep -q 'carabiner-dev/ampel' "$TMP_DIR/gh_args"
     # Temp artifacts cleaned up.
-    leftover=$(find "$WRANGLE_BIN_DIR" -name 'wrangle-dl-*' -o -name '*.intoto.jsonl' 2>/dev/null | wc -l)
+    leftover=$(find "$WRANGLE_BIN_DIR" -name 'wrangle-dl-*' -o -name '*.provenance.json' 2>/dev/null | wc -l)
     [ "$leftover" -eq 0 ]
 }
