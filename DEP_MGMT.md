@@ -25,9 +25,11 @@ What are you adding?
 │
 ├─ A GitHub Action you `uses:` ?
 │    ├─ a wrangle self-reference (TomHennen/wrangle/…)
-│    │     → pin  @<40-hex sha> # main YYYY-MM-DD ;
+│    │     → in a reusable workflow: pin  @<40-hex sha> # main YYYY-MM-DD ;
 │    │       bump with `make bump-action-pins` (and BY HAND if it lives outside
 │    │       .github/workflows/ — the bumper doesn't reach those yet; see Drift).
+│    │       From one composite action to a sibling: use a relative path
+│    │       `./actions/…` instead of a pin.
 │    ├─ the SLSA generator reusable workflow
 │    │     → tag-pin  @vX.Y.Z  + inline `# zizmor: ignore[unpinned-uses]`.
 │    │       The ONLY sanctioned tag-only ref: its OIDC identity verification
@@ -43,7 +45,15 @@ What are you adding?
 │       (wrangle's product is shell; today this is only the pip *dev* tools.)
 │
 ├─ A CLI tool / binary fetched at install or build time ?   ← the common case.
-│  Walk the tiers; STOP at the first the publisher supports:
+│  First — is there a canonical package-manager release (pip / cargo / npm /
+│  go install / brew) whose verification is at least as strong as any binary
+│  option? If so, USE THE PACKAGE MANAGER — it is the strong default. When
+│  several exist, prefer (1) the one upstream's docs recommend, (2) the one with
+│  attestation support, (3) the one adding the fewest transitive runtime deps to
+│  the image. Binary + attestation and binary + sha256 below are FALLBACKS for
+│  tools with no adequately-verified PM release — not free-choice alternatives.
+│
+│  Otherwise, walk the verification tiers; STOP at the first the publisher supports:
 │
 │     1. Ships SLSA provenance?  → curl binary + provenance, verify, STOP:
 │          • attest-build-provenance sigstore bundle → `gh attestation verify`
@@ -90,7 +100,13 @@ What are you adding?
 
 Whatever the branch: per CLAUDE.md, a PR adopting a new tool must state what
 upstream install paths and verification mechanisms exist and why the chosen one
-was picked.
+was picked. And keep the footprint minimal — use the smallest tool that does the
+job (`unzip` over `python3`, `jq` over a Python script); don't add a language
+runtime to the image for a one-liner.
+
+Operational install-script mechanics (route downloads through
+`lib/download_verify.sh`, install to `$WRANGLE_BIN_DIR`, be idempotent, atomic
+`mv`) are the Install Script Interface contract — see `SPEC.md`.
 
 ## Dependency categories
 
