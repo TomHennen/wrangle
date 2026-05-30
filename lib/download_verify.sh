@@ -143,10 +143,15 @@ wrangle_verify_gh_attestation() {
         return 1
     fi
 
+    # --predicate-type is pinned to the SLSA provenance type rather than left
+    # to gh's default, so a same-signer non-provenance attestation with a
+    # matching subject digest can never satisfy the check (and the trust tier
+    # stays explicit if gh's default ever changes).
     if gh attestation verify "$artifact_path" \
         --bundle "$bundle_path" \
         --repo "$repo" \
-        --signer-workflow "$signer_workflow"; then
+        --signer-workflow "$signer_workflow" \
+        --predicate-type "https://slsa.dev/provenance/v1"; then
         return 0
     else
         printf 'wrangle: GitHub attestation verification FAILED for %s\n' "$artifact_path" >&2
