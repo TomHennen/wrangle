@@ -109,6 +109,56 @@ wrangle_verify_provenance() {
     fi
 }
 
+# Verify a GitHub attest-build-provenance attestation bundle via the gh CLI.
+#
+# gh attestation verify is the native verifier for the attest-build-provenance
+# build type (predicate slsa.dev/provenance/v1). It is used instead of
+# wrangle_verify_provenance for tools whose provenance is a sigstore bundle
+# from actions/attest-build-provenance: slsa-verifier's verify-artifact only
+# handles slsa-github-generator output, and its verify-github-attestation is
+# allowlisted to a fixed set of builders (no arbitrary repos).
+#
+# Prerequisites: gh on PATH (preinstalled on GitHub-hosted runners) and
+# GH_TOKEN in the environment (gh needs it to resolve the sigstore trust
+# domain, even for an on-disk --bundle).
+#
+# Usage: wrangle_verify_gh_attestation <artifact_path> <bundle_path> <repo> <signer_workflow>
+# Returns: 0 on success, 1 on verification failure or tool not available
+#
+# IMPORTANT: Callers MUST NOT fall back to a weaker verification method
+# on failure — a failed provenance check may indicate a supply chain attack.
+wrangle_verify_gh_attestation() {
+    if [[ $# -ne 4 ]]; then
+        printf 'Usage: wrangle_verify_gh_attestation <artifact_path> <bundle_path> <repo> <signer_workflow>\n' >&2
+        return 1
+    fi
+
+    local artifact_path="$1"
+    local bundle_path="$2"
+    local repo="$3"
+    local signer_workflow="$4"
+
+    if ! command -v gh >/dev/null 2>&1; then
+        printf 'wrangle: gh not found on PATH — required to verify GitHub build provenance\n' >&2
+        return 1
+    fi
+
+    # --predicate-type is pinned to the SLSA provenance type rather than left
+    # to gh's default, so a same-signer non-provenance attestation with a
+    # matching subject digest can never satisfy the check (and the trust tier
+    # stays explicit if gh's default ever changes).
+    if gh attestation verify "$artifact_path" \
+        --bundle "$bundle_path" \
+        --repo "$repo" \
+        --signer-workflow "$signer_workflow" \
+        --predicate-type "https://slsa.dev/provenance/v1"; then
+        return 0
+    else
+        printf 'wrangle: GitHub attestation verification FAILED for %s\n' "$artifact_path" >&2
+        return 1
+    fi
+}
+
 # Verify Sigstore signature for a downloaded artifact via cosign.
 #
 # Usage: wrangle_verify_signature <artifact_path> <expected_identity> <expected_issuer>

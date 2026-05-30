@@ -1,0 +1,110 @@
+{
+    // ====================================================================
+    // wrangle-strict-v1 — strict release-verification PolicySet
+    // ====================================================================
+    //
+    // Additive over wrangle-default-v1: every default tenet PLUS the strict
+    // controls below. This is the policy wrangle dogfoods on its OWN releases
+    // (docs/ampel_research.md §6).
+    //
+    // Ampel PolicySets cannot "extend" another set, so the five default tenets
+    // are repeated here as the same SHA-pinned upstream locators (the single
+    // SHA must match wrangle-default-v1.hjson — policies/test.bats enforces it).
+    //
+    // -- Strict controls in THIS phase ---------------------------------------
+    // ENFORCED: OpenSSF Scorecard aggregate score >= 7.0. No upstream policy
+    // computes the aggregate score (only per-check policies that hardcode
+    // score == 10), so it is authored inline below as a wrangle tenet.
+    //
+    // -- Strict controls GATED OUT (tracked; honestly NOT yet dogfoodable) ---
+    // wrangle cannot fully meet its own strict bar this phase:
+    //   * no HIGH/CRITICAL OSV findings even with VEX — deferred: the upstream
+    //     OSV policy only counts total findings (size == 0); a severity filter
+    //     needs a settled OSV severity representation (CVSS vectors vs. labels)
+    //     and a faithful fixture to validate against. default-v1's OSV-clean
+    //     tenet still applies here meanwhile.
+    //   * tool dependencies (Syft, OSV-Scanner, Ampel) have their own L3 VSAs
+    //     — UNSATISFIABLE today: those tools publish SLSA provenance, not VSAs.
+    //   * reproducible / hermetic build attestation — no upstream policy and no
+    //     agreed predicate type yet.
+    // These are added as they become authorable-and-satisfiable.
+    // --------------------------------------------------------------------
+
+    id: "wrangle-strict-v1"
+    meta: {
+        description: "wrangle strict release policy: everything in wrangle-default-v1 plus OpenSSF Scorecard >= 7.0. Emits a SLSA VSA."
+        frameworks: [
+            {
+                id: "SLSA"
+                name: "Supply-Chain Levels for Software Artifacts"
+            }
+        ]
+    }
+
+    common: {
+        context: {
+            builderId: {
+                value: "https://github.com/slsa-framework/slsa-github-generator/.github/workflows/generator_generic_slsa3.yml"
+            }
+            buildType: {
+                value: "https://github.com/slsa-framework/slsa-github-generator/generic@v1"
+            }
+            buildPoint: {
+                type: "string"
+            }
+            "vsa.resourceUri": {
+                type: "string"
+            }
+        }
+    }
+
+    policies: [
+        // --- inherited from wrangle-default-v1 (keep the SHA in lockstep) ---
+        {
+            id: "slsa-builder-id"
+            source: { location: { uri: "git+https://github.com/carabiner-dev/policies@85078db9e808479feb0d1aec08299b8a93c85f11#slsa/slsa-builder-id.json" } }
+            meta: { controls: [ { framework: "SLSA", class: "BUILD", id: "LEVEL_3" } ] }
+        }
+        {
+            id: "slsa-build-type"
+            source: { location: { uri: "git+https://github.com/carabiner-dev/policies@85078db9e808479feb0d1aec08299b8a93c85f11#slsa/slsa-build-type.json" } }
+            meta: { controls: [ { framework: "SLSA", class: "BUILD", id: "LEVEL_3" } ] }
+        }
+        {
+            id: "slsa-build-point"
+            source: { location: { uri: "git+https://github.com/carabiner-dev/policies@85078db9e808479feb0d1aec08299b8a93c85f11#slsa/slsa-build-point.json" } }
+            meta: { controls: [ { framework: "SLSA", class: "BUILD", id: "LEVEL_3" } ] }
+        }
+        {
+            id: "sbom-exists"
+            source: { location: { uri: "git+https://github.com/carabiner-dev/policies@85078db9e808479feb0d1aec08299b8a93c85f11#sbom/sbom-exists.json" } }
+        }
+        {
+            id: "openvex-no-exploitable-vulns"
+            source: { location: { uri: "git+https://github.com/carabiner-dev/policies@85078db9e808479feb0d1aec08299b8a93c85f11#openvex/no-exploitable-vulns-osv.json" } }
+        }
+
+        // --- strict-only, wrangle-authored (inlined: no upstream equivalent,
+        //     and Ampel cannot resolve a local-file policy reference) ---
+        {
+            id: "wrangle-scorecard-min-score"
+            meta: { description: "OpenSSF Scorecard aggregate score is at least 7.0" }
+            tenets: [
+                {
+                    predicates: { types: ["https://scorecard.dev/result/v0.1"] }
+                    outputs: {
+                        // double() coerces the score (int or float in JSON) so the
+                        // >= comparison is well-typed; -1.0 forces FAIL if absent.
+                        score: { code: "has(predicates[0].data.score) ? double(predicates[0].data.score) : -1.0" }
+                    }
+                    code: "outputs.score >= 7.0"
+                    assessment: { message: "Scorecard aggregate score meets the >= 7.0 bar" }
+                    error: {
+                        message: "Scorecard aggregate score below 7.0"
+                        guidance: "Raise the OpenSSF Scorecard score to at least 7.0 before release"
+                    }
+                }
+            ]
+        }
+    ]
+}
