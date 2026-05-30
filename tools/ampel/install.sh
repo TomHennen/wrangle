@@ -32,10 +32,11 @@ SIGNER_WORKFLOW="${SOURCE_REPO}/.github/workflows/release.yaml"
 BIN_DIR="${WRANGLE_BIN_DIR:-${RUNNER_TEMP:-.}/.wrangle/bin}"
 
 # Idempotency: skip if the requested version is already on disk.
-# 'ampel version' prints a "GitVersion: v<ver>" line.
+# 'ampel version' prints a "GitVersion: v<ver>" line; match the version token
+# exactly so a request for 1.2.1 is not satisfied by an installed v1.2.10.
 if [[ -x "${BIN_DIR}/${TOOL_NAME}" ]]; then
-    installed_version="$("${BIN_DIR}/${TOOL_NAME}" version 2>/dev/null | grep -i 'GitVersion' || true)"
-    if [[ "$installed_version" == *"${VERSION}"* ]]; then
+    installed_version="$("${BIN_DIR}/${TOOL_NAME}" version 2>/dev/null | awk '/GitVersion/{print $2; exit}')"
+    if [[ "$installed_version" == "v${VERSION}" ]]; then
         printf 'wrangle: %s %s already installed\n' "$TOOL_NAME" "$VERSION"
         exit 0
     fi
@@ -85,9 +86,24 @@ if ! wrangle_verify_gh_attestation "$TMP_BINARY" "$PROVENANCE_PATH" "$SOURCE_REP
     exit 1
 fi
 
-# Provenance verified — atomically place binary.
+# Provenance verified. gh attestation verify binds the binary's digest to a
+# genuine carabiner-signed provenance, but NOT to the version string in the
+# URL — so a github.com/CDN compromise could serve a genuine *older* signed
+# release (with its own valid provenance) at the v<ver> URLs and silently
+# downgrade the policy engine. Assert the verified binary reports the expected
+# version before trusting it. Running it is safe now: it is cryptographically
+# confirmed to be a genuine ampel build.
+chmod +x "$TMP_BINARY"
+verified_version="$("$TMP_BINARY" version 2>/dev/null | awk '/GitVersion/{print $2; exit}')"
+if [[ "$verified_version" != "v${VERSION}" ]]; then
+    printf 'wrangle: FATAL: verified binary reports version %s, expected v%s\n' "${verified_version:-unknown}" "$VERSION" >&2
+    printf 'wrangle: this may indicate a downgrade attack — aborting\n' >&2
+    rm -f "$TMP_BINARY" "$PROVENANCE_PATH"
+    exit 1
+fi
+
+# Atomically place the verified binary.
 mv "$TMP_BINARY" "${BIN_DIR}/${TOOL_NAME}"
-chmod +x "${BIN_DIR}/${TOOL_NAME}"
 rm -f "$PROVENANCE_PATH"
 
 printf 'wrangle: SLSA provenance verified for %s %s\n' "$TOOL_NAME" "$VERSION"
