@@ -77,20 +77,26 @@ wrangle_download_verify() {
 # Prerequisite: slsa-verifier must be on PATH. The scan action installs
 # it via the official slsa-framework/slsa-verifier/actions/installer.
 #
-# Usage: wrangle_verify_provenance <artifact_path> <source_repo> <expected_tag>
+# Usage: wrangle_verify_provenance <artifact_path> <source_repo> <expected_tag> [builder_id]
 # Returns: 0 on success, 1 on verification failure or tool not available
+#
+# The optional builder_id is required for provenance produced by GitHub's
+# actions/attest-build-provenance (buildType .../workflow/v1): slsa-verifier
+# cannot infer a trusted builder for that build type, so the caller must name
+# the signing workflow's identity. slsa-github-generator provenance omits it.
 #
 # IMPORTANT: Callers MUST NOT fall back to a weaker verification method
 # on failure — a failed provenance check may indicate a supply chain attack.
 wrangle_verify_provenance() {
-    if [[ $# -ne 3 ]]; then
-        printf 'Usage: wrangle_verify_provenance <artifact_path> <source_repo> <expected_tag>\n' >&2
+    if [[ $# -lt 3 || $# -gt 4 ]]; then
+        printf 'Usage: wrangle_verify_provenance <artifact_path> <source_repo> <expected_tag> [builder_id]\n' >&2
         return 1
     fi
 
     local artifact_path="$1"
     local source_repo="$2"
     local expected_tag="$3"
+    local builder_id="${4:-}"
 
     if ! command -v slsa-verifier >/dev/null 2>&1; then
         printf 'wrangle: slsa-verifier not found on PATH\n' >&2
@@ -98,10 +104,17 @@ wrangle_verify_provenance() {
         return 1
     fi
 
-    if slsa-verifier verify-artifact "$artifact_path" \
-        --provenance-path "${artifact_path}.intoto.jsonl" \
-        --source-uri "github.com/${source_repo}" \
-        --source-tag "$expected_tag"; then
+    local -a verify_args=(
+        verify-artifact "$artifact_path"
+        --provenance-path "${artifact_path}.intoto.jsonl"
+        --source-uri "github.com/${source_repo}"
+        --source-tag "$expected_tag"
+    )
+    if [[ -n "$builder_id" ]]; then
+        verify_args+=(--builder-id "$builder_id")
+    fi
+
+    if slsa-verifier "${verify_args[@]}"; then
         return 0
     else
         printf 'wrangle: SLSA provenance verification FAILED for %s\n' "$artifact_path" >&2
