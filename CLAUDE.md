@@ -58,6 +58,8 @@ Don't `curl | sh` — all binary downloads go through `lib/download_verify.sh`. 
 
 ## Install method and verification (see SPEC.md §Install Script Interface for the full contract)
 
+See [DEP_MGMT.md](DEP_MGMT.md) for the full per-category dependency-management strategy and a decision tree for choosing how to install and verify a new dependency.
+
 **Strong default: use the canonical package manager.** If upstream publishes via pip / cargo / npm / go install / brew with adequate verification, use it. Binary + attestation and binary + sha256 are fallbacks for tools that publish no package-manager release, not alternatives to choose between. When upstream offers multiple package managers, prefer in order: (1) the one upstream's install docs recommend first, (2) the one with attestation support, (3) the one that doesn't add transitive runtime deps to the test image.
 
 **Integrity tier (within whichever install method):** SLSA provenance > GitHub release attestation > Sigstore signature > hash-pinned package manager (`--require-hashes`, lockfile) > hardcoded SHA-256 against a downloaded binary. NEVER fall back to a weaker tier if a stronger one fails.
