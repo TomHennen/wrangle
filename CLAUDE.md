@@ -46,41 +46,15 @@ Don't `curl | sh` — all binary downloads go through `lib/download_verify.sh`. 
 
 ## Action reference pinning
 
-| Context | Required format |
-|---|---|
-| Third-party actions | Full commit SHA with version comment: `uses: actions/checkout@<sha> # v4.2.2` |
-| SLSA generator (exception) | Release tag only: `@v2.1.0` ([slsa-verifier#12](https://github.com/slsa-framework/slsa-verifier/issues/12)) |
-| Wrangle's own actions in examples | Release tag: `@v0.1.0` |
-| Wrangle internal cross-references in reusable workflows | Full SHA with `# main` or `# vX.Y.Z` comment (never a branch name — zizmor flags it). Temporary — see #136 |
-| Wrangle internal cross-references elsewhere | Relative path: `./actions/scan` |
+Required pin format per context (third-party actions, the SLSA-generator tag exception, self-references, examples), the `@main` prohibition, and how self-references are bumped: see [DEP_MGMT.md](DEP_MGMT.md).
 
-`@main` MUST NOT appear in any `uses:` line, including examples and docs. Dependabot manages third-party action updates; tool binary versions are manual. After merging a PR (or a batch) that changes a referenced composite action, bump the SHA in any reusable-workflow self-references — `tools/bump_action_pins.sh` (or `make bump-action-pins`) handles this and writes the `# main` comment correctly.
+## Installing and verifying tools
 
-## Install method and verification (see SPEC.md §Install Script Interface for the full contract)
-
-**Strong default: use the canonical package manager.** If upstream publishes via pip / cargo / npm / go install / brew with adequate verification, use it. Binary + attestation and binary + sha256 are fallbacks for tools that publish no package-manager release, not alternatives to choose between. When upstream offers multiple package managers, prefer in order: (1) the one upstream's install docs recommend first, (2) the one with attestation support, (3) the one that doesn't add transitive runtime deps to the test image.
-
-**Integrity tier (within whichever install method):** SLSA provenance > GitHub release attestation > Sigstore signature > hash-pinned package manager (`--require-hashes`, lockfile) > hardcoded SHA-256 against a downloaded binary. NEVER fall back to a weaker tier if a stronger one fails.
-
-**Python tools:** pin via `tools/<tool>/requirements.txt` (`package==version --hash=sha256:...` for the direct dep plus all transitives), install into a `python3 -m venv` with `pip install --require-hashes`, and let Dependabot's `pip` ecosystem bump version + hashes atomically.
-
-**Go modules via `go install`.** Accepted only when no upstream binary release exists: pin to a specific semver tag, install the Go toolchain itself via `lib/download_verify.sh`, and assert `GOPROXY=https://proxy.golang.org,direct GOSUMDB=sum.golang.org` at the install site so [sum.golang.org](https://sum.golang.org/) verification isn't environment-conditional. Note: the sumdb attests immutability of the first-seen `(module, version)`, NOT publisher authenticity.
-
-**Convenience is not a fallback justification.** "We'd have to install one more tool in the image" or "the attestation flow is awkward at build time" are NOT reasons to drop to a weaker tier. The fallback rule is "stronger verification is genuinely unavailable upstream" — document *why* the stronger tier doesn't exist, not why it'd be inconvenient.
-
-All downloads in custom install scripts go through `lib/download_verify.sh`. Install to `$WRANGLE_BIN_DIR`, never `/usr/local/bin`. Be idempotent. Use atomic `mv` (not `cp`).
-
-**Don't add heavyweight runtimes for single-use tasks.** Use the smallest dependency that does the job — `unzip` over `python3` for archives, `jq` over a python script for JSON, etc. Adding a language runtime to the test image just to run a one-liner expands the supply-chain surface for no gain.
+How to choose an install method and verification tier — the decision tree, the integrity-tier ladder, and the freshness-first rule — is in [DEP_MGMT.md](DEP_MGMT.md). Install-script mechanics (`lib/download_verify.sh`, `$WRANGLE_BIN_DIR`, idempotency, atomic `mv`) are the Install Script Interface contract in SPEC.md.
 
 ## Pins drift across files
 
-If a version, checksum, SHA, or other pin literal lives in more than one file, either consolidate to a single source or add a regression test that diffs the locations and fails on divergence. This applies to:
-
-- A tool version pinned in both the local install path (e.g. `tools/<name>/requirements.txt`, `test/Dockerfile`) and `tools/<name>/action.yml`
-- A version default in a reusable workflow, its composite, and an env coalesce
-- An adapter helper duplicated across multiple per-tool install scripts
-
-Don't rely on humans remembering to update both places.
+Prevent the same pin literal drifting across files (single-source or a divergence-fail test): see [DEP_MGMT.md § Drift](DEP_MGMT.md#drift).
 
 ## Adapter contract (see SPEC.md §Adapter Script Interface for the full contract)
 
