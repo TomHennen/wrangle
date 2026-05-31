@@ -15,7 +15,7 @@ digest is the literal string's sha256:
 
 `policies/test.bats` hardcodes that digest as `SUBJECT`.
 
-| Bundle | Contents | Expected against default-v1 / strict-v1 |
+| Bundle | Contents | Expected against the logic variant¹ |
 |--------|----------|------------------------------------------|
 | `good.bundle.jsonl` | SLSA v0.2 provenance (slsa-github-generator generic, builder/buildType/materials as wrangle emits) + SPDX SBOM + clean OSV results | default-v1 **PASS** |
 | `bad-missing-sbom.bundle.jsonl` | provenance + clean OSV (no SBOM) | default-v1 **FAIL** (sbom-exists) |
@@ -23,6 +23,14 @@ digest is the literal string's sha256:
 | `bad-wrong-builder.bundle.jsonl` | provenance with an attacker builder id + SBOM + clean OSV | default-v1 **FAIL** (slsa-builder-id) |
 | `good-strict.bundle.jsonl` | `good.bundle` + OpenSSF Scorecard result (score 8.2) | strict-v1 **PASS** |
 | `bad-low-scorecard.bundle.jsonl` | `good.bundle` + Scorecard result (score 5.0) | strict-v1 **FAIL** (wrangle-scorecard-min-score) |
+
+¹ The shipped `default-v1`/`strict-v1` PolicySets bind their SLSA provenance
+tenets to the `slsa-github-generator` signer identity (`common.identities`).
+These fixtures are **unsigned**, so against the *production* PolicySets they
+fail closed on identity validation. `policies/test.bats` therefore evaluates
+the tenet-logic rows above against a logic-only *variant* (identity gate
+stripped), and a separate test runs `good.bundle.jsonl` against the production
+`default-v1` to prove it fails closed. See the `test.bats` file header.
 
 The provenance fields are shaped to match what wrangle's publish workflow emits
 via `slsa-framework/slsa-github-generator/.github/workflows/generator_generic_slsa3.yml`
