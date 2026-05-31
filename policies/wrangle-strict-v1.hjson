@@ -56,6 +56,25 @@
                 type: "string"
             }
         }
+        // === AMPEL-IDENTITY-BINDING:START =================================
+        // Stripped (with the per-policy `identities` refs) to form the logic-only
+        // variant in policies/test.bats; see wrangle-default-v1.hjson for the
+        // full rationale. Identity enforcement has its own fail-closed test.
+        //
+        // SLSA provenance must be signed by the slsa-github-generator identity
+        // (fail-closed). SBOM/OSV/Scorecard signer binding is gated until wrangle
+        // signs those attestations. See wrangle-default-v1.hjson for rationale.
+        identities: [
+            {
+                id: "slsa-generator"
+                sigstore: {
+                    mode: "regexp"
+                    issuer: "https://token.actions.githubusercontent.com"
+                    identity: "^https://github.com/slsa-framework/slsa-github-generator/.github/workflows/generator_generic_slsa3.yml@refs/tags/v.+$"
+                }
+            }
+        ]
+        // === AMPEL-IDENTITY-BINDING:END ===================================
     }
 
     policies: [
@@ -63,16 +82,19 @@
         {
             id: "slsa-builder-id"
             source: { location: { uri: "git+https://github.com/carabiner-dev/policies@85078db9e808479feb0d1aec08299b8a93c85f11#slsa/slsa-builder-id.json" } }
+            identities: [ { ref: { id: "slsa-generator" } } ]
             meta: { controls: [ { framework: "SLSA", class: "BUILD", id: "LEVEL_3" } ] }
         }
         {
             id: "slsa-build-type"
             source: { location: { uri: "git+https://github.com/carabiner-dev/policies@85078db9e808479feb0d1aec08299b8a93c85f11#slsa/slsa-build-type.json" } }
+            identities: [ { ref: { id: "slsa-generator" } } ]
             meta: { controls: [ { framework: "SLSA", class: "BUILD", id: "LEVEL_3" } ] }
         }
         {
             id: "slsa-build-point"
             source: { location: { uri: "git+https://github.com/carabiner-dev/policies@85078db9e808479feb0d1aec08299b8a93c85f11#slsa/slsa-build-point.json" } }
+            identities: [ { ref: { id: "slsa-generator" } } ]
             meta: { controls: [ { framework: "SLSA", class: "BUILD", id: "LEVEL_3" } ] }
         }
         {

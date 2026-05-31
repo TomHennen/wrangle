@@ -25,20 +25,6 @@ runs:
     - name: Install slsa-verifier
       uses: slsa-framework/slsa-verifier/actions/installer@ea584f4502babc6f60d9bc799dbbb13c1caa9ee6 # v2.7.1
 
-    # Install ampel (policy engine). Not yet consumed by the scan path —
-    # installed here ahead of the verify-stage wiring. Its provenance is
-    # verified with gh attestation verify (preinstalled on GitHub runners),
-    # which needs GH_TOKEN to resolve the sigstore trust domain.
-    - name: Install ampel
-      shell: bash
-      env:
-        WRANGLE_ROOT: ${{ github.action_path }}/../..
-        GH_TOKEN: ${{ github.token }}
-      run: |
-        # shellcheck source=../../lib/env.sh
-        source "$WRANGLE_ROOT/lib/env.sh"
-        "$WRANGLE_ROOT/tools/ampel/install.sh"
-
     # Run adapter-pattern tools via the orchestrator (run.sh).
     # run.sh strips :policy suffixes and skips action-pattern tools.
     - name: Run adapter-pattern tools
