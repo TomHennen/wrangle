@@ -544,6 +544,34 @@ SCRIPT
     [[ "$output" == *"WSL007"* ]]
 }
 
+@test "WSL007: combined-flag 'set +fx' outside a subshell is reported" {
+    tmp="$(mktemp /tmp/wsl-test-XXXXXX.sh)"
+    printf '#!/bin/bash\nset -euo pipefail\nset -f\nset +fx\nshopt -s nullglob\nprintf "%%s\\n" ./*.conf\n' > "$tmp"
+    run "$LINTER" "$tmp"
+    rm -f "$tmp"
+    [ "$status" -eq 1 ]
+    [[ "$output" == *"WSL007"* ]]
+}
+
+@test "WSL007: long-form 'set +o noglob' outside a subshell is reported" {
+    tmp="$(mktemp /tmp/wsl-test-XXXXXX.sh)"
+    printf '#!/bin/bash\nset -euo pipefail\nset -f\nset +o noglob\nshopt -s nullglob\nprintf "%%s\\n" ./*.conf\n' > "$tmp"
+    run "$LINTER" "$tmp"
+    rm -f "$tmp"
+    [ "$status" -eq 1 ]
+    [[ "$output" == *"WSL007"* ]]
+}
+
+@test "WSL007: enabling 'set -o noglob' is not flagged" {
+    # `-o` enables (does not disable) globbing — not the leak this rule targets.
+    tmp="$(mktemp /tmp/wsl-test-XXXXXX.sh)"
+    printf '#!/bin/bash\nset -euo pipefail\nset -f\nset -o noglob\nprintf done\n' > "$tmp"
+    run "$LINTER" "$tmp"
+    rm -f "$tmp"
+    [ "$status" -eq 0 ]
+    [[ "$output" != *"WSL007"* ]]
+}
+
 @test "WSL007: 'set +f' in a comment is not flagged" {
     tmp="$(mktemp /tmp/wsl-test-XXXXXX.sh)"
     printf '#!/bin/bash\nset -euo pipefail\nset -f\n# remember to set +f around the glob\nprintf done\n' > "$tmp"

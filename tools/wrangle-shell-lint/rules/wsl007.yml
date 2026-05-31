@@ -29,9 +29,19 @@ rule:
     - has:
         field: name
         regex: '^set$'
-    - has:
-        kind: word
-        regex: '^\+f$'
+    # Any form that re-enables globbing: `+f`, a combined short-flag word
+    # containing f (`+fx`, `+xf`), or the long form `+o noglob`.
+    - any:
+        - has:
+            kind: word
+            regex: '^\+[a-z]*f[a-z]*$'
+        - all:
+            - has:
+                kind: word
+                regex: '^\+o$'
+            - has:
+                kind: word
+                regex: '^noglob$'
   not:
     inside:
       stopBy: end

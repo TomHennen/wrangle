@@ -151,6 +151,16 @@ teardown() {
     [[ "$output" == *"WWL002"* ]]
 }
 
+@test "WWL002: github.head_ref interpolated into a run body is reported" {
+    # The classic pull_request_target injection vector.
+    tmp="$(mktemp /tmp/wwl-XXXXXX.yml)"
+    printf 'on: push\njobs:\n  b:\n    runs-on: ubuntu-latest\n    steps:\n      - run: echo "${{ github.head_ref }}"\n' > "$tmp"
+    run "$LINTER" "$tmp"
+    rm -f "$tmp"
+    [ "$status" -eq 1 ]
+    [[ "$output" == *"WWL002"* ]]
+}
+
 @test "WWL002: a safe context (github.sha) in a run body is not flagged" {
     tmp="$(mktemp /tmp/wwl-XXXXXX.yml)"
     printf 'on: push\njobs:\n  b:\n    runs-on: ubuntu-latest\n    steps:\n      - run: printf "%%s" "${{ github.sha }}"\n' > "$tmp"
@@ -199,6 +209,55 @@ teardown() {
     rm -f "$tmp"
     [ "$status" -eq 0 ]
     [[ "$output" != *"WWL003"* ]]
+}
+
+@test "WWL003: expression-form continue-on-error (\${{ true }}) is reported" {
+    tmp="$(mktemp /tmp/wwl-XXXXXX.yml)"
+    printf 'on: push\njobs:\n  b:\n    runs-on: ubuntu-latest\n    steps:\n      - name: cosign verify\n        continue-on-error: ${{ true }}\n        run: cosign verify x\n' > "$tmp"
+    run "$LINTER" "$tmp"
+    rm -f "$tmp"
+    [ "$status" -eq 1 ]
+    [[ "$output" == *"WWL003"* ]]
+}
+
+@test "WWL003: an unnamed inline 'run: ... verify' step is reported (run body in identity)" {
+    tmp="$(mktemp /tmp/wwl-XXXXXX.yml)"
+    printf 'on: push\njobs:\n  b:\n    runs-on: ubuntu-latest\n    steps:\n      - run: gh attestation verify x\n        continue-on-error: true\n' > "$tmp"
+    run "$LINTER" "$tmp"
+    rm -f "$tmp"
+    [ "$status" -eq 1 ]
+    [[ "$output" == *"WWL003"* ]]
+}
+
+@test "WWL003: a routine 'run: npm install' is not flagged (install dropped from run set)" {
+    # `install` matches a step name/uses but NOT a run body, so package
+    # installs do not false-flag.
+    tmp="$(mktemp /tmp/wwl-XXXXXX.yml)"
+    printf 'on: push\njobs:\n  b:\n    runs-on: ubuntu-latest\n    steps:\n      - run: npm install\n        continue-on-error: true\n' > "$tmp"
+    run "$LINTER" "$tmp"
+    rm -f "$tmp"
+    [ "$status" -eq 0 ]
+    [[ "$output" != *"WWL003"* ]]
+}
+
+@test "WWL003: a trailing inline justification comment exempts it" {
+    tmp="$(mktemp /tmp/wwl-XXXXXX.yml)"
+    printf 'on: push\njobs:\n  b:\n    runs-on: ubuntu-latest\n    steps:\n      - name: verify provenance\n        continue-on-error: true  # advisory in this context\n        run: slsa-verifier verify x\n' > "$tmp"
+    run "$LINTER" "$tmp"
+    rm -f "$tmp"
+    [ "$status" -eq 0 ]
+    [[ "$output" != *"WWL003"* ]]
+}
+
+@test "WWL003: an incidental comment elsewhere in the step does not exempt it" {
+    # Tightened (WSL005-style): only a comment bound to the continue-on-error
+    # line counts, not an unrelated comment elsewhere in the step.
+    tmp="$(mktemp /tmp/wwl-XXXXXX.yml)"
+    printf 'on: push\njobs:\n  b:\n    runs-on: ubuntu-latest\n    steps:\n      - name: verify provenance\n        # TODO: rename this step\n        id: v\n        continue-on-error: true\n        run: slsa-verifier verify x\n' > "$tmp"
+    run "$LINTER" "$tmp"
+    rm -f "$tmp"
+    [ "$status" -eq 1 ]
+    [[ "$output" == *"WWL003"* ]]
 }
 
 @test "WWL003: a whitespace-only comment is not a justification" {

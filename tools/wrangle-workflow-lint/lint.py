@@ -9,8 +9,9 @@ ast-grep cannot express and that actionlint / zizmor do not cover:
                and comments included).
   WWL002 (R2)  no `${{ inputs.* }}` / `${{ github.event.* }}` interpolated
                literally inside a `run:` body (blanket ban — thread through
-               `env:` first). zizmor fails closed on the dangerous subset;
-               this closes the typed-inputs / safe-context gap.
+               `env:` first). Enforces the typed-input (`inputs.*`) and webhook
+               (`github.event.*`, `github.head_ref`, `github.ref_name`)
+               contexts; zizmor fails closed on its own overlapping subset.
   WWL003 (R4)  a verification-class step (name/id/uses matching
                verify|attestation|provenance|slsa|cosign|install) that sets
                `continue-on-error: true` must carry an adjacent justification
@@ -46,16 +47,51 @@ MAX_RUN_LINES = 10
 # rejects a leading `.` or word char) so sibling contexts that merely end in
 # `inputs` — `${{ matrix.inputs }}`, `${{ steps.x.outputs.inputs }}` — are not
 # false-flagged. `inputs` must be followed by `.`/`[` (a typed-input access).
+# `github.head_ref` / `github.ref_name` are attacker-influenced refs (the
+# classic pull_request_target injection vector), so they are flagged too.
 INJECTION_RE = re.compile(
-    r"\$\{\{[^}]*?(?<![.\w])(?:inputs\s*[.\[]|github\.event\b)"
+    r"\$\{\{[^}]*?(?<![.\w])"
+    r"(?:inputs\s*[.\[]|github\.(?:event\b|head_ref\b|ref_name\b))"
 )
 
 # R4: steps whose purpose is verifying provenance / attestations / signatures /
-# installing toolchains — the places where silently swallowing a failure is a
-# security regression, not a convenience.
-VERIFY_KEYWORDS = re.compile(
-    r"verify|attestation|provenance|slsa|cosign|install", re.IGNORECASE
+# installing toolchains — where silently swallowing a failure is a security
+# regression, not a convenience. Best-effort keyword sets (not exhaustive).
+#
+# IDENTITY set scans name/id/uses: `install` is meaningful here ("Install
+# Cosign", cosign-installer) — it names a tool-install step.
+IDENTITY_KEYWORDS = re.compile(
+    r"verify|attestation|provenance|slsa|cosign|sigstore|rekor|"
+    r"notation|gitsign|in-?toto|gpg|install",
+    re.IGNORECASE,
 )
+# RUN set scans the run: body — inline `run: cosign verify …` /
+# `gh attestation verify …` is the repo's dominant style. Narrower than the
+# identity set: `install` / `gpg` are dropped because a run body is dominated
+# by routine package installs (`npm install`) that are not verification steps.
+RUN_VERIFY_KEYWORDS = re.compile(
+    r"verify|attestation|provenance|slsa|cosign|sigstore|rekor|"
+    r"notation|gitsign|in-?toto",
+    re.IGNORECASE,
+)
+
+
+def tolerates_failure(coe_node):
+    """True if continue-on-error is set to anything that can evaluate true.
+
+    Literal `true`, or any `${{ … }}` expression we cannot statically prove
+    false. Literal `false` (the default) does not tolerate failure. This closes
+    the `continue-on-error: ${{ true }}` bypass of a literal-only check.
+    """
+    if coe_node is None:
+        return False
+    val = scalar_text(coe_node).strip()
+    low = val.lower()
+    if low == "false":
+        return False
+    if low == "true":
+        return True
+    return val.startswith("${{")
 
 
 class Finding:
@@ -163,22 +199,30 @@ def check_run_rules(path, run_node, raw_lines, findings):
             )
 
 
-def has_adjacent_justification(step, coe_node, raw_lines):
-    """True if a justification comment sits with the continue-on-error key.
+def has_adjacent_justification(coe_node, raw_lines):
+    """True if a justification comment is bound to the continue-on-error key.
 
-    Accepts any comment line (non-empty after `#`) from the line directly
-    above the step through the continue-on-error line — the band where an
-    author documents why failure is tolerated. Mirrors WSL005: whitespace
-    after `#` is not a justification.
+    Like WSL005, the justification must sit ON the directive: either a trailing
+    inline comment on the `continue-on-error:` line, or the contiguous block of
+    comment lines immediately above it. An incidental comment elsewhere in the
+    step does not count. Whitespace after `#` is not a justification.
     """
-    top = step.start_mark.line - 1  # allow a comment immediately above the step
-    bottom = coe_node.start_mark.line
-    for i in range(max(top, 0), bottom + 1):
-        if i >= len(raw_lines):
-            break
-        stripped = raw_lines[i].lstrip()
-        if stripped.startswith("#") and stripped[1:].strip():
+    coe_line = coe_node.start_mark.line
+    # Trailing inline comment on the continue-on-error line itself. The value is
+    # `true`/`false`/`${{ … }}` (no literal `#`), so a `#` here starts a comment.
+    if coe_line < len(raw_lines):
+        hash_idx = raw_lines[coe_line].find("#")
+        if hash_idx != -1 and raw_lines[coe_line][hash_idx + 1:].strip():
             return True
+    # Contiguous comment block directly above the continue-on-error line.
+    i = coe_line - 1
+    while i >= 0:
+        stripped = raw_lines[i].lstrip()
+        if not stripped.startswith("#"):
+            break
+        if stripped[1:].strip():
+            return True
+        i -= 1
     return False
 
 
@@ -187,26 +231,36 @@ def check_step_rules(path, step, raw_lines, findings):
     if "run" in sub and isinstance(sub["run"], yaml.ScalarNode):
         check_run_rules(path, sub["run"], raw_lines, findings)
 
-    # R4 — continue-on-error on a verification-class step needs justification.
+    # R4 — failure-tolerating continue-on-error on a verification-class step
+    # needs a justification. `tolerates_failure` covers the `${{ true }}`
+    # expression form, not only the literal.
     coe = sub.get("continue-on-error")
-    if coe is None or scalar_text(coe).strip().lower() != "true":
+    if not tolerates_failure(coe):
         return
     identity = " ".join(
         scalar_text(sub[k]) for k in ("name", "id", "uses") if k in sub
     )
-    if not VERIFY_KEYWORDS.search(identity):
+    run_body = (
+        scalar_text(sub["run"])
+        if "run" in sub and isinstance(sub["run"], yaml.ScalarNode)
+        else ""
+    )
+    if not (
+        IDENTITY_KEYWORDS.search(identity) or RUN_VERIFY_KEYWORDS.search(run_body)
+    ):
         return
-    if not has_adjacent_justification(step, coe, raw_lines):
+    if not has_adjacent_justification(coe, raw_lines):
         findings.append(
             Finding(
                 path,
                 coe.start_mark.line + 1,
                 "WWL003",
-                "continue-on-error: true on a verification-class step "
-                "(name/id/uses matches verify|attestation|provenance|slsa|"
-                "cosign|install) without an adjacent justification comment. "
-                "Swallowing a verification failure can mask a supply-chain "
-                "attack; document why it is safe here.",
+                "continue-on-error tolerates failure on a verification-class "
+                "step (name/id/uses/run matches verify|attestation|provenance|"
+                "slsa|cosign|sigstore|... or install) without a justification "
+                "comment on the continue-on-error line. Swallowing a "
+                "verification failure can mask a supply-chain attack; document "
+                "why it is safe here.",
             )
         )
 
