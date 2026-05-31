@@ -152,7 +152,7 @@ jobs:
     permissions: {}    # reads env only — no workspace, no API, no secrets
     steps:
       # TODO: replace with $/actions/preflight_guard when GitHub ships $/ syntax (#136)
-      - uses: TomHennen/wrangle/actions/preflight_guard@e063cc9d26562d5e7f13da2f226a1bfebf95cfc9 # main 2026-05-31
+      - uses: TomHennen/wrangle/actions/preflight_guard@5e5d4b1ae9aca432ffced21b83d7e56478d0e575 # main 2026-05-31
 
   gate:
     needs: [guard]
@@ -162,7 +162,7 @@ jobs:
       should-release: ${{ steps.gate.outputs.should-release }}
     steps:
       # TODO: replace with $/actions/release_gate when GitHub ships $/ syntax (#136)
-      - uses: TomHennen/wrangle/actions/release_gate@e063cc9d26562d5e7f13da2f226a1bfebf95cfc9 # main 2026-05-31
+      - uses: TomHennen/wrangle/actions/release_gate@5e5d4b1ae9aca432ffced21b83d7e56478d0e575 # main 2026-05-31
         id: gate
         with:
           events: ${{ inputs.release-events }}
@@ -187,7 +187,7 @@ jobs:
       # TODO: replace with $/build/actions/go/checks when GitHub ships $/ syntax (#136)
       # Self-pinned to PR HEAD until merge — bump-self-refs follow-up
       # repoints to the squashed merge SHA after this lands.
-      - uses: TomHennen/wrangle/build/actions/go/checks@e063cc9d26562d5e7f13da2f226a1bfebf95cfc9 # main 2026-05-31
+      - uses: TomHennen/wrangle/build/actions/go/checks@5e5d4b1ae9aca432ffced21b83d7e56478d0e575 # main 2026-05-31
         id: checks
         with:
           path: ${{ inputs.path }}
@@ -245,7 +245,7 @@ jobs:
 
       # TODO: replace with $/build/actions/go/release when GitHub ships $/ syntax (#136)
       # Self-pinned to PR HEAD until merge.
-      - uses: TomHennen/wrangle/build/actions/go/release@e063cc9d26562d5e7f13da2f226a1bfebf95cfc9 # main 2026-05-31
+      - uses: TomHennen/wrangle/build/actions/go/release@5e5d4b1ae9aca432ffced21b83d7e56478d0e575 # main 2026-05-31
         id: release
         with:
           path: ${{ inputs.path }}
@@ -316,7 +316,7 @@ jobs:
           path: provenance/
 
       # TODO: replace with $/build/actions/go/verify when GitHub ships $/ syntax (#136)
-      - uses: TomHennen/wrangle/build/actions/go/verify@e063cc9d26562d5e7f13da2f226a1bfebf95cfc9 # main 2026-05-31
+      - uses: TomHennen/wrangle/build/actions/go/verify@5e5d4b1ae9aca432ffced21b83d7e56478d0e575 # main 2026-05-31
         with:
           dist-dir: dist
           provenance-path: provenance/${{ needs.provenance.outputs.provenance-name }}
