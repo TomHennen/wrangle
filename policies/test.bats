@@ -62,21 +62,25 @@ setup() {
     # harness exercises the production parser, not the JSON-only --context-json).
     CTX="buildPoint:git+https://github.com/TomHennen/wrangle,vsa.resourceUri:pkg:generic/wrangle-app@1.0.0"
 
+    PROVENANCE="$POLICIES_DIR/wrangle-provenance-v1.hjson"
+
     # Logic-only variants for the tenet tests (see the file header).
     DEFAULT_LOGIC="$BATS_TEST_TMPDIR/default-logic.hjson"
     STRICT_LOGIC="$BATS_TEST_TMPDIR/strict-logic.hjson"
+    PROVENANCE_LOGIC="$BATS_TEST_TMPDIR/provenance-logic.hjson"
     strip_identities "$DEFAULT" > "$DEFAULT_LOGIC"
     strip_identities "$STRICT"  > "$STRICT_LOGIC"
+    strip_identities "$PROVENANCE" > "$PROVENANCE_LOGIC"
     # Structural self-check: a broken strip would silently turn every logic test
     # into a vacuous identity-gate check. Fail loudly if any identity admission
     # survived. (The PASS tests are the functional half of this guard: if the
     # gate were still present, the unsigned good fixtures could not pass.)
-    if grep -qE '^[[:space:]]*identities:' "$DEFAULT_LOGIC" "$STRICT_LOGIC"; then
+    if grep -qE '^[[:space:]]*identities:' "$DEFAULT_LOGIC" "$STRICT_LOGIC" "$PROVENANCE_LOGIC"; then
         printf 'strip_identities left an identities admission in the logic variant\n' >&2
         return 1
     fi
 
-    export AMPEL POLICIES_DIR DEFAULT STRICT DEFAULT_LOGIC STRICT_LOGIC TD SUBJECT CTX
+    export AMPEL POLICIES_DIR DEFAULT STRICT PROVENANCE DEFAULT_LOGIC STRICT_LOGIC PROVENANCE_LOGIC TD SUBJECT CTX
 }
 
 # verify <policy> <fixture-bundle> [extra ampel args...]
@@ -118,6 +122,19 @@ expect_fail() {
     [ "$output" = "SLSA_BUILD_LEVEL_3" ]
     run jq -r '.predicate.resourceUri' "$vsa"
     [ "$output" = "pkg:generic/wrangle-app@1.0.0" ]
+}
+
+@test "ampel policy: provenance-v1 PASSES a good bundle (SLSA_BUILD_LEVEL_3, provenance-only)" {
+    # The provenance-only PolicySet ignores the bundle's SBOM/OSV statements and
+    # passes on the three SLSA tenets alone.
+    local vsa="$BATS_TEST_TMPDIR/prov-vsa.json"
+    run verify "$PROVENANCE_LOGIC" "$TD/good.bundle.jsonl" \
+        --attest-results --attest-format=vsa --results-path="$vsa" -f tty
+    [ "$status" -eq 0 ]
+    run jq -r '.predicate.verificationResult' "$vsa"
+    [ "$output" = "PASSED" ]
+    run jq -r '.predicate.verifiedLevels[0]' "$vsa"
+    [ "$output" = "SLSA_BUILD_LEVEL_3" ]
 }
 
 @test "ampel policy: default-v1 FAILS (sbom-exists) when the SBOM is missing" {
