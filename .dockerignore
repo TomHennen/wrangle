@@ -1,0 +1,6 @@
+# Trim the test-container build context (sent to the Docker daemon). These are
+# local-only and not needed by the image build. (.git is intentionally NOT
+# ignored — some bats tests, e.g. bump_action_pins, need it. The lint walks
+# exclude .claude/ separately, since ./test.sh mounts the repo at runtime.)
+.claude/
+.beads/

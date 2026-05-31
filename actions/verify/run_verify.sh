@@ -43,6 +43,7 @@ wrangle_verify_emit_vsa() {
     # Validate inside the script that does the work — no separate action step.
     # shellcheck source=validate_verify_inputs.sh
     source "$VERIFY_DIR/validate_verify_inputs.sh"
+    # shellcheck disable=SC2153 # env-var inputs; the sourced validate script's lowercase locals trip the misspelling heuristic
     wrangle_validate_verify_inputs "$ARTIFACT_NAME" "$SUBJECT" "$POLICY" \
         "$COLLECTOR" "$FAIL" "${CONTEXT:-}" "${ATTESTATION:-}"
 

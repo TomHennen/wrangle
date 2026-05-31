@@ -19,7 +19,7 @@ shellstyle:
 # Lint all shell scripts
 shellcheck:
 	@echo "=== shellcheck ==="
-	@SCRIPTS=$$(find . -name '*.sh' -not -path './.git/*' -not -path './.beads/*'); \
+	@SCRIPTS=$$(find . -name '*.sh' -not -path './.git/*' -not -path './.beads/*' -not -path './.claude/*'); \
 	if [ -n "$$SCRIPTS" ]; then \
 		echo $$SCRIPTS | xargs shellcheck -x --source-path=SCRIPTDIR; \
 	else \

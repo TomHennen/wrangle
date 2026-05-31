@@ -169,12 +169,13 @@ STUB
 }
 
 @test "run_verify: emit rejects an input that fails validation (fail-closed)" {
-    # Validation now lives inside the script that does the work; a bad input
-    # must abort before ampel runs.
+    # Run the SCRIPT (set -e active) so a bad input hard-fails at validation
+    # before ampel — `run <function>` would disable errexit and fall through.
     export SUBJECT='bad;rm -rf /'
     export GITHUB_STEP_SUMMARY="$TEST_DIR/summary.md"
     : > "$GITHUB_STEP_SUMMARY"
-    run wrangle_verify_emit_vsa
+    run "$SCRIPT" emit
     [[ "$status" -ne 0 ]]
     [[ "$output" == *"invalid subject"* ]]
+    [[ "$output" != *"command not found"* ]]
 }
