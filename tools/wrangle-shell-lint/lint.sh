@@ -4,7 +4,7 @@ set -f
 
 # tools/wrangle-shell-lint/lint.sh — Wrangle shell-style linter.
 #
-# Thin wrapper around `ast-grep scan` with the WSL001-005 rules under
+# Thin wrapper around `ast-grep scan` with the WSL001-007 rules under
 # `tools/wrangle-shell-lint/rules/`. The rules enforce CLAUDE.md shell
 # conventions that shellcheck does not cover:
 #
@@ -13,16 +13,17 @@ set -f
 #   WSL003  echo with variable expansion — use printf instead
 #   WSL004  [ ] or `test` used as a conditional — use [[ ]] instead
 #   WSL005  # shellcheck disable=... without an inline justification
+#   WSL006  network download (curl/wget/fetch) piped into a shell
+#   WSL007  `set +f` outside a subshell (exception-safety)
 #
 # Rules already enforced by shellcheck (NOT re-implemented):
 #   SC2006  backtick command substitution
 #   SC2086  unquoted variable expansions
 #
-# Out of scope (CLAUDE.md rules NOT enforced by this linter):
-#   - "Inline Shell in GitHub Actions" length cap
-#   - "GitHub Actions Expression Injection" — actionlint does not flag
-#     ${{ inputs.* }} interpolated into run: blocks by default
-#   Tracked in issue #273.
+# The YAML-level GitHub Actions conventions (run-block length, expression
+# injection, continue-on-error justification) live in the sibling
+# wrangle-workflow-lint, which parses workflow structure rather than
+# shell AST.
 #
 # Usage:
 #   lint.sh                   walk the repo (excludes the linter's own fixtures)

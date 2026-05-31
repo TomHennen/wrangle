@@ -155,27 +155,7 @@ runs:
         INPUT_PATH: ${{ inputs.path }}
       run: |
         set -euo pipefail
-        SHORTNAME="${INPUT_PATH////_}"
-        METADATA_DIR="metadata/python/${SHORTNAME}"
-        mkdir -p "$METADATA_DIR"
-        printf 'shortname=%s\n' "$SHORTNAME" >> "$GITHUB_OUTPUT"
-        printf 'metadata-dir=%s\n' "$METADATA_DIR" >> "$GITHUB_OUTPUT"
-
-        # Extract version from the built wheel filename. nullglob avoids
-        # the pipefail abort that `ls dist/*.whl | head` triggers when no
-        # wheel exists — we want to surface a friendly message instead.
-        cd "$INPUT_PATH"
-        shopt -s nullglob
-        wheels=(dist/*.whl)
-        if (( ${#wheels[@]} > 0 )); then
-            # Wheel filename format: {name}-{version}-{tags}.whl
-            VERSION="$(basename "${wheels[0]}" | sed 's/^[^-]*-\([^-]*\)-.*/\1/')"
-            printf 'version=%s\n' "$VERSION" >> "$GITHUB_OUTPUT"
-            printf 'Package version: %s\n' "$VERSION"
-        else
-            printf 'Warning: no wheel found in dist/\n'
-            printf 'version=unknown\n' >> "$GITHUB_OUTPUT"
-        fi
+        "${{ github.action_path }}/extract_metadata.sh" "$INPUT_PATH"
 
     - name: Compute artifact hashes
       id: hash
@@ -221,15 +201,4 @@ runs:
         VERSION: ${{ steps.metadata.outputs.version }}
       run: |
         set -euo pipefail
-        {
-            printf '## Python Build Results\n\n'
-            printf '| | |\n|---|---|\n'
-            printf '| **Package** | %s |\n' "$INPUT_PATH"
-            printf '| **Version** | %s |\n' "$VERSION"
-            printf '| **Artifacts** | |\n'
-            for f in "$INPUT_PATH"/dist/*; do
-                if [[ -f "$f" ]]; then
-                    printf '| | `%s` |\n' "$(basename "$f")"
-                fi
-            done
-        } >> "$GITHUB_STEP_SUMMARY"
+        "${{ github.action_path }}/generate_summary.sh" "$INPUT_PATH" "$VERSION"

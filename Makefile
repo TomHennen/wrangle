@@ -1,10 +1,10 @@
-.PHONY: all test lint shellcheck shellstyle bats zizmor bump-action-pins
+.PHONY: all test lint shellcheck shellstyle workflowstyle bats zizmor bump-action-pins
 
 # Default target
 all: test
 
 # Run all local checks
-test: lint shellcheck shellstyle bats zizmor
+test: lint shellcheck shellstyle workflowstyle bats zizmor
 
 # Validate all workflow and action YAML files
 lint:
@@ -15,6 +15,12 @@ lint:
 shellstyle:
 	@echo "=== wrangle-shell-lint ==="
 	@./tools/wrangle-shell-lint/lint.sh
+
+# Run wrangle-specific workflow style linter (CLAUDE.md GitHub Actions rules:
+# run-block length, expression injection, continue-on-error justification)
+workflowstyle:
+	@echo "=== wrangle-workflow-lint ==="
+	@./tools/wrangle-workflow-lint/lint.sh
 
 # Lint all shell scripts
 shellcheck:

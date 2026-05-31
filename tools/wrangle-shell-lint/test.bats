@@ -131,27 +131,29 @@ teardown() {
 }
 
 @test "WSL002: an internal set +f wrap is not flagged (escape hatch)" {
-    # The escape hatch is `set +f` / `set -f` wrapped around a glob.
-    # The wrap appears INSIDE the script, never at position 2, so the
-    # WSL002 rule does not flag it. The preamble line at position 2 is
-    # still required and present here.
+    # The escape hatch is `set +f` confined to a subshell around a glob
+    # (the WSL007-compliant form). The wrap appears INSIDE the script,
+    # never at position 2, so WSL002 does not flag it; the subshell keeps
+    # WSL007 quiet too. The preamble at position 2 is still present.
     tmp="$(mktemp /tmp/wsl-test-XXXXXX.sh)"
     cat > "$tmp" << 'SCRIPT'
 #!/bin/bash
 set -euo pipefail
 set -f
-# set +f: this loop intentionally expands the glob
-set +f
-shopt -s nullglob
-for f in /etc/*.conf; do
-    printf '%s\n' "$f"
-done
-set -f
+# Expand the glob inside a subshell so set +f can't leak (WSL007).
+(
+    set +f
+    shopt -s nullglob
+    for f in /etc/*.conf; do
+        printf '%s\n' "$f"
+    done
+)
 SCRIPT
     run "$LINTER" "$tmp"
     rm -f "$tmp"
     [ "$status" -eq 0 ]
     [[ "$output" != *"WSL002"* ]]
+    [[ "$output" != *"WSL007"* ]]
 }
 
 # --- WSL003: echo with variable interpolation --------------------------------
@@ -408,6 +410,147 @@ SCRIPT
     rm -f "$tmp"
     [ "$status" -eq 0 ]
     [[ "$output" != *"WSL005"* ]]
+}
+
+# --- WSL006: curl | sh (network download piped to a shell) ------------------
+
+@test "WSL006: curl | sh fixture is reported" {
+    run "$LINTER" "$FIXTURES/bad_wsl006.sh"
+    [ "$status" -eq 1 ]
+    [[ "$output" == *"WSL006"* ]]
+}
+
+@test "WSL006: clean script is not flagged" {
+    run "$LINTER" "$FIXTURES/good.sh"
+    [ "$status" -eq 0 ]
+    [[ "$output" != *"WSL006"* ]]
+}
+
+@test "WSL006: wget | bash and fetch | dash are reported" {
+    tmp="$(mktemp /tmp/wsl-test-XXXXXX.sh)"
+    printf '#!/bin/bash\nset -euo pipefail\nset -f\nwget -qO- https://x | bash -s -- --arg\nfetch -o - https://y | dash\n' > "$tmp"
+    run "$LINTER" "$tmp"
+    rm -f "$tmp"
+    [ "$status" -eq 1 ]
+    [[ "$output" == *"WSL006"* ]]
+}
+
+@test "WSL006: curl piped through a middle stage into bash is reported" {
+    tmp="$(mktemp /tmp/wsl-test-XXXXXX.sh)"
+    printf '#!/bin/bash\nset -euo pipefail\nset -f\ncurl -fsSL https://x | tar xz | bash\n' > "$tmp"
+    run "$LINTER" "$tmp"
+    rm -f "$tmp"
+    [ "$status" -eq 1 ]
+    [[ "$output" == *"WSL006"* ]]
+}
+
+@test "WSL006: curl piped into a wrapped interpreter (sudo/env/xargs bash) is reported" {
+    # `curl | sudo bash` is the canonical installer shape — the shell is
+    # an argument to a wrapper, not the command name.
+    tmp="$(mktemp /tmp/wsl-test-XXXXXX.sh)"
+    printf '#!/bin/bash\nset -euo pipefail\nset -f\ncurl -fsSL https://x | sudo bash\n' > "$tmp"
+    run "$LINTER" "$tmp"
+    rm -f "$tmp"
+    [ "$status" -eq 1 ]
+    [[ "$output" == *"WSL006"* ]]
+}
+
+@test "WSL006: curl into 'grep bash' (interpreter name as a pattern arg) is not flagged" {
+    # grep is not a wrapper, so `bash` here is just a search pattern.
+    tmp="$(mktemp /tmp/wsl-test-XXXXXX.sh)"
+    printf '#!/bin/bash\nset -euo pipefail\nset -f\ncurl -fsSL https://x | grep bash\n' > "$tmp"
+    run "$LINTER" "$tmp"
+    rm -f "$tmp"
+    [ "$status" -eq 0 ]
+    [[ "$output" != *"WSL006"* ]]
+}
+
+@test "WSL006: curl into a non-interpreter (jq) is not flagged" {
+    tmp="$(mktemp /tmp/wsl-test-XXXXXX.sh)"
+    printf '#!/bin/bash\nset -euo pipefail\nset -f\ncurl -fsSL https://x | jq .\n' > "$tmp"
+    run "$LINTER" "$tmp"
+    rm -f "$tmp"
+    [ "$status" -eq 0 ]
+    [[ "$output" != *"WSL006"* ]]
+}
+
+@test "WSL006: a non-download command piped to sh is not flagged" {
+    tmp="$(mktemp /tmp/wsl-test-XXXXXX.sh)"
+    printf '#!/bin/bash\nset -euo pipefail\nset -f\ncat ./script.sh | sh\n' > "$tmp"
+    run "$LINTER" "$tmp"
+    rm -f "$tmp"
+    [ "$status" -eq 0 ]
+    [[ "$output" != *"WSL006"* ]]
+}
+
+@test "WSL006: 'curl x | sh' inside a string is not flagged" {
+    tmp="$(mktemp /tmp/wsl-test-XXXXXX.sh)"
+    printf '#!/bin/bash\nset -euo pipefail\nset -f\nprintf "%%s\\n" "curl x | sh"\n' > "$tmp"
+    run "$LINTER" "$tmp"
+    rm -f "$tmp"
+    [ "$status" -eq 0 ]
+    [[ "$output" != *"WSL006"* ]]
+}
+
+@test "WSL006: 'curl | sh' in a comment is not flagged" {
+    tmp="$(mktemp /tmp/wsl-test-XXXXXX.sh)"
+    printf '#!/bin/bash\nset -euo pipefail\nset -f\n# do not curl https://x | sh here\nprintf done\n' > "$tmp"
+    run "$LINTER" "$tmp"
+    rm -f "$tmp"
+    [ "$status" -eq 0 ]
+    [[ "$output" != *"WSL006"* ]]
+}
+
+# --- WSL007: `set +f` outside a subshell (exception-safety) -----------------
+
+@test "WSL007: top-level set +f fixture is reported" {
+    run "$LINTER" "$FIXTURES/bad_wsl007.sh"
+    [ "$status" -eq 1 ]
+    [[ "$output" == *"WSL007"* ]]
+}
+
+@test "WSL007: clean script is not flagged" {
+    run "$LINTER" "$FIXTURES/good.sh"
+    [ "$status" -eq 0 ]
+    [[ "$output" != *"WSL007"* ]]
+}
+
+@test "WSL007: set +f inside a subshell is not flagged" {
+    tmp="$(mktemp /tmp/wsl-test-XXXXXX.sh)"
+    printf '#!/bin/bash\nset -euo pipefail\nset -f\n( set +f; shopt -s nullglob; printf "%%s\\n" ./*.conf; set -f )\n' > "$tmp"
+    run "$LINTER" "$tmp"
+    rm -f "$tmp"
+    [ "$status" -eq 0 ]
+    [[ "$output" != *"WSL007"* ]]
+}
+
+@test "WSL007: set +f inside a command substitution is not flagged" {
+    tmp="$(mktemp /tmp/wsl-test-XXXXXX.sh)"
+    printf '#!/bin/bash\nset -euo pipefail\nset -f\nfiles="$(set +f; printf "%%s" ./*.conf)"\nprintf "%%s\\n" "$files"\n' > "$tmp"
+    run "$LINTER" "$tmp"
+    rm -f "$tmp"
+    [ "$status" -eq 0 ]
+    [[ "$output" != *"WSL007"* ]]
+}
+
+@test "WSL007: set +f inside a function (no subshell) is reported (Policy A)" {
+    # A function body is NOT a structurally-safe scope. The compliant
+    # form wraps the glob in a subshell, even inside a function.
+    tmp="$(mktemp /tmp/wsl-test-XXXXXX.sh)"
+    printf '#!/bin/bash\nset -euo pipefail\nset -f\nf() {\n  set +f\n  shopt -s nullglob\n  printf "%%s\\n" ./*.conf\n  set -f\n}\nf\n' > "$tmp"
+    run "$LINTER" "$tmp"
+    rm -f "$tmp"
+    [ "$status" -eq 1 ]
+    [[ "$output" == *"WSL007"* ]]
+}
+
+@test "WSL007: 'set +f' in a comment is not flagged" {
+    tmp="$(mktemp /tmp/wsl-test-XXXXXX.sh)"
+    printf '#!/bin/bash\nset -euo pipefail\nset -f\n# remember to set +f around the glob\nprintf done\n' > "$tmp"
+    run "$LINTER" "$tmp"
+    rm -f "$tmp"
+    [ "$status" -eq 0 ]
+    [[ "$output" != *"WSL007"* ]]
 }
 
 # --- Output format -----------------------------------------------------------

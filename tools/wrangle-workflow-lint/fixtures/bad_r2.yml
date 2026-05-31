@@ -1,0 +1,15 @@
+# WWL002 positive fixture: attacker-influenced expressions interpolated
+# directly into run: bodies. The compliant form threads each value
+# through env: and references it as a shell variable.
+name: bad-r2
+on: pull_request
+jobs:
+  inject:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Inject a typed input
+        run: |
+          set -euo pipefail
+          printf 'building %s\n' "${{ inputs.path }}"
+      - name: Inject the event payload
+        run: echo "${{ github.event.pull_request.title }}"

@@ -48,10 +48,12 @@ is_exempt() {
 }
 
 @test "build-guard-coverage: every build composite references the stop-commands guard" {
-    # Enumerate build/actions/<name>/action.yml. For each non-exempt
-    # composite, the action.yml MUST reference lib/stop_commands_guard.sh
-    # at least once. New composites added without wiring in the guard
-    # fail here — the test does not need to be updated for new build
+    # Enumerate build/actions/<name>/. For each non-exempt composite, the
+    # composite MUST reference lib/stop_commands_guard.sh at least once —
+    # either directly in action.yml or in a script it delegates to (the
+    # action.yml -> script extraction pattern CLAUDE.md requires for any
+    # run: block with logic). New composites added without wiring in the
+    # guard fail here — the test does not need to be updated for new build
     # types, only for new exemptions (which require updating the
     # EXEMPT_COMPOSITES allowlist above with a rationale).
     local missing=()
@@ -64,7 +66,11 @@ is_exempt() {
             continue
         fi
 
-        if ! grep -qF "$GUARD" "$action_yml"; then
+        # Search the whole composite directory: action.yml plus any sibling
+        # scripts it shells out to. The per-composite test.bats (asserted by
+        # the next test) is what pins the guard to the actual tool
+        # invocation rather than an inert reference.
+        if ! grep -rqF "$GUARD" "$composite_dir"; then
             missing+=("$composite_name")
         fi
     done < <(find "$REPO_ROOT/build/actions" -mindepth 2 -maxdepth 2 \

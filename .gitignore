@@ -4,3 +4,7 @@ metadata/
 .wrangle/
 .claude/
 CLAUDE.local.md
+
+# Python bytecode cache from tools/wrangle-workflow-lint/lint.py
+__pycache__/
+*.pyc

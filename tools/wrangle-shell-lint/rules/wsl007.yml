@@ -1,0 +1,46 @@
+# WSL007 — `set +f` must be confined to a subshell (exception-safety)
+#
+# CLAUDE.md: "Scripts that intentionally need globbing must wrap it in
+# `set +f` / `set -f`, scoped as narrowly as possible." The robust scope
+# is a subshell: under `set -e`, a bare `set +f; …; set -f` pair leaks
+# glob-enabled state to the rest of the script if anything between the
+# toggles exits non-zero (the restoring `set -f` never runs). Confining
+# `set +f` to a `( … )` subshell (or a command/process substitution,
+# which are themselves subshells) makes restoration automatic on every
+# exit path — see #244 / #258.
+#
+# Policy A — purely structural: a `set +f` is acceptable ONLY when it is
+# lexically inside a subshell / command_substitution / process_substitution.
+# A function body is NOT treated as safe: a function with a restore-trap
+# could be exception-safe, but that property is not structurally
+# expressible, so the rule does not try to recognize it. Wrap the glob in
+# a subshell instead.
+#
+# AST-aware match: a `command` node named `set` whose argument is `+f`,
+# with no subshell-class ancestor. Textual decoys (a `# set +f` comment,
+# a `'set +f'` string) are not `command` nodes and never match.
+
+id: wsl007-set-f-outside-subshell
+severity: error
+language: bash
+rule:
+  kind: command
+  all:
+    - has:
+        field: name
+        regex: '^set$'
+    - has:
+        kind: word
+        regex: '^\+f$'
+  not:
+    inside:
+      stopBy: end
+      any:
+        - kind: subshell
+        - kind: command_substitution
+        - kind: process_substitution
+message: |
+  WSL007: `set +f` outside a subshell leaks glob-enabled state if the
+  code before the restoring `set -f` exits (set -e). Wrap the glob in a
+  `( … )` subshell so globbing is restored on every exit path. A function
+  body does not count — use a subshell. See CLAUDE.md "Shell scripts".

@@ -13,12 +13,19 @@ RUN apt-get update -q && \
         libc6-dev \
         python3 \
         python3-venv \
+        python3-yaml \
     && rm -rf /var/lib/apt/lists/*
 
 # python3 + python3-venv host the isolated venvs that both zizmor and
 # ast-grep install into (each tool gets its own venv via tools/<tool>/
 # requirements.txt with --require-hashes). See pypa/pipx#712 for why
 # pipx + --require-hashes isn't viable.
+#
+# python3-yaml (PyYAML) backs tools/wrangle-workflow-lint/lint.py. It's a
+# pure-Python parser shipped by the Ubuntu base repo, so it rides the same
+# apt trust model as the python3 interpreter itself — no separate
+# hash-pinned venv (a library import for an internal script is not a
+# wrapped third-party tool like zizmor / ast-grep). See DEP_MGMT.md.
 
 # gcc + libc6-dev are pulled in for `go test -race` (cgo needs a C toolchain).
 

@@ -46,56 +46,23 @@ runs:
         fi
         printf 'bats version: %s\n' "$(bats --version)"
 
-    # shellcheck echoes excerpts of the source lines it diagnoses, and
-    # the source files under scan-path are caller-controlled. A `.sh`
-    # file containing a line that starts with `::add-mask::` or
-    # `::set-output::` could therefore reach the step log via shellcheck's
-    # output. stop_commands_guard.sh wraps the shellcheck invocation so a
-    # workflow command on stdout is neutralized — see
-    # docs/SLSA_L3_AUDIT.md Finding 3. The guard re-enables command
-    # processing on exit, before the final "scripts passed" line.
+    # shellcheck echoes excerpts of caller-controlled source lines in its
+    # diagnostics, so the invocation must run under stop_commands_guard.sh
+    # to neutralize workflow commands on stdout (#225 / SLSA_L3_AUDIT.md
+    # Finding 3). The scan-path validation and guard wiring live in
+    # run_shellcheck.sh.
     - name: Run shellcheck
       shell: bash
       env:
         SCAN_PATH: ${{ inputs.scan-path }}
       run: |
         set -euo pipefail
-        printf '=== shellcheck ===\n'
+        "${{ github.action_path }}/run_shellcheck.sh" "$SCAN_PATH"
 
-        # Validate scan-path: must be a relative path with only safe
-        # characters. Reject absolute paths and path traversal.
-        if [[ "$SCAN_PATH" == /* ]]; then
-          printf 'shellcheck: absolute paths not allowed in scan-path: %s\n' "$SCAN_PATH" >&2
-          exit 1
-        fi
-        if [[ "$SCAN_PATH" == *..* ]]; then
-          printf 'shellcheck: path traversal not allowed in scan-path: %s\n' "$SCAN_PATH" >&2
-          exit 1
-        fi
-        if [[ ! "$SCAN_PATH" =~ ^[a-zA-Z0-9_./-]+$ ]]; then
-          printf 'shellcheck: invalid characters in scan-path: %s\n' "$SCAN_PATH" >&2
-          exit 1
-        fi
-        if [[ ! -d "$SCAN_PATH" ]]; then
-          printf 'shellcheck: scan-path does not exist: %s\n' "$SCAN_PATH" >&2
-          exit 1
-        fi
-
-        # Use find -print0 + xargs -0 for safe filename handling.
-        # shellcheck also supports .bats files (bash syntax). Each xargs
-        # batch is one guarded invocation; the guard preserves shellcheck's
-        # exit status so findings still fail the step.
-        find "$SCAN_PATH" \( -name '*.sh' -o -name '*.bats' \) \
-          -not -path '*/.git/*' \
-          -not -path '*/node_modules/*' \
-          -print0 | xargs -0 -r "${{ github.action_path }}/../../../lib/stop_commands_guard.sh" run shellcheck
-        printf 'shellcheck: all scripts under %s passed\n' "$SCAN_PATH"
-
-    # bats EXECUTES caller-supplied .bats files (arbitrary bash), which
-    # is a direct workflow-command-injection path: a test that printfs
-    # `::add-mask::SECRET` would hijack the build job. Both invocation
-    # paths (explicit BATS_PATH and auto-detected .bats files) run under
-    # stop_commands_guard.sh — see docs/SLSA_L3_AUDIT.md Finding 3.
+    # bats EXECUTES caller-supplied .bats files (arbitrary bash), a direct
+    # workflow-command-injection path. Both invocation paths (explicit
+    # bats-path and auto-detected files) run under stop_commands_guard.sh
+    # inside run_bats.sh — see SLSA_L3_AUDIT.md Finding 3.
     - name: Run bats tests
       shell: bash
       env:
@@ -103,35 +70,4 @@ runs:
         SCAN_PATH: ${{ inputs.scan-path }}
       run: |
         set -euo pipefail
-        printf '=== bats ===\n'
-
-        # Validate bats-path if provided: must be a relative path with
-        # only safe characters. Reject absolute paths and path traversal.
-        if [[ -n "$BATS_PATH" ]]; then
-          if [[ "$BATS_PATH" == /* ]]; then
-            printf 'bats: absolute paths not allowed: %s\n' "$BATS_PATH" >&2
-            exit 1
-          fi
-          if [[ "$BATS_PATH" == *..* ]]; then
-            printf 'bats: path traversal not allowed: %s\n' "$BATS_PATH" >&2
-            exit 1
-          fi
-          if [[ ! "$BATS_PATH" =~ ^[a-zA-Z0-9_./-]+$ ]]; then
-            printf 'bats: invalid characters in bats-path: %s\n' "$BATS_PATH" >&2
-            exit 1
-          fi
-          "${{ github.action_path }}/../../../lib/stop_commands_guard.sh" run bats "$BATS_PATH"
-        else
-          # Auto-detect: find all .bats files under scan-path.
-          # scan-path was validated by the shellcheck step above.
-          bats_files=()
-          while IFS= read -r -d '' f; do
-            bats_files+=("$f")
-          done < <(find "$SCAN_PATH" -name '*.bats' -not -path '*/.git/*' -print0 2>/dev/null)
-
-          if [[ ${#bats_files[@]} -gt 0 ]]; then
-            "${{ github.action_path }}/../../../lib/stop_commands_guard.sh" run bats "${bats_files[@]}"
-          else
-            printf 'bats: no .bats files found under %s, skipping\n' "$SCAN_PATH"
-          fi
-        fi
+        "${{ github.action_path }}/run_bats.sh" "$BATS_PATH" "$SCAN_PATH"

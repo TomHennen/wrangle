@@ -1,0 +1,66 @@
+# WSL006 — never pipe a network download straight into a shell
+#
+# CLAUDE.md: "Don't `curl | sh` — all binary downloads go through
+# lib/download_verify.sh." Supply-chain rule: piping a fetched script
+# into an interpreter executes whatever the server returns, with no
+# checksum, signature, or pin — the canonical supply-chain foothold.
+#
+# AST-aware match: a `pipeline` node that contains BOTH a download
+# command (curl / wget / fetch) AND a shell interpreter command
+# (sh / bash / dash / zsh). Matching on the pipeline-as-a-whole rather
+# than strict left/right position is deliberate: tree-sitter-bash gives
+# pipeline stages no positional field, and `sh | curl` is nonsensical,
+# so "a downloader and an interpreter in the same pipeline" is precisely
+# the dangerous shape (including the `curl x | tar | bash` middle-stage
+# variants).
+#
+# The interpreter stage is matched whether the shell is the command name
+# (`| sh`) or an argument to a privilege/env wrapper (`| sudo bash`,
+# `| env bash`, `| xargs sh -s`) — `curl | sudo bash` is the canonical
+# installer shape and must not slip through.
+#
+# Because the matcher is structural, textual decoys don't fire it:
+#   - `# curl x | sh` in a comment — comments are not pipeline nodes.
+#   - `printf 'curl x | sh'` — literal string, no pipeline.
+#   - `curl x | jq` — no interpreter stage, not matched.
+#   - `curl x | grep bash` — `bash` is grep's pattern arg, grep is not a
+#     wrapper, not matched.
+#   - `cat f | sh` — no downloader stage, not matched.
+#
+# Out of scope (not a pipeline): exec-from-substitution like
+# `bash <(curl …)` / `source <(curl …)`. zizmor and review cover those.
+
+id: wsl006-curl-pipe-shell
+severity: error
+language: bash
+rule:
+  kind: pipeline
+  all:
+    - has:
+        kind: command
+        stopBy: end
+        has:
+          field: name
+          regex: '^(curl|wget|fetch)$'
+    - any:
+        - has:
+            kind: command
+            stopBy: end
+            has:
+              field: name
+              regex: '^(sh|bash|dash|zsh)$'
+        - has:
+            kind: command
+            stopBy: end
+            all:
+              - has:
+                  field: name
+                  regex: '^(sudo|env|command|exec|nohup|timeout|nice|time|setsid|stdbuf|xargs)$'
+              - has:
+                  kind: word
+                  regex: '^(sh|bash|dash|zsh)$'
+message: |
+  WSL006: piping a network download into a shell interpreter
+  (curl/wget/fetch | sh/bash/dash/zsh) executes unverified remote code.
+  Route binary/script downloads through lib/download_verify.sh
+  (checksum/signature/pin verification). See CLAUDE.md "Supply chain".
