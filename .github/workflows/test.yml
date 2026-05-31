@@ -49,8 +49,7 @@ jobs:
           sudo apt-get update -q
           sudo apt-get install -y -q --no-install-recommends bats jq
 
-      # Install osv-scanner and build ampel + bnd into WRANGLE_BIN_DIR. lib/env.sh
-      # provides WRANGLE_BIN_DIR, the GOPROXY/GOSUMDB pins, and the PATH entry.
+      # Install osv-scanner and build ampel + bnd, using the env from lib/env.sh.
       - name: Install tools
         run: |
           source lib/env.sh
