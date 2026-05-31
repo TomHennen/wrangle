@@ -20,3 +20,16 @@ updates:
     open-pull-requests-limit: 5
     cooldown:
       default-days: 7
+
+  - package-ecosystem: "gomod"
+    # tools/go.mod — the ampel + bnd tool manifest. Freshness here IS the
+    # security posture (DEP_MGMT.md): `go install` is the first-class choice
+    # precisely because Dependabot keeps the transitive deps patched, so the
+    # CVEs a lockfile scan flags don't go stale.
+    directories:
+      - "/tools"
+    schedule:
+      interval: "weekly"
+    open-pull-requests-limit: 5
+    cooldown:
+      default-days: 7
