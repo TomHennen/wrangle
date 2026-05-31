@@ -29,7 +29,7 @@ jobs:
     permissions: {}    # reads env only — no workspace, no API, no secrets
     steps:
       # TODO: replace with $/actions/preflight_guard when GitHub ships $/ syntax (#136)
-      - uses: TomHennen/wrangle/actions/preflight_guard@e063cc9d26562d5e7f13da2f226a1bfebf95cfc9 # main 2026-05-31
+      - uses: TomHennen/wrangle/actions/preflight_guard@5e5d4b1ae9aca432ffced21b83d7e56478d0e575 # main 2026-05-31
 
   shell-build:
     needs: [guard]
@@ -43,7 +43,7 @@ jobs:
 
       - name: Run shell build
         # TODO: replace with $/build/actions/shell when GitHub ships $/ syntax (#136)
-        uses: TomHennen/wrangle/build/actions/shell@e063cc9d26562d5e7f13da2f226a1bfebf95cfc9 # main 2026-05-31
+        uses: TomHennen/wrangle/build/actions/shell@5e5d4b1ae9aca432ffced21b83d7e56478d0e575 # main 2026-05-31
         with:
           scan-path: ${{ inputs.scan-path }}
           bats-path: ${{ inputs.bats-path }}
