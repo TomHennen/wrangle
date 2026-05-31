@@ -15,11 +15,10 @@ set -f
 # The shell-AST conventions (curl|sh, `set +f` outside a subshell) live in
 # the sibling wrangle-shell-lint as WSL006 / WSL007.
 #
-# python3 + PyYAML are provided by the test image's apt packages (python3,
-# python3-yaml) — the same trust model as the python3 interpreter itself,
-# kept current by the base-image rebuild. No separate hash-pinned venv: a
-# pure-Python parser in the base distro is not a wrapped third-party tool
-# like zizmor / ast-grep (see DEP_MGMT.md footprint rule).
+# PyYAML is hash-pinned in tools/wrangle-workflow-lint/requirements.txt and
+# installed into an isolated venv (Dependabot-covered, like zizmor /
+# ast-grep — see DEP_MGMT.md). Being a library rather than a CLI it has no
+# PATH entrypoint, so this wrapper runs lint.py under the venv's python.
 #
 # Usage:
 #   lint.sh                walk the repo (workflows + composite action.yml)
@@ -30,8 +29,18 @@ set -f
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 LINT_PY="${SCRIPT_DIR}/lint.py"
 
-if ! command -v python3 >/dev/null 2>&1; then
-    printf 'wrangle-workflow-lint: python3 not found on PATH.\n' >&2
+# Resolve the interpreter that can import yaml. Prefer the managed venv the
+# test image builds; fall back to a system python3 that already has PyYAML
+# (a local dev convenience). In the image the base python has no yaml, so
+# this fallback fails closed there rather than masking a broken venv.
+VENV_PYTHON="/opt/wrangle-workflow-lint/bin/python3"
+if [[ -x "$VENV_PYTHON" ]]; then
+    PYTHON="$VENV_PYTHON"
+elif command -v python3 >/dev/null 2>&1 && python3 -c 'import yaml' >/dev/null 2>&1; then
+    PYTHON="python3"
+else
+    printf 'wrangle-workflow-lint: no python3 with PyYAML found.\n' >&2
+    printf 'wrangle-workflow-lint: install the pinned version in tools/wrangle-workflow-lint/requirements.txt into a venv (see test/Dockerfile).\n' >&2
     exit 2
 fi
 
@@ -39,6 +48,11 @@ fi
 # repo for workflow files and every composite action.yml, skipping this
 # linter's own fixtures (intentionally-bad YAML that must not fail the repo
 # walk or the zizmor scan).
+#
+# Targets are trusted developer input — git-discovered repo files or a dev's
+# explicit file list run from `make test` — not attacker-controlled
+# workflow_call inputs, so no path allowlisting is applied here (unlike the
+# build actions, whose inputs.* flow through lib/validate_path.sh).
 declare -a targets=()
 if [[ $# -gt 0 ]]; then
     targets=("$@")
@@ -62,4 +76,4 @@ if [[ ${#targets[@]} -eq 0 ]]; then
     exit 0
 fi
 
-exec python3 "$LINT_PY" "${targets[@]}"
+exec "$PYTHON" "$LINT_PY" "${targets[@]}"

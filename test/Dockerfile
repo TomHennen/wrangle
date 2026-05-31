@@ -13,19 +13,13 @@ RUN apt-get update -q && \
         libc6-dev \
         python3 \
         python3-venv \
-        python3-yaml \
     && rm -rf /var/lib/apt/lists/*
 
-# python3 + python3-venv host the isolated venvs that both zizmor and
-# ast-grep install into (each tool gets its own venv via tools/<tool>/
-# requirements.txt with --require-hashes). See pypa/pipx#712 for why
-# pipx + --require-hashes isn't viable.
-#
-# python3-yaml (PyYAML) backs tools/wrangle-workflow-lint/lint.py. It's a
-# pure-Python parser shipped by the Ubuntu base repo, so it rides the same
-# apt trust model as the python3 interpreter itself — no separate
-# hash-pinned venv (a library import for an internal script is not a
-# wrapped third-party tool like zizmor / ast-grep). See DEP_MGMT.md.
+# python3 + python3-venv host the isolated, hash-pinned venvs that zizmor,
+# ast-grep, and wrangle-workflow-lint's PyYAML each install into (each tool
+# gets its own venv via tools/<tool>/requirements.txt with --require-hashes,
+# Dependabot-covered). See pypa/pipx#712 for why pipx + --require-hashes
+# isn't viable.
 
 # gcc + libc6-dev are pulled in for `go test -race` (cgo needs a C toolchain).
 
@@ -103,5 +97,18 @@ RUN set -euo pipefail && \
         --require-hashes -r /tmp/ast-grep-requirements.txt && \
     ln -s /opt/ast-grep/bin/ast-grep /usr/local/bin/ast-grep && \
     rm /tmp/ast-grep-requirements.txt
+
+# wrangle-workflow-lint's PyYAML — same hash-pinned venv pattern. PyYAML is
+# a library, not a CLI, so there is no entrypoint to symlink onto PATH:
+# lint.sh runs lint.py under /opt/wrangle-workflow-lint/bin/python3 directly
+# (a venv python can't be symlinked out of its bin dir — it locates
+# site-packages via the adjacent pyvenv.cfg). With no yaml in the base
+# python, the lint.sh interpreter fallback fails closed here.
+COPY tools/wrangle-workflow-lint/requirements.txt /tmp/wwl-requirements.txt
+RUN set -euo pipefail && \
+    python3 -m venv /opt/wrangle-workflow-lint && \
+    /opt/wrangle-workflow-lint/bin/pip install --no-cache-dir \
+        --require-hashes -r /tmp/wwl-requirements.txt && \
+    rm /tmp/wwl-requirements.txt
 
 WORKDIR /wrangle

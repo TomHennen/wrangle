@@ -14,6 +14,9 @@ if [[ $# -ne 1 ]]; then
     exit 1
 fi
 
+# input_path is the action's inputs.path, already constrained by
+# validate_inputs.sh (lib/validate_path.sh) — the composite's first step,
+# which runs before this one; no untrusted value reaches the cd / glob below.
 INPUT_PATH="$1"
 SHORTNAME="${INPUT_PATH////_}"
 METADATA_DIR="metadata/python/${SHORTNAME}"

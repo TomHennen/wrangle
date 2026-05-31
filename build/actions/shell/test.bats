@@ -89,7 +89,7 @@ setup() {
 @test "shell: run_shellcheck.sh rejects an absolute scan-path" {
     run "$ACTION_DIR/run_shellcheck.sh" "/etc"
     [ "$status" -eq 1 ]
-    [[ "$output" == *"absolute paths not allowed"* ]]
+    [[ "$output" == *"path must be relative"* ]]
 }
 
 @test "shell: run_shellcheck.sh rejects path traversal in scan-path" {
@@ -113,7 +113,7 @@ setup() {
 @test "shell: run_bats.sh rejects an absolute bats-path" {
     run "$ACTION_DIR/run_bats.sh" "/etc" "."
     [ "$status" -eq 1 ]
-    [[ "$output" == *"absolute paths not allowed"* ]]
+    [[ "$output" == *"path must be relative"* ]]
 }
 
 @test "shell: run_bats.sh skips cleanly when no .bats files are found" {

@@ -21,24 +21,16 @@ fi
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 GUARD="$SCRIPT_DIR/../../../lib/stop_commands_guard.sh"
+VALIDATE_PATH="$SCRIPT_DIR/../../../lib/validate_path.sh"
 SCAN_PATH="$1"
 
 printf '=== shellcheck ===\n'
 
-# Validate scan-path: must be a relative path with only safe characters.
-# Reject absolute paths and path traversal.
-if [[ "$SCAN_PATH" == /* ]]; then
-    printf 'shellcheck: absolute paths not allowed in scan-path: %s\n' "$SCAN_PATH" >&2
-    exit 1
-fi
-if [[ "$SCAN_PATH" == *..* ]]; then
-    printf 'shellcheck: path traversal not allowed in scan-path: %s\n' "$SCAN_PATH" >&2
-    exit 1
-fi
-if [[ ! "$SCAN_PATH" =~ ^[a-zA-Z0-9_./-]+$ ]]; then
-    printf 'shellcheck: invalid characters in scan-path: %s\n' "$SCAN_PATH" >&2
-    exit 1
-fi
+# Enforce the shared path allowlist (relative, no traversal, safe charset)
+# via lib/validate_path.sh; it exits non-zero and set -e aborts here. The
+# existence check is shellcheck-specific — validate_path.sh is pure string
+# validation, and a missing scan-path is caller error, not a no-op.
+"$VALIDATE_PATH" "$SCAN_PATH"
 if [[ ! -d "$SCAN_PATH" ]]; then
     printf 'shellcheck: scan-path does not exist: %s\n' "$SCAN_PATH" >&2
     exit 1

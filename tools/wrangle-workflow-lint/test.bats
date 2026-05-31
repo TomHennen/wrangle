@@ -18,15 +18,20 @@ setup() {
     FIXTURES="$ORIG_DIR/tools/wrangle-workflow-lint/fixtures"
     export ORIG_DIR LINTER FIXTURES
 
-    # Fail loud if python3 / PyYAML is missing. The linter is mandatory in
-    # CI and in the test image (apt python3 + python3-yaml); a silent skip
-    # would let a broken image ship green.
-    if ! command -v python3 >/dev/null 2>&1; then
+    # Fail loud if no python3 with PyYAML is reachable. The linter is
+    # mandatory in CI and in the test image; a silent skip would let a broken
+    # image ship green. Mirror lint.sh's interpreter discovery — the managed
+    # venv in the image, or a system python3 with PyYAML for local dev.
+    if [[ -x /opt/wrangle-workflow-lint/bin/python3 ]]; then
+        PY=/opt/wrangle-workflow-lint/bin/python3
+    elif command -v python3 >/dev/null 2>&1; then
+        PY=python3
+    else
         printf 'python3 not on PATH — run via ./test.sh (the Docker image provides it)\n' >&2
         return 1
     fi
-    if ! python3 -c 'import yaml' >/dev/null 2>&1; then
-        printf 'PyYAML not importable — the test image apt-installs python3-yaml\n' >&2
+    if ! "$PY" -c 'import yaml' >/dev/null 2>&1; then
+        printf 'PyYAML not importable — install tools/wrangle-workflow-lint/requirements.txt into a venv (see test/Dockerfile)\n' >&2
         return 1
     fi
 }
@@ -303,3 +308,11 @@ teardown() {
     [ "$status" -eq 0 ]
     [ -z "$output" ]
 }
+
+# --- Dockerfile / requirements.txt drift guard ------------------------------
+# PyYAML's version lives only in tools/wrangle-workflow-lint/requirements.txt;
+# the Dockerfile COPYs that file and installs it with --require-hashes into a
+# venv. As with wrangle-shell-lint, requirements.txt IS the sole pinned-version
+# source, so drift is impossible by construction and no drift-guard test is
+# needed. Hash well-formedness is enforced by pip --require-hashes at image
+# build time (a missing hash fails the build), exercised by every ./test.sh run.

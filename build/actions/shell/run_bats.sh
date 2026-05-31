@@ -22,26 +22,17 @@ fi
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 GUARD="$SCRIPT_DIR/../../../lib/stop_commands_guard.sh"
+VALIDATE_PATH="$SCRIPT_DIR/../../../lib/validate_path.sh"
 BATS_PATH="$1"
 SCAN_PATH="$2"
 
 printf '=== bats ===\n'
 
-# Validate bats-path if provided: must be a relative path with only safe
-# characters. Reject absolute paths and path traversal.
+# Validate bats-path if provided via the shared allowlist (relative, no
+# traversal, safe charset); lib/validate_path.sh exits non-zero and set -e
+# aborts here. scan-path is validated by run_shellcheck.sh, which runs first.
 if [[ -n "$BATS_PATH" ]]; then
-    if [[ "$BATS_PATH" == /* ]]; then
-        printf 'bats: absolute paths not allowed: %s\n' "$BATS_PATH" >&2
-        exit 1
-    fi
-    if [[ "$BATS_PATH" == *..* ]]; then
-        printf 'bats: path traversal not allowed: %s\n' "$BATS_PATH" >&2
-        exit 1
-    fi
-    if [[ ! "$BATS_PATH" =~ ^[a-zA-Z0-9_./-]+$ ]]; then
-        printf 'bats: invalid characters in bats-path: %s\n' "$BATS_PATH" >&2
-        exit 1
-    fi
+    "$VALIDATE_PATH" "$BATS_PATH"
     "$GUARD" run bats "$BATS_PATH"
 else
     # Auto-detect: find all .bats files under scan-path. scan-path was

@@ -2,8 +2,9 @@
 """wrangle-workflow-lint — YAML-level CLAUDE.md conventions for GitHub Actions.
 
 Enforces the rules that operate on workflow / composite-action *structure*
-(run-block line spans, step-sibling keys) rather than shell AST — those that
-ast-grep cannot express and that actionlint / zizmor do not cover:
+(run-block line spans, step-sibling keys, comment adjacency) that actionlint
+and zizmor do not cover. PyYAML over ast-grep is a deliberate, researched
+choice — see the "Why PyYAML" note below:
 
   WWL001 (R1)  a `run:` block is at most 10 physical lines (preamble, blanks,
                and comments included).
@@ -20,6 +21,15 @@ ast-grep cannot express and that actionlint / zizmor do not cover:
 The sibling shell-AST rules live in wrangle-shell-lint: R3 (curl|sh) is WSL006
 and R5 (`set +f` outside a subshell) is WSL007.
 
+Why PyYAML, not ast-grep (which wrangle already runs for the shell rules):
+ast-grep does support YAML and expresses WWL002 cleanly (a `run:` pattern plus
+a regex constraint), but it has no line-count constraint for WWL001 (a block
+scalar's physical span) and reaches comments only through brittle relational
+matching for WWL003's adjacent-justification rule. A small PyYAML pass gets
+node line ranges and raw-line access for both directly, making it the more
+maintainable home for these three rules; WWL002 stays alongside them rather
+than splitting one rule out into a second tool.
+
 Inputs are file paths (workflows under .github/workflows and composite
 action.yml files). Both `jobs.*.steps[]` and `runs.steps[]` are walked.
 
@@ -34,8 +44,8 @@ try:
 except ImportError:
     sys.stderr.write(
         "wrangle-workflow-lint: PyYAML not available for this python3.\n"
-        "Install it (the test image apt-installs python3-yaml; locally: "
-        "`pip install pyyaml` or `apt-get install python3-yaml`).\n"
+        "Install the pinned version in tools/wrangle-workflow-lint/"
+        "requirements.txt into a venv (see test/Dockerfile).\n"
     )
     raise SystemExit(2)
 
