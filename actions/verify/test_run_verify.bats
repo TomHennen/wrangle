@@ -45,6 +45,15 @@ teardown() {
     printf '%s\n' "${args[@]}" | grep -qx -- "--policy=git+https://github.com/o/r@abc123#policies/x.hjson"
 }
 
+@test "run_verify: an absolute policy path passes through unresolved" {
+    # The absolute-path arm fails SILENTLY if dropped (an absolute path would be
+    # double-prefixed to $REPO_ROOT/abs/… and ampel would read the wrong file),
+    # so it gets its own guard distinct from the locator case.
+    export POLICY="/etc/wrangle/policy.hjson"
+    mapfile -t args < <(wrangle_ampel_verify_args)
+    printf '%s\n' "${args[@]}" | grep -qx -- "--policy=/etc/wrangle/policy.hjson"
+}
+
 # --- ampel arg vector ---
 
 @test "run_verify: ampel args carry the core verify flags" {

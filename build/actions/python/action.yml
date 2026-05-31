@@ -46,6 +46,9 @@ inputs:
     default: "enabled"
 
 outputs:
+  name:
+    description: "The package name (from the built wheel filename)"
+    value: ${{ steps.metadata.outputs.name }}
   version:
     description: "The package version that was built"
     value: ${{ steps.metadata.outputs.version }}
@@ -168,12 +171,16 @@ runs:
         shopt -s nullglob
         wheels=(dist/*.whl)
         if (( ${#wheels[@]} > 0 )); then
-            # Wheel filename format: {name}-{version}-{tags}.whl
+            # Wheel filename format: {name}-{version}-{tags}.whl (PEP 427: the
+            # name segment is pre-escaped to [A-Za-z0-9_]+, no '-' inside it).
+            NAME="$(basename "${wheels[0]}" | sed 's/^\([^-]*\)-.*/\1/')"
             VERSION="$(basename "${wheels[0]}" | sed 's/^[^-]*-\([^-]*\)-.*/\1/')"
+            printf 'name=%s\n' "$NAME" >> "$GITHUB_OUTPUT"
             printf 'version=%s\n' "$VERSION" >> "$GITHUB_OUTPUT"
-            printf 'Package version: %s\n' "$VERSION"
+            printf 'Package: %s %s\n' "$NAME" "$VERSION"
         else
             printf 'Warning: no wheel found in dist/\n'
+            printf 'name=unknown\n' >> "$GITHUB_OUTPUT"
             printf 'version=unknown\n' >> "$GITHUB_OUTPUT"
         fi
 

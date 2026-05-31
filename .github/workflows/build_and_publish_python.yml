@@ -134,6 +134,7 @@ jobs:
       contents: read    # minimal — no OIDC, no publish
     outputs:
       hashes: ${{ steps.build.outputs.hashes }}
+      name: ${{ steps.build.outputs.name }}
       version: ${{ steps.build.outputs.version }}
       shortname: ${{ steps.build.outputs.shortname }}
       dist-artifact-name: ${{ steps.names.outputs.dist }}
@@ -182,6 +183,13 @@ jobs:
         run: |
           set -euo pipefail
           files="$(printf '%s' "$HASHES" | base64 -d | awk '{ sub(/^.*\//, "", $2); print $2 }' | jq -R . | jq -cs .)"
+          # Fail closed: an empty array would expand the vsa matrix to zero
+          # shards, skipping the release-gating VSA job — and a skipped job
+          # propagates as success. Never let the gate collapse silently.
+          if [[ "$files" == "[]" ]]; then
+              printf 'no dist files to attest — refusing to emit an empty VSA matrix\n' >&2
+              exit 1
+          fi
           printf 'files=%s\n' "$files" >> "$GITHUB_OUTPUT"
 
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
@@ -305,6 +313,9 @@ jobs:
           subject: dist/${{ matrix.artifact }}
           policy: policies/wrangle-provenance-v1.hjson
           collector: jsonl:provenance/${{ needs.provenance.outputs.provenance-name }}
-          context: buildPoint:git+https://github.com/${{ github.repository }}
+          # resourceUri names the package the VSA covers (pkg:generic, matching
+          # the policy harness — pypi purl normalization isn't load-bearing while
+          # no consumer reads it). The subject digest is the cryptographic bind.
+          context: buildPoint:git+https://github.com/${{ github.repository }},vsa.resourceUri:pkg:generic/${{ needs.build.outputs.name }}@${{ needs.build.outputs.version }}
           artifact-name: ${{ matrix.artifact }}
           fail: "true"

@@ -71,10 +71,21 @@ setup() {
     strip_identities "$DEFAULT" > "$DEFAULT_LOGIC"
     strip_identities "$STRICT"  > "$STRICT_LOGIC"
     strip_identities "$PROVENANCE" > "$PROVENANCE_LOGIC"
-    # Structural self-check: a broken strip would silently turn every logic test
-    # into a vacuous identity-gate check. Fail loudly if any identity admission
-    # survived. (The PASS tests are the functional half of this guard: if the
-    # gate were still present, the unsigned good fixtures could not pass.)
+    # Structural self-check, both halves:
+    # (a) Production side — a policy that shipped WITHOUT an identity gate would
+    #     strip to a no-op, pass (b) vacuously, and ship admitting unsigned
+    #     attestations. Assert every production policy HAS an admission first, so
+    #     a deleted gate fails loudly instead of slipping through as a "clean strip".
+    # (b) Stripped side — a broken strip would leave the gate in place and turn
+    #     every logic test into a vacuous identity-gate check. Fail if any
+    #     admission survived. (The PASS tests are the functional half of (b): if
+    #     the gate were still present, the unsigned good fixtures could not pass.)
+    for p in "$DEFAULT" "$STRICT" "$PROVENANCE"; do
+        grep -qE '^[[:space:]]*identities:' "$p" || {
+            printf 'production policy %s has no identities admission — gate missing\n' "$p" >&2
+            return 1
+        }
+    done
     if grep -qE '^[[:space:]]*identities:' "$DEFAULT_LOGIC" "$STRICT_LOGIC" "$PROVENANCE_LOGIC"; then
         printf 'strip_identities left an identities admission in the logic variant\n' >&2
         return 1
@@ -135,6 +146,16 @@ expect_fail() {
     [ "$output" = "PASSED" ]
     run jq -r '.predicate.verifiedLevels[0]' "$vsa"
     [ "$output" = "SLSA_BUILD_LEVEL_3" ]
+    # The per-release resourceUri the caller supplies must land in the VSA — this
+    # is the field the emitted release VSA carries (build_and_publish_python.yml).
+    run jq -r '.predicate.resourceUri' "$vsa"
+    [ "$output" = "pkg:generic/wrangle-app@1.0.0" ]
+}
+
+@test "ampel policy: provenance-v1 FAILS (slsa-builder-id) on a wrong builder identity" {
+    # Provenance-v1's own tenet CEL, exercised non-vacuously through its logic
+    # variant (a wrong builder is rejected by the builder-id tenet, not the gate).
+    expect_fail "$PROVENANCE_LOGIC" "$TD/bad-wrong-builder.bundle.jsonl" "slsa-builder-id"
 }
 
 @test "ampel policy: default-v1 FAILS (sbom-exists) when the SBOM is missing" {
@@ -183,6 +204,25 @@ expect_fail() {
     [ "$output" = "FAIL" ]
     # The provenance policy fails specifically on identity validation — not on
     # its tenet CEL (the logic variant proves that CEL passes on this fixture).
+    run jq -r '.predicate.results[] | select(.policy.id == "slsa-builder-id") | .status' "$rs"
+    [ "$output" = "FAIL" ]
+    run jq -r '[.predicate.results[].eval_results[]?.error.message]
+               | map(select(. == "attestation identity validation failed")) | length' "$rs"
+    [ "$output" -ge 1 ]
+}
+
+@test "ampel policy: provenance-v1 (production) is FAIL-CLOSED — rejects an unsigned attestation on signer identity" {
+    # provenance-v1 is the policy build_and_publish_python.yml verifies real
+    # releases against, so its OWN identity gate must be proven fail-closed —
+    # not inherited from default-v1's test. Same good fixture that PASSES the
+    # logic variant; the only thing that can fail is signer-identity admission.
+    local rs="$BATS_TEST_TMPDIR/prov-enforce.json"
+    run verify "$PROVENANCE" "$TD/good.bundle.jsonl" \
+        --attest-results --attest-format=ampel --results-path="$rs" -f tty
+    [ "$status" -ne 0 ]
+    [ -s "$rs" ]
+    run jq -r '.predicate.status' "$rs"
+    [ "$output" = "FAIL" ]
     run jq -r '.predicate.results[] | select(.policy.id == "slsa-builder-id") | .status' "$rs"
     [ "$output" = "FAIL" ]
     run jq -r '[.predicate.results[].eval_results[]?.error.message]
