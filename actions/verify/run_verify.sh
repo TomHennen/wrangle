@@ -78,9 +78,12 @@ wrangle_sign_vsa() {
 
 main() {
     case "${1:-}" in
+        # `run` does emit then sign in one process so the unsigned VSA never
+        # lives on disk across a step boundary. emit/sign stay callable for tests.
+        run)  wrangle_verify_emit_vsa; wrangle_sign_vsa ;;
         emit) wrangle_verify_emit_vsa ;;
         sign) wrangle_sign_vsa ;;
-        *) printf 'Usage: %s {emit|sign}\n' "${0##*/}" >&2; return 2 ;;
+        *) printf 'Usage: %s {run|emit|sign}\n' "${0##*/}" >&2; return 2 ;;
     esac
 }
 

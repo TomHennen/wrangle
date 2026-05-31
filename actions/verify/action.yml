@@ -67,17 +67,18 @@ runs:
       shell: bash
       env:
         WRANGLE_ROOT: ${{ github.action_path }}/../..
-        GOPROXY: https://proxy.golang.org,direct
-        GOSUMDB: sum.golang.org
       run: |
         # shellcheck source=../../lib/env.sh
         source "$WRANGLE_ROOT/lib/env.sh"
         GOBIN="$WRANGLE_BIN_DIR" go -C "$WRANGLE_ROOT/tools" install tool
 
-    # run_verify.sh emit validates the inputs, then runs ampel verify to write
-    # the (unsigned) VSA. The policy's common.identities verify the signer of
-    # every input attestation, so a tampered/unsigned input fails here.
-    - name: Verify and emit VSA
+    # One step: run_verify.sh run validates the inputs, runs ampel verify to
+    # write the VSA, then bnd-signs it in place — in a single process, so the
+    # unsigned VSA never sits on disk across a step boundary. The policy's
+    # common.identities verify the signer of every input attestation, so a
+    # tampered/unsigned input fails here; the VSA is signed keyless with the
+    # calling workflow's OIDC identity.
+    - name: Verify and sign VSA
       shell: bash
       env:
         WRANGLE_ROOT: ${{ github.action_path }}/../..
@@ -90,16 +91,7 @@ runs:
         FAIL: ${{ inputs.fail }}
         VSA: ${{ inputs.artifact-name }}.intoto.jsonl
       run: |
-        "$WRANGLE_ROOT/actions/verify/run_verify.sh" emit
-
-    # Sign the VSA in place, keyless, with the calling workflow's OIDC identity.
-    - name: Sign the VSA
-      shell: bash
-      env:
-        WRANGLE_ROOT: ${{ github.action_path }}/../..
-        VSA: ${{ inputs.artifact-name }}.intoto.jsonl
-      run: |
-        "$WRANGLE_ROOT/actions/verify/run_verify.sh" sign
+        "$WRANGLE_ROOT/actions/verify/run_verify.sh" run
 
     - name: Upload VSA artifact
       uses: actions/upload-artifact@bbbca2ddaa5d8feaa63e36b76fdaad77386f024f # v7.0.0

@@ -9,8 +9,7 @@
 # HTML-sanitize-to-summary plumbing.
 
 setup() {
-    REPO_ROOT="$(cd "$(dirname "$BATS_TEST_FILENAME")/.." && pwd)"
-    SCRIPT="$REPO_ROOT/actions/verify/run_verify.sh"
+    SCRIPT="$(cd "$(dirname "$BATS_TEST_FILENAME")" && pwd)/run_verify.sh"
     TEST_DIR="$(mktemp -d)"
 
     # Discover the real ampel/bnd wherever they're installed (PATH or the
@@ -28,7 +27,7 @@ setup() {
     export CONTEXT=""
     export ATTESTATION=""
 
-    # shellcheck source=../actions/verify/run_verify.sh
+    # shellcheck source=run_verify.sh
     source "$SCRIPT"
 }
 

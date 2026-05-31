@@ -3,8 +3,7 @@
 # Tests for actions/verify/validate_verify_inputs.sh
 
 setup() {
-    REPO_ROOT="$(cd "$(dirname "$BATS_TEST_FILENAME")/.." && pwd)"
-    SCRIPT="$REPO_ROOT/actions/verify/validate_verify_inputs.sh"
+    SCRIPT="$(cd "$(dirname "$BATS_TEST_FILENAME")" && pwd)/validate_verify_inputs.sh"
 }
 
 # Canonical good argument vector: artifact subject policy collector fail context attestation
