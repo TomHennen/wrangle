@@ -97,9 +97,10 @@ runs:
         tags: |
           type=ref,event=branch
           type=ref,event=pr
-          # Non-semver tags (the vYYYYMMDD-<sha> tracking tags the showcase
-          # pushes) match no semver rule; emit a tag from the ref so the push
-          # doesn't fail with "tag is needed when pushing to registry" (#292).
+          # Adopters who version with non-semver tags (CalVer, date-sha,
+          # git-describe) match no type=semver rule below; without a tag from
+          # the ref the push fails with "tag is needed when pushing to
+          # registry" (#292). Part of metadata-action's default tag set.
           type=ref,event=tag
           type=semver,pattern={{version}}
           type=semver,pattern={{major}}.{{minor}}
