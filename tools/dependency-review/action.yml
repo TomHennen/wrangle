@@ -46,6 +46,12 @@ runs:
       with:
         fail-on-severity: ${{ inputs.fail-on-severity }}
         comment-summary-in-pr: ${{ inputs.comment-summary-in-pr }}
+        # wrangle gates only on vulnerabilities (the SARIF below), not licenses,
+        # so disable the upstream license + scorecard channels — otherwise they
+        # emit a noisy "could not detect a license" list for gomod deps whose
+        # license GitHub's dependency graph doesn't surface (#294).
+        license-check: false
+        show-openssf-scorecard: false
 
     - name: Collect dependency review output
       if: always()
