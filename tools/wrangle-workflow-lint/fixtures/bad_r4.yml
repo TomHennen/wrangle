@@ -1,0 +1,16 @@
+# WWL003 positive fixture: a verification-class step (name matches the
+# verify|attestation|provenance|slsa|cosign|install keyword set) that
+# swallows failures with continue-on-error: true and no adjacent
+# justification comment. Silently tolerating a verification failure can
+# mask a supply-chain attack.
+name: bad-r4
+on: push
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Verify provenance attestation
+        continue-on-error: true
+        run: |
+          set -euo pipefail
+          slsa-verifier verify-artifact "$ARTIFACT"

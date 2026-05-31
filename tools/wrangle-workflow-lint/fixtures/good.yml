@@ -1,0 +1,25 @@
+# Negative fixture: a workflow that complies with every workflow-lint
+# rule. The linter must produce no findings.
+#   - run: blocks stay at or under 10 physical lines
+#   - inputs / event values are threaded through env:, never interpolated
+#     into a run: body
+#   - the continue-on-error verification step carries a justification
+name: good
+on: push
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Short run, input via env
+        env:
+          INPUT_PATH: ${{ inputs.path }}
+        run: |
+          set -euo pipefail
+          printf 'building %s\n' "$INPUT_PATH"
+      - name: Verify provenance
+        # continue-on-error: provenance verification is advisory in this
+        # fixture; the justification comment makes the exception explicit.
+        continue-on-error: true
+        run: |
+          set -euo pipefail
+          printf 'verifying\n'

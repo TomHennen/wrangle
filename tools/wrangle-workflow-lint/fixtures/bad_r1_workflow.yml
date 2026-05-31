@@ -1,0 +1,21 @@
+# WWL001 positive fixture (workflow form): a jobs.*.steps[] run block
+# longer than 10 physical lines (preamble + blanks + comments all count).
+name: bad-r1-workflow
+on: push
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Oversized run block
+        run: |
+          set -euo pipefail
+          # line 2
+          # line 3
+          printf 'line 4\n'
+          printf 'line 5\n'
+          printf 'line 6\n'
+          printf 'line 7\n'
+          printf 'line 8\n'
+          printf 'line 9\n'
+          printf 'line 10\n'
+          printf 'line 11\n'

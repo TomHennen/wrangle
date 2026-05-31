@@ -1,0 +1,24 @@
+# WWL001 positive fixture (composite-action form): a runs.steps[] run
+# block longer than 10 physical lines. Pins that the scanner walks
+# runs.steps[], not only jobs.*.steps[]. Named *.yml (not action.yml) so
+# zizmor's tools/ scan ignores it; the parser keys off `runs.steps`.
+name: bad-r1-composite
+description: fixture
+runs:
+  using: composite
+  steps:
+    - name: Oversized composite run block
+      shell: bash
+      run: |
+        set -euo pipefail
+        printf 'a\n'
+        printf 'b\n'
+        printf 'c\n'
+        printf 'd\n'
+        printf 'e\n'
+        printf 'f\n'
+        printf 'g\n'
+        printf 'h\n'
+        printf 'i\n'
+        printf 'j\n'
+        printf 'k\n'
