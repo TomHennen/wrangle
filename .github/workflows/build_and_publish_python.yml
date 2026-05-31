@@ -134,10 +134,13 @@ jobs:
       contents: read    # minimal — no OIDC, no publish
     outputs:
       hashes: ${{ steps.build.outputs.hashes }}
+      name: ${{ steps.build.outputs.name }}
       version: ${{ steps.build.outputs.version }}
       shortname: ${{ steps.build.outputs.shortname }}
       dist-artifact-name: ${{ steps.names.outputs.dist }}
       metadata-artifact-name: ${{ steps.names.outputs.metadata }}
+      # JSON array of dist filenames, so the vsa job can fan out one VSA per artifact.
+      dist-files: ${{ steps.distfiles.outputs.files }}
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
@@ -169,6 +172,25 @@ jobs:
           set -euo pipefail
           printf 'dist=python-dist-%s\n' "$SHORTNAME" >> "$GITHUB_OUTPUT"
           printf 'metadata=python-metadata-%s\n' "$SHORTNAME" >> "$GITHUB_OUTPUT"
+
+      # Emit the dist filenames as a JSON array for the vsa job's matrix.
+      # Derived from the SLSA base64-subjects (the "<sha256>  <name>" lines the
+      # provenance covers), reduced to basenames.
+      - id: distfiles
+        shell: bash
+        env:
+          HASHES: ${{ steps.build.outputs.hashes }}
+        run: |
+          set -euo pipefail
+          files="$(printf '%s' "$HASHES" | base64 -d | awk '{ sub(/^.*\//, "", $2); print $2 }' | jq -R . | jq -cs .)"
+          # Fail closed: an empty array would expand the vsa matrix to zero
+          # shards, skipping the release-gating VSA job — and a skipped job
+          # propagates as success. Never let the gate collapse silently.
+          if [[ "$files" == "[]" ]]; then
+              printf 'no dist files to attest — refusing to emit an empty VSA matrix\n' >&2
+              exit 1
+          fi
+          printf 'files=%s\n' "$files" >> "$GITHUB_OUTPUT"
 
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
@@ -252,3 +274,48 @@ jobs:
               --provenance-path "provenance/${PROVENANCE_NAME}" \
               --source-uri "$SOURCE_URI" \
               dist/*
+
+  # Emit a signed SLSA Verification Summary Attestation (VSA) per dist artifact.
+  # ampel evaluates the provenance against the wrangle-provenance-v1 PolicySet
+  # and bnd signs the result keyless with this workflow's OIDC identity; a FAILED
+  # policy fails the step (fail: true) and blocks the caller's publish via needs:
+  # propagation. Provenance-only for now — SBOM/OSV tenets follow once those are
+  # produced as signed attestations a registered identity covers.
+  vsa:
+    if: ${{ needs.gate.outputs.should-release == 'true' && inputs.verify-provenance }}
+    needs: [guard, gate, build, provenance]
+    runs-on: ubuntu-latest
+    permissions:
+      id-token: write    # bnd keyless-signs the VSA via this workflow's OIDC identity
+      contents: write    # attach the VSA to the release on tag pushes
+    strategy:
+      fail-fast: false
+      matrix:
+        artifact: ${{ fromJSON(needs.build.outputs.dist-files) }}
+    steps:
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: ${{ needs.build.outputs.dist-artifact-name }}
+          path: dist/
+
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: ${{ needs.provenance.outputs.provenance-name }}
+          path: provenance/
+
+      # Bootstrap pin: this PR introduces actions/verify's policy-path resolution
+      # AND policies/wrangle-provenance-v1.hjson, neither of which exists on main
+      # yet. A nested self-ref is fetched from its pinned SHA, not the PR head, so
+      # the integration test must point this at a branch SHA that carries them.
+      # Re-bump to a main SHA post-merge — see docs/e2e_testing.md.
+      - uses: TomHennen/wrangle/actions/verify@400d43220997494ac4529b8fdd2ced3a4c2181b8 # feat/verify-python-provenance 2026-05-31
+        with:
+          subject: dist/${{ matrix.artifact }}
+          policy: policies/wrangle-provenance-v1.hjson
+          collector: jsonl:provenance/${{ needs.provenance.outputs.provenance-name }}
+          # resourceUri names the package the VSA covers (pkg:generic, matching
+          # the policy harness — pypi purl normalization isn't load-bearing while
+          # no consumer reads it). The subject digest is the cryptographic bind.
+          context: buildPoint:git+https://github.com/${{ github.repository }},vsa.resourceUri:pkg:generic/${{ needs.build.outputs.name }}@${{ needs.build.outputs.version }}
+          artifact-name: ${{ matrix.artifact }}
+          fail: "true"

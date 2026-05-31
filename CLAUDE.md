@@ -90,6 +90,8 @@ Always run `./test.sh` before pushing — CI runs the same checks. `./test.sh qu
 
 Wrangle uses its own workflows. If a wrangle feature does not work on the wrangle repo itself, it is broken.
 
+A PR that changes a composite action (or a file it reads, like a `policies/*.hjson` PolicySet) and wires it into a reusable workflow needs a **bootstrap pin**: the nested `uses: TomHennen/wrangle/actions/<name>@<sha>` self-reference is fetched from its pinned (main) SHA, not the PR head, so the integration test otherwise runs the old action. The pin → merge → bump lifecycle and the `check_pin_ancestry` control are in [docs/e2e_testing.md](docs/e2e_testing.md).
+
 ## Permissions
 
 Workflows request minimum required permissions. Never blanket `permissions: write-all`. The standard set for source scanning is `actions: read`, `contents: read`, `security-events: write`. Add permissions only as needed, with a comment explaining why.

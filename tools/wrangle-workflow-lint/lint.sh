@@ -62,7 +62,7 @@ else
     while IFS= read -r -d '' f; do
         targets+=("$f")
     done < <(find "$repo_root" \
-        \( -path '*/.git/*' -o -path '*/.beads/*' \
+        \( -path '*/.git/*' -o -path '*/.beads/*' -o -path '*/.claude/*' \
            -o -path '*/wrangle-workflow-lint/fixtures/*' \) -prune -o \
         -type f \( \
             -path '*/.github/workflows/*.yml' -o \

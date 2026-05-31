@@ -16,6 +16,19 @@ set -f  # disable globbing — processes external input
 
 VERIFY_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 LIB_DIR="$(cd "$VERIFY_DIR/../../lib" && pwd)"
+REPO_ROOT="$(cd "$VERIFY_DIR/../.." && pwd)"
+
+# Resolve a relative policy path against the action's own checkout: the wrangle
+# PolicySets ship with this action, not in the caller's workspace, and ampel
+# would otherwise resolve a bare "policies/..." against the caller's CWD.
+# Absolute paths and ampel locators (git+https://…, oci:…, anything with ://)
+# pass through unchanged.
+wrangle_resolve_policy() {
+    case "$1" in
+        /*|*://*) printf '%s\n' "$1" ;;
+        *)        printf '%s\n' "$REPO_ROOT/$1" ;;
+    esac
+}
 
 # Build the ampel verify argument vector from the environment. One argument per
 # line so callers (and tests) read it into an array with mapfile.
@@ -23,7 +36,7 @@ wrangle_ampel_verify_args() {
     local args=(verify
         --subject="$SUBJECT"
         --collector="$COLLECTOR"
-        --policy="$POLICY"
+        --policy="$(wrangle_resolve_policy "$POLICY")"
         --exit-code="$FAIL"
         --attest-results
         --attest-format=vsa

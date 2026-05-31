@@ -39,6 +39,21 @@ teardown() {
     [[ -x "$SCRIPT" ]]
 }
 
+@test "run_verify: a policy locator passes through unresolved" {
+    export POLICY="git+https://github.com/o/r@abc123#policies/x.hjson"
+    mapfile -t args < <(wrangle_ampel_verify_args)
+    printf '%s\n' "${args[@]}" | grep -qx -- "--policy=git+https://github.com/o/r@abc123#policies/x.hjson"
+}
+
+@test "run_verify: an absolute policy path passes through unresolved" {
+    # The absolute-path arm fails SILENTLY if dropped (an absolute path would be
+    # double-prefixed to $REPO_ROOT/abs/… and ampel would read the wrong file),
+    # so it gets its own guard distinct from the locator case.
+    export POLICY="/etc/wrangle/policy.hjson"
+    mapfile -t args < <(wrangle_ampel_verify_args)
+    printf '%s\n' "${args[@]}" | grep -qx -- "--policy=/etc/wrangle/policy.hjson"
+}
+
 # --- ampel arg vector ---
 
 @test "run_verify: ampel args carry the core verify flags" {
@@ -46,7 +61,8 @@ teardown() {
     [[ "${args[0]}" == "verify" ]]
     printf '%s\n' "${args[@]}" | grep -qx -- "--subject=sha256:abc123"
     printf '%s\n' "${args[@]}" | grep -qx -- "--collector=jsonl:./atts"
-    printf '%s\n' "${args[@]}" | grep -qx -- "--policy=policies/release.json"
+    # A relative policy path is resolved to an absolute path under the action's checkout.
+    printf '%s\n' "${args[@]}" | grep -qE -- "^--policy=/.*/policies/release\.json$"
     printf '%s\n' "${args[@]}" | grep -qx -- "--exit-code=true"
     printf '%s\n' "${args[@]}" | grep -qx -- "--attest-results"
     printf '%s\n' "${args[@]}" | grep -qx -- "--attest-format=vsa"
