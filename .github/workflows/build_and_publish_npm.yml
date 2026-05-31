@@ -125,7 +125,7 @@ jobs:
     permissions: {}    # reads env only — no workspace, no API, no secrets
     steps:
       # TODO: replace with $/actions/preflight_guard when GitHub ships $/ syntax (#136)
-      - uses: TomHennen/wrangle/actions/preflight_guard@ecd5780c4c8e968d8db5d12be4d5c50d13fc3429 # main 2026-05-31
+      - uses: TomHennen/wrangle/actions/preflight_guard@e063cc9d26562d5e7f13da2f226a1bfebf95cfc9 # main 2026-05-31
 
   gate:
     needs: [guard]
@@ -136,7 +136,7 @@ jobs:
     steps:
       # No checkout: release_gate resolves via ${{ github.action_path }}.
       # TODO: replace with $/actions/release_gate when GitHub ships $/ syntax (#136)
-      - uses: TomHennen/wrangle/actions/release_gate@ecd5780c4c8e968d8db5d12be4d5c50d13fc3429 # main 2026-05-31
+      - uses: TomHennen/wrangle/actions/release_gate@e063cc9d26562d5e7f13da2f226a1bfebf95cfc9 # main 2026-05-31
         id: gate
         with:
           events: ${{ inputs.release-events }}
@@ -160,7 +160,7 @@ jobs:
           ref: ${{ inputs.ref || '' }}
 
       # TODO: replace with $/build/actions/npm when GitHub ships $/ syntax (#136)
-      - uses: TomHennen/wrangle/build/actions/npm@ecd5780c4c8e968d8db5d12be4d5c50d13fc3429 # main 2026-05-31
+      - uses: TomHennen/wrangle/build/actions/npm@e063cc9d26562d5e7f13da2f226a1bfebf95cfc9 # main 2026-05-31
         id: build
         with:
           path: ${{ inputs.path }}
