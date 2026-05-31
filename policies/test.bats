@@ -131,6 +131,14 @@ expect_fail() {
     expect_fail "$DEFAULT_LOGIC" "$TD/bad-wrong-builder.bundle.jsonl" "slsa-builder-id"
 }
 
+@test "ampel policy: default-v1 FAILS (slsa-build-type) on a wrong build type" {
+    expect_fail "$DEFAULT_LOGIC" "$TD/bad-wrong-buildtype.bundle.jsonl" "slsa-build-type"
+}
+
+@test "ampel policy: default-v1 FAILS (slsa-build-point) on a wrong source repo" {
+    expect_fail "$DEFAULT_LOGIC" "$TD/bad-wrong-buildpoint.bundle.jsonl" "slsa-build-point"
+}
+
 @test "ampel policy: strict-v1 PASSES a good bundle with Scorecard >= 7" {
     run verify "$STRICT_LOGIC" "$TD/good-strict.bundle.jsonl" -f tty
     [ "$status" -eq 0 ]

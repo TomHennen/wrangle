@@ -21,6 +21,8 @@ digest is the literal string's sha256:
 | `bad-missing-sbom.bundle.jsonl` | provenance + clean OSV (no SBOM) | default-v1 **FAIL** (sbom-exists) |
 | `bad-osv-vuln.bundle.jsonl` | provenance + SBOM + OSV results with a vulnerability | default-v1 **FAIL** (openvex) |
 | `bad-wrong-builder.bundle.jsonl` | provenance with an attacker builder id + SBOM + clean OSV | default-v1 **FAIL** (slsa-builder-id) |
+| `bad-wrong-buildtype.bundle.jsonl` | provenance with a non-generic buildType + SBOM + clean OSV | default-v1 **FAIL** (slsa-build-type) |
+| `bad-wrong-buildpoint.bundle.jsonl` | provenance whose source repo ≠ the buildPoint context + SBOM + clean OSV | default-v1 **FAIL** (slsa-build-point) |
 | `good-strict.bundle.jsonl` | `good.bundle` + OpenSSF Scorecard result (score 8.2) | strict-v1 **PASS** |
 | `bad-low-scorecard.bundle.jsonl` | `good.bundle` + Scorecard result (score 5.0) | strict-v1 **FAIL** (wrangle-scorecard-min-score) |
 

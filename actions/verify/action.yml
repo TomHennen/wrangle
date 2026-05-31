@@ -74,6 +74,7 @@ runs:
         ATTESTATION: ${{ inputs.attestation }}
         FAIL: ${{ inputs.fail }}
       run: |
+        set -euo pipefail
         reject() { printf 'wrangle: invalid %s "%s" — %s\n' "$1" "$2" "$3" >&2; exit 1; }
         [[ "$ARTIFACT_NAME" =~ ^[A-Za-z0-9][A-Za-z0-9._-]*$ ]] || reject artifact-name "$ARTIFACT_NAME" 'must match ^[A-Za-z0-9][A-Za-z0-9._-]*$'
         [[ "$SUBJECT"    =~ ^[A-Za-z0-9._:/@+-]+$    ]] || reject subject    "$SUBJECT"    'disallowed characters'
@@ -113,10 +114,11 @@ runs:
         FAIL: ${{ inputs.fail }}
         VSA: ${{ inputs.artifact-name }}.intoto.jsonl
       run: |
+        set -euo pipefail
         args=(verify --subject="$SUBJECT" --collector="$COLLECTOR" --policy="$POLICY"
               --exit-code="$FAIL" --attest-results --attest-format=vsa --results-path="$VSA")
-        [[ -n "$CONTEXT" ]] && args+=(--context "$CONTEXT")
-        [[ -n "$ATTESTATION" ]] && args+=(--attestation "$ATTESTATION")
+        if [[ -n "$CONTEXT" ]]; then args+=(--context "$CONTEXT"); fi
+        if [[ -n "$ATTESTATION" ]]; then args+=(--attestation "$ATTESTATION"); fi
         ampel "${args[@]}" --format=html >> "$GITHUB_STEP_SUMMARY"
 
     # Sign the VSA in place, keyless, with the calling workflow's OIDC identity.
@@ -125,6 +127,7 @@ runs:
       env:
         VSA: ${{ inputs.artifact-name }}.intoto.jsonl
       run: |
+        set -euo pipefail
         mv "$VSA" "$VSA.unsigned"
         bnd statement "$VSA.unsigned" > "$VSA"
         rm -f "$VSA.unsigned"

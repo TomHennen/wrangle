@@ -8,7 +8,7 @@ carries the one-line rules and points here.
 
 The goal is to declare tool versions in real package manifests:
 `tools/<tool>/requirements.txt` for the pip dev tools (today), and a `tools/go.mod`
-`tool` manifest for the Go tools (pending completion of #247), with per-tool
+`tool` manifest for the Go tools (introduced with the Ampel verify stage, #247), with per-tool
 install scripts only for what no package manager ships.
 
 ## Choosing how to install a dependency
@@ -43,7 +43,7 @@ What are you adding?
 2. Not package-manager-installable, but the publisher ships SLSA provenance or a
    sigstore signature?
      → download the binary and verify it through lib/download_verify.sh
-       (slsa-verifier or cosign today; `gh attestation verify` once #247 adds it).
+       (slsa-verifier or cosign today).
        Freshness is then MANUAL — flag it against the #264 automation.
 
 3. Neither?
@@ -99,7 +99,7 @@ just the same. So `go install` is a first-class choice, not a fallback.
 - **Dependabot** (`.github/dependabot.yml`) — weekly, no auto-merge, with a
   cooldown that implements the 7-day "adopt after a delay" rule. It covers
   `github-actions` (third-party action SHAs) and `pip` (the dev-tool requirements)
-  today; `gomod` is added alongside the Go-tool manifest. This automatic patching
+  today, plus `gomod` for the `tools/go.mod` ampel + bnd manifest. This automatic patching
   is *why* branch 1 is the default.
 - **`make bump-action-pins`** rewrites wrangle's own self-references after a
   composite changes (it currently reaches only `.github/workflows/` — see #287).
@@ -111,8 +111,8 @@ just the same. So `go install` is a first-class choice, not a fallback.
 
 A pin literal (version, SHA, checksum) that lives in more than one file must be
 **single-sourced or guarded by a divergence-fail test** — never left to humans to
-update in lockstep. The pip versions are single-sourced by `requirements.txt` (the Go tools likewise,
-once the `go.mod` manifest lands); the existing `tools/zizmor`
+update in lockstep. The pip versions are single-sourced by `requirements.txt` (the Go tools
+likewise, by `tools/go.mod`); the existing `tools/zizmor`
 requirements↔`action.yml` `bats` guard is the pattern to copy for the rest. Known unguarded duplicates are tracked in #286.
 
 ## For reviewers
@@ -133,5 +133,5 @@ requirements↔`action.yml` `bats` guard is the pattern to copy for the rest. Kn
 #264 (automate the manual binary surface, ideally covering wrangle's own refs too),
 #277 (install-method audit), #286 (divergence guards), #287 (self-ref bump scope),
 #136 (`$/` same-repo syntax), #218 (self-ref impostor-commit gap),
-#247 (Ampel verify — adds the `gh attestation verify` path to
-`lib/download_verify.sh`; fold it into branch 2 once merged).
+#247 (Ampel verify — ships the verify stage; ampel/bnd install via the
+`tools/go.mod` `go install` manifest, branch 1 / Dependabot-covered).
