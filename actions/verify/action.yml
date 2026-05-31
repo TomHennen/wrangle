@@ -60,12 +60,12 @@ inputs:
 runs:
   using: composite
   steps:
-    # Validate every input before use (CLAUDE.md). subject/policy/collector/
-    # context/attestation are passed to ampel; reject shell metacharacters so a
-    # value can never break out of the run: steps below.
+    # subject/policy/collector/context/attestation are passed to ampel; reject
+    # shell metacharacters so a value can never break out of the run: steps below.
     - name: Validate inputs
       shell: bash
       env:
+        WRANGLE_ROOT: ${{ github.action_path }}/../..
         ARTIFACT_NAME: ${{ inputs.artifact-name }}
         SUBJECT: ${{ inputs.subject }}
         POLICY: ${{ inputs.policy }}
@@ -74,31 +74,23 @@ runs:
         ATTESTATION: ${{ inputs.attestation }}
         FAIL: ${{ inputs.fail }}
       run: |
-        set -euo pipefail
-        reject() { printf 'wrangle: invalid %s "%s" — %s\n' "$1" "$2" "$3" >&2; exit 1; }
-        [[ "$ARTIFACT_NAME" =~ ^[A-Za-z0-9][A-Za-z0-9._-]*$ ]] || reject artifact-name "$ARTIFACT_NAME" 'must match ^[A-Za-z0-9][A-Za-z0-9._-]*$'
-        [[ "$SUBJECT"    =~ ^[A-Za-z0-9._:/@+-]+$    ]] || reject subject    "$SUBJECT"    'disallowed characters'
-        [[ "$POLICY"     =~ ^[A-Za-z0-9._:/@#+-]+$   ]] || reject policy     "$POLICY"     'disallowed characters'
-        [[ "$COLLECTOR"  =~ ^[A-Za-z0-9._:/@#+,-]+$  ]] || reject collector  "$COLLECTOR"  'disallowed characters'
-        [[ "$FAIL"       =~ ^(true|false)$           ]] || reject fail       "$FAIL"       'must be "true" or "false"'
-        [[ -z "$CONTEXT"     || "$CONTEXT"     =~ ^[A-Za-z0-9._:/@#+,%=-]+$ ]] || reject context     "$CONTEXT"     'disallowed characters'
-        [[ -z "$ATTESTATION" || "$ATTESTATION" =~ ^[A-Za-z0-9._:/@#+,-]+$   ]] || reject attestation "$ATTESTATION" 'disallowed characters'
+        "$WRANGLE_ROOT/lib/validate_verify_inputs.sh" \
+          "$ARTIFACT_NAME" "$SUBJECT" "$POLICY" "$COLLECTOR" \
+          "$FAIL" "$CONTEXT" "$ATTESTATION"
 
     # Build ampel + bnd from the pinned tool manifest into WRANGLE_BIN_DIR.
+    # Downstream steps re-source lib/env.sh to find them on PATH, so there is
+    # no write to $GITHUB_PATH.
     - name: Install ampel and bnd
       shell: bash
       env:
         WRANGLE_ROOT: ${{ github.action_path }}/../..
-        # Assert sumdb verification isn't environment-conditional (CLAUDE.md):
-        # an inherited GOSUMDB=off / GONOSUMCHECK would otherwise silently skip
-        # the build-integrity check the go.mod install relies on.
         GOPROXY: https://proxy.golang.org,direct
         GOSUMDB: sum.golang.org
       run: |
         # shellcheck source=../../lib/env.sh
         source "$WRANGLE_ROOT/lib/env.sh"
         GOBIN="$WRANGLE_BIN_DIR" go -C "$WRANGLE_ROOT/tools" install tool
-        printf '%s\n' "$WRANGLE_BIN_DIR" >> "$GITHUB_PATH"
 
     # Evaluate the PolicySet and write the (unsigned) VSA. The policy's
     # common.identities verify the signer of every input attestation, so a
@@ -106,6 +98,7 @@ runs:
     - name: Verify and emit VSA
       shell: bash
       env:
+        WRANGLE_ROOT: ${{ github.action_path }}/../..
         SUBJECT: ${{ inputs.subject }}
         POLICY: ${{ inputs.policy }}
         COLLECTOR: ${{ inputs.collector }}
@@ -114,23 +107,20 @@ runs:
         FAIL: ${{ inputs.fail }}
         VSA: ${{ inputs.artifact-name }}.intoto.jsonl
       run: |
-        set -euo pipefail
-        args=(verify --subject="$SUBJECT" --collector="$COLLECTOR" --policy="$POLICY"
-              --exit-code="$FAIL" --attest-results --attest-format=vsa --results-path="$VSA")
-        if [[ -n "$CONTEXT" ]]; then args+=(--context "$CONTEXT"); fi
-        if [[ -n "$ATTESTATION" ]]; then args+=(--attestation "$ATTESTATION"); fi
-        ampel "${args[@]}" --format=html >> "$GITHUB_STEP_SUMMARY"
+        # shellcheck source=../../lib/run_verify.sh
+        source "$WRANGLE_ROOT/lib/run_verify.sh"
+        wrangle_verify_emit_vsa
 
     # Sign the VSA in place, keyless, with the calling workflow's OIDC identity.
     - name: Sign the VSA
       shell: bash
       env:
+        WRANGLE_ROOT: ${{ github.action_path }}/../..
         VSA: ${{ inputs.artifact-name }}.intoto.jsonl
       run: |
-        set -euo pipefail
-        mv "$VSA" "$VSA.unsigned"
-        bnd statement "$VSA.unsigned" > "$VSA"
-        rm -f "$VSA.unsigned"
+        # shellcheck source=../../lib/run_verify.sh
+        source "$WRANGLE_ROOT/lib/run_verify.sh"
+        wrangle_sign_vsa
 
     - name: Upload VSA artifact
       uses: actions/upload-artifact@bbbca2ddaa5d8feaa63e36b76fdaad77386f024f # v7.0.0

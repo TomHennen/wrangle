@@ -22,10 +22,8 @@ updates:
       default-days: 7
 
   - package-ecosystem: "gomod"
-    # tools/go.mod — the ampel + bnd tool manifest. Freshness here IS the
-    # security posture (DEP_MGMT.md): `go install` is the first-class choice
-    # precisely because Dependabot keeps the transitive deps patched, so the
-    # CVEs a lockfile scan flags don't go stale.
+    # Scoped to /tools (non-recursive) on purpose: this repo houses deliberately
+    # vulnerable Go fixtures (e.g. tools/osv/testdata) that must never be bumped.
     directories:
       - "/tools"
     schedule:

@@ -41,11 +41,21 @@ strip_identities() {
         -e '/^[[:space:]]*identities: \[ { ref: { id: "slsa-generator" } } \]$/d' "$1"
 }
 
+# In CI the real binary + network are present, so a skip means the test
+# silently degraded — fail instead. Locally (CI/GITHUB_ACTIONS unset) skip.
+skip_or_fail() {
+    if [ -n "${CI:-}${GITHUB_ACTIONS:-}" ]; then
+        printf 'FATAL: %s (skip not allowed in CI)\n' "$1" >&2
+        exit 1
+    fi
+    skip "$1"
+}
+
 setup() {
     AMPEL="$(command -v ampel || true)"
-    [ -n "$AMPEL" ] || skip "ampel not installed (build via tools/go.mod: go -C tools install tool)"
+    [ -n "$AMPEL" ] || skip_or_fail "ampel not installed (build via tools/go.mod: go -C tools install tool)"
     # Ampel must reach github.com to resolve the upstream policy locators.
-    curl -fsS -m 10 -o /dev/null https://github.com 2>/dev/null || skip "github.com unreachable"
+    curl -fsS -m 10 -o /dev/null https://github.com 2>/dev/null || skip_or_fail "github.com unreachable"
 
     POLICIES_DIR="$BATS_TEST_DIRNAME"
     DEFAULT="$POLICIES_DIR/wrangle-default-v1.hjson"

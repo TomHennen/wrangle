@@ -28,7 +28,7 @@ Then check the diff against the conventions in the rest of this file.
 
 ## Comments
 
-Comments should focus on the *why* and avoid the discussion. Explain hidden constraints or non-obvious decisions; don't restate the diff, narrate history, or reference PR numbers, review threads, or comment URLs. One line max unless a hidden constraint really requires more.
+Comments explain *why*, not *what*. Explain hidden constraints or non-obvious decisions; don't restate the code, narrate history, or reference PR numbers, review threads, comment URLs, or policy docs (CLAUDE.md, SPEC.md, DEP_MGMT.md) — the rule lives in the doc, the comment states the constraint. Delete obvious comments that just paraphrase the line below them. One line max unless a hidden constraint really requires more.
 
 ## Shell scripts
 
@@ -70,7 +70,11 @@ Scripts resolve paths relative to their own location via `SCRIPT_DIR="$(cd "$(di
 
 ## Testing
 
-Always run `./test.sh` before pushing — CI runs the same checks. `./test.sh quick` skips zizmor for inner-loop iteration. Every adapter and install script gets a `test.bats`. See SPEC.md §Testing Strategy for the test-layer breakdown.
+Always run `./test.sh` before pushing — CI runs the same checks. `./test.sh quick` skips zizmor for inner-loop iteration. Every adapter and install script gets a `test.bats`. The test-layer breakdown (local layers, the offline Docker unit suite, CI integration, e2e) is in SPEC.md §Testing Strategy. Beyond that:
+
+- **Prefer real tools/binaries over shims/mocks.** Drive tests with the actual binary wherever practical; a shim is acceptable only with a one-line comment saying why a real tool can't be used (e.g., an adapter feeding deterministic fixture SARIF that no real scanner would emit on demand).
+- **Unit vs. integration.** Offline, deterministic checks run in the Docker unit suite (`./test.sh`); tests needing a real binary or network are integration tests gated behind the relevant CI job. A bats test lives next to the script it covers (`tools/<name>/test.bats`, etc.).
+- **A test that would silently skip in CI must instead FAIL in CI.** Skip paths exist as a safety net for sandboxed local dev (no network, no installed binary); in CI those preconditions are guaranteed, so a skip means coverage silently degraded. The test itself distinguishes CI from local (it can see CI is present and the binary is installed) and fails rather than skips — don't bolt a separate per-job CI step onto a test that skips.
 
 ## Supply chain discipline
 

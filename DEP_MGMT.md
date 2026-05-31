@@ -8,7 +8,7 @@ carries the one-line rules and points here.
 
 The goal is to declare tool versions in real package manifests:
 `tools/<tool>/requirements.txt` for the pip dev tools (today), and a `tools/go.mod`
-`tool` manifest for the Go tools (introduced with the Ampel verify stage, #247), with per-tool
+`tool` manifest for the Go tools (pending completion of #247), with per-tool
 install scripts only for what no package manager ships.
 
 ## Choosing how to install a dependency
@@ -78,6 +78,11 @@ meaningful downgrade from binary+provenance: there is no foreign prebuilt binary
 to attest, and a compromise of the upstream repo would defeat build provenance
 just the same. So `go install` is a first-class choice, not a fallback.
 
+When installing Go tools via `go install`, assert `GOPROXY` and `GOSUMDB` at the
+install site so sum-database verification can't be silently disabled by the
+inherited environment — the action/CI sets them explicitly rather than trusting
+whatever is already set.
+
 ## Pinning
 
 | Dependency | Pin format |
@@ -96,11 +101,9 @@ just the same. So `go install` is a first-class choice, not a fallback.
 
 ## Keeping things current
 
-- **Dependabot** (`.github/dependabot.yml`) — weekly, no auto-merge, with a
-  cooldown that implements the 7-day "adopt after a delay" rule. It covers
-  `github-actions` (third-party action SHAs) and `pip` (the dev-tool requirements)
-  today, plus `gomod` for the `tools/go.mod` ampel + bnd manifest. This automatic patching
-  is *why* branch 1 is the default.
+- **Dependabot** (`.github/dependabot.yml`) — configure it for each ecosystem in
+  use, weekly, no auto-merge, with a cooldown that implements the 7-day "adopt
+  after a delay" rule. This automatic patching is *why* branch 1 is the default.
 - **`make bump-action-pins`** rewrites wrangle's own self-references after a
   composite changes (it currently reaches only `.github/workflows/` — see #287).
 - **Manual today:** the binary+provenance installs (branch 2) and the base-image

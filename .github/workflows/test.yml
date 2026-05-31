@@ -55,25 +55,12 @@ jobs:
       - name: Verify osv-scanner is on PATH
         run: osv-scanner --version
 
-      # Run only the e2e test. The unit tests run in the Docker container
-      # above and don't need the real binary. `tee` preserves the bats TAP
-      # output for the post-step skip check.
+      # Only the e2e test runs here; the unit tests run in the Docker container
+      # above and don't need the real binary. The test's setup fails instead of
+      # skipping when CI is set but the binary/network is missing, so a silent
+      # degradation surfaces as a failure rather than a green skip.
       - name: Run osv e2e test
-        run: |
-          set -o pipefail
-          bats --tap -f "osv e2e:" tools/osv/test.bats | tee /tmp/osv-e2e.tap
-
-      # Fail loudly if the e2e test skipped. The e2e test contains
-      # network-unreachability skip paths as a safety net for sandboxed
-      # local dev; in CI we have network access and an installed binary,
-      # so any skip here means the test silently degraded and must be
-      # investigated — not ignored.
-      - name: Reject silent skip
-        run: |
-          if grep -E '^ok [0-9]+ .* # skip' /tmp/osv-e2e.tap; then
-              printf 'FATAL: osv e2e test was skipped in CI — install or network broken, or the assertion silently degraded\n' >&2
-              exit 1
-          fi
+        run: bats -f "osv e2e:" tools/osv/test.bats
 
   # Runs the policy harness (policies/test.bats) against a real ampel binary
   # built from the tools/go.mod tool manifest — the same `go install` path
@@ -109,7 +96,11 @@ jobs:
       - name: Build ampel from tools/go.mod
         env:
           WRANGLE_BIN_DIR: ${{ runner.temp }}/.wrangle/bin
-          # Assert sumdb verification isn't environment-conditional (CLAUDE.md).
+          # GOSUMDB pins the checksum database that verifies modules against
+          # go.sum; GOPROXY pins where they're fetched. Set explicitly (env
+          # overrides `go env -w`) so a runner image can't silently disable
+          # verification. These match Go's defaults; pinning them makes the
+          # build's integrity guarantee independent of the runner config.
           GOPROXY: https://proxy.golang.org,direct
           GOSUMDB: sum.golang.org
         run: |
@@ -119,16 +110,7 @@ jobs:
       - name: Verify ampel is on PATH
         run: ampel version
 
+      # The harness setup fails instead of skipping when CI is set but ampel or
+      # github.com is missing, so a silent degradation surfaces as a failure.
       - name: Run policy harness
-        run: |
-          set -o pipefail
-          bats --tap policies/test.bats | tee /tmp/ampel-policies.tap
-
-      # The harness skips locally when ampel or network is missing; in CI both
-      # are present, so any skip means it silently degraded — fail loudly.
-      - name: Reject silent skip
-        run: |
-          if grep -E '^ok [0-9]+ .* # skip' /tmp/ampel-policies.tap; then
-              printf 'FATAL: ampel policy test skipped in CI — install or network broken\n' >&2
-              exit 1
-          fi
+        run: bats policies/test.bats

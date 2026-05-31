@@ -22,6 +22,16 @@
 # osv-scanner is not on PATH or the osv.dev API is unreachable (which
 # is the case in sandboxed CI environments).
 
+# In CI the real binary + network are present, so a skip means the e2e test
+# silently degraded — fail instead. Locally (CI/GITHUB_ACTIONS unset) skip.
+skip_or_fail() {
+    if [ -n "${CI:-}${GITHUB_ACTIONS:-}" ]; then
+        printf 'FATAL: %s (skip not allowed in CI)\n' "$1" >&2
+        exit 1
+    fi
+    skip "$1"
+}
+
 setup() {
     ORIG_DIR="$(pwd)"
     TMP_DIR="$(mktemp -d "${TMPDIR:-/tmp}/osv-bats-XXXXXX")"
@@ -388,7 +398,7 @@ SARIF
         export PATH="${PATH#"$MOCK_BIN":}"
     fi
     if ! command -v osv-scanner >/dev/null 2>&1; then
-        skip "osv-scanner not on PATH; install via tools/osv/install.sh first"
+        skip_or_fail "osv-scanner not on PATH; install via tools/osv/install.sh first"
     fi
 
     cp "$ORIG_DIR/tools/osv/testdata/vulnerable_go.mod" "$TMP_DIR/src/go.mod"
@@ -401,11 +411,11 @@ SARIF
     # either case skip — there's nothing to assert about the pipeline
     # because osv-scanner couldn't enrich the manifest.
     if [[ ! -s "$TMP_DIR/output/output.sarif" ]]; then
-        skip "osv-scanner did not produce SARIF (likely network-restricted)"
+        skip_or_fail "osv-scanner did not produce SARIF (likely network-restricted)"
     fi
     n=$(jq '[.runs[].results[]] | length' "$TMP_DIR/output/output.sarif")
     if [[ "$n" -eq 0 ]]; then
-        skip "osv-scanner produced 0 results (likely offline or no advisories for fixture)"
+        skip_or_fail "osv-scanner produced 0 results (likely offline or no advisories for fixture)"
     fi
 
     [ "$rc" -eq 1 ]                              # findings present
