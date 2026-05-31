@@ -43,6 +43,31 @@ teardown() {
     [ ! -f "$ORIG_DIR/tools/scorecard/adapter.sh" ]
 }
 
+# --- ensure_sarif.sh behavioral tests ---
+
+@test "ensure_sarif: writes a valid empty SARIF when the file is missing" {
+    run "$ORIG_DIR/tools/scorecard/ensure_sarif.sh" "$TMP_DIR/out.sarif"
+    [ "$status" -eq 0 ]
+    [ -f "$TMP_DIR/out.sarif" ]
+    run jq -e '.version == "2.1.0" and (.runs[0].results | length) == 0' "$TMP_DIR/out.sarif"
+    [ "$status" -eq 0 ]
+}
+
+@test "ensure_sarif: leaves an existing SARIF untouched" {
+    printf '{"version":"2.1.0","runs":[{"tool":{"driver":{"name":"scorecard"}},"results":[{"ruleId":"R"}]}]}' > "$TMP_DIR/out.sarif"
+    run "$ORIG_DIR/tools/scorecard/ensure_sarif.sh" "$TMP_DIR/out.sarif"
+    [ "$status" -eq 0 ]
+    # The pre-existing result must survive — the script must not overwrite.
+    run jq -e '.runs[0].results[0].ruleId == "R"' "$TMP_DIR/out.sarif"
+    [ "$status" -eq 0 ]
+}
+
+@test "ensure_sarif: usage error with no args" {
+    run "$ORIG_DIR/tools/scorecard/ensure_sarif.sh"
+    [ "$status" -eq 1 ]
+    [[ "$output" == *"Usage:"* ]]
+}
+
 @test "scorecard: action.yml writes to wrangle metadata directory" {
     grep -q '\.wrangle/metadata/scorecard' "$ORIG_DIR/tools/scorecard/action.yml"
 }

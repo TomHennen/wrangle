@@ -23,11 +23,6 @@ INPUT_PATH="$1"
 VERSION="$2"
 PUBLISHED="$3"
 
-# Re-enable globbing locally for the for-loop below. The script
-# disabled it at the top to make positional-arg handling safe; here
-# we want to glob dist/* explicitly.
-set +f
-
 if [[ -z "${GITHUB_STEP_SUMMARY:-}" ]]; then
     printf 'Note: GITHUB_STEP_SUMMARY not set; printing to stdout instead.\n'
     OUT=/dev/stdout
@@ -42,10 +37,16 @@ fi
     printf '| **Version** | %s |\n' "$VERSION"
     printf '| **Published** | %s |\n' "$PUBLISHED"
     printf '| **Artifacts** | |\n'
-    for f in "$INPUT_PATH"/dist/*; do
-        if [[ -f "$f" ]]; then
-            # shellcheck disable=SC2016 # backticks here are human-readable markdown, not command substitution
-            printf '| | `%s` |\n' "$(basename "$f")"
-        fi
-    done
+    # Expand dist/* inside a subshell so globbing is restored on every
+    # exit path — a bare `set +f` here would leak glob-enabled state to
+    # the rest of the script if the loop aborted under set -e.
+    (
+        set +f
+        for f in "$INPUT_PATH"/dist/*; do
+            if [[ -f "$f" ]]; then
+                # shellcheck disable=SC2016 # backticks here are human-readable markdown, not command substitution
+                printf '| | `%s` |\n' "$(basename "$f")"
+            fi
+        done
+    )
 } >> "$OUT"

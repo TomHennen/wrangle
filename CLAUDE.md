@@ -36,11 +36,11 @@ Every shell script MUST start with the exact preamble `set -euo pipefail` follow
 
 All variable expansions MUST be double-quoted. All scripts MUST pass `shellcheck` — no `# shellcheck disable` without a justifying comment. Use `$(command)` not backticks. Use `[[ ]]` not `[ ]` for conditionals. Use `printf` not `echo` for output that may contain user data.
 
-Don't `curl | sh` — all binary downloads go through `lib/download_verify.sh`. These rules are mechanically enforced by `tools/wrangle-shell-lint/` (WSL001–005).
+Don't `curl | sh` — all binary downloads go through `lib/download_verify.sh`. These rules are mechanically enforced by `tools/wrangle-shell-lint/` (WSL001–007; `curl | sh` is WSL006, `set +f` outside a subshell is WSL007).
 
 ## GitHub Actions
 
-- **Inline shell ≤ ~5 lines.** Longer or anything with logic → extract to a script.
+- **Inline shell ≤ 10 physical lines** (preamble, blanks, and comments all count). Longer or anything with logic → extract to a script. Enforced by `tools/wrangle-workflow-lint/` (WWL001).
 - **No expression injection.** NEVER interpolate `${{ inputs.* }}`, `${{ github.event.* }}`, or any attacker-controllable expression directly in a `run:` block — always thread through `env:` first.
 - **No copy-paste across workflows.** If the same `run:` block or step sequence appears in more than two workflow files, extract to a composite or shared script. Drift between copies is a class of bug, not a one-off.
 

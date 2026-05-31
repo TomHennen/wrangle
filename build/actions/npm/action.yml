@@ -185,19 +185,19 @@ runs:
       env:
         INPUT_PATH: ${{ inputs.path }}
         METADATA_DIR: ${{ steps.metadata.outputs.metadata-dir }}
+      # syft over the project source. Same tool wrangle's python build
+      # type uses; OWASP-known-conformant for SPDX. (Earlier SPEC drafts
+      # picked the npm-CLI's in-tree SBOM command, but its conformance
+      # was publicly criticized; switching to syft removes the question.)
+      # Adopters consuming wrangle-attested packages with bundled native
+      # code SHOULD layer binary scanners (Trivy, Grype) against installed
+      # node_modules/ for full coverage — wrangle's source-tree SBOM does
+      # not see compiled C/C++ artifacts that prebuild-install fetches at
+      # consumer install time.
       run: |
         set -euo pipefail
         SBOM_PATH="${METADATA_DIR}/sbom.spdx.json"
         BIN_DIR="${WRANGLE_BIN_DIR:-${RUNNER_TEMP:-.}/.wrangle/bin}"
-        # syft over the project source. Same tool wrangle's python build
-        # type uses; OWASP-known-conformant for SPDX. (Earlier SPEC drafts
-        # picked the npm-CLI's in-tree SBOM command, but its conformance
-        # was publicly criticized; switching to syft removes the question.)
-        # Adopters consuming wrangle-attested packages with bundled native
-        # code SHOULD layer binary scanners (Trivy, Grype) against installed
-        # node_modules/ for full coverage — wrangle's source-tree SBOM does
-        # not see compiled C/C++ artifacts that prebuild-install fetches at
-        # consumer install time.
         "$BIN_DIR/syft" dir:"$INPUT_PATH" -o spdx-json > "$SBOM_PATH"
         printf 'SBOM written to %s\n' "$SBOM_PATH"
 
