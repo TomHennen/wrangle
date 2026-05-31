@@ -97,6 +97,10 @@ runs:
         tags: |
           type=ref,event=branch
           type=ref,event=pr
+          # Non-semver tags (the vYYYYMMDD-<sha> tracking tags the showcase
+          # pushes) match no semver rule; emit a tag from the ref so the push
+          # doesn't fail with "tag is needed when pushing to registry" (#292).
+          type=ref,event=tag
           type=semver,pattern={{version}}
           type=semver,pattern={{major}}.{{minor}}
           type=raw,value=latest,enable=${{ github.ref == 'refs/heads/main' }}
