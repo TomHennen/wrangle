@@ -295,7 +295,12 @@ jobs:
           name: ${{ needs.provenance.outputs.provenance-name }}
           path: provenance/
 
-      - uses: TomHennen/wrangle/actions/verify@e063cc9d26562d5e7f13da2f226a1bfebf95cfc9 # main 2026-05-31
+      # Bootstrap pin: this PR introduces actions/verify's policy-path resolution
+      # AND policies/wrangle-provenance-v1.hjson, neither of which exists on main
+      # yet. A nested self-ref is fetched from its pinned SHA, not the PR head, so
+      # the integration test must point this at a branch SHA that carries them.
+      # Re-bump to a main SHA post-merge. See test/integration/SPEC.md § Known limitations.
+      - uses: TomHennen/wrangle/actions/verify@400d43220997494ac4529b8fdd2ced3a4c2181b8 # feat/verify-python-provenance 2026-05-31
         with:
           subject: dist/${{ matrix.artifact }}
           policy: policies/wrangle-provenance-v1.hjson
