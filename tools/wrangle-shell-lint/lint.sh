@@ -81,6 +81,7 @@ else
     done < <(find "$repo_root" -type f \
         -not -path '*/.git/*' \
         -not -path '*/.beads/*' \
+        -not -path '*/.claude/*' \
         -not -path '*/wrangle-shell-lint/fixtures/*' \
         -print0 | sort -z)
 fi

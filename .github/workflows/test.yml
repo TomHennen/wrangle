@@ -19,14 +19,13 @@ jobs:
       - name: Run tests
         run: ./test.sh
 
-  # Runs only the `osv e2e: ...` bats test against the real osv-scanner
-  # binary installed via tools/osv/install.sh. Separated from the Docker
-  # unit suite above so the unit container doesn't need network access
-  # to osv.dev or a slsa-verifier binary baked in. Dogfoods install.sh
-  # and the e2e assertion in one job — keeps the e2e from being a
-  # silent skip everywhere (see PR #234 discussion).
-  osv-e2e:
-    name: osv-scanner e2e (real binary)
+  # One job for everything that needs a real binary or network: osv-scanner
+  # (e2e) and ampel/bnd (policy harness + run_verify). The Docker unit suite
+  # above is hermetic; these need the real tools, so they share one checkout +
+  # install rather than a job each. Each test fails (not skips) under CI when
+  # its prerequisite is missing — see skip_or_fail.
+  integration:
+    name: integration (real binaries)
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -35,8 +34,13 @@ jobs:
         with:
           persist-credentials: false
 
-      # slsa-verifier is required by tools/osv/install.sh — osv-scanner's
-      # sole verification method is SLSA provenance.
+      # Go version from tools/go.mod (single source of truth; matches actions/verify).
+      - uses: actions/setup-go@4a3601121dd01d1626a1e23e37211e3254c1c06c # v6.4.0
+        with:
+          go-version-file: tools/go.mod
+
+      # slsa-verifier is required by tools/osv/install.sh — osv-scanner's sole
+      # verification method is SLSA provenance.
       - name: Install slsa-verifier
         uses: slsa-framework/slsa-verifier/actions/installer@ea584f4502babc6f60d9bc799dbbb13c1caa9ee6 # v2.7.1
 
@@ -45,32 +49,28 @@ jobs:
           sudo apt-get update -q
           sudo apt-get install -y -q --no-install-recommends bats jq
 
-      - name: Install osv-scanner via tools/osv/install.sh
-        env:
-          WRANGLE_BIN_DIR: ${{ runner.temp }}/.wrangle/bin
+      # Install osv-scanner and build ampel + bnd, using the env from lib/env.sh.
+      - name: Install tools
         run: |
+          source lib/env.sh
           ./tools/osv/install.sh
+          GOBIN="$WRANGLE_BIN_DIR" go -C tools install tool
           printf '%s\n' "$WRANGLE_BIN_DIR" >> "$GITHUB_PATH"
 
-      - name: Verify osv-scanner is on PATH
-        run: osv-scanner --version
-
-      # Run only the e2e test. The unit tests run in the Docker container
-      # above and don't need the real binary. `tee` preserves the bats TAP
-      # output for the post-step skip check.
-      - name: Run osv e2e test
+      - name: Verify tools are on PATH
         run: |
-          set -o pipefail
-          bats --tap -f "osv e2e:" tools/osv/test.bats | tee /tmp/osv-e2e.tap
+          osv-scanner --version
+          ampel version
 
-      # Fail loudly if the e2e test skipped. The e2e test contains
-      # network-unreachability skip paths as a safety net for sandboxed
-      # local dev; in CI we have network access and an installed binary,
-      # so any skip here means the test silently degraded and must be
-      # investigated — not ignored.
-      - name: Reject silent skip
-        run: |
-          if grep -E '^ok [0-9]+ .* # skip' /tmp/osv-e2e.tap; then
-              printf 'FATAL: osv e2e test was skipped in CI — install or network broken, or the assertion silently degraded\n' >&2
-              exit 1
-          fi
+      - name: osv-scanner e2e
+        run: bats -f "osv e2e:" tools/osv/test.bats
+
+      # Drift detector for the HJSON+CEL+context policies (docs/ampel_research.md
+      # §5): ampel resolves the SHA-pinned upstream locators over github.com.
+      - name: ampel policy harness
+        run: bats policies/test.bats
+
+      # ampel + bnd are on PATH, so run_verify's integration assertions run
+      # rather than skip.
+      - name: verify-script tests
+        run: bats actions/verify/test_run_verify.bats actions/verify/test_validate_verify_inputs.bats

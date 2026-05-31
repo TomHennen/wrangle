@@ -43,7 +43,7 @@ What are you adding?
 2. Not package-manager-installable, but the publisher ships SLSA provenance or a
    sigstore signature?
      → download the binary and verify it through lib/download_verify.sh
-       (slsa-verifier or cosign today; `gh attestation verify` once #247 adds it).
+       (slsa-verifier or cosign today).
        Freshness is then MANUAL — flag it against the #264 automation.
 
 3. Neither?
@@ -78,6 +78,11 @@ meaningful downgrade from binary+provenance: there is no foreign prebuilt binary
 to attest, and a compromise of the upstream repo would defeat build provenance
 just the same. So `go install` is a first-class choice, not a fallback.
 
+When installing Go tools via `go install`, assert `GOPROXY` and `GOSUMDB` at the
+install site so sum-database verification can't be silently disabled by the
+inherited environment — the action/CI sets them explicitly rather than trusting
+whatever is already set.
+
 ## Pinning
 
 | Dependency | Pin format |
@@ -96,11 +101,9 @@ just the same. So `go install` is a first-class choice, not a fallback.
 
 ## Keeping things current
 
-- **Dependabot** (`.github/dependabot.yml`) — weekly, no auto-merge, with a
-  cooldown that implements the 7-day "adopt after a delay" rule. It covers
-  `github-actions` (third-party action SHAs) and `pip` (the dev-tool requirements)
-  today; `gomod` is added alongside the Go-tool manifest. This automatic patching
-  is *why* branch 1 is the default.
+- **Dependabot** (`.github/dependabot.yml`) — configure it for each ecosystem in
+  use, weekly, no auto-merge, with a cooldown that implements the 7-day "adopt
+  after a delay" rule. This automatic patching is *why* branch 1 is the default.
 - **`make bump-action-pins`** rewrites wrangle's own self-references after a
   composite changes (it currently reaches only `.github/workflows/` — see #287).
 - **Manual today:** the binary+provenance installs (branch 2) and the base-image
@@ -111,8 +114,8 @@ just the same. So `go install` is a first-class choice, not a fallback.
 
 A pin literal (version, SHA, checksum) that lives in more than one file must be
 **single-sourced or guarded by a divergence-fail test** — never left to humans to
-update in lockstep. The pip versions are single-sourced by `requirements.txt` (the Go tools likewise,
-once the `go.mod` manifest lands); the existing `tools/zizmor`
+update in lockstep. The pip versions are single-sourced by `requirements.txt` (the Go tools
+likewise, by `tools/go.mod`); the existing `tools/zizmor`
 requirements↔`action.yml` `bats` guard is the pattern to copy for the rest. Known unguarded duplicates are tracked in #286.
 
 ## For reviewers
@@ -133,5 +136,5 @@ requirements↔`action.yml` `bats` guard is the pattern to copy for the rest. Kn
 #264 (automate the manual binary surface, ideally covering wrangle's own refs too),
 #277 (install-method audit), #286 (divergence guards), #287 (self-ref bump scope),
 #136 (`$/` same-repo syntax), #218 (self-ref impostor-commit gap),
-#247 (Ampel verify — adds the `gh attestation verify` path to
-`lib/download_verify.sh`; fold it into branch 2 once merged).
+#247 (Ampel verify — ships the verify stage; ampel/bnd install via the
+`tools/go.mod` `go install` manifest, branch 1 / Dependabot-covered).

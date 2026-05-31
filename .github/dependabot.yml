@@ -20,3 +20,14 @@ updates:
     open-pull-requests-limit: 5
     cooldown:
       default-days: 7
+
+  - package-ecosystem: "gomod"
+    directories:
+      - "/**"
+    exclude-paths:
+      - "tools/osv/testdata/**"
+    schedule:
+      interval: "weekly"
+    open-pull-requests-limit: 5
+    cooldown:
+      default-days: 7

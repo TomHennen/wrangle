@@ -1,0 +1,110 @@
+# Wrangle Verify — verify a release artifact against a wrangle PolicySet with
+# ampel and emit a signed SLSA Verification Summary Attestation (VSA).
+#
+# This is the consumer contract: a PASS produces `<artifact>.intoto.jsonl`
+# (slsa.dev/verification_summary/v1), and downstream consumers trust only that
+# signed VSA — they never run ampel themselves (docs/ampel_research.md §2).
+#
+# ampel and bnd are built from tools/go.mod (`go install`); the runner needs a
+# Go toolchain (GitHub-hosted runners ship one). The PolicySet itself mandates
+# the signer identities of every input attestation (its common.identities), so
+# verification is fail-closed regardless of how this action is invoked — there
+# is no --signer flag to forget.
+#
+# Signing identity: bnd signs the VSA keyless via the CALLING workflow's GitHub
+# OIDC certificate. Consumers verify with cosign --certificate-identity-regexp
+# on the wrangle verify workflow path.
+#
+# Required permissions on the calling job: `id-token: write` (sign the VSA);
+# `contents: write` only on the tag/publish job (attach to the release).
+name: Wrangle Verify
+description: >
+  Verify a release artifact against a wrangle PolicySet using ampel and emit a
+  signed SLSA VSA. The VSA is written to <artifact-name>.intoto.jsonl, uploaded
+  as a workflow artifact, and attached to the GitHub release on a tag push.
+
+inputs:
+  subject:
+    description: "Artifact to verify — a hash (sha256:...) or a path. ampel --subject."
+    required: true
+  policy:
+    description: "wrangle PolicySet to evaluate — a path under policies/ or an ampel locator."
+    required: true
+  collector:
+    description: "ampel collector(s) that gather the attestations to evaluate (e.g. jsonl:, oci:, release:)."
+    required: true
+  artifact-name:
+    description: "Basename for the emitted VSA file (e.g. my-app-1.2.3.tgz); the VSA is <artifact-name>.intoto.jsonl."
+    required: true
+  context:
+    description: >
+      Optional per-verify context for the policy's CEL, in ampel's KEY:VALUE
+      format (comma-separated for multiple), e.g.
+      "buildPoint:git+https://github.com/OWNER/REPO". builderId/buildType and the
+      signer identities are baked into the PolicySet, not passed here.
+    required: false
+    default: ""
+  attestation:
+    description: "Optional explicit attestation file(s) to load in addition to the collector."
+    required: false
+    default: ""
+  fail:
+    description: 'When "true" (default) a FAILED result fails the step and blocks the release.'
+    required: false
+    default: "true"
+  attach-to-release:
+    description: 'When "true" (default) and the run is a tag push, attach the VSA to the release.'
+    required: false
+    default: "true"
+
+runs:
+  using: composite
+  steps:
+    # Build ampel + bnd from the pinned tool manifest into WRANGLE_BIN_DIR.
+    # Downstream steps re-source lib/env.sh to find them on PATH, so there is
+    # no write to $GITHUB_PATH.
+    - name: Install ampel and bnd
+      shell: bash
+      env:
+        WRANGLE_ROOT: ${{ github.action_path }}/../..
+      run: |
+        # shellcheck source=../../lib/env.sh
+        source "$WRANGLE_ROOT/lib/env.sh"
+        GOBIN="$WRANGLE_BIN_DIR" go -C "$WRANGLE_ROOT/tools" install tool
+
+    # One step: run_verify.sh run validates the inputs, runs ampel verify to
+    # write the VSA, then bnd-signs it in place — in a single process, so the
+    # unsigned VSA never sits on disk across a step boundary. The policy's
+    # common.identities verify the signer of every input attestation, so a
+    # tampered/unsigned input fails here; the VSA is signed keyless with the
+    # calling workflow's OIDC identity.
+    - name: Verify and sign VSA
+      shell: bash
+      env:
+        WRANGLE_ROOT: ${{ github.action_path }}/../..
+        ARTIFACT_NAME: ${{ inputs.artifact-name }}
+        SUBJECT: ${{ inputs.subject }}
+        POLICY: ${{ inputs.policy }}
+        COLLECTOR: ${{ inputs.collector }}
+        CONTEXT: ${{ inputs.context }}
+        ATTESTATION: ${{ inputs.attestation }}
+        FAIL: ${{ inputs.fail }}
+        VSA: ${{ inputs.artifact-name }}.intoto.jsonl
+      run: |
+        "$WRANGLE_ROOT/actions/verify/run_verify.sh" run
+
+    - name: Upload VSA artifact
+      uses: actions/upload-artifact@bbbca2ddaa5d8feaa63e36b76fdaad77386f024f # v7.0.0
+      with:
+        name: ${{ inputs.artifact-name }}.intoto.jsonl
+        path: ${{ inputs.artifact-name }}.intoto.jsonl
+        if-no-files-found: error
+
+    # Canonical VSA storage: attach to the GitHub release on a tag push.
+    - name: Attach VSA to release
+      if: github.ref_type == 'tag' && inputs.attach-to-release == 'true'
+      shell: bash
+      env:
+        VSA: ${{ inputs.artifact-name }}.intoto.jsonl
+        GH_TOKEN: ${{ github.token }}
+      run: gh release upload "$GITHUB_REF_NAME" "$VSA" --clobber

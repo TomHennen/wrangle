@@ -19,3 +19,10 @@ case ":${PATH}:" in
     *":${WRANGLE_BIN_DIR}:"*) ;;
     *) export PATH="${WRANGLE_BIN_DIR}:${PATH}" ;;
 esac
+
+# Pin Go's module proxy + checksum database so `go install`/`go build`
+# sum-database verification can't be disabled by an inherited GOSUMDB=off or a
+# runner's `go env -w`. Set unconditionally — overriding the environment is the
+# point; harmless when no go command runs.
+export GOPROXY="https://proxy.golang.org,direct"
+export GOSUMDB="sum.golang.org"
