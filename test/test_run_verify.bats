@@ -1,6 +1,6 @@
 #!/usr/bin/env bats
 
-# Tests for lib/run_verify.sh
+# Tests for actions/verify/run_verify.sh
 #
 # The arg-builder functions are validated against the shape the real ampel/bnd
 # CLIs accept. Full keyless bnd signing needs OIDC and cannot run offline, so
@@ -9,10 +9,17 @@
 # HTML-sanitize-to-summary plumbing.
 
 setup() {
-    REPO_ROOT="$(cd "$(dirname "$BATS_TEST_FILENAME")/../.." && pwd)"
-    SCRIPT="$REPO_ROOT/lib/run_verify.sh"
+    REPO_ROOT="$(cd "$(dirname "$BATS_TEST_FILENAME")/.." && pwd)"
+    SCRIPT="$REPO_ROOT/actions/verify/run_verify.sh"
     TEST_DIR="$(mktemp -d)"
 
+    # Discover the real ampel/bnd wherever they're installed (PATH or the
+    # action's WRANGLE_BIN_DIR), so the integration assertions actually run in
+    # any job that built the tools and skip only when they're genuinely absent.
+    AMPEL_BIN="$(command -v ampel || echo "${WRANGLE_BIN_DIR:-/nonexistent}/ampel")"
+    BND_BIN="$(command -v bnd || echo "${WRANGLE_BIN_DIR:-/nonexistent}/bnd")"
+
+    export ARTIFACT_NAME="app-1.2.3.tgz"
     export SUBJECT="sha256:abc123"
     export POLICY="policies/release.json"
     export COLLECTOR="jsonl:./atts"
@@ -21,7 +28,7 @@ setup() {
     export CONTEXT=""
     export ATTESTATION=""
 
-    # shellcheck source=../../lib/run_verify.sh
+    # shellcheck source=../actions/verify/run_verify.sh
     source "$SCRIPT"
 }
 
@@ -76,9 +83,9 @@ teardown() {
     # The real ampel rejects an unknown flag with a non-"subject" error; a bad
     # subject means every flag in our vector parsed. Confirms the flag names
     # match the installed CLI without needing real attestations.
-    if [[ ! -x /tmp/wbin3/ampel ]]; then skip "real ampel not available"; fi
+    if [[ ! -x "$AMPEL_BIN" ]]; then skip "real ampel not available"; fi
     mapfile -t args < <(wrangle_ampel_verify_args)
-    run /tmp/wbin3/ampel "${args[@]}"
+    run "$AMPEL_BIN" "${args[@]}"
     [[ "$status" -ne 0 ]]
     [[ "$output" != *"unknown flag"* ]]
     [[ "$output" != *"unknown shorthand"* ]]
@@ -94,10 +101,10 @@ teardown() {
 }
 
 @test "run_verify: bnd sign args name a real bnd subcommand" {
-    if [[ ! -x /tmp/wbin3/bnd ]]; then skip "real bnd not available"; fi
+    if [[ ! -x "$BND_BIN" ]]; then skip "real bnd not available"; fi
     # `bnd statement --help` proves the subcommand exists without triggering
     # the keyless signing flow (which blocks on OIDC offline).
-    run /tmp/wbin3/bnd statement --help
+    run "$BND_BIN" statement --help
     [[ "$status" -eq 0 ]]
     [[ "$output" == *"in-toto attestation"* ]]
 }
@@ -160,4 +167,15 @@ STUB
 
     run wrangle_verify_emit_vsa
     [[ "$status" -ne 0 ]]
+}
+
+@test "run_verify: emit rejects an input that fails validation (fail-closed)" {
+    # Validation now lives inside the script that does the work; a bad input
+    # must abort before ampel runs.
+    export SUBJECT='bad;rm -rf /'
+    export GITHUB_STEP_SUMMARY="$TEST_DIR/summary.md"
+    : > "$GITHUB_STEP_SUMMARY"
+    run wrangle_verify_emit_vsa
+    [[ "$status" -ne 0 ]]
+    [[ "$output" == *"invalid subject"* ]]
 }

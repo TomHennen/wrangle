@@ -64,6 +64,8 @@ Adapters take `<src_dir>` (read-only) and `<output_dir>` (writable), write `outp
 
 Tools live in `tools/<name>/`. Three patterns: **adapter** (`install.sh` + `adapter.sh` + `test.bats`, wired into `actions/scan/action.yml`) for scan tools; **action** (`action.yml` + `test.bats`) for tools with official GitHub Actions; **developer tooling** (whatever the tool needs + `test.bats`) for things used only during development, not by adopters (e.g., `bump_action_pins`, `wrangle-shell-lint`).
 
+An action's own helper scripts live in its `actions/<name>/` directory alongside `action.yml` (e.g. `preflight_guard`, `release_gate`, `verify`); their bats live in `test/`. `lib/` is only for helpers shared across multiple actions/tools (`env.sh`, `sanitize.sh`, `download_verify.sh`).
+
 ## Path resolution
 
 Scripts resolve paths relative to their own location via `SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"`, never relative to `$PWD`. The scan action at `actions/scan/` must remain at that depth — moving it breaks all adopters.
@@ -73,8 +75,9 @@ Scripts resolve paths relative to their own location via `SCRIPT_DIR="$(cd "$(di
 Always run `./test.sh` before pushing — CI runs the same checks. `./test.sh quick` skips zizmor for inner-loop iteration. Every adapter and install script gets a `test.bats`. The test-layer breakdown (local layers, the offline Docker unit suite, CI integration, e2e) is in SPEC.md §Testing Strategy. Beyond that:
 
 - **Prefer real tools/binaries over shims/mocks.** Drive tests with the actual binary wherever practical; a shim is acceptable only with a one-line comment saying why a real tool can't be used (e.g., an adapter feeding deterministic fixture SARIF that no real scanner would emit on demand).
-- **Unit vs. integration.** Offline, deterministic checks run in the Docker unit suite (`./test.sh`); tests needing a real binary or network are integration tests gated behind the relevant CI job. A bats test lives next to the script it covers (`tools/<name>/test.bats`, etc.).
-- **A test that would silently skip in CI must instead FAIL in CI.** Skip paths exist as a safety net for sandboxed local dev (no network, no installed binary); in CI those preconditions are guaranteed, so a skip means coverage silently degraded. The test itself distinguishes CI from local (it can see CI is present and the binary is installed) and fails rather than skips — don't bolt a separate per-job CI step onto a test that skips.
+- **Unit vs. integration.** The Docker unit suite (`./test.sh`) is intentionally offline/hermetic for determinism — not because online checks belong only in CI. Integration tests need a real binary or network and have a dedicated CI job, but they also run locally whenever the prerequisites are present (`skip_or_fail` skips only when the binary or network is genuinely missing — running them locally catches problems early). A bats test lives next to the script it covers.
+- **Tests must never skip in CI.** Skip paths exist as a safety net for sandboxed local dev (no network, no installed binary); in CI those preconditions are guaranteed, so a skip means coverage silently degraded. The test distinguishes CI from local and fails rather than skips (the shared `skip_or_fail` helper) — don't bolt a separate per-job CI step onto a test that skips.
+- **A script may have a `main` that runs on execution.** Factoring logic into small, pure functions for unit tests is good, but don't over-rotate into "source the script then call a function" from callers — a script can expose testable helpers *and* a `main`/subcommand dispatcher guarded by `[[ "${BASH_SOURCE[0]}" == "$0" ]]`, so a caller just runs it.
 
 ## Supply chain discipline
 

@@ -1,6 +1,6 @@
 #!/bin/bash
-# lib/validate_verify_inputs.sh — Validate actions/verify inputs before they
-# reach ampel/bnd.
+# actions/verify/validate_verify_inputs.sh — Validate actions/verify inputs
+# before they reach ampel/bnd.
 #
 # Every value flows into a shell command line, so the allowlist rejects any
 # character that could let an input break out of the run: step. The character
@@ -9,7 +9,7 @@
 # own legal punctuation.
 #
 # Usage (source then call, or run directly with the same arg order):
-#   source "$WRANGLE_ROOT/lib/validate_verify_inputs.sh"
+#   source "$VERIFY_DIR/validate_verify_inputs.sh"
 #   wrangle_validate_verify_inputs ARTIFACT_NAME SUBJECT POLICY COLLECTOR \
 #       FAIL CONTEXT ATTESTATION
 

@@ -96,11 +96,7 @@ jobs:
       - name: Build ampel from tools/go.mod
         env:
           WRANGLE_BIN_DIR: ${{ runner.temp }}/.wrangle/bin
-          # GOSUMDB pins the checksum database that verifies modules against
-          # go.sum; GOPROXY pins where they're fetched. Set explicitly (env
-          # overrides `go env -w`) so a runner image can't silently disable
-          # verification. These match Go's defaults; pinning them makes the
-          # build's integrity guarantee independent of the runner config.
+          # Set explicitly so the runner config can't disable sum-db verification.
           GOPROXY: https://proxy.golang.org,direct
           GOSUMDB: sum.golang.org
         run: |
@@ -114,3 +110,8 @@ jobs:
       # github.com is missing, so a silent degradation surfaces as a failure.
       - name: Run policy harness
         run: bats policies/test.bats
+
+      # ampel + bnd are on PATH here, so run_verify.sh's integration assertions
+      # (which discover the real binaries) actually execute rather than skip.
+      - name: Run verify-script tests
+        run: bats test/test_run_verify.bats

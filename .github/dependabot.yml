@@ -22,10 +22,10 @@ updates:
       default-days: 7
 
   - package-ecosystem: "gomod"
-    # Scoped to /tools (non-recursive) on purpose: this repo houses deliberately
-    # vulnerable Go fixtures (e.g. tools/osv/testdata) that must never be bumped.
     directories:
-      - "/tools"
+      - "/**"
+    exclude-paths:
+      - "tools/osv/testdata/**"
     schedule:
       interval: "weekly"
     open-pull-requests-limit: 5

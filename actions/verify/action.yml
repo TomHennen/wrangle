@@ -60,24 +60,6 @@ inputs:
 runs:
   using: composite
   steps:
-    # subject/policy/collector/context/attestation are passed to ampel; reject
-    # shell metacharacters so a value can never break out of the run: steps below.
-    - name: Validate inputs
-      shell: bash
-      env:
-        WRANGLE_ROOT: ${{ github.action_path }}/../..
-        ARTIFACT_NAME: ${{ inputs.artifact-name }}
-        SUBJECT: ${{ inputs.subject }}
-        POLICY: ${{ inputs.policy }}
-        COLLECTOR: ${{ inputs.collector }}
-        CONTEXT: ${{ inputs.context }}
-        ATTESTATION: ${{ inputs.attestation }}
-        FAIL: ${{ inputs.fail }}
-      run: |
-        "$WRANGLE_ROOT/lib/validate_verify_inputs.sh" \
-          "$ARTIFACT_NAME" "$SUBJECT" "$POLICY" "$COLLECTOR" \
-          "$FAIL" "$CONTEXT" "$ATTESTATION"
-
     # Build ampel + bnd from the pinned tool manifest into WRANGLE_BIN_DIR.
     # Downstream steps re-source lib/env.sh to find them on PATH, so there is
     # no write to $GITHUB_PATH.
@@ -92,13 +74,14 @@ runs:
         source "$WRANGLE_ROOT/lib/env.sh"
         GOBIN="$WRANGLE_BIN_DIR" go -C "$WRANGLE_ROOT/tools" install tool
 
-    # Evaluate the PolicySet and write the (unsigned) VSA. The policy's
-    # common.identities verify the signer of every input attestation, so a
-    # tampered/unsigned input fails here.
+    # run_verify.sh emit validates the inputs, then runs ampel verify to write
+    # the (unsigned) VSA. The policy's common.identities verify the signer of
+    # every input attestation, so a tampered/unsigned input fails here.
     - name: Verify and emit VSA
       shell: bash
       env:
         WRANGLE_ROOT: ${{ github.action_path }}/../..
+        ARTIFACT_NAME: ${{ inputs.artifact-name }}
         SUBJECT: ${{ inputs.subject }}
         POLICY: ${{ inputs.policy }}
         COLLECTOR: ${{ inputs.collector }}
@@ -107,9 +90,7 @@ runs:
         FAIL: ${{ inputs.fail }}
         VSA: ${{ inputs.artifact-name }}.intoto.jsonl
       run: |
-        # shellcheck source=../../lib/run_verify.sh
-        source "$WRANGLE_ROOT/lib/run_verify.sh"
-        wrangle_verify_emit_vsa
+        "$WRANGLE_ROOT/actions/verify/run_verify.sh" emit
 
     # Sign the VSA in place, keyless, with the calling workflow's OIDC identity.
     - name: Sign the VSA
@@ -118,9 +99,7 @@ runs:
         WRANGLE_ROOT: ${{ github.action_path }}/../..
         VSA: ${{ inputs.artifact-name }}.intoto.jsonl
       run: |
-        # shellcheck source=../../lib/run_verify.sh
-        source "$WRANGLE_ROOT/lib/run_verify.sh"
-        wrangle_sign_vsa
+        "$WRANGLE_ROOT/actions/verify/run_verify.sh" sign
 
     - name: Upload VSA artifact
       uses: actions/upload-artifact@bbbca2ddaa5d8feaa63e36b76fdaad77386f024f # v7.0.0
