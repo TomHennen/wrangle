@@ -53,6 +53,11 @@ jobs:
       - name: Install slsa-verifier
         uses: slsa-framework/slsa-verifier/actions/installer@ea584f4502babc6f60d9bc799dbbb13c1caa9ee6 # v2.7.1
 
+      # cosign backs run_verify's `cosign attach attestation` arg-vector check —
+      # the container VSA's registry push. Same pin as the container workflow.
+      - name: Install cosign
+        uses: sigstore/cosign-installer@6f9f17788090df1f26f669e9d70d6ae9567deba6 # v4.1.2
+
       - name: Install bats and jq
         run: |
           sudo apt-get update -q
@@ -79,7 +84,7 @@ jobs:
       - name: ampel policy harness
         run: bats policies/test.bats
 
-      # ampel + bnd are on PATH, so run_verify's integration assertions run
-      # rather than skip.
+      # ampel + bnd + cosign are on PATH, so run_verify's integration assertions
+      # (including the cosign-attach arg-vector) run rather than skip.
       - name: verify-script tests
         run: bats actions/verify/test_run_verify.bats actions/verify/test_validate_verify_inputs.bats

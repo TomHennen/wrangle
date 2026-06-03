@@ -7,6 +7,11 @@
 # the sign path is checked at the argument-vector level only; the emit path is
 # exercised end-to-end with a tiny ampel stub on PATH to confirm the
 # HTML-sanitize-to-summary plumbing.
+#
+# skip_or_fail (fail-not-skip under CI) lives in a shared bats helper. The real
+# ampel/bnd/cosign run in the `integration (real binaries)` job, not the
+# hermetic Docker unit suite, so a skip in CI means coverage silently degraded.
+load "../../test/lib/bats_helpers"
 
 setup() {
     SCRIPT="$(cd "$(dirname "$BATS_TEST_FILENAME")" && pwd)/run_verify.sh"
@@ -100,7 +105,7 @@ teardown() {
     # The real ampel rejects an unknown flag with a non-"subject" error; a bad
     # subject means every flag in our vector parsed. Confirms the flag names
     # match the installed CLI without needing real attestations.
-    if [[ ! -x "$AMPEL_BIN" ]]; then skip "real ampel not available"; fi
+    if [[ ! -x "$AMPEL_BIN" ]]; then skip_or_fail "real ampel not available"; fi
     mapfile -t args < <(wrangle_ampel_verify_args)
     run "$AMPEL_BIN" "${args[@]}"
     [[ "$status" -ne 0 ]]
@@ -118,7 +123,7 @@ teardown() {
 }
 
 @test "run_verify: bnd sign args name a real bnd subcommand" {
-    if [[ ! -x "$BND_BIN" ]]; then skip "real bnd not available"; fi
+    if [[ ! -x "$BND_BIN" ]]; then skip_or_fail "real bnd not available"; fi
     # `bnd statement --help` proves the subcommand exists without triggering
     # the keyless signing flow (which blocks on OIDC offline).
     run "$BND_BIN" statement --help
@@ -142,7 +147,7 @@ teardown() {
 }
 
 @test "run_verify: cosign attach arg vector names a real cosign subcommand" {
-    if [[ ! -x "$COSIGN_BIN" ]]; then skip "real cosign not available"; fi
+    if [[ ! -x "$COSIGN_BIN" ]]; then skip_or_fail "real cosign not available"; fi
     # `cosign attach attestation --help` proves the verb exists and that
     # --attestation is a real flag, without contacting a registry.
     run "$COSIGN_BIN" attach attestation --help
