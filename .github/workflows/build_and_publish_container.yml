@@ -255,7 +255,7 @@ jobs:
       # resolves once it is on the pinned ref. This pin needs a bootstrap bump
       # to the PR branch SHA for the integration test, then back to main on merge.
       # TODO: replace with $/actions/verify when GitHub ships $/ syntax (#136)
-      - uses: TomHennen/wrangle/actions/verify@5e5d4b1ae9aca432ffced21b83d7e56478d0e575 # main 2026-05-31
+      - uses: TomHennen/wrangle/actions/verify@1a85352d7a13d6086019a2f5dccf0596282abc65 # bootstrap: branch SHA carrying the container PolicySet; bump to main on merge
         with:
           subject: ${{ needs.build.outputs.digest }}
           policy: policies/wrangle-provenance-container-v1.hjson
