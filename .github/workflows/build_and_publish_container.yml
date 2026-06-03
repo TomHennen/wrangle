@@ -227,11 +227,11 @@ jobs:
   # so the image is already live; fail: true still fails the workflow conclusion
   # (blocking downstream caller jobs) and surfaces a policy/tooling regression.
   #
-  # Collector: oci: resolves the cosign-attached SLSA attestation from the
-  # registry by digest. This path is exercised only by the integration dispatch
-  # (no local fixture can stand in for a real attested image). If oci: proves
-  # unable to resolve a cosign attestation, the fallback is a prior `cosign
-  # download attestation "$IMAGE_REF"` to a file fed via collector jsonl:<file>.
+  # Collector: coci: reads the cosign-method (.att tag) SLSA attestation the
+  # v2.1.0 container generator attaches — the same one the verify job's
+  # `cosign verify-attestation` reads. oci: would only list OCI 1.1 referrers,
+  # which on this image are the unsigned BuildKit attestations, not the
+  # generator's signed provenance. Exercised only by the integration dispatch.
   vsa:
     if: ${{ needs.gate.outputs.should-release == 'true' && inputs.verify-image }}
     needs: [guard, gate, build, provenance]
@@ -274,7 +274,7 @@ jobs:
         with:
           subject: ${{ needs.build.outputs.digest }}
           policy: policies/wrangle-provenance-container-v1.hjson
-          collector: oci:${{ needs.build.outputs.imagename }}@${{ needs.build.outputs.digest }}
+          collector: coci:${{ needs.build.outputs.imagename }}@${{ needs.build.outputs.digest }}
           # resourceUri is the OCI image ref a container consumer fetches and
           # pins when verifying the VSA; the subject digest is the cryptographic bind.
           context: buildPoint:git+https://github.com/${{ github.repository }},vsa.resourceUri:${{ needs.build.outputs.imagename }}@${{ needs.build.outputs.digest }}
