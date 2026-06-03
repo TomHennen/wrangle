@@ -185,11 +185,26 @@ Provenance is attached to the GitHub Release on tag pushes only. Non-tag events 
 
 ### Verifying the VSA
 
-On tag pushes wrangle also attaches a signed SLSA Verification Summary Attestation (VSA) per archive — `<archive>.intoto.jsonl` — recording that the build provenance passed the `wrangle-provenance-v1` PolicySet. A consumer trusts that single signed VSA instead of re-running the policy engine. The VSA's `resourceUri` is the golang module purl `pkg:golang/<module-path>@<version>` (the module path is the `module` directive in your `go.mod`); pin that value when you verify. Because goreleaser publishes inline, the VSA is a post-publish attestation — same "publish first, attest second" timing as the provenance above.
+On tag pushes wrangle also attaches a signed SLSA Verification Summary Attestation (VSA) per archive — `<archive>.intoto.jsonl` — to the GitHub release, recording that the build provenance passed the `wrangle-provenance-v1` PolicySet. A consumer trusts that single signed VSA instead of re-running the policy engine. The VSA's `resourceUri` is the golang module purl `pkg:golang/<module-path>@<version>` (the module path is the `module` directive in your `go.mod`); pin that value when you verify. Because goreleaser publishes inline, the VSA is a post-publish attestation — same "publish first, attest second" timing as the provenance above.
+
+**Primary check — `slsa-verifier verify-vsa`** (the complete check: confirms the VSA's `verificationResult`, `resourceUri`, and `verifiedLevels`):
 
 ```bash
 curl -LO "https://github.com/<owner>/<repo>/releases/download/<tag>/<archive>.intoto.jsonl"
 
+slsa-verifier verify-vsa \
+  --attestation-path <archive>.intoto.jsonl \
+  --subject-digest sha256:<archive-sha256> \
+  --resource-uri pkg:golang/<module-path>@<version> \
+  --verifier-id https://carabiner.dev/ampel@v1 \
+  --verified-level SLSA_BUILD_LEVEL_3
+```
+
+`--verifier-id` is `https://carabiner.dev/ampel@v1` — ampel (wrangle's policy engine) hardcodes this as the VSA's `verifier.id`. That `slsa-verifier verify-vsa` accepts this identity is confirmed by wrangle's integration run (integration-validated). `--subject-digest` is the archive's sha256 (`sha256sum <archive>`).
+
+**Alternate — `cosign verify-blob-attestation`** (verifies the *signer* identity — the wrangle verify workflow's keyless cert — which `verify-vsa` does not check):
+
+```bash
 cosign verify-blob-attestation --bundle <archive>.intoto.jsonl --new-bundle-format \
   --certificate-oidc-issuer https://token.actions.githubusercontent.com \
   --certificate-identity-regexp '^https://github\.com/<owner>/<repo>/\.github/workflows/.*$' \

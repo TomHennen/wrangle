@@ -91,12 +91,32 @@ with:
 
 ### Verifying the VSA
 
-Beyond the registry-bytes check above, on release the workflow emits a single signed SLSA Verification Summary Attestation (VSA) recording that the image's SLSA provenance passed the `wrangle-provenance-container-v1` PolicySet. The VSA's `resourceUri` is the OCI image ref `<imagename>@sha256:<digest>` — what a consumer pulls — and its subject is that digest. On tag pushes the VSA is attached to the GitHub release as `<image-basename>-<digest>.intoto.jsonl`. A consumer trusts that single signed VSA instead of re-running the policy engine.
+Beyond the registry-bytes check above, on release the workflow emits a single signed SLSA Verification Summary Attestation (VSA) recording that the image's SLSA provenance passed the `wrangle-provenance-container-v1` PolicySet. The VSA's `resourceUri` is the OCI image ref `<imagename>@sha256:<digest>` — what a consumer pulls — and its subject is that digest. A consumer trusts that single signed VSA instead of re-running the policy engine.
+
+Unlike the npm/Go build types, the container VSA is **stored in the registry** as an OCI referrer on the image digest (containers produce no GitHub release), so you fetch it with `cosign download attestation` rather than from a release asset.
+
+**Primary check — `slsa-verifier verify-vsa`** (the complete check: confirms the VSA's `verificationResult`, `resourceUri`, and `verifiedLevels`):
 
 ```bash
-curl -LO "https://github.com/<owner>/<repo>/releases/download/<tag>/<image-basename>-<digest>.intoto.jsonl"
+# Fetch the VSA from the registry (it's an OCI referrer on the digest).
+cosign download attestation \
+  --predicate-type https://slsa.dev/verification_summary/v1 \
+  <imagename>@sha256:<digest> > vsa.intoto.jsonl
 
-cosign verify-blob-attestation --bundle <image-basename>-<digest>.intoto.jsonl --new-bundle-format \
+slsa-verifier verify-vsa \
+  --attestation-path vsa.intoto.jsonl \
+  --subject-digest sha256:<digest> \
+  --resource-uri <imagename>@sha256:<digest> \
+  --verifier-id https://carabiner.dev/ampel@v1 \
+  --verified-level SLSA_BUILD_LEVEL_3
+```
+
+`--verifier-id` is `https://carabiner.dev/ampel@v1` — ampel (wrangle's policy engine) hardcodes this as the VSA's `verifier.id`. That `slsa-verifier verify-vsa` accepts this identity is confirmed by wrangle's integration run (integration-validated).
+
+**Alternate — `cosign verify-blob-attestation`** (verifies the *signer* identity — the wrangle verify workflow's keyless cert — which `verify-vsa` does not check):
+
+```bash
+cosign verify-blob-attestation --bundle vsa.intoto.jsonl --new-bundle-format \
   --certificate-oidc-issuer https://token.actions.githubusercontent.com \
   --certificate-identity-regexp '^https://github\.com/<owner>/<repo>/\.github/workflows/.*$' \
   --type slsaverificationsummary sha256:<digest>

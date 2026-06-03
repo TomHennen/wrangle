@@ -92,11 +92,13 @@ The reusable workflow then adds:
 ```
 14. Generate SLSA L3 provenance (slsa-github-generator)
 15. Verify SLSA attestation (cosign verify-attestation; default-on, opt out via verify-image: false)
-16. Emit signed SLSA VSA (ampel against wrangle-provenance-container-v1; gated on verify-image)
+16. Emit signed SLSA VSA (ampel against wrangle-provenance-container-v1; gated on verify-image) and push it to the registry as an OCI referrer (cosign attach attestation)
 17. Gate job — verify both build+sign and provenance succeeded
 ```
 
 Step 15 and step 16 are orthogonal: step 15 is the registry-bytes-match gate, step 16 emits the single signed VSA a downstream consumer trusts (it evaluates the image provenance against `wrangle-provenance-container-v1` and bnd-signs the result keyless with the calling workflow's OIDC identity). The container generator emits the same builderId/buildType the VSA's PolicySet bakes (`generator_container_slsa3.yml`, `…/container@v1`), which is why the container needs its own PolicySet rather than the generic one.
+
+Step 16 differs from the npm/Go VSA flow in *storage*: containers produce no GitHub release, so the signed VSA is pushed to the registry as an OCI referrer on the image digest (`cosign attach attestation`, which uploads the already-bnd-signed bundle verbatim — it does not re-sign) rather than attached to a release asset. `cosign attach` runs inside `actions/verify` in the same process as emit+sign, so the unsigned VSA never crosses a step boundary; the vsa job logs in to ghcr first and requests `packages: write` (not `contents: write`) for the push.
 
 ### Verify-image input
 
@@ -133,6 +135,7 @@ Implements the build stage failure contract from `docs/SPEC.md`:
 | SBOM vulnerability scan | **Continue** (non-blocking) | Transitive dependency vulns are informational. Findings are uploaded as SARIF. Blocking creates alert fatigue on issues maintainers often can't act on, and it can itself become a *release blocker*: maintainers sometimes need to ship an image with one known, unavoidable vulnerability in order to publish the fix for a different one, or to accept an upstream CVE that has no patched version yet. A hard-block on scan findings would prevent that. Vulnerability triage is a policy decision the adopter owns, not something wrangle should preempt. |
 | Cosign signing | **Pipeline stops**; image already pushed | The image has already been pushed to the registry by the time signing runs (OCI registries require the blob to exist before a signature can be attached — see "Image pushed before signed"). Failing the pipeline is wrangle's signal that the image must not be treated as a release: it emits the fatal error message, fails the gate job, and blocks any downstream job that depends on the reusable workflow completing. Adopters are instructed not to tag or promote failed builds. Consumers who verify signatures (Kyverno, Sigstore policy-controller, manual `cosign verify`) will reject the unsigned image. The maintainer's remediation is to re-run the workflow, producing a new digest that can be signed cleanly. |
 | SLSA provenance | **Pipeline stops**; image already pushed | Same shape as Cosign: the image has shipped to the registry, but wrangle's notion of a *successful release* requires provenance. Failing the gate tells adopters not to promote the image, and the error message instructs them to re-run. Consumers enforcing provenance via `slsa-verifier` will reject the un-attested image. As with signing, the image being physically present in the registry isn't the problem — an unsigned/un-attested image has effectively not shipped under wrangle's contract as long as consumers enforce verification. |
+| VSA registry-push | **Pipeline stops** (fail-closed) | The signed VSA is pushed to the registry as an OCI referrer (`cosign attach attestation`) under `set -e`, so a push failure fails the vsa job and, via `needs:` propagation, the workflow. A VSA a consumer cannot fetch by digest is a silent gap — indistinguishable from never having produced one — so the push is treated like signing/provenance, not like the non-blocking SBOM scan. |
 
 ### Error messages on security-critical failures
 
@@ -269,6 +272,15 @@ When the gate job fails, the reusable workflow as a whole fails with a non-zero 
 | `id-token` | `write` | OIDC token for Sigstore signing of provenance attestation |
 | `packages` | `write` | Upload provenance attestation to registry |
 
+### VSA job (in reusable workflow)
+
+| Permission | Scope | Why |
+|------------|-------|-----|
+| `id-token` | `write` | OIDC token for bnd keyless signing of the VSA |
+| `packages` | `write` | Pull the image's provenance for the ampel collector **and** push the signed VSA to the registry as an OCI referrer |
+
+Note the absence of `contents: write`: the container VSA is stored in the registry, not attached to a GitHub release, so the vsa job needs no `contents` write scope. (npm/Go vsa jobs *do* request `contents: write` because they attach the VSA to a release.) The container caller grants only `contents: read`, so requesting `contents: write` here would be a startup-failing permission escalation.
+
 ## BuildKit-native provenance vs SLSA L3
 
 The `docker/build-push-action` with `provenance: mode=max` produces BuildKit-native provenance (in-toto attestation embedded in the OCI manifest). This is ecosystem-level provenance — useful but not cryptographically signed by a trusted third party.
@@ -313,6 +325,20 @@ Today the SPDX SBOM is published in two places, and a third is planned:
 3. **Cosign SBOM attestation (planned, not yet implemented).** A future release will additionally attach the SBOM to the signed image digest as `cosign attest --type spdxjson`, so that verified consumers can fetch it with `cosign download attestation` and be sure it's tied to the same digest the signature covers. See "Known limitations".
 
 Adopters documenting their security story to consumers should pick (2) as the canonical source today — it's the easiest to retrieve from just an image reference, and doesn't depend on the workflow artifact still existing (GitHub retains workflow artifacts for a limited window).
+
+### Where to find the VSA
+
+The signed SLSA VSA (`predicateType: https://slsa.dev/verification_summary/v1`) is stored in the **registry as an OCI referrer** on the image digest — the canonical, retrieve-by-digest location for containers (npm/Go store the VSA as a GitHub release asset instead, because they have a release; containers do not). It is also uploaded as a workflow artifact (`<image-basename>-<digest>.intoto.jsonl`) as a best-effort convenience copy.
+
+Consumers retrieve it from just the image reference:
+
+```bash
+cosign download attestation \
+  --predicate-type https://slsa.dev/verification_summary/v1 \
+  ghcr.io/<owner>/<repo>/<image>@sha256:<digest> > vsa.intoto.jsonl
+```
+
+then verify it with `slsa-verifier verify-vsa` (primary) or `cosign verify-blob-attestation` (signer-identity check) — see the README's "Verifying the VSA" for the exact flags.
 
 ### Guidance for action adopters
 

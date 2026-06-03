@@ -115,11 +115,26 @@ slsa-verifier verify-artifact \
 
 ### Verifying the VSA
 
-On tag pushes wrangle also attaches a signed SLSA Verification Summary Attestation (VSA) per tarball — `<tarball>.intoto.jsonl` — recording that the build provenance passed the `wrangle-provenance-v1` PolicySet. A consumer trusts that single signed VSA instead of re-running the policy engine. The VSA's `resourceUri` is the npm purl `pkg:npm/<name>@<version>` (scoped names included verbatim, e.g. `pkg:npm/@scope/pkg@1.2.3`); pin that exact string when you verify — it is matched literally, not normalized to a canonical purl.
+On tag pushes wrangle also attaches a signed SLSA Verification Summary Attestation (VSA) per tarball — `<tarball>.intoto.jsonl` — to the GitHub release, recording that the build provenance passed the `wrangle-provenance-v1` PolicySet. A consumer trusts that single signed VSA instead of re-running the policy engine. The VSA's `resourceUri` is the npm purl `pkg:npm/<name>@<version>` (scoped names included verbatim, e.g. `pkg:npm/@scope/pkg@1.2.3`); pin that exact string when you verify — it is matched literally, not normalized to a canonical purl.
+
+**Primary check — `slsa-verifier verify-vsa`** (the complete check: confirms the VSA's `verificationResult`, `resourceUri`, and `verifiedLevels`):
 
 ```bash
 curl -LO https://github.com/<owner>/<repo>/releases/download/<tag>/<tarball>.intoto.jsonl
 
+slsa-verifier verify-vsa \
+  --attestation-path <tarball>.intoto.jsonl \
+  --subject-digest sha256:<tarball-sha256> \
+  --resource-uri pkg:npm/<name>@<version> \
+  --verifier-id https://carabiner.dev/ampel@v1 \
+  --verified-level SLSA_BUILD_LEVEL_3
+```
+
+`--verifier-id` is `https://carabiner.dev/ampel@v1` — ampel (wrangle's policy engine) hardcodes this as the VSA's `verifier.id`. That `slsa-verifier verify-vsa` accepts this identity is confirmed by wrangle's integration run (integration-validated). `--subject-digest` is the tarball's sha256 (`sha256sum <tarball>`).
+
+**Alternate — `cosign verify-blob-attestation`** (verifies the *signer* identity — the wrangle verify workflow's keyless cert — which `verify-vsa` does not check):
+
+```bash
 cosign verify-blob-attestation --bundle <tarball>.intoto.jsonl --new-bundle-format \
   --certificate-oidc-issuer https://token.actions.githubusercontent.com \
   --certificate-identity-regexp '^https://github\.com/<owner>/<repo>/\.github/workflows/.*$' \

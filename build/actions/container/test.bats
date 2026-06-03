@@ -359,6 +359,51 @@ teardown() {
     [[ "$status" -eq 0 ]]
 }
 
+# --- VSA job: registry push + permissions ---
+# vsa: is the last job; the block runs from `  vsa:` to EOF.
+
+@test "container: vsa job does NOT request contents: write (caller grants only read)" {
+    # The container caller grants contents: read; requesting write here is a
+    # startup-failing permission escalation. This is the dispatch-failure fix.
+    # Match the permission-block entry (6-space indent), not the explanatory
+    # comment that also mentions the phrase.
+    local wf="$REPO_ROOT/.github/workflows/build_and_publish_container.yml"
+    run bash -c "sed -n '/^  vsa:/,\$p' \"$wf\" | grep -E '^      contents:[[:space:]]*write'"
+    [[ "$status" -ne 0 ]]
+}
+
+@test "container: vsa job requests packages: write for the registry push" {
+    local wf="$REPO_ROOT/.github/workflows/build_and_publish_container.yml"
+    run bash -c "sed -n '/^  vsa:/,\$p' \"$wf\" | grep -E '^      packages:[[:space:]]*write'"
+    [[ "$status" -eq 0 ]]
+}
+
+@test "container: vsa job pushes the VSA as an OCI referrer (oci-target + attach-to-release false)" {
+    local wf="$REPO_ROOT/.github/workflows/build_and_publish_container.yml"
+    run bash -c "sed -n '/^  vsa:/,\$p' \"$wf\" | grep -E 'oci-target:'"
+    [[ "$status" -eq 0 ]]
+    run bash -c "sed -n '/^  vsa:/,\$p' \"$wf\" | grep -E 'attach-to-release:[[:space:]]*\"false\"'"
+    [[ "$status" -eq 0 ]]
+}
+
+@test "container: vsa job installs cosign for the push (lockstep pin with verify job)" {
+    # The push runs cosign attach; the installer pin MUST match the verify job's
+    # so the two cosign versions never drift.
+    local wf="$REPO_ROOT/.github/workflows/build_and_publish_container.yml"
+    run bash -c "sed -n '/^  vsa:/,\$p' \"$wf\" | grep -E 'sigstore/cosign-installer@[0-9a-f]{40}'"
+    [[ "$status" -eq 0 ]]
+    local distinct_pins
+    distinct_pins="$(grep -oE 'sigstore/cosign-installer@[0-9a-f]{40}' "$wf" | sort -u | wc -l)"
+    # Exactly one distinct pin across the whole workflow proves lockstep.
+    [[ "$distinct_pins" -eq 1 ]]
+}
+
+@test "container: vsa job authenticates to ghcr before the push" {
+    local wf="$REPO_ROOT/.github/workflows/build_and_publish_container.yml"
+    run bash -c "sed -n '/^  vsa:/,\$p' \"$wf\" | grep -E 'docker/login-action@[0-9a-f]{40}'"
+    [[ "$status" -eq 0 ]]
+}
+
 # --- Workflow-command-injection guard (#225 / SLSA_L3_AUDIT.md Finding 3) ---
 
 @test "container: stop-commands guard helper exists and is executable" {
