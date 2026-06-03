@@ -23,6 +23,7 @@ digest is the literal string's sha256:
 | `bad-wrong-builder.bundle.jsonl` | provenance with an attacker builder id + SBOM + clean OSV | default-v1 **FAIL** (slsa-builder-id) |
 | `bad-wrong-buildtype.bundle.jsonl` | provenance with a non-generic buildType + SBOM + clean OSV | default-v1 **FAIL** (slsa-build-type) |
 | `bad-wrong-buildpoint.bundle.jsonl` | provenance whose source repo ≠ the buildPoint context + SBOM + clean OSV | default-v1 **FAIL** (slsa-build-point) |
+| `good-container.bundle.jsonl` | SLSA v0.2 provenance from the container generator (builder `generator_container_slsa3.yml`, buildType `…/container@v1`) | provenance-container-v1 **PASS** |
 | `good-strict.bundle.jsonl` | `good.bundle` + OpenSSF Scorecard result (score 8.2) | strict-v1 **PASS** |
 | `bad-low-scorecard.bundle.jsonl` | `good.bundle` + Scorecard result (score 5.0) | strict-v1 **FAIL** (wrangle-scorecard-min-score) |
 

@@ -183,6 +183,19 @@ slsa-verifier verify-artifact \
 
 Provenance is attached to the GitHub Release on tag pushes only. Non-tag events publish nothing — provenance lives only as a 90-day workflow artifact.
 
+### Verifying the VSA
+
+On tag pushes wrangle also attaches a signed SLSA Verification Summary Attestation (VSA) per archive — `<archive>.intoto.jsonl` — recording that the build provenance passed the `wrangle-provenance-v1` PolicySet. A consumer trusts that single signed VSA instead of re-running the policy engine. The VSA's `resourceUri` is the golang module purl `pkg:golang/<module-path>@<version>` (the module path is the `module` directive in your `go.mod`); pin that value when you verify. Because goreleaser publishes inline, the VSA is a post-publish attestation — same "publish first, attest second" timing as the provenance above.
+
+```bash
+curl -LO "https://github.com/<owner>/<repo>/releases/download/<tag>/<archive>.intoto.jsonl"
+
+cosign verify-blob-attestation --bundle <archive>.intoto.jsonl --new-bundle-format \
+  --certificate-oidc-issuer https://token.actions.githubusercontent.com \
+  --certificate-identity-regexp '^https://github\.com/<owner>/<repo>/\.github/workflows/.*$' \
+  --type slsaverificationsummary <archive>
+```
+
 ## Further reading
 
 - [`SPEC.md`](./SPEC.md) — this action's full specification

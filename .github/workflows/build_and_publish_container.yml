@@ -215,3 +215,53 @@ jobs:
             --certificate-github-workflow-repository "$EXPECTED_REPO" \
             "$IMAGE_REF" > /dev/null
           printf 'Verified SLSA provenance attestation for %s\n' "$IMAGE_REF"
+
+  # Emit a signed SLSA Verification Summary Attestation (VSA) for the image.
+  # ampel evaluates the image's SLSA provenance against the container-specific
+  # PolicySet and bnd signs the result keyless with this workflow's OIDC
+  # identity. This is orthogonal to the `verify` job above: that one is the
+  # registry-bytes-match gate (cosign verify-attestation); this one emits the
+  # single signed VSA a downstream consumer trusts.
+  #
+  # Like go/container's other post-build checks this runs AFTER the docker push,
+  # so the image is already live; fail: true still fails the workflow conclusion
+  # (blocking downstream caller jobs) and surfaces a policy/tooling regression.
+  #
+  # Collector: oci: resolves the cosign-attached SLSA attestation from the
+  # registry by digest. This path is exercised only by the integration dispatch
+  # (no local fixture can stand in for a real attested image). If oci: proves
+  # unable to resolve a cosign attestation, the fallback is a prior `cosign
+  # download attestation "$IMAGE_REF"` to a file fed via collector jsonl:<file>.
+  vsa:
+    if: ${{ needs.gate.outputs.should-release == 'true' && inputs.verify-image }}
+    needs: [guard, gate, build, provenance]
+    runs-on: ubuntu-latest
+    permissions:
+      id-token: write    # bnd keyless-signs the VSA via this workflow's OIDC identity
+      packages: read     # pull the OCI attestation from ghcr (safe for private images)
+      contents: write    # attach the VSA to the release on tag pushes
+    steps:
+      - id: vsaname
+        shell: bash
+        env:
+          IMAGENAME: ${{ needs.build.outputs.imagename }}
+          DIGEST: ${{ needs.build.outputs.digest }}
+        run: |
+          set -euo pipefail
+          printf 'name=%s-%s\n' "${IMAGENAME##*/}" "${DIGEST#sha256:}" >> "$GITHUB_OUTPUT"
+
+      # actions/verify resolves a relative policy path against ITS OWN checkout
+      # (the pinned SHA), not the PR head — so the new container PolicySet only
+      # resolves once it is on the pinned ref. This pin needs a bootstrap bump
+      # to the PR branch SHA for the integration test, then back to main on merge.
+      # TODO: replace with $/actions/verify when GitHub ships $/ syntax (#136)
+      - uses: TomHennen/wrangle/actions/verify@5e5d4b1ae9aca432ffced21b83d7e56478d0e575 # main 2026-05-31
+        with:
+          subject: ${{ needs.build.outputs.digest }}
+          policy: policies/wrangle-provenance-container-v1.hjson
+          collector: oci:${{ needs.build.outputs.imagename }}@${{ needs.build.outputs.digest }}
+          # resourceUri is the OCI image ref a container consumer fetches and
+          # pins when verifying the VSA; the subject digest is the cryptographic bind.
+          context: buildPoint:git+https://github.com/${{ github.repository }},vsa.resourceUri:${{ needs.build.outputs.imagename }}@${{ needs.build.outputs.digest }}
+          artifact-name: ${{ steps.vsaname.outputs.name }}
+          fail: "true"

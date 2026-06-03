@@ -89,6 +89,19 @@ with:
 
 **Private-repo limitation.** Verify currently does no registry auth, so private-repo adopters must set `verify-image: false` and verify in their own job. See [#182](https://github.com/TomHennen/wrangle/issues/182). When `cosign sign` of the image digest lands, this verify job will additionally check the image signature against the caller's `workflow_ref`.
 
+### Verifying the VSA
+
+Beyond the registry-bytes check above, on release the workflow emits a single signed SLSA Verification Summary Attestation (VSA) recording that the image's SLSA provenance passed the `wrangle-provenance-container-v1` PolicySet. The VSA's `resourceUri` is the OCI image ref `<imagename>@sha256:<digest>` — what a consumer pulls — and its subject is that digest. On tag pushes the VSA is attached to the GitHub release as `<image-basename>-<digest>.intoto.jsonl`. A consumer trusts that single signed VSA instead of re-running the policy engine.
+
+```bash
+curl -LO "https://github.com/<owner>/<repo>/releases/download/<tag>/<image-basename>-<digest>.intoto.jsonl"
+
+cosign verify-blob-attestation --bundle <image-basename>-<digest>.intoto.jsonl --new-bundle-format \
+  --certificate-oidc-issuer https://token.actions.githubusercontent.com \
+  --certificate-identity-regexp '^https://github\.com/<owner>/<repo>/\.github/workflows/.*$' \
+  --type slsaverificationsummary sha256:<digest>
+```
+
 ## SBOM
 
 Generated for every build. Available two ways:

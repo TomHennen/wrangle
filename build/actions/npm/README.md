@@ -113,6 +113,19 @@ slsa-verifier verify-artifact \
 
 > **Tag-push only.** On non-tag publishes the provenance lives only as a 90-day workflow artifact, not retrievable by external consumers. Same constraint applies to private npm registries: the L3 bundle lives at the GitHub release, not the private registry. [#181](https://github.com/TomHennen/wrangle/issues/181) tracks moving to a single bundled `multiple.intoto.jsonl` at the release layer.
 
+### Verifying the VSA
+
+On tag pushes wrangle also attaches a signed SLSA Verification Summary Attestation (VSA) per tarball — `<tarball>.intoto.jsonl` — recording that the build provenance passed the `wrangle-provenance-v1` PolicySet. A consumer trusts that single signed VSA instead of re-running the policy engine. The VSA's `resourceUri` is the npm purl `pkg:npm/<name>@<version>` (scoped names included verbatim, e.g. `pkg:npm/@scope/pkg@1.2.3`); pin that exact string when you verify — it is matched literally, not normalized to a canonical purl.
+
+```bash
+curl -LO https://github.com/<owner>/<repo>/releases/download/<tag>/<tarball>.intoto.jsonl
+
+cosign verify-blob-attestation --bundle <tarball>.intoto.jsonl --new-bundle-format \
+  --certificate-oidc-issuer https://token.actions.githubusercontent.com \
+  --certificate-identity-regexp '^https://github\.com/<owner>/<repo>/\.github/workflows/.*$' \
+  --type slsaverificationsummary <tarball>
+```
+
 ## Lifecycle hooks
 
 By default, hooks fire normally — `prepare`, `prepack`, `postpack`, and dependency `install` hooks run just as they would locally. The L3 attestation binds to "what wrangle built from this commit's source + lockfile," which is what source-control review already governs (a malicious `package.json` script is the same threat surface as malicious code in `src/`).

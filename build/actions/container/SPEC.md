@@ -92,8 +92,11 @@ The reusable workflow then adds:
 ```
 14. Generate SLSA L3 provenance (slsa-github-generator)
 15. Verify SLSA attestation (cosign verify-attestation; default-on, opt out via verify-image: false)
-16. Gate job — verify both build+sign and provenance succeeded
+16. Emit signed SLSA VSA (ampel against wrangle-provenance-container-v1; gated on verify-image)
+17. Gate job — verify both build+sign and provenance succeeded
 ```
+
+Step 15 and step 16 are orthogonal: step 15 is the registry-bytes-match gate, step 16 emits the single signed VSA a downstream consumer trusts (it evaluates the image provenance against `wrangle-provenance-container-v1` and bnd-signs the result keyless with the calling workflow's OIDC identity). The container generator emits the same builderId/buildType the VSA's PolicySet bakes (`generator_container_slsa3.yml`, `…/container@v1`), which is why the container needs its own PolicySet rather than the generic one.
 
 ### Verify-image input
 
@@ -205,6 +208,8 @@ The plan:
 - Wait for upstream to ship v1.0 from the container generator.
 - Bump the pinned `slsa-github-generator` version in the same commit as any checksum update.
 - No wrangle-side contract changes should be required, since consumers already discriminate attestations by `predicateType` and both `v0.2` and `v1` predicates are valid for the same subject digest.
+
+The VSA PolicySet (`wrangle-provenance-container-v1`) is predicate-version-compatible with the current v0.2 container provenance: the upstream SLSA tenets it composes read both the v0.2 (`predicate.materials`, `predicate.builder.id`) and v1 (`predicate.buildDefinition`) shapes, so a future generator bump to v1 needs no policy change.
 
 ### Why it must be a separate job
 
