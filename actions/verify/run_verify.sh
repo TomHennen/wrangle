@@ -87,6 +87,13 @@ wrangle_verify_emit_vsa() {
     report="$(mktemp)"
     ampel "${args[@]}" > "$report" || rc=$?
     wrangle_sanitize_output < "$report" >> "$GITHUB_STEP_SUMMARY"
+    # On a FAILED verdict the report (which tenet failed, missing attestation,
+    # etc.) is the operator's only signal for why the release was blocked, and
+    # the step summary is easy to miss — echo it to the job log too.
+    if [[ "$rc" -ne 0 ]]; then
+        printf 'wrangle: ampel verification failed (exit %s):\n' "$rc" >&2
+        cat "$report" >&2
+    fi
     rm -f "$report"
     return "$rc"
 }
