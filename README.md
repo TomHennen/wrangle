@@ -27,6 +27,16 @@ Runs OSV-Scanner, Zizmor, OSSF Scorecard, and dependency-review on every PR. Fin
 
 For build/publish — npm, Python, container, shell — see the [workflow examples](gh_workflow_examples/README.md).
 
+## Attestation trust gaps (current)
+
+wrangle emits real, signed SLSA provenance and VSAs today — but two identity fields don't yet name *wrangle* the way we want, and the VSA's policy coverage is deliberately narrow. These are known and tracked; we surface them here so adopters and consumers aren't surprised:
+
+- **Provenance builder identity is the SLSA generator's, not wrangle's.** The L3 provenance `builder.id` is `slsa-framework/slsa-github-generator/…`, because GitHub binds it to the reusable workflow that isolated the build — the property that makes the provenance non-falsifiable. It's correct SLSA semantics, but it doesn't surface that *wrangle* drove the build, and it's hard-coded in the SLSA tooling (changing it cleanly needs the upstream "bring your own builder" path). Tracking: [#295](https://github.com/TomHennen/wrangle/issues/295).
+- **VSA verifier identity is the policy engine's, not wrangle's.** The VSA `verifier.id` is `https://carabiner.dev/ampel@v1` (the ampel engine), which ampel hard-codes. wrangle's identity *is* verifiable — it's the keyless signing certificate on the VSA bundle (the verify workflow's OIDC identity, what `cosign verify-blob-attestation` checks) — but the `verifier.id` field itself names the engine. Tracking: [#295](https://github.com/TomHennen/wrangle/issues/295).
+- **The VSA is provenance-only.** It attests the three SLSA build-provenance tenets (builder, build type, build point) and nothing else yet; SBOM / OSV / Scorecard results are folded in only once they're produced as signed attestations from a registered identity. Tracking: [#247](https://github.com/TomHennen/wrangle/issues/247).
+
+Worked examples with the actual field values — and a visual audit of real provenance/VSAs — are tracked in [#200](https://github.com/TomHennen/wrangle/issues/200) and [#312](https://github.com/TomHennen/wrangle/issues/312).
+
 ## Pieces
 
 - [Workflow examples](gh_workflow_examples/README.md) — copy-paste starting points
