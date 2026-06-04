@@ -9,8 +9,9 @@
 # HTML-sanitize-to-summary plumbing.
 #
 # skip_or_fail (fail-not-skip under CI) lives in a shared bats helper. The real
-# ampel/bnd/cosign run in the `integration (real binaries)` job, not the
-# hermetic Docker unit suite, so a skip in CI means coverage silently degraded.
+# ampel/bnd/cosign are installed only in the `integration (real binaries)` job,
+# so a skip there means coverage silently degraded; the unit suite has no real
+# binaries and skips these by design.
 load "../../test/lib/bats_helpers"
 
 setup() {
