@@ -16,12 +16,16 @@
 # on the wrangle verify workflow path.
 #
 # Required permissions on the calling job: `id-token: write` (sign the VSA);
-# `contents: write` only on the tag/publish job (attach to the release).
+# `contents: write` only on the tag/publish job (attach to the release);
+# `packages: write` only when oci-target is set (push the VSA referrer to the
+# registry — additional to the workflow-artifact storage, not a replacement).
 name: Wrangle Verify
 description: >
   Verify a release artifact against a wrangle PolicySet using ampel and emit a
   signed SLSA VSA. The VSA is written to <artifact-name>.intoto.jsonl, uploaded
-  as a workflow artifact, and attached to the GitHub release on a tag push.
+  as a workflow artifact, and attached to the GitHub release on a tag push. When
+  oci-target is set (container build type), the signed VSA is additionally pushed
+  to the registry as an OCI referrer — this needs packages: write on the caller.
 
 inputs:
   subject:
@@ -56,6 +60,14 @@ inputs:
     description: 'When "true" (default) and the run is a tag push, attach the VSA to the release.'
     required: false
     default: "true"
+  oci-target:
+    description: >
+      When set, push the signed VSA to this OCI image reference
+      (<imagename>@sha256:<digest>) as a referrer attached to the image
+      digest, in addition to the workflow-artifact storage. Container build
+      type only; leave empty for npm/go/python. Requires packages: write.
+    required: false
+    default: ""
 
 runs:
   using: composite
@@ -90,6 +102,7 @@ runs:
         ATTESTATION: ${{ inputs.attestation }}
         FAIL: ${{ inputs.fail }}
         VSA: ${{ inputs.artifact-name }}.intoto.jsonl
+        OCI_TARGET: ${{ inputs.oci-target }}
       run: |
         "$WRANGLE_ROOT/actions/verify/run_verify.sh" run
 

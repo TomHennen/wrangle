@@ -215,3 +215,75 @@ jobs:
             --certificate-github-workflow-repository "$EXPECTED_REPO" \
             "$IMAGE_REF" > /dev/null
           printf 'Verified SLSA provenance attestation for %s\n' "$IMAGE_REF"
+
+  # Emit a signed SLSA Verification Summary Attestation (VSA) for the image.
+  # ampel evaluates the image's SLSA provenance against the container-specific
+  # PolicySet and bnd signs the result keyless with this workflow's OIDC
+  # identity. This is orthogonal to the `verify` job above: that one is the
+  # registry-bytes-match gate (cosign verify-attestation); this one emits the
+  # single signed VSA a downstream consumer trusts.
+  #
+  # Like go/container's other post-build checks this runs AFTER the docker push,
+  # so the image is already live; fail: true still fails the workflow conclusion
+  # (blocking downstream caller jobs) and surfaces a policy/tooling regression.
+  #
+  # Collector: coci: reads the cosign-method (.att tag) SLSA attestation the
+  # v2.1.0 container generator attaches — the same one the verify job's
+  # `cosign verify-attestation` reads. oci: would only list OCI 1.1 referrers,
+  # which on this image are the unsigned BuildKit attestations, not the
+  # generator's signed provenance. Exercised only by the integration dispatch.
+  vsa:
+    if: ${{ needs.gate.outputs.should-release == 'true' && inputs.verify-image }}
+    needs: [guard, gate, build, provenance]
+    runs-on: ubuntu-latest
+    # No contents: write — unlike npm/go, the container VSA is NOT attached to a
+    # GitHub release (containers produce none); it's pushed to the registry as an
+    # OCI referrer instead. The container caller grants only contents: read, so
+    # requesting contents: write here would be a startup-failing escalation.
+    permissions:
+      id-token: write    # bnd keyless-signs the VSA via this workflow's OIDC identity
+      packages: write    # pull provenance for the collector AND push the VSA referrer to ghcr
+    steps:
+      - id: vsaname
+        shell: bash
+        env:
+          IMAGENAME: ${{ needs.build.outputs.imagename }}
+          DIGEST: ${{ needs.build.outputs.digest }}
+        run: |
+          set -euo pipefail
+          printf 'name=%s-%s\n' "${IMAGENAME##*/}" "${DIGEST#sha256:}" >> "$GITHUB_OUTPUT"
+
+      # cosign attach (in actions/verify) pushes the VSA referrer to ghcr, which
+      # needs registry auth. Same pin as the verify job's cosign-installer — bump
+      # in lockstep.
+      - uses: sigstore/cosign-installer@6f9f17788090df1f26f669e9d70d6ae9567deba6 # v4.1.2
+
+      # Use the job's own GITHUB_TOKEN (packages: write above), like the build
+      # job — not the passed gh_token, which zizmor's secrets-outside-env flags
+      # for use without a dedicated environment.
+      - name: Log in to ghcr for the VSA push
+        uses: docker/login-action@c94ce9fb468520275223c153574b00df6fe4bcc9 # v3.7.0
+        with:
+          registry: ${{ inputs.registry }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      # actions/verify resolves a relative policy path against ITS OWN checkout
+      # (the pinned SHA), not the PR head — so the new container PolicySet only
+      # resolves once it is on the pinned ref. This pin needs a bootstrap bump
+      # to the PR branch SHA for the integration test, then back to main on merge.
+      # TODO: replace with $/actions/verify when GitHub ships $/ syntax (#136)
+      - uses: TomHennen/wrangle/actions/verify@bd69d445b9988d2f233779ec5b39da473c1885f6 # bootstrap: branch SHA carrying the container PolicySet + oci-target push; bump to main on merge
+        with:
+          subject: ${{ needs.build.outputs.digest }}
+          policy: policies/wrangle-provenance-container-v1.hjson
+          collector: coci:${{ needs.build.outputs.imagename }}@${{ needs.build.outputs.digest }}
+          # resourceUri is the OCI image ref a container consumer fetches and
+          # pins when verifying the VSA; the subject digest is the cryptographic bind.
+          context: buildPoint:git+https://github.com/${{ github.repository }},vsa.resourceUri:${{ needs.build.outputs.imagename }}@${{ needs.build.outputs.digest }}
+          artifact-name: ${{ steps.vsaname.outputs.name }}
+          fail: "true"
+          # Push the signed VSA to the registry as an OCI referrer (containers
+          # have no GitHub release to attach it to).
+          oci-target: ${{ needs.build.outputs.imagename }}@${{ needs.build.outputs.digest }}
+          attach-to-release: "false"

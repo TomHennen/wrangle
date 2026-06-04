@@ -1,0 +1,107 @@
+{
+    // ====================================================================
+    // wrangle-provenance-container-v1 — provenance-only PolicySet for the
+    // container build type
+    // ====================================================================
+    //
+    // The container sibling of wrangle-provenance-v1. The generic generator and
+    // the container generator emit DIFFERENT builderId, buildType, and signer
+    // identity, so a separate PolicySet is required — the baked builder/buildType
+    // values are a deliberate fail-closed property and MUST NOT be parameterized.
+    //
+    // -- Upstream references are SHA-PINNED (Decision 2) ----------------------
+    // Every tenet is an upstream carabiner-dev/policies file referenced by a
+    // `git+https://...@<sha>#<path>` VCS locator. The single SHA must be
+    // identical across every locator in every policies/*.hjson (policies/test.bats
+    // asserts this); bump together.
+    //
+    // -- Context model --------------------------------------------------------
+    // common.context bakes wrangle's container build-system identity (builderId,
+    // buildType) so a baked value wins over --context. The per-release buildPoint
+    // (source repo) and vsa.resourceUri (the OCI image ref) are supplied at
+    // verify time via actions/verify's `context` input.
+    // --------------------------------------------------------------------
+
+    id: "wrangle-provenance-container-v1"
+    meta: {
+        description: "wrangle provenance-only release policy for containers: SLSA Build L3 provenance (builder/type/point). Emits a SLSA VSA."
+        frameworks: [
+            {
+                id: "SLSA"
+                name: "Supply-Chain Levels for Software Artifacts"
+            }
+        ]
+    }
+
+    common: {
+        context: {
+            // Baked: wrangle builds containers with the container generator.
+            // The builder-id tenet matches on `==` or `startsWith(value + '@')`,
+            // so binding the workflow path WITHOUT a @ref keeps the policy valid
+            // across generator version bumps (e.g. v2.1.0 -> v2.2.0).
+            builderId: {
+                value: "https://github.com/slsa-framework/slsa-github-generator/.github/workflows/generator_container_slsa3.yml"
+            }
+            // Baked: buildType emitted by the container SLSA generator.
+            buildType: {
+                value: "https://github.com/slsa-framework/slsa-github-generator/container@v1"
+            }
+            // Supplied at verify time: the source repository VCS locator, e.g.
+            // "git+https://github.com/<owner>/<repo>"; actions/verify passes it
+            // from github.repository. Declared here (type only) to document it.
+            buildPoint: {
+                type: "string"
+            }
+            // Supplied at verify time: captured into the VSA `resourceUri`
+            // (the OCI image ref). Optional.
+            "vsa.resourceUri": {
+                type: "string"
+            }
+        }
+        // === AMPEL-IDENTITY-BINDING:START =================================
+        // policies/test.bats derives a logic-only variant of this PolicySet by
+        // deleting everything between the START/END markers (and the per-policy
+        // `identities` refs below) so the unsigned testdata fixtures can
+        // exercise tenet CEL. Identity ENFORCEMENT is covered separately by the
+        // harness's fail-closed test. Preserve the markers if you edit this.
+        //
+        // The SLSA provenance MUST be signed by the container generator's
+        // keyless identity (fail-closed); the regexp covers the generator's
+        // release tags.
+        identities: [
+            {
+                id: "slsa-generator"
+                sigstore: {
+                    mode: "regexp"
+                    issuer: "^https://token\\.actions\\.githubusercontent\\.com$"
+                    identity: "^https://github\\.com/slsa-framework/slsa-github-generator/\\.github/workflows/generator_container_slsa3\\.yml@refs/tags/v.+$"
+                }
+            }
+        ]
+        // === AMPEL-IDENTITY-BINDING:END ===================================
+    }
+
+    policies: [
+        {
+            // 1. Built by the expected (wrangle) builder identity.
+            id: "slsa-builder-id"
+            source: { location: { uri: "git+https://github.com/carabiner-dev/policies@85078db9e808479feb0d1aec08299b8a93c85f11#slsa/slsa-builder-id.json" } }
+            identities: [ { ref: { id: "slsa-generator" } } ]
+            meta: { controls: [ { framework: "SLSA", class: "BUILD", id: "LEVEL_3" } ] }
+        }
+        {
+            // 2. Built by the expected build type (GitHub Actions container generator).
+            id: "slsa-build-type"
+            source: { location: { uri: "git+https://github.com/carabiner-dev/policies@85078db9e808479feb0d1aec08299b8a93c85f11#slsa/slsa-build-type.json" } }
+            identities: [ { ref: { id: "slsa-generator" } } ]
+            meta: { controls: [ { framework: "SLSA", class: "BUILD", id: "LEVEL_3" } ] }
+        }
+        {
+            // 3. Built from the expected source repository (build point).
+            id: "slsa-build-point"
+            source: { location: { uri: "git+https://github.com/carabiner-dev/policies@85078db9e808479feb0d1aec08299b8a93c85f11#slsa/slsa-build-point.json" } }
+            identities: [ { ref: { id: "slsa-generator" } } ]
+            meta: { controls: [ { framework: "SLSA", class: "BUILD", id: "LEVEL_3" } ] }
+        }
+    ]
+}

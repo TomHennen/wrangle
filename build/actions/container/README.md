@@ -89,6 +89,38 @@ with:
 
 **Private-repo limitation.** Verify currently does no registry auth, so private-repo adopters must set `verify-image: false` and verify in their own job. See [#182](https://github.com/TomHennen/wrangle/issues/182). When `cosign sign` of the image digest lands, this verify job will additionally check the image signature against the caller's `workflow_ref`.
 
+### Verifying the VSA
+
+Beyond the registry-bytes check above, on release the workflow emits a single signed SLSA Verification Summary Attestation (VSA) recording that the image's SLSA provenance passed the `wrangle-provenance-container-v1` PolicySet. The VSA's `resourceUri` is the OCI image ref `<imagename>@sha256:<digest>` — what a consumer pulls — and its subject is that digest. A consumer trusts that single signed VSA instead of re-running the policy engine.
+
+Unlike the npm/Go build types, the container VSA is **stored in the registry** as an OCI referrer on the image digest (containers produce no GitHub release). It is keyless-signed by **wrangle's** reusable workflow (`build_and_publish_container.yml`), not your own.
+
+**Recommended — `ampel verify` (one command, no download).** The container VSA's subject is the image **digest** (there is no file blob to hand `cosign verify-blob-attestation`), so ampel is the digest-native complete check — and it fetches the VSA from the registry itself via the `oci:` collector, so there's no separate download step. One command confirms signature, keyless identity, and predicate fields against a wrangle-hosted consumer policy fetched by locator (you author no policy). Requires only ampel (one Go binary):
+
+```bash
+ampel verify \
+  --subject sha256:<digest> \
+  --policy git+https://github.com/TomHennen/wrangle@<version>#policies/wrangle-vsa-consumer-v1.hjson \
+  --collector oci:<imagename>@sha256:<digest> \
+  --context expectedResourceUri:<imagename>@sha256:<digest>
+```
+
+**Without ampel.** `cosign verify-blob-attestation` is blob/file-oriented (npm/Go) — the container VSA's subject is the image digest, not a file on disk, so there is no blob to hand it. Fetch the VSA from the registry, then confirm the subject digest and predicate fields with a `jq` decode (this does **not** check the signature — for the full check use ampel above):
+
+```bash
+# The VSA is an OCI referrer on the image digest.
+cosign download attestation \
+  --predicate-type https://slsa.dev/verification_summary/v1 \
+  <imagename>@sha256:<digest> > vsa.intoto.jsonl
+payload="$(jq -r '.dsseEnvelope.payload' vsa.intoto.jsonl | base64 -d)"
+jq -e '.predicate.subject[0].digest.sha256 == "<digest>"' <<<"$payload"
+jq -e '.predicate.verificationResult == "PASSED"' <<<"$payload"
+jq -e '.predicate.resourceUri == "<imagename>@sha256:<digest>"' <<<"$payload"
+jq -e '.predicate.verifiedLevels | index("SLSA_BUILD_LEVEL_3")' <<<"$payload"
+```
+
+> **`slsa-verifier verify-vsa` is not usable here.** It only verifies *key-signed* VSAs (it requires `--public-key-path`); wrangle's VSAs are keyless (Fulcio/Sigstore), so there is no identity flag to pass. Tracked under the [Attestation trust gaps](../../../README.md) section / [#295](https://github.com/TomHennen/wrangle/issues/295).
+
 ## SBOM
 
 Generated for every build. Available two ways:

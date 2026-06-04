@@ -54,6 +54,10 @@ ast_grep_bin="$(command -v ast-grep)"
 is_shell_script() {
     local file="$1"
     [[ "$file" == *.sh ]] && return 0
+    # A binary file (image, tarball, …) is never a shell script, and reading
+    # its first line would emit a bash null-byte warning. grep -I reports a
+    # binary file as non-matching, so this skips binaries (and empty files).
+    grep -Iq . "$file" 2>/dev/null || return 1
     local firstline
     firstline=$(head -n1 "$file" 2>/dev/null) || return 1
     case "$firstline" in

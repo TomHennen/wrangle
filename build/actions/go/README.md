@@ -183,6 +183,49 @@ slsa-verifier verify-artifact \
 
 Provenance is attached to the GitHub Release on tag pushes only. Non-tag events publish nothing — provenance lives only as a 90-day workflow artifact.
 
+### Verifying the VSA
+
+On tag pushes wrangle attaches a signed SLSA Verification Summary Attestation (VSA) per archive — `<archive>.intoto.jsonl` — to the GitHub release, recording that the build provenance passed the `wrangle-provenance-v1` PolicySet. A consumer trusts that single signed VSA instead of re-running the policy engine. It is keyless-signed by **wrangle's** reusable workflow (`build_and_publish_go.yml`), not your own. Its `resourceUri` is the golang module purl `pkg:golang/<module-path>@<version>` (the module path is the `module` directive in your `go.mod`) — pin that value.
+
+Grab the archive and its VSA from the release:
+
+```bash
+curl -LO "https://github.com/<owner>/<repo>/releases/download/<tag>/<archive>"
+curl -LO "https://github.com/<owner>/<repo>/releases/download/<tag>/<archive>.intoto.jsonl"
+```
+
+**Recommended — `ampel verify` (one command).** Checks signature, keyless signer identity, and the predicate fields against a wrangle-hosted consumer policy fetched by locator (you author no policy); pass the archive and ampel computes its digest for you. Requires only ampel (one Go binary):
+
+```bash
+ampel verify \
+  --subject <archive> \
+  --policy git+https://github.com/TomHennen/wrangle@<version>#policies/wrangle-vsa-consumer-v1.hjson \
+  --attestation <archive>.intoto.jsonl \
+  --context expectedResourceUri:pkg:golang/<module-path>@<version>
+```
+
+(ampel's `release:` collector may soon fetch the VSA itself, dropping the second `curl` — [#314](https://github.com/TomHennen/wrangle/issues/314).)
+
+**Without ampel — `cosign verify-blob-attestation` + `jq`.** cosign confirms the signature, the signer identity (wrangle's workflow), and that the archive's hash matches the VSA subject — but not the predicate fields, so a `jq` decode follows:
+
+```bash
+cosign verify-blob-attestation --bundle <archive>.intoto.jsonl --new-bundle-format \
+  --certificate-oidc-issuer https://token.actions.githubusercontent.com \
+  --certificate-identity-regexp '^https://github\.com/TomHennen/wrangle/\.github/workflows/build_and_publish_go\.yml@refs/tags/v' \
+  --certificate-github-workflow-repository <your-org>/<your-repo> \
+  --type https://slsa.dev/verification_summary/v1 \
+  <archive>
+
+payload="$(jq -r '.dsseEnvelope.payload' <archive>.intoto.jsonl | base64 -d)"
+jq -e '.predicate.verificationResult == "PASSED"' <<<"$payload"
+jq -e '.predicate.resourceUri == "pkg:golang/<module-path>@<version>"' <<<"$payload"
+jq -e '.predicate.verifiedLevels | index("SLSA_BUILD_LEVEL_3")' <<<"$payload"
+```
+
+`--type` must be the full URI `https://slsa.dev/verification_summary/v1` — cosign rejects the `slsaverificationsummary` alias.
+
+> **`slsa-verifier verify-vsa` is not usable here.** It only verifies *key-signed* VSAs (it requires `--public-key-path`); wrangle's VSAs are keyless (Fulcio/Sigstore), so there is no identity flag to pass. Tracked under the [Attestation trust gaps](../../../README.md) section / [#295](https://github.com/TomHennen/wrangle/issues/295).
+
 ## Further reading
 
 - [`SPEC.md`](./SPEC.md) — this action's full specification

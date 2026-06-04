@@ -777,3 +777,21 @@ SCRIPT
     [[ "$output" == *"runme"* ]]
     [[ "$output" == *"WSL001"* ]]
 }
+
+@test "repo walk skips binary files (no null-byte warning)" {
+    # Binary files in the repo (test-fixture tarballs, images) must be skipped
+    # by the walk — reading their first line to sniff a shebang would otherwise
+    # emit a bash null-byte warning and break the clean-output contract.
+    tmp_repo="$(mktemp -d /tmp/wsl-repo-XXXXXX)"
+    git -C "$tmp_repo" init -q
+    mkdir -p "$tmp_repo/tools/wrangle-shell-lint/rules"
+    cp "$LINTER" "$tmp_repo/tools/wrangle-shell-lint/lint.sh"
+    cp "$ORIG_DIR/tools/wrangle-shell-lint/sgconfig.yml" "$tmp_repo/tools/wrangle-shell-lint/sgconfig.yml"
+    cp "$ORIG_DIR/tools/wrangle-shell-lint/rules"/*.yml "$tmp_repo/tools/wrangle-shell-lint/rules/"
+    # A binary blob with null bytes before any newline (like a gzip tarball).
+    printf '\x1f\x8b\x08\x00\x00\x00\x00\x00binary\x00fixture' > "$tmp_repo/fixture.bin"
+    run "$tmp_repo/tools/wrangle-shell-lint/lint.sh"
+    rm -rf "$tmp_repo"
+    [ "$status" -eq 0 ]
+    [ -z "$output" ]
+}
