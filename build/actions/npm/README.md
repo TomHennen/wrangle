@@ -115,31 +115,43 @@ slsa-verifier verify-artifact \
 
 ### Verifying the VSA
 
-On tag pushes wrangle also attaches a signed SLSA Verification Summary Attestation (VSA) per tarball — `<tarball>.intoto.jsonl` — to the GitHub release, recording that the build provenance passed the `wrangle-provenance-v1` PolicySet. A consumer trusts that single signed VSA instead of re-running the policy engine. The VSA's `resourceUri` is the npm purl `pkg:npm/<name>@<version>` (scoped names included verbatim, e.g. `pkg:npm/@scope/pkg@1.2.3`); pin that exact string when you verify — it is matched literally, not normalized to a canonical purl.
+On tag pushes wrangle also attaches a signed SLSA Verification Summary Attestation (VSA) per tarball — `<tarball>.intoto.jsonl` — to the GitHub release, recording that the build provenance passed the `wrangle-provenance-v1` PolicySet. A consumer trusts that single signed VSA instead of re-running the policy engine. The VSA is keyless-signed by **wrangle's** reusable workflow (`build_and_publish_npm.yml`), not your own — so the identity you pin below is wrangle's path, and `--certificate-github-workflow-repository` ties the build to your repo. The VSA's `resourceUri` is the npm purl `pkg:npm/<name>@<version>` (scoped names included verbatim, e.g. `pkg:npm/@scope/pkg@1.2.3`); pin that exact string when you verify — it is matched literally, not normalized to a canonical purl.
 
-**Primary check — `slsa-verifier verify-vsa`** (the complete check: confirms the VSA's `verificationResult`, `resourceUri`, and `verifiedLevels`):
+Two ways to verify the VSA: **A — `cosign verify-blob-attestation` + `jq`** (needs only cosign, two steps), or **B — `ampel verify`** (one command, but needs ampel). Both are complete checks; pick the one whose tooling you already have.
+
+**A — `cosign verify-blob-attestation` + `jq`.** cosign confirms the signature, the signer identity, and that the tarball's hash matches the VSA subject. It does not inspect the predicate fields, so a `jq` decode follows.
 
 ```bash
 curl -LO https://github.com/<owner>/<repo>/releases/download/<tag>/<tarball>.intoto.jsonl
 
-slsa-verifier verify-vsa \
-  --attestation-path <tarball>.intoto.jsonl \
-  --subject-digest sha256:<tarball-sha256> \
-  --resource-uri pkg:npm/<name>@<version> \
-  --verifier-id https://carabiner.dev/ampel@v1 \
-  --verified-level SLSA_BUILD_LEVEL_3
-```
-
-`--verifier-id` is `https://carabiner.dev/ampel@v1` — ampel (wrangle's policy engine) hardcodes this as the VSA's `verifier.id`. That `slsa-verifier verify-vsa` accepts this identity is confirmed by wrangle's integration run (integration-validated). `--subject-digest` is the tarball's sha256 (`sha256sum <tarball>`).
-
-**Alternate — `cosign verify-blob-attestation`** (verifies the *signer* identity — the wrangle verify workflow's keyless cert — which `verify-vsa` does not check):
-
-```bash
 cosign verify-blob-attestation --bundle <tarball>.intoto.jsonl --new-bundle-format \
   --certificate-oidc-issuer https://token.actions.githubusercontent.com \
-  --certificate-identity-regexp '^https://github\.com/<owner>/<repo>/\.github/workflows/.*$' \
-  --type slsaverificationsummary <tarball>
+  --certificate-identity-regexp '^https://github\.com/TomHennen/wrangle/\.github/workflows/build_and_publish_npm\.yml@refs/tags/v' \
+  --certificate-github-workflow-repository <your-org>/<your-repo> \
+  --type https://slsa.dev/verification_summary/v1 \
+  <tarball>
 ```
+
+`--type` MUST be the full URI `https://slsa.dev/verification_summary/v1` — cosign rejects the `slsaverificationsummary` alias. Then check the SLSA-recommended predicate fields cosign skips (`verificationResult`, `resourceUri`, `verifiedLevels`):
+
+```bash
+payload="$(jq -r '.dsseEnvelope.payload' <tarball>.intoto.jsonl | base64 -d)"
+jq -e '.predicate.verificationResult == "PASSED"' <<<"$payload"
+jq -e '.predicate.resourceUri == "pkg:npm/<name>@<version>"' <<<"$payload"
+jq -e '.predicate.verifiedLevels | index("SLSA_BUILD_LEVEL_3")' <<<"$payload"
+```
+
+**B — `ampel verify`.** One command checks signature, keyless identity, and predicate fields against a wrangle-hosted consumer policy fetched by locator — you author no policy. Requires installing ampel (one Go binary).
+
+```bash
+ampel verify \
+  --subject sha256:<tarball-sha256> \
+  --policy git+https://github.com/TomHennen/wrangle@<version>#policies/wrangle-vsa-consumer-v1.hjson \
+  --attestation <tarball>.intoto.jsonl \
+  --context expectedResourceUri:pkg:npm/<name>@<version>
+```
+
+> **`slsa-verifier verify-vsa` is not usable here.** It only verifies *key-signed* VSAs (it requires `--public-key-path`); wrangle's VSAs are keyless (Fulcio/Sigstore), so there is no identity flag to pass. Tracked under the [Attestation trust gaps](../../../README.md) section / [#295](https://github.com/TomHennen/wrangle/issues/295).
 
 ## Lifecycle hooks
 

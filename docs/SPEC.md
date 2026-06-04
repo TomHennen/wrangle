@@ -228,6 +228,14 @@ Why default-on. Verification belongs in wrangle as a default-on guarantee, not i
 
 Why opt-out exists. Some adopters run custom verification policies (different `--source-uri` constraints, custom cert identities, ratchet-style multi-tag-tolerance). For those cases the opt-out lets them keep wrangle's build/provenance/attestation while replacing the verify step. The contract becomes: wrangle still pushes/builds/attests, but the integrity-between-build-and-publish guarantee shifts to the adopter.
 
+### Consumer VSA verification
+
+The signed VSA (`predicateType: https://slsa.dev/verification_summary/v1`) is the consumer trust boundary: a consumer trusts that one signed attestation instead of re-running the policy engine. Consumers verify it two ways — **`ampel verify` against the wrangle-hosted `policies/wrangle-vsa-consumer-v1.hjson` PolicySet** (one command, complete; needs ampel) or **`cosign verify-blob-attestation` + a `jq` predicate-field check** (no ampel, two steps). `slsa-verifier verify-vsa` is **not** usable: it requires `--public-key-path` and verifies only key-signed VSAs, while wrangle's are keyless (Fulcio/Sigstore). Per-build-type commands live in each `build/actions/<type>/README.md`.
+
+The verifiable identity is the VSA's **signing certificate — wrangle's reusable workflow** (`build_and_publish_<type>.yml`), not `builder.id` (the SLSA generator) or `verifier.id` (`https://carabiner.dev/ampel@v1`, the engine, hard-coded). So consumers pin wrangle's workflow path as the cert identity and pass their own repo via `--certificate-github-workflow-repository`.
+
+**Build-vs-provenance-creation identity (a known gap).** For npm/go/python, *wrangle's* reusable workflow runs the real build (`npm pack`, `goreleaser`, `python -m build`) and the *generic* SLSA generator only creates and signs the provenance — so the provenance's `builder.id` names the prov-signer, and the provenance binds the *source repo* + *that a genuine generator signed it*, but **not which workflow in that repo built the artifact**. A different or compromised workflow in the same repo could feed its own hashes to the generic generator and get passing provenance. What closes this for npm/go is the VSA's signing identity (wrangle's reusable workflow). For **container** the generator isolates the build itself, so its `builder.id` is accurate. This is a documented gap, not a fix — see the README "Attestation trust gaps" section and [#295](https://github.com/TomHennen/wrangle/issues/295).
+
 ### Build Track level
 
 Every wrangle build-type reusable workflow that produces provenance — `build_and_publish_npm.yml` (npm and pnpm), `build_and_publish_python.yml` (pip and uv), and `build_and_publish_container.yml` — meets **SLSA v1.2 Build L3**. `build_shell.yml` produces no artifact and no provenance, so no Build Track level applies to it.

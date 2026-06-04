@@ -93,34 +93,40 @@ with:
 
 Beyond the registry-bytes check above, on release the workflow emits a single signed SLSA Verification Summary Attestation (VSA) recording that the image's SLSA provenance passed the `wrangle-provenance-container-v1` PolicySet. The VSA's `resourceUri` is the OCI image ref `<imagename>@sha256:<digest>` — what a consumer pulls — and its subject is that digest. A consumer trusts that single signed VSA instead of re-running the policy engine.
 
-Unlike the npm/Go build types, the container VSA is **stored in the registry** as an OCI referrer on the image digest (containers produce no GitHub release), so you fetch it with `cosign download attestation` rather than from a release asset.
+Unlike the npm/Go build types, the container VSA is **stored in the registry** as an OCI referrer on the image digest (containers produce no GitHub release), so you fetch it with `cosign download attestation` rather than from a release asset. The VSA is keyless-signed by **wrangle's** reusable workflow (`build_and_publish_container.yml`), not your own.
 
-**Primary check — `slsa-verifier verify-vsa`** (the complete check: confirms the VSA's `verificationResult`, `resourceUri`, and `verifiedLevels`):
+First fetch the VSA from the registry:
 
 ```bash
-# Fetch the VSA from the registry (it's an OCI referrer on the digest).
+# The VSA is an OCI referrer on the image digest.
 cosign download attestation \
   --predicate-type https://slsa.dev/verification_summary/v1 \
   <imagename>@sha256:<digest> > vsa.intoto.jsonl
-
-slsa-verifier verify-vsa \
-  --attestation-path vsa.intoto.jsonl \
-  --subject-digest sha256:<digest> \
-  --resource-uri <imagename>@sha256:<digest> \
-  --verifier-id https://carabiner.dev/ampel@v1 \
-  --verified-level SLSA_BUILD_LEVEL_3
 ```
 
-`--verifier-id` is `https://carabiner.dev/ampel@v1` — ampel (wrangle's policy engine) hardcodes this as the VSA's `verifier.id`. That `slsa-verifier verify-vsa` accepts this identity is confirmed by wrangle's integration run (integration-validated).
-
-**Alternate — `cosign verify-blob-attestation`** (verifies the *signer* identity — the wrangle verify workflow's keyless cert — which `verify-vsa` does not check):
+**Recommended — `ampel verify`.** The container VSA's subject is the image **digest** (there is no file blob to hand `cosign verify-blob-attestation`), so ampel is the digest-native complete check: one command confirms signature, keyless identity, and predicate fields against a wrangle-hosted consumer policy fetched by locator — you author no policy. Requires installing ampel (one Go binary).
 
 ```bash
-cosign verify-blob-attestation --bundle vsa.intoto.jsonl --new-bundle-format \
-  --certificate-oidc-issuer https://token.actions.githubusercontent.com \
-  --certificate-identity-regexp '^https://github\.com/<owner>/<repo>/\.github/workflows/.*$' \
-  --type slsaverificationsummary sha256:<digest>
+ampel verify \
+  --subject sha256:<digest> \
+  --policy git+https://github.com/TomHennen/wrangle@<version>#policies/wrangle-vsa-consumer-v1.hjson \
+  --attestation vsa.intoto.jsonl \
+  --context expectedResourceUri:<imagename>@sha256:<digest>
 ```
+
+**Without ampel.** `cosign verify-blob-attestation` is blob/file-oriented (npm/Go) — the container VSA's subject is the image digest, not a file on disk, so there is no blob to hand it. Confirm the VSA subject is your digest and the predicate fields with a `jq` decode:
+
+```bash
+payload="$(jq -r '.dsseEnvelope.payload' vsa.intoto.jsonl | base64 -d)"
+jq -e '.predicate.subject[0].digest.sha256 == "<digest>"' <<<"$payload"
+jq -e '.predicate.verificationResult == "PASSED"' <<<"$payload"
+jq -e '.predicate.resourceUri == "<imagename>@sha256:<digest>"' <<<"$payload"
+jq -e '.predicate.verifiedLevels | index("SLSA_BUILD_LEVEL_3")' <<<"$payload"
+```
+
+The `jq` decode does not check the VSA *signature* — for the full check (signature + keyless signer identity + fields against the digest subject) use ampel above.
+
+> **`slsa-verifier verify-vsa` is not usable here.** It only verifies *key-signed* VSAs (it requires `--public-key-path`); wrangle's VSAs are keyless (Fulcio/Sigstore), so there is no identity flag to pass. Tracked under the [Attestation trust gaps](../../../README.md) section / [#295](https://github.com/TomHennen/wrangle/issues/295).
 
 ## SBOM
 

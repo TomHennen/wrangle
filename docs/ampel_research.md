@@ -13,7 +13,7 @@ Rollout is three PRs landed back-to-back over roughly a week ([§7](#7-rollout-p
 
 ## TL;DR
 
-- **AMPEL inside wrangle, VSA at the boundary.** Adopters trust only the signed SLSA Verification Summary Attestation (`predicateType: https://slsa.dev/verification_summary/v1`) and verify it with `cosign verify-blob-attestation --new-bundle-format`. No AMPEL install required downstream.
+- **AMPEL inside wrangle, VSA at the boundary.** Consumers trust only the signed SLSA Verification Summary Attestation (`predicateType: https://slsa.dev/verification_summary/v1`). Two validated complete-check options: (a) **`ampel verify` against a wrangle-hosted consumer PolicySet** (`policies/wrangle-vsa-consumer-v1.hjson`), one command — recommended, needs ampel; (b) **`cosign verify-blob-attestation --new-bundle-format` + a `jq` predicate check** — no ampel. AMPEL downstream is an accepted *option*, not lock-in; the cosign path keeps a no-ampel route. `slsa-verifier verify-vsa` does **not** work (keyless VSAs; see §8 R11).
 - **AMPEL is the right engine for the multi-attestation job slsa-verifier cannot do**, despite being young — v1.2.1, ~49 stars, primarily one maintainer ([§3](#3-ampel-maturity-is-the-dominant-risk)). It natively emits VSAs and ships a working e2e demo. Other engines were considered ([§4](#4-paths-not-taken)).
 - **Ship in three back-to-back PRs over roughly a week, not a multi-quarter migration** ([§7](#7-rollout-plan)).
 
@@ -47,7 +47,7 @@ The output VSA conforms to SLSA v1.0/v1.1 `https://slsa.dev/verification_summary
 
 This is exactly what `slsa-verifier verify-vsa` consumes. Google publishes VSAs for GKE Container-Optimized OS images via the same flow (`cli/slsa-verifier/testdata/vsa/gce/v1/gke-gce-pre.bcid-vsa.jsonl`).
 
-Nothing in the consumer-side verification path requires AMPEL: verification works with `cosign verify-blob-attestation --bundle <artifact>.intoto.jsonl --new-bundle-format …` or `slsa-verifier verify-vsa`. The AMPEL-specific bits (HJSON+CEL, transformers, `predicates[].data…` runtime, `context.foo` interpolation) are *internal* to wrangle. This is the architectural split the rollout bets on — keep it intact and the engine stays swappable; expose AMPEL-specific semantics to consumers and the bet breaks, which matters given AMPEL's youth (§3). (`slsa-verifier verify-vsa`'s acceptance of an arbitrary `verifier.id` URL is an open question — see §8.)
+Nothing in the consumer-side verification path requires AMPEL as the *only* option: a no-AMPEL path verifies with `cosign verify-blob-attestation --bundle <artifact>.intoto.jsonl --new-bundle-format …` plus a `jq` predicate-field check (cosign does not inspect predicate fields). `slsa-verifier verify-vsa` is **not** an option — it requires `--public-key-path` and verifies only key-signed VSAs, while wrangle's are keyless (see §8, R11). The AMPEL-specific bits (HJSON+CEL, transformers, `predicates[].data…` runtime, `context.foo` interpolation) are *internal* to wrangle. This is the architectural split the rollout bets on — keep it intact and the engine stays swappable; expose AMPEL-specific semantics to consumers and the bet breaks, which matters given AMPEL's youth (§3).
 
 ### 3. AMPEL maturity is the dominant risk
 
@@ -175,7 +175,7 @@ Three back-to-back PRs, landing over roughly a week. The plan is sequential beca
 
 **Open questions remaining for the implementation issues:**
 
-- **`slsa-verifier verify-vsa` matching:** does it accept an arbitrary `verifier.id` URL, or require allowlisting? (Read `verifiers.VerifyVSA`.) Affects whether Layer-1 consumer docs (§9) can offer a slsa-verifier-native command alongside `cosign verify-blob-attestation`. Until confirmed, `cosign verify-blob-attestation` is the primary recommended consumer command.
+- **`slsa-verifier verify-vsa` matching:** **resolved (R11) — not usable.** `verify-vsa` requires `--public-key-path` and verifies only *key-signed* VSAs; wrangle's are keyless (Fulcio/Sigstore), with no identity flag to pass. So it is dropped as a consumer option entirely (the `verifier.id` question below is moot for our path). The validated consumer paths are `ampel verify` (against the wrangle-hosted consumer PolicySet) and `cosign verify-blob-attestation` + `jq`.
 - **AMPEL provenance verification:** does `slsa-verifier verify-artifact` accept the sigstore-bundle format AMPEL ships at `ampel-v<ver>.provenance.json`? If not, PR 1 falls back to the hardcoded-SHA pattern.
 - **VSA `inputAttestations[].uri` portability:** does the URI survive repo rename or release-asset deletion? (Pull a real Fritoto VSA and check.)
 - **Upstream policy bodies not yet retrieved verbatim:** `carabiner-dev/policies#vsa/slsa-source-level3.json` and its siblings weren't pulled in this pass. Before authoring `policies/wrangle-default-v1.hjson`, fetch them at the SHA to pin — they document the `context` inputs each one requires.
@@ -185,25 +185,27 @@ Three back-to-back PRs, landing over roughly a week. The plan is sequential beca
 
 Three layers, documented in `build/actions/{python,npm,container}/README.md`:
 
-**Layer 1 (default, recommended for most consumers): verify the VSA only.**
+**Layer 1 (no-ampel path): `cosign verify-blob-attestation` + `jq`.** The VSA is keyless-signed by *wrangle's* reusable workflow (`build_and_publish_<type>.yml`), so the cert identity is wrangle's path; `--certificate-github-workflow-repository` pins the build to the consumer's repo.
 
 ```bash
 gh release download v1.2.3 --repo my-org/my-app -p '*.intoto.jsonl' -p 'my-app-*.tgz'
 cosign verify-blob-attestation \
   --bundle my-app-1.2.3.tgz.intoto.jsonl \
   --new-bundle-format \
-  --certificate-oidc-issuer="https://token.actions.githubusercontent.com" \
-  --certificate-identity-regexp="^https://github.com/TomHennen/wrangle/.github/workflows/verify\\.yml@refs/tags/v.+" \
+  --certificate-oidc-issuer https://token.actions.githubusercontent.com \
+  --certificate-identity-regexp '^https://github\.com/TomHennen/wrangle/\.github/workflows/build_and_publish_npm\.yml@refs/tags/v' \
+  --certificate-github-workflow-repository my-org/my-app \
+  --type https://slsa.dev/verification_summary/v1 \
   my-app-1.2.3.tgz
 ```
 
-A `slsa-verifier verify-vsa` flow is also possible pending the open question in §8; the consumer doc leads with `cosign verify-blob-attestation` and lists slsa-verifier as a secondary option.
+cosign does not inspect predicate fields, so the consumer doc pairs this with a `jq` check of `verificationResult` / `resourceUri` / `verifiedLevels`. `slsa-verifier verify-vsa` is **not** offered — it verifies only key-signed VSAs (§8 R11).
 
-**Layer 2 (for paranoid consumers): re-run the full verification.** Install AMPEL, point at the same release, pass the same policy. (Most adopters won't.)
+**Layer 2 (one-command complete check): `ampel verify` against the wrangle-hosted consumer PolicySet.** `policies/wrangle-vsa-consumer-v1.hjson`, fetched by VCS locator — the consumer authors nothing, but installs ampel. Recommended where ampel is available (and the only digest-native path for containers, whose VSA subject is the image digest). AMPEL downstream is an accepted option, not lock-in; Layer 1 remains the no-ampel route.
 
 **Layer 3 (tooling integrators): consume the VSA inside their own admission policy** — the standard SLSA dependency-VSA pattern. The upstream `carabiner-dev/policies` `vsa/` directory already has exemplars.
 
-**Trust chain consumers internalize**: (1) sigstore public-good root; (2) the wrangle workflow OIDC identity (regex on the verify workflow path); (3) the policy SHA-256 in `policy.digest`. Three things, none AMPEL-specific (per §2).
+**Trust chain consumers internalize**: (1) sigstore public-good root; (2) the wrangle workflow OIDC identity (regex on the `build_and_publish_<type>.yml` reusable-workflow path that signs the VSA); (3) the policy SHA-256 in `policy.digest`. Three things, none AMPEL-specific (per §2).
 
 ## Recommendations
 
@@ -218,6 +220,8 @@ Land the three PRs from §7 in order. Review focus for this scoping PR: the four
 The migration must not depend on the OpenSSF donation landing (§3), and PR 1 must not wait on it. Consumers never install AMPEL — the VSA is the only consumer contract (§2).
 
 ## Revision history
+
+**Revision 11 — 2026-06-03:** Consumer-verification correction (#310). Empirical validation against the real VSAs reversed R10's "lead with `slsa-verifier verify-vsa`" claim: `slsa-verifier verify-vsa` (v2.7.1) requires `--public-key-path` and verifies only *key-signed* VSAs, while wrangle's are **keyless** (Fulcio/Sigstore) — there is no identity flag, so the tool is **dropped as a consumer option** (and the R10 `--verifier-id` advice is moot). The two validated complete-check paths are now: (a) **`ampel verify`** against the wrangle-hosted consumer PolicySet `policies/wrangle-vsa-consumer-v1.hjson` (one command; recommended; needs ampel; the only digest-native path for containers), and (b) **`cosign verify-blob-attestation` + a `jq` predicate-field check** (no ampel — cosign checks signature/signer-identity/subject-hash but not predicate fields). For cosign's `--type`, the full URI `https://slsa.dev/verification_summary/v1` is required; the `slsaverificationsummary` alias is rejected by cosign v3. AMPEL downstream is an accepted option, not lock-in. The README/`docs/SPEC.md` consumer sections were rewritten to match.
 
 **Revision 10 — 2026-06-02:** Container VSA registry storage + ampel `verifier.id` correction (#310). *Decision 4 amended:* the release-asset-canonical rule holds for npm/Go/Python; the container VSA's canonical storage is a registry OCI referrer pushed with `cosign attach attestation` (uploads the bnd-signed bundle verbatim — no re-sign), retrievable by digest via `cosign download attestation`. *§6/§8 correction:* ampel v1.2.1 **hardcodes** the VSA `verifier.id = https://carabiner.dev/ampel@v1` (`internal/drivers/vsa/driver.go`), not the `https://github.com/TomHennen/wrangle/verifier/v1` URL §6 assumed; consumers running `slsa-verifier verify-vsa` therefore pass `--verifier-id https://carabiner.dev/ampel@v1`. This resolves the §8 open question ("does `verify-vsa` accept an arbitrary `verifier.id`?") in the affirmative — the consumer docs now lead with `slsa-verifier verify-vsa` and keep `cosign verify-blob-attestation` as the signer-identity alternate. Note: `cosign attach attestation` in the installed cosign (cosign v3.0.6, via cosign-installer v4.1.2) takes `--attestation <file> <image-ref>` and has **no** `--new-bundle-format` flag — the push arg vector omits it.
 
