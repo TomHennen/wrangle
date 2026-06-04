@@ -258,12 +258,15 @@ jobs:
       # in lockstep.
       - uses: sigstore/cosign-installer@6f9f17788090df1f26f669e9d70d6ae9567deba6 # v4.1.2
 
+      # Use the job's own GITHUB_TOKEN (packages: write above), like the build
+      # job — not the passed gh_token, which zizmor's secrets-outside-env flags
+      # for use without a dedicated environment.
       - name: Log in to ghcr for the VSA push
         uses: docker/login-action@c94ce9fb468520275223c153574b00df6fe4bcc9 # v3.7.0
         with:
           registry: ${{ inputs.registry }}
           username: ${{ github.actor }}
-          password: ${{ secrets.gh_token }}
+          password: ${{ secrets.GITHUB_TOKEN }}
 
       # actions/verify resolves a relative policy path against ITS OWN checkout
       # (the pinned SHA), not the PR head — so the new container PolicySet only
