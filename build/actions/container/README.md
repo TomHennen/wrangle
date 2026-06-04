@@ -105,6 +105,8 @@ ampel verify \
   --context expectedResourceUri:<imagename>@sha256:<digest>
 ```
 
+> **Repo binding (known gap).** This `ampel verify` path pins the VSA's *signer* (wrangle's reusable workflow) and the predicate fields, but **not which repository's build produced the image** — ampel (v1.2.1) matches only the signing cert's issuer + SAN, not its source-repository extension. The image-digest VSA has no blob for `cosign verify-blob-attestation`, so there is no one-command path that also binds the origin repo today. Tracked in [#321](https://github.com/TomHennen/wrangle/issues/321).
+
 **Without ampel.** `cosign verify-blob-attestation` is blob/file-oriented (npm/Go) — the container VSA's subject is the image digest, not a file on disk, so there is no blob to hand it. Fetch the VSA from the registry, then confirm the subject digest and predicate fields with a `jq` decode (this does **not** check the signature — for the full check use ampel above):
 
 ```bash
