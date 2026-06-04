@@ -125,7 +125,7 @@ jobs:
     permissions: {}    # reads env only — no workspace, no API, no secrets
     steps:
       # TODO: replace with $/actions/preflight_guard when GitHub ships $/ syntax (#136)
-      - uses: TomHennen/wrangle/actions/preflight_guard@5e5d4b1ae9aca432ffced21b83d7e56478d0e575 # main 2026-05-31
+      - uses: TomHennen/wrangle/actions/preflight_guard@791a63abeeb5446fc32ead609c6c3767f9395e24 # main 2026-06-04
 
   gate:
     needs: [guard]
@@ -136,7 +136,7 @@ jobs:
     steps:
       # No checkout: release_gate resolves via ${{ github.action_path }}.
       # TODO: replace with $/actions/release_gate when GitHub ships $/ syntax (#136)
-      - uses: TomHennen/wrangle/actions/release_gate@5e5d4b1ae9aca432ffced21b83d7e56478d0e575 # main 2026-05-31
+      - uses: TomHennen/wrangle/actions/release_gate@791a63abeeb5446fc32ead609c6c3767f9395e24 # main 2026-06-04
         id: gate
         with:
           events: ${{ inputs.release-events }}
@@ -163,7 +163,7 @@ jobs:
           ref: ${{ inputs.ref || '' }}
 
       # TODO: replace with $/build/actions/npm when GitHub ships $/ syntax (#136)
-      - uses: TomHennen/wrangle/build/actions/npm@5e5d4b1ae9aca432ffced21b83d7e56478d0e575 # main 2026-05-31
+      - uses: TomHennen/wrangle/build/actions/npm@791a63abeeb5446fc32ead609c6c3767f9395e24 # main 2026-06-04
         id: build
         with:
           path: ${{ inputs.path }}
@@ -312,7 +312,7 @@ jobs:
           path: provenance/
 
       # TODO: replace with $/actions/verify when GitHub ships $/ syntax (#136)
-      - uses: TomHennen/wrangle/actions/verify@5e5d4b1ae9aca432ffced21b83d7e56478d0e575 # main 2026-05-31
+      - uses: TomHennen/wrangle/actions/verify@791a63abeeb5446fc32ead609c6c3767f9395e24 # main 2026-06-04
         with:
           subject: dist/${{ matrix.artifact }}
           policy: policies/wrangle-provenance-v1.hjson
