@@ -1,0 +1,44 @@
+{
+    // Consumer-side check: a wrangle-signed VSA that PASSED for the resource
+    // the consumer expects, at SLSA Build L3. Run with:
+    //   ampel verify --subject <artifact-digest> \
+    //     --policy <this> --attestation <vsa>.intoto.jsonl \
+    //     --context expectedResourceUri:<purl-or-oci-ref>
+    id: "wrangle-vsa-consumer-v1"
+    meta: {
+        description: "Consumer check: a wrangle-signed VSA PASSED for the expected resource at SLSA Build L3"
+    }
+    common: {
+        context: {
+            // The consumer supplies the resourceUri (purl / OCI ref) they expect.
+            expectedResourceUri: { type: "string", required: true }
+        }
+        // The VSA MUST be keyless-signed by wrangle's reusable build+verify
+        // workflow (fail-closed: ampel admits the attestation only if it matches).
+        identities: [
+            {
+                id: "wrangle-verify"
+                sigstore: {
+                    mode: "regexp"
+                    issuer: "^https://token\\.actions\\.githubusercontent\\.com$"
+                    identity: "^https://github\\.com/TomHennen/wrangle/\\.github/workflows/build_and_publish_[a-z]+\\.yml@.+$"
+                }
+            }
+        ]
+    }
+    policies: [
+        {
+            id: "vsa-passed"
+            identities: [ { ref: { id: "wrangle-verify" } } ]
+            tenets: [
+                {
+                    runtime: cel@v0
+                    predicates: { types: ["https://slsa.dev/verification_summary/v1"] }
+                    code: "size(predicates) > 0 && predicates[0].data.verificationResult == 'PASSED' && predicates[0].data.resourceUri == context.expectedResourceUri && predicates[0].data.verifiedLevels.exists(l, l == 'SLSA_BUILD_LEVEL_3')"
+                    assessment: { message: "VSA PASSED for the expected resource at SLSA Build L3" }
+                    error: { message: "VSA check failed (result / resourceUri / verified-level mismatch)" }
+                }
+            ]
+        }
+    ]
+}

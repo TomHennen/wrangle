@@ -88,3 +88,8 @@ jobs:
       # (including the cosign-attach arg-vector) run rather than skip.
       - name: verify-script tests
         run: bats actions/verify/test_run_verify.bats actions/verify/test_validate_verify_inputs.bats
+
+      # Runs the documented consumer commands (cosign + ampel) against the real
+      # checked-in VSA — the regression backstop for the consumer-verify docs.
+      - name: consumer VSA-verify tests
+        run: bats test/consumer/verify_consumer_vsa.bats
