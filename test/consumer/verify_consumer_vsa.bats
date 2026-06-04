@@ -15,9 +15,9 @@
 
 load "../lib/bats_helpers"
 
-# The real artifact the VSA covers (captured values — do not edit without
-# re-capturing the fixtures from a real run).
-SUBJECT_DIGEST="sha256:cbdb02a9ff57b76d75a0d51986d394383d3da18d2a3467a26a9ba69a03419018"
+# Captured from a real run — do not edit without re-capturing the fixtures.
+# No hardcoded npm digest: ampel and cosign compute it from the package blob,
+# exactly as a consumer does; only the *expected* resourceUri/identity are pinned.
 RESOURCE_URI="pkg:npm/@tomhennen/wrangle-integration-fixture@0.0.2-integration.26922828083"
 SIGNER_REGEX='^https://github\.com/TomHennen/wrangle/\.github/workflows/build_and_publish_npm\.yml@'
 SIGNER_REPO="TomHennen/wrangle-test"
@@ -89,7 +89,7 @@ require_sigstore() {
 @test "consumer B: ampel verify PASSES (signature + identity + fields, one command)" {
     [[ -x "$AMPEL_BIN" ]] || skip_or_fail "real ampel not available"
     require_sigstore
-    run "$AMPEL_BIN" verify --subject "$SUBJECT_DIGEST" \
+    run "$AMPEL_BIN" verify --subject "$BLOB" \
         --policy "$POLICY" --attestation "$VSA" \
         --context "expectedResourceUri:$RESOURCE_URI"
     [[ "$status" -eq 0 ]]
@@ -99,7 +99,7 @@ require_sigstore() {
 @test "consumer B: ampel verify FAILS on a wrong expected resourceUri" {
     [[ -x "$AMPEL_BIN" ]] || skip_or_fail "real ampel not available"
     require_sigstore
-    run "$AMPEL_BIN" verify --subject "$SUBJECT_DIGEST" \
+    run "$AMPEL_BIN" verify --subject "$BLOB" \
         --policy "$POLICY" --attestation "$VSA" \
         --context "expectedResourceUri:pkg:npm/@attacker/evil@9.9.9"
     [[ "$status" -ne 0 ]]
@@ -121,7 +121,7 @@ require_sigstore() {
     require_sigstore
     # Same policy with an identity that can't match our VSA's signer.
     sed 's#build_and_publish_\[a-z\]+#NOT_a_wrangle_workflow#' "$POLICY" > "$TMP/bad-identity.hjson"
-    run "$AMPEL_BIN" verify --subject "$SUBJECT_DIGEST" \
+    run "$AMPEL_BIN" verify --subject "$BLOB" \
         --policy "$TMP/bad-identity.hjson" --attestation "$VSA" \
         --context "expectedResourceUri:$RESOURCE_URI"
     [[ "$status" -ne 0 ]]
