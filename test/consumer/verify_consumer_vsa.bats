@@ -23,6 +23,10 @@ SIGNER_REGEX='^https://github\.com/TomHennen/wrangle/\.github/workflows/build_an
 SIGNER_REPO="TomHennen/wrangle-test"
 ISSUER="https://token.actions.githubusercontent.com"
 VSA_PREDICATE="https://slsa.dev/verification_summary/v1"
+# A real CONTAINER VSA (digest subject) from the same run — covers the
+# digest-native ampel path (no file blob) that npm/go don't exercise.
+CONTAINER_DIGEST="sha256:9984046b479c57d037f15ddf10bb1266adb2b7707f810c47b53c97af3a5488ad"
+CONTAINER_URI="ghcr.io/tomhennen/wrangle-test-staging@sha256:9984046b479c57d037f15ddf10bb1266adb2b7707f810c47b53c97af3a5488ad"
 
 setup() {
     DIR="$(cd "$(dirname "$BATS_TEST_FILENAME")" && pwd)"
@@ -100,6 +104,16 @@ require_sigstore() {
         --context "expectedResourceUri:pkg:npm/@attacker/evil@9.9.9"
     [[ "$status" -ne 0 ]]
     [[ "$output" == *"FAIL"* ]]
+}
+
+@test "consumer B (container): ampel verify a real container VSA by digest subject" {
+    [[ -x "$AMPEL_BIN" ]] || skip_or_fail "real ampel not available"
+    require_sigstore
+    run "$AMPEL_BIN" verify --subject "$CONTAINER_DIGEST" \
+        --policy "$POLICY" --attestation "$FIX/container-vsa.intoto.jsonl" \
+        --context "expectedResourceUri:$CONTAINER_URI"
+    [[ "$status" -eq 0 ]]
+    [[ "$output" == *"PASS"* ]]
 }
 
 @test "consumer B: ampel verify FAILS when the signer identity doesn't match (fail-closed)" {
