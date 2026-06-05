@@ -103,6 +103,34 @@ slsa-verifier verify-artifact \
 
 > **Tag-push only.** On non-tag publishes (e.g., `workflow_dispatch` from a branch) the provenance lives only as a 90-day workflow artifact and isn't retrievable by external consumers. [#181](https://github.com/TomHennen/wrangle/issues/181) tracks moving to a single bundled `multiple.intoto.jsonl` at the release layer.
 
+### Verifying the VSA
+
+On tag pushes wrangle also attaches a signed SLSA Verification Summary Attestation (VSA) per dist file — `<dist-file>.intoto.jsonl` (the wheel or sdist) — to the GitHub release, recording that the build provenance passed the `wrangle-provenance-v1` PolicySet. A consumer trusts that one signed VSA instead of re-running the policy engine. It is keyless-signed by **wrangle's** reusable workflow (`build_and_publish_python.yml`), not your own. Its `resourceUri` is `pkg:generic/<name>@<version>` — pin that exact string.
+
+**Recommended — `cosign verify-blob-attestation` + `jq`.** The complete check: cosign confirms the signature, the signer identity (wrangle's reusable workflow), **your origin repository** — `--certificate-github-workflow-repository`, the binding that proves *which repo* built the artifact — and that the dist file's hash matches the VSA subject. cosign doesn't read predicate fields, so a `jq` decode covers them:
+
+```bash
+curl -LO "https://github.com/<owner>/<repo>/releases/download/<tag>/<dist-file>.intoto.jsonl"
+
+cosign verify-blob-attestation --bundle <dist-file>.intoto.jsonl --new-bundle-format \
+  --certificate-oidc-issuer https://token.actions.githubusercontent.com \
+  --certificate-identity-regexp '^https://github\.com/TomHennen/wrangle/\.github/workflows/build_and_publish_python\.yml@refs/tags/v' \
+  --certificate-github-workflow-repository <your-org>/<your-repo> \
+  --type https://slsa.dev/verification_summary/v1 \
+  <dist-file>
+
+payload="$(jq -r '.dsseEnvelope.payload' <dist-file>.intoto.jsonl | base64 -d)"
+jq -e '.predicate.verificationResult == "PASSED"' <<<"$payload"
+jq -e '.predicate.resourceUri == "pkg:generic/<name>@<version>"' <<<"$payload"
+jq -e '.predicate.verifiedLevels | index("SLSA_BUILD_LEVEL_3")' <<<"$payload"
+```
+
+`--type` must be the full URI `https://slsa.dev/verification_summary/v1` — cosign rejects the `slsaverificationsummary` alias.
+
+> **Pending a python regression fixture ([#325](https://github.com/TomHennen/wrangle/issues/325)).** This is the same cosign command shape npm uses (covered by wrangle's consumer test) with python literals; a python-specific VSA fixture + test case isn't in place yet.
+
+**One command, but no repo binding — `ampel verify` (not recommended yet).** ampel can check the VSA against a wrangle-hosted consumer policy in a single command, but ampel (v1.2.1) matches only the signing cert's issuer + SAN — **not** its source-repository extension — so it cannot bind the origin repo and would accept a wrangle-signed VSA built in a *different* repo. That gap is too big to recommend it as your check today; use the cosign command above. ampel may return as a one-command option once the binding is fixed — [#321](https://github.com/TomHennen/wrangle/issues/321).
+
 ## SBOM
 
 Written to `metadata/python/<shortname>/sbom.spdx.json` and uploaded as the `python-metadata-<shortname>` workflow artifact (exposed via the `metadata-artifact-name` output). Download lands the files at the top level of whatever `path:` you pick — the `metadata/python/<shortname>/` prefix is a workspace convention, not preserved in the zip. See [`docs/SPEC.md`](../../../docs/SPEC.md) "Unified metadata layout".

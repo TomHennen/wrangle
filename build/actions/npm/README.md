@@ -124,19 +124,7 @@ curl -LO https://github.com/<owner>/<repo>/releases/download/<tag>/<tarball>
 curl -LO https://github.com/<owner>/<repo>/releases/download/<tag>/<tarball>.intoto.jsonl
 ```
 
-**Recommended — `ampel verify` (one command).** Checks signature, keyless signer identity, and the predicate fields against a wrangle-hosted consumer policy fetched by locator (you author no policy); pass the tarball and ampel computes its digest for you. Requires only ampel (one Go binary):
-
-```bash
-ampel verify \
-  --subject <tarball> \
-  --policy git+https://github.com/TomHennen/wrangle@<version>#policies/wrangle-vsa-consumer-v1.hjson \
-  --attestation <tarball>.intoto.jsonl \
-  --context expectedResourceUri:pkg:npm/<name>@<version>
-```
-
-(ampel's `release:` collector may soon fetch the VSA itself, dropping the second `curl` — [#314](https://github.com/TomHennen/wrangle/issues/314).)
-
-**Without ampel — `cosign verify-blob-attestation` + `jq`.** cosign confirms the signature, the signer identity (wrangle's workflow), and that the tarball's hash matches the VSA subject — but not the predicate fields, so a `jq` decode follows:
+**Recommended — `cosign verify-blob-attestation` + `jq`.** This is the complete check: cosign confirms the signature, the signer identity (wrangle's reusable workflow), **your origin repository** — `--certificate-github-workflow-repository`, the binding that proves *which repo* built the artifact — and that the tarball's hash matches the VSA subject. cosign doesn't read predicate fields, so a `jq` decode covers `verificationResult` / `resourceUri` / `verifiedLevels`:
 
 ```bash
 cosign verify-blob-attestation --bundle <tarball>.intoto.jsonl --new-bundle-format \
@@ -154,7 +142,9 @@ jq -e '.predicate.verifiedLevels | index("SLSA_BUILD_LEVEL_3")' <<<"$payload"
 
 `--type` must be the full URI `https://slsa.dev/verification_summary/v1` — cosign rejects the `slsaverificationsummary` alias.
 
-> **`slsa-verifier verify-vsa` is not usable here.** It only verifies *key-signed* VSAs (it requires `--public-key-path`); wrangle's VSAs are keyless (Fulcio/Sigstore), so there is no identity flag to pass. Tracked under the [Attestation trust gaps](../../../README.md) section / [#295](https://github.com/TomHennen/wrangle/issues/295).
+**One command, but no repo binding — `ampel verify` (not recommended yet).** ampel can check the VSA against a wrangle-hosted consumer policy in a single command, but ampel (v1.2.1) matches only the signing cert's issuer + SAN — **not** its source-repository extension — so it cannot bind the origin repo and would accept a wrangle-signed VSA built in a *different* repo. That gap is too big to recommend it as your check today; use the cosign command above. ampel may return as a one-command option once the binding is fixed — [#321](https://github.com/TomHennen/wrangle/issues/321).
+
+> **`slsa-verifier verify-vsa` is not usable here.** It only verifies *key-signed* VSAs (it requires `--public-key-path`); wrangle's VSAs are keyless (Fulcio/Sigstore), so there is no identity flag to pass. Tracked under the [Attestation trust gaps](../../../README.md) section / [#317](https://github.com/TomHennen/wrangle/issues/317).
 
 ## Lifecycle hooks
 
