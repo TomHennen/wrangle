@@ -92,7 +92,7 @@ The reusable workflow then adds:
 ```
 14. Generate SLSA L3 provenance (slsa-github-generator)
 15. Verify SLSA attestation (cosign verify-attestation; default-on, opt out via verify-image: false)
-16. Emit signed SLSA VSA (ampel against wrangle-provenance-container-v1; gated on verify-image) and push it to the registry as an OCI referrer (cosign attach attestation)
+16. Emit signed SLSA VSA (ampel against wrangle-provenance-container-v1; gated on should-release, independent of verify-image) and push it to the registry as an OCI referrer (cosign attach attestation)
 17. Gate job — verify both build+sign and provenance succeeded
 ```
 

@@ -233,7 +233,7 @@ jobs:
   # which on this image are the unsigned BuildKit attestations, not the
   # generator's signed provenance. Exercised only by the integration dispatch.
   vsa:
-    if: ${{ needs.gate.outputs.should-release == 'true' && inputs.verify-image }}
+    if: ${{ needs.gate.outputs.should-release == 'true' }}
     needs: [guard, gate, build, provenance]
     runs-on: ubuntu-latest
     # No contents: write — unlike npm/go, the container VSA is NOT attached to a

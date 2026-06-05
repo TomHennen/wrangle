@@ -367,7 +367,7 @@ jobs:
   # reusable workflow is blocked, and (b) surfaces a policy/tooling regression
   # loudly. Keep fail: true for both effects.
   vsa:
-    if: ${{ needs.gate.outputs.should-release == 'true' && inputs.verify-provenance }}
+    if: ${{ needs.gate.outputs.should-release == 'true' }}
     needs: [guard, gate, release, provenance]
     runs-on: ubuntu-latest
     permissions:
