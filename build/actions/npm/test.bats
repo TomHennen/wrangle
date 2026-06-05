@@ -784,6 +784,16 @@ write_pkg_json() {
     [[ "$status" -eq 0 ]]
 }
 
+# The VSA is the consumer trust boundary, independent of the verify-provenance
+# double-check toggle; re-coupling them is the issue #320 regression. Anchor on
+# the if: line so the why-comment that names verify-provenance can't false-match.
+@test "npm: vsa job is gated on should-release only, NOT verify-provenance" {
+    run bash -c "sed -n '/^  vsa:/,/^[a-z]/p' \"$WORKFLOW\" | grep -E \"^[[:space:]]*if:.*should-release\""
+    [[ "$status" -eq 0 ]]
+    run bash -c "sed -n '/^  vsa:/,/^[a-z]/p' \"$WORKFLOW\" | grep -E \"^[[:space:]]*if:.*verify-provenance\""
+    [[ "$status" -ne 0 ]]
+}
+
 @test "npm: workflow exposes verify-provenance input (default true)" {
     run grep -E '^      verify-provenance:' "$WORKFLOW"
     [[ "$status" -eq 0 ]]

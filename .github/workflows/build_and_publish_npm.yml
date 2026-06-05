@@ -290,7 +290,9 @@ jobs:
   # propagation. Provenance-only for now — SBOM/OSV tenets follow once those are
   # produced as signed attestations a registered identity covers.
   vsa:
-    if: ${{ needs.gate.outputs.should-release == 'true' && inputs.verify-provenance }}
+    # The VSA is the durable, engine-independent consumer trust boundary, so it
+    # is independent of the interim verify-provenance double-check toggle.
+    if: ${{ needs.gate.outputs.should-release == 'true' }}
     needs: [guard, gate, build, provenance]
     runs-on: ubuntu-latest
     permissions:
