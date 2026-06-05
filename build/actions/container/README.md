@@ -95,18 +95,16 @@ Beyond the registry-bytes check above, on release the workflow emits a single si
 
 Unlike the npm/Go/Python build types, the container VSA is **stored in the registry** as an OCI referrer on the image digest (containers produce no GitHub release). It is keyless-signed by **wrangle's** reusable workflow (`build_and_publish_container.yml`), not your own.
 
-**No recommended consumer command yet.** The container VSA is stored as an OCI 1.1 **referrer** on the image digest, and its subject is that digest (not a file blob) — which constrains verification:
-
-- `cosign verify-blob-attestation` (the npm/Go/Python path) needs a file blob; a digest subject has none.
-- `cosign verify-attestation` is what wrangle uses for the image's **SLSA provenance** (a cosign-method `.att` attestation, `--type slsaprovenance`), but the VSA is a new-bundle-format referrer — no validated cosign command reads and verifies *it* yet.
-- `ampel verify` *can* fetch the referrer (`oci:` collector) and check signature + identity + predicate fields, but ampel (v1.2.1) matches only the cert's issuer + SAN — **not** its source-repository extension — so it cannot bind the origin repo (the same gap that blocks it for npm/Go/Python).
-
-So there is no recommended one-command container VSA check today. Tracking: [#321](https://github.com/TomHennen/wrangle/issues/321) (origin-repo binding) and [#312](https://github.com/TomHennen/wrangle/issues/312) (validate consumer commands against a real attested image).
-
-**Inspect the predicate fields (not a signature check).** You can download the VSA and decode it to confirm the recorded subject / result / levels, but this does **not** verify the signature or signer — treat it as inspection, not verification:
+**Verify the VSA — `cosign verify-attestation` (⚠️ not yet verified end-to-end, [#325](https://github.com/TomHennen/wrangle/issues/325)).** `cosign verify-blob-attestation` (the npm/Go/Python path) can't apply — a digest subject has no file blob. The container path is `cosign verify-attestation` against the image: it checks the signature, the signer identity (wrangle's reusable workflow), and — via `--certificate-github-workflow-repository` — **your origin repository**; pair it with a `jq` decode of the predicate fields:
 
 ```bash
-# The VSA is an OCI referrer on the image digest.
+cosign verify-attestation \
+  --type https://slsa.dev/verification_summary/v1 \
+  --certificate-oidc-issuer https://token.actions.githubusercontent.com \
+  --certificate-identity-regexp '^https://github\.com/TomHennen/wrangle/\.github/workflows/build_and_publish_container\.yml@refs/tags/v' \
+  --certificate-github-workflow-repository <your-org>/<your-repo> \
+  <imagename>@sha256:<digest>
+
 cosign download attestation \
   --predicate-type https://slsa.dev/verification_summary/v1 \
   <imagename>@sha256:<digest> > vsa.intoto.jsonl
@@ -116,6 +114,8 @@ jq -e '.predicate.verificationResult == "PASSED"' <<<"$payload"
 jq -e '.predicate.resourceUri == "<imagename>@sha256:<digest>"' <<<"$payload"
 jq -e '.predicate.verifiedLevels | index("SLSA_BUILD_LEVEL_3")' <<<"$payload"
 ```
+
+> ⚠️ **Not yet verified end-to-end.** The VSA is stored as an OCI 1.1 **referrer** (new bundle format), and it is unconfirmed whether `cosign verify-attestation` (cosign v3) reads that referrer — it natively reads the cosign-method `.att` provenance wrangle uses for the image's SLSA provenance. Validation + a regression test are tracked in [#325](https://github.com/TomHennen/wrangle/issues/325). The cert *does* carry the origin repo, so the binding is achievable. `ampel verify` can also fetch the referrer (`oci:` collector) and check signature + identity + predicate fields, but ampel (v1.2.1) can't bind the origin repo ([#321](https://github.com/TomHennen/wrangle/issues/321)).
 
 > **`slsa-verifier verify-vsa` is not usable here.** It only verifies *key-signed* VSAs (it requires `--public-key-path`); wrangle's VSAs are keyless (Fulcio/Sigstore), so there is no identity flag to pass. Tracked under the [Attestation trust gaps](../../../README.md) section / [#317](https://github.com/TomHennen/wrangle/issues/317).
 
