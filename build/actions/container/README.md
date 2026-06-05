@@ -95,19 +95,15 @@ Beyond the registry-bytes check above, on release the workflow emits a single si
 
 Unlike the npm/Go build types, the container VSA is **stored in the registry** as an OCI referrer on the image digest (containers produce no GitHub release). It is keyless-signed by **wrangle's** reusable workflow (`build_and_publish_container.yml`), not your own.
 
-**Recommended — `ampel verify` (one command, no download).** The container VSA's subject is the image **digest** (there is no file blob to hand `cosign verify-blob-attestation`), so ampel is the digest-native complete check — and it fetches the VSA from the registry itself via the `oci:` collector, so there's no separate download step. One command confirms signature, keyless identity, and predicate fields against a wrangle-hosted consumer policy fetched by locator (you author no policy). Requires only ampel (one Go binary):
+**No recommended consumer command yet.** The container VSA is stored as an OCI 1.1 **referrer** on the image digest, and its subject is that digest (not a file blob) — which constrains verification:
 
-```bash
-ampel verify \
-  --subject sha256:<digest> \
-  --policy git+https://github.com/TomHennen/wrangle@<version>#policies/wrangle-vsa-consumer-v1.hjson \
-  --collector oci:<imagename>@sha256:<digest> \
-  --context expectedResourceUri:<imagename>@sha256:<digest>
-```
+- `cosign verify-blob-attestation` (the npm/Go path) needs a file blob; a digest subject has none.
+- `cosign verify-attestation` is what wrangle uses for the image's **SLSA provenance** (a cosign-method `.att` attestation, `--type slsaprovenance`), but the VSA is a new-bundle-format referrer — no validated cosign command reads and verifies *it* yet.
+- `ampel verify` *can* fetch the referrer (`oci:` collector) and check signature + identity + predicate fields, but ampel (v1.2.1) matches only the cert's issuer + SAN — **not** its source-repository extension — so it cannot bind the origin repo (the same gap that blocks it for npm/Go).
 
-> **Repo binding (known gap).** This `ampel verify` path pins the VSA's *signer* (wrangle's reusable workflow) and the predicate fields, but **not which repository's build produced the image** — ampel (v1.2.1) matches only the signing cert's issuer + SAN, not its source-repository extension. The image-digest VSA has no blob for `cosign verify-blob-attestation`, so there is no one-command path that also binds the origin repo today. Tracked in [#321](https://github.com/TomHennen/wrangle/issues/321).
+So there is no recommended one-command container VSA check today. Tracking: [#321](https://github.com/TomHennen/wrangle/issues/321) (origin-repo binding) and [#312](https://github.com/TomHennen/wrangle/issues/312) (validate consumer commands against a real attested image).
 
-**Without ampel.** `cosign verify-blob-attestation` is blob/file-oriented (npm/Go) — the container VSA's subject is the image digest, not a file on disk, so there is no blob to hand it. Fetch the VSA from the registry, then confirm the subject digest and predicate fields with a `jq` decode (this does **not** check the signature — for the full check use ampel above):
+**Inspect the predicate fields (not a signature check).** You can download the VSA and decode it to confirm the recorded subject / result / levels, but this does **not** verify the signature or signer — treat it as inspection, not verification:
 
 ```bash
 # The VSA is an OCI referrer on the image digest.
