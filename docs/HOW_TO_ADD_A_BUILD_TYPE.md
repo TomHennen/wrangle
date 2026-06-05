@@ -126,6 +126,7 @@ test-<type>:
     contents: write   # if your provenance job uses generator_generic_slsa3
     id-token: write   # OIDC for Sigstore signing
     actions: read     # SLSA generator env detection
+    attestations: write   # wrangle's attest job writes GitHub-issued SLSA provenance
   uses: TomHennen/wrangle/.github/workflows/build_and_publish_<type>.yml@__WRANGLE_SHA__
   with:
     path: <type>
@@ -156,6 +157,8 @@ GitHub validates a called reusable workflow's job-level permissions at workflow 
 Specifically: if your reusable workflow's `provenance:` job uses `slsa-github-generator/.github/workflows/generator_generic_slsa3.yml@v2.1.0`, the caller must grant **`contents: write`** because that generator's `upload-assets` job declares `contents: write` even though it's gated by `if: inputs.upload-assets`.
 
 The container generator (`generator_container_slsa3.yml`) is different — it declares `permissions: {}` at the workflow level and `packages: write` for upload, no `contents: write`. So container callers grant `packages: write` instead.
+
+Independent of the generator, wrangle's reusable workflows also run an `attest:` job (`actions/attest-build-provenance`) that writes GitHub-issued SLSA provenance — so every caller must also grant **`attestations: write`** (and container callers already grant the `packages: write` it reuses to push the attestation referrer to GHCR).
 
 **What to do:** Read the SLSA generator workflow you're using, identify every permission its jobs declare, and grant the union in your reusable workflow's caller AND in the example workflow AND in the wrangle-test fixture's job. PR #156 hit this three times before getting it right.
 

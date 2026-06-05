@@ -6,7 +6,7 @@ The publish job lives in your own workflow — not in a wrangle reusable workflo
 
 ## Quick-start
 
-Copy [`gh_workflow_examples/build_python.yml`](../../../gh_workflow_examples/build_python.yml) into your repo at `.github/workflows/`. The example wires the required permissions (`contents: write` for the SLSA generator's upload-assets job, `id-token: write` for Sigstore, `actions: read`) and includes the publish job with verify-before-publish. Most adopters only need to set the `path` input.
+Copy [`gh_workflow_examples/build_python.yml`](../../../gh_workflow_examples/build_python.yml) into your repo at `.github/workflows/`. The example wires the required permissions (`contents: write` for the SLSA generator's upload-assets job, `id-token: write` for Sigstore, `actions: read`, `attestations: write` for wrangle's GitHub-issued provenance) and includes the publish job with verify-before-publish. Most adopters only need to set the `path` input.
 
 Pair with [source scan](../../../actions/scan/README.md) — build hardens *how* your artifact is produced; source scan covers *what was checked into the repo you're building from*.
 

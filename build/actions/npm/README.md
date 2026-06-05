@@ -10,7 +10,7 @@ The publish job lives in your own workflow — not in a wrangle reusable workflo
 
 Wrangle publishes via [npm Trusted Publishing](https://docs.npmjs.com/trusted-publishers/) — no `NPM_TOKEN` lives in your repo. You'll do a one-time setup on npmjs.com first; see [Before first use](#before-first-use). Then:
 
-Copy [`gh_workflow_examples/build_npm.yml`](../../../gh_workflow_examples/build_npm.yml) into your repo at `.github/workflows/`. The example wires the required permissions (`contents: write` for the SLSA generator's upload-assets job, `id-token: write` for Sigstore, `actions: read`) and includes the publish job. Most adopters only need to set the `path` input.
+Copy [`gh_workflow_examples/build_npm.yml`](../../../gh_workflow_examples/build_npm.yml) into your repo at `.github/workflows/`. The example wires the required permissions (`contents: write` for the SLSA generator's upload-assets job, `id-token: write` for Sigstore, `actions: read`, `attestations: write` for wrangle's GitHub-issued provenance) and includes the publish job. Most adopters only need to set the `path` input.
 
 Pair with [source scan](../../../actions/scan/README.md) — build hardens *how* your artifact is produced; source scan covers *what was checked into the repo you're building from*.
 

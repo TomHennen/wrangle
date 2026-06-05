@@ -22,6 +22,7 @@ jobs:
       contents: write   # goreleaser creates the Release + SLSA generator's upload-assets
       id-token: write   # OIDC for Sigstore signing
       actions: read     # SLSA generator detects the GA environment
+      attestations: write   # wrangle's attest job writes GitHub-issued SLSA provenance
     uses: TomHennen/wrangle/.github/workflows/build_and_publish_go.yml@v0.2.0
     with:
       path: "."
