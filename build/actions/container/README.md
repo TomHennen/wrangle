@@ -93,13 +93,13 @@ with:
 
 Beyond the registry-bytes check above, on release the workflow emits a single signed SLSA Verification Summary Attestation (VSA) recording that the image's SLSA provenance passed the `wrangle-provenance-container-v1` PolicySet. The VSA's `resourceUri` is the OCI image ref `<imagename>@sha256:<digest>` — what a consumer pulls — and its subject is that digest. A consumer trusts that single signed VSA instead of re-running the policy engine.
 
-Unlike the npm/Go build types, the container VSA is **stored in the registry** as an OCI referrer on the image digest (containers produce no GitHub release). It is keyless-signed by **wrangle's** reusable workflow (`build_and_publish_container.yml`), not your own.
+Unlike the npm/Go/Python build types, the container VSA is **stored in the registry** as an OCI referrer on the image digest (containers produce no GitHub release). It is keyless-signed by **wrangle's** reusable workflow (`build_and_publish_container.yml`), not your own.
 
 **No recommended consumer command yet.** The container VSA is stored as an OCI 1.1 **referrer** on the image digest, and its subject is that digest (not a file blob) — which constrains verification:
 
-- `cosign verify-blob-attestation` (the npm/Go path) needs a file blob; a digest subject has none.
+- `cosign verify-blob-attestation` (the npm/Go/Python path) needs a file blob; a digest subject has none.
 - `cosign verify-attestation` is what wrangle uses for the image's **SLSA provenance** (a cosign-method `.att` attestation, `--type slsaprovenance`), but the VSA is a new-bundle-format referrer — no validated cosign command reads and verifies *it* yet.
-- `ampel verify` *can* fetch the referrer (`oci:` collector) and check signature + identity + predicate fields, but ampel (v1.2.1) matches only the cert's issuer + SAN — **not** its source-repository extension — so it cannot bind the origin repo (the same gap that blocks it for npm/Go).
+- `ampel verify` *can* fetch the referrer (`oci:` collector) and check signature + identity + predicate fields, but ampel (v1.2.1) matches only the cert's issuer + SAN — **not** its source-repository extension — so it cannot bind the origin repo (the same gap that blocks it for npm/Go/Python).
 
 So there is no recommended one-command container VSA check today. Tracking: [#321](https://github.com/TomHennen/wrangle/issues/321) (origin-repo binding) and [#312](https://github.com/TomHennen/wrangle/issues/312) (validate consumer commands against a real attested image).
 
