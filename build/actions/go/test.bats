@@ -1347,3 +1347,24 @@ func TestFails(t *testing.T) {
     [[ "$status" -ne 0 ]]
 }
 
+
+# --- attest-build-provenance (wrangle builder identity, #316) ---
+
+@test "go: workflow has attest job producing GitHub attest-build-provenance" {
+    run grep -E '^  attest:' "$WORKFLOW"
+    [[ "$status" -eq 0 ]]
+    run grep 'actions/attest-build-provenance@' "$WORKFLOW"
+    [[ "$status" -eq 0 ]]
+}
+
+@test "go: attest job is gated on should-release" {
+    run bash -c "sed -n '/^  attest:/,/^  [a-z]/p' \"$WORKFLOW\" | grep -E 'if:.*should-release'"
+    [[ "$status" -eq 0 ]]
+}
+
+@test "go: attest job verifies signer is wrangle's reusable workflow" {
+    run bash -c "sed -n '/^  attest:/,/^  [a-z]/p' \"$WORKFLOW\" | grep 'TomHennen/wrangle/actions/verify_attestation@'"
+    [[ "$status" -eq 0 ]]
+    run bash -c "sed -n '/^  attest:/,/^  [a-z]/p' \"$WORKFLOW\" | grep 'signer-workflow: TomHennen/wrangle/.github/workflows/build_and_publish_go.yml'"
+    [[ "$status" -eq 0 ]]
+}

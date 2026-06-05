@@ -448,3 +448,29 @@ teardown() {
     run grep -F 'STOP_COMMANDS_TOKEN: ${{ steps.stopcmd.outputs.stop-commands-token }}' "$ACTION_DIR/action.yml"
     [[ "$status" -eq 0 ]]
 }
+
+# --- attest-build-provenance (wrangle builder identity, #316) ---
+
+@test "container: workflow has attest job pushing GitHub attest-build-provenance to the registry" {
+    local wf="$REPO_ROOT/.github/workflows/build_and_publish_container.yml"
+    run grep -E '^  attest:' "$wf"
+    [[ "$status" -eq 0 ]]
+    run bash -c "sed -n '/^  attest:/,/^  [a-z]/p' \"$wf\" | grep 'actions/attest-build-provenance@'"
+    [[ "$status" -eq 0 ]]
+    run bash -c "sed -n '/^  attest:/,/^  [a-z]/p' \"$wf\" | grep -E 'push-to-registry:[[:space:]]*true'"
+    [[ "$status" -eq 0 ]]
+}
+
+@test "container: attest job is gated on should-release" {
+    local wf="$REPO_ROOT/.github/workflows/build_and_publish_container.yml"
+    run bash -c "sed -n '/^  attest:/,/^  [a-z]/p' \"$wf\" | grep -E 'if:.*should-release'"
+    [[ "$status" -eq 0 ]]
+}
+
+@test "container: attest job verifies signer is wrangle's reusable workflow (oci subject)" {
+    local wf="$REPO_ROOT/.github/workflows/build_and_publish_container.yml"
+    run bash -c "sed -n '/^  attest:/,/^  [a-z]/p' \"$wf\" | grep 'signer-workflow: TomHennen/wrangle/.github/workflows/build_and_publish_container.yml'"
+    [[ "$status" -eq 0 ]]
+    run bash -c "sed -n '/^  attest:/,/^  [a-z]/p' \"$wf\" | grep 'subject: oci://'"
+    [[ "$status" -eq 0 ]]
+}

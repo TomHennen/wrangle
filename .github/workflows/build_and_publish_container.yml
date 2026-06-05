@@ -175,6 +175,52 @@ jobs:
     secrets:
       registry-password: ${{ secrets.gh_token }}
 
+  # Generate SLSA build provenance via GitHub's attestation API, naming THIS
+  # reusable workflow as builder.id (its job_workflow_ref) and the Sigstore
+  # signing identity. The container generator already isolates the build, but
+  # its builder.id is the generator, not wrangle's workflow — this names
+  # wrangle. Runs alongside the generator during the migration (#316) so both
+  # are produced; the generator path is dropped once the identities are
+  # confirmed. The attestation is pushed to the registry as an OCI referrer.
+  attest:
+    if: ${{ needs.gate.outputs.should-release == 'true' }}
+    needs: [guard, gate, build]
+    runs-on: ubuntu-latest
+    permissions:
+      id-token: write       # OIDC for Sigstore keyless signing
+      attestations: write   # write the attestation to GitHub's store
+      packages: write       # push the attestation referrer to ghcr
+      contents: read
+    steps:
+      # push-to-registry authenticates to ghcr with the job's GITHUB_TOKEN, like
+      # the build and vsa jobs. Same pin as the vsa job's login — bump together.
+      - name: Log in to ghcr for the attestation push
+        uses: docker/login-action@650006c6eb7dba73a995cc03b0b2d7f5ca915bee # v4.2.0
+        with:
+          registry: ${{ inputs.registry }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - uses: actions/attest-build-provenance@a2bbfa25375fe432b6a289bc6b6cd05ecd0c4c32 # v4.1.0
+        id: attest
+        with:
+          subject-name: ${{ needs.build.outputs.imagename }}
+          subject-digest: ${{ needs.build.outputs.digest }}
+          push-to-registry: true
+
+      # Verify the just-produced provenance in-run against the local bundle and
+      # confirm wrangle's reusable workflow is the signer. Gated like the cosign
+      # verify-image job so adopters can opt out. signer-workflow is the constant
+      # wrangle path (the cert SAN); repo is the caller's repo.
+      # TODO: replace with $/actions/verify_attestation when GitHub ships $/ syntax (#136)
+      - if: ${{ inputs.verify-image }}
+        uses: TomHennen/wrangle/actions/verify_attestation@ae8b51bcdb1661a055ce8b6eb2e5135b99e24fc5 # feat/attest-build-provenance-316 2026-06-04
+        with:
+          subject: oci://${{ needs.build.outputs.imagename }}@${{ needs.build.outputs.digest }}
+          repo: ${{ github.repository }}
+          signer-workflow: TomHennen/wrangle/.github/workflows/build_and_publish_container.yml
+          bundle-path: ${{ steps.attest.outputs.bundle-path }}
+
   # Verify the SLSA provenance attestation on the just-pushed image.
   # Catches the "registry served bytes that don't match what wrangle
   # pushed" attack window. Failing here fails the workflow, blocking
