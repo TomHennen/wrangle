@@ -214,7 +214,7 @@ jobs:
       # wrangle path (the cert SAN); repo is the caller's repo.
       # TODO: replace with $/actions/verify_attestation when GitHub ships $/ syntax (#136)
       - if: ${{ inputs.verify-image }}
-        uses: TomHennen/wrangle/actions/verify_attestation@ae8b51bcdb1661a055ce8b6eb2e5135b99e24fc5 # feat/attest-build-provenance-316 2026-06-04
+        uses: TomHennen/wrangle/actions/verify_attestation@638c1fd072ffedb67459b7abdcaa39b8ca38a1df # feat/attest-build-provenance-316 2026-06-04
         with:
           subject: oci://${{ needs.build.outputs.imagename }}@${{ needs.build.outputs.digest }}
           repo: ${{ github.repository }}

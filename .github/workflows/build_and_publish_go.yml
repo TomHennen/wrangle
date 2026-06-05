@@ -365,7 +365,7 @@ jobs:
       # lockstep with what was attested (the checksums-listed artifacts only).
       # TODO: replace with $/actions/verify_attestation when GitHub ships $/ syntax (#136)
       - if: ${{ inputs.verify-provenance }}
-        uses: TomHennen/wrangle/actions/verify_attestation@ae8b51bcdb1661a055ce8b6eb2e5135b99e24fc5 # feat/attest-build-provenance-316 2026-06-04
+        uses: TomHennen/wrangle/actions/verify_attestation@638c1fd072ffedb67459b7abdcaa39b8ca38a1df # feat/attest-build-provenance-316 2026-06-04
         with:
           subject: dist
           repo: ${{ github.repository }}
