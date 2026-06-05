@@ -15,7 +15,14 @@
 # ref, or a path to a file or a directory of files), REPO (owner/repo where the
 # attestation is stored), SIGNER_WORKFLOW (the reusable workflow that must have
 # signed it), and the optional BUNDLE_PATH (the attest action's offline bundle,
-# verified in-run without an API round-trip) and PREDICATE_TYPE.
+# verified in-run without an API round-trip), PREDICATE_TYPE, and CHECKSUMS_PATH
+# (when set, the subject list is the names in that sha256sum-format file resolved
+# under SUBJECT — used where SUBJECT is a directory holding non-artifact files,
+# e.g. goreleaser's dist/, that must not be attested/verified).
+#
+# When BUNDLE_PATH is set the binding is --signer-workflow alone: gh verifies the
+# offline bundle's own Sigstore cert + Rekor proof, and --repo only scopes the
+# (skipped) API lookup, so --repo is not part of the integrity decision here.
 #
 # The arg-builder stays pure (no side effects) so unit tests can assert the
 # exact gh CLI shape offline; `main` runs the work on direct execution.
@@ -60,7 +67,8 @@ wrangle_verify_one() {
     local -a args
     mapfile -t args < <(wrangle_gh_verify_args)
     err="$(mktemp)"
-    json="$(gh "${args[@]}" --format json "$subj" 2>"$err")" || rc=$?
+    # `--` ends option parsing so a subject can never be read as a gh flag.
+    json="$(gh "${args[@]}" --format json -- "$subj" 2>"$err")" || rc=$?
     if [[ "$rc" -ne 0 ]]; then
         printf 'wrangle: attestation verification FAILED for %s (exit %s)\n' "$subj" "$rc" >&2
         cat "$err" >&2
@@ -71,10 +79,22 @@ wrangle_verify_one() {
     wrangle_print_identities "$subj" "$json"
 }
 
-# Expand SUBJECT into the concrete list of things to verify: an oci:// ref is a
-# single subject; a directory fans out to its files (find, not a glob, so
-# `set -f` stays on); a plain path is one file.
+# Expand SUBJECT into the concrete list of things to verify. With CHECKSUMS_PATH
+# set, the list is exactly the names in that sha256sum-format file resolved under
+# SUBJECT — NOT a directory glob — so non-artifact files a directory may hold
+# (goreleaser's artifacts.json/config.yaml/metadata.json, build subdirs) are
+# neither attested nor verified. Otherwise: an oci:// ref is a single subject; a
+# directory fans out to its files (find, not a glob, so `set -f` stays on); a
+# plain path is one file.
 wrangle_subjects() {
+    if [[ -n "${CHECKSUMS_PATH:-}" ]]; then
+        # checksums.txt lines are `<sha256>  <name>` (two-space separator);
+        # split on the first two-space run so filenames with internal
+        # whitespace survive, and prefix with the SUBJECT base dir. Mirrors
+        # build/actions/go/verify's list_artifacts.
+        awk -v d="$SUBJECT/" 'NF > 0 { idx = index($0, "  "); if (idx > 0) print d substr($0, idx + 2) }' "$CHECKSUMS_PATH"
+        return
+    fi
     case "$SUBJECT" in
         oci://*) printf '%s\n' "$SUBJECT" ;;
         *)
@@ -91,7 +111,7 @@ wrangle_verify_attestation() {
     # shellcheck source=validate_verify_attestation_inputs.sh
     source "$DIR/validate_verify_attestation_inputs.sh"
     wrangle_validate_verify_attestation_inputs "$SUBJECT" "$REPO" \
-        "$SIGNER_WORKFLOW" "${BUNDLE_PATH:-}" "$PREDICATE_TYPE"
+        "$SIGNER_WORKFLOW" "${BUNDLE_PATH:-}" "$PREDICATE_TYPE" "${CHECKSUMS_PATH:-}"
 
     # Propagate a failed verification explicitly rather than leaning on set -e:
     # callers (and bats `run`) may have it disabled, and a swallowed failure

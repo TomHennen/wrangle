@@ -348,16 +348,21 @@ jobs:
           name: ${{ needs.release.outputs.dist-artifact-name }}
           path: dist/
 
+      # Subjects come from dist/checksums.txt, not a dist/* glob: goreleaser
+      # writes non-artifact bookkeeping (artifacts.json/config.yaml/metadata.json)
+      # and per-target build subdirs into dist/, which are not released artifacts.
+      # This is the same canonical subject set the generator and the VSA bind to.
       - uses: actions/attest-build-provenance@a2bbfa25375fe432b6a289bc6b6cd05ecd0c4c32 # v4.1.0
         id: attest
         with:
-          subject-path: dist/*
+          subject-checksums: dist/checksums.txt
 
       # Verify the just-produced provenance in-run against the local bundle and
       # confirm wrangle's reusable workflow is the signer. Gated like the
       # slsa-verifier verify job so adopters can opt out. signer-workflow is the
       # constant wrangle path (the cert SAN); repo is the caller's repo, where
-      # the attestation is stored.
+      # the attestation is stored. checksums-path keeps the verified set in
+      # lockstep with what was attested (the checksums-listed artifacts only).
       # TODO: replace with $/actions/verify_attestation when GitHub ships $/ syntax (#136)
       - if: ${{ inputs.verify-provenance }}
         uses: TomHennen/wrangle/actions/verify_attestation@ae8b51bcdb1661a055ce8b6eb2e5135b99e24fc5 # feat/attest-build-provenance-316 2026-06-04
@@ -366,6 +371,7 @@ jobs:
           repo: ${{ github.repository }}
           signer-workflow: TomHennen/wrangle/.github/workflows/build_and_publish_go.yml
           bundle-path: ${{ steps.attest.outputs.bundle-path }}
+          checksums-path: dist/checksums.txt
 
   # Verify the just-built dist matches the just-generated provenance.
   # Runs AFTER goreleaser's inline publish; this is an informational

@@ -47,6 +47,14 @@ inputs:
     description: "Attestation predicate type to verify (gh --predicate-type)."
     required: false
     default: "https://slsa.dev/provenance/v1"
+  checksums-path:
+    description: >
+      Optional sha256sum-format file (e.g. goreleaser's dist/checksums.txt)
+      whose listed names, resolved under `subject` as the base directory, ARE
+      the subject set — used when `subject` is a directory that also holds
+      non-artifact files that must not be verified. Leave empty otherwise.
+    required: false
+    default: ""
 
 runs:
   using: composite
@@ -59,6 +67,7 @@ runs:
         SIGNER_WORKFLOW: ${{ inputs.signer-workflow }}
         BUNDLE_PATH: ${{ inputs.bundle-path }}
         PREDICATE_TYPE: ${{ inputs.predicate-type }}
+        CHECKSUMS_PATH: ${{ inputs.checksums-path }}
         GH_TOKEN: ${{ github.token }}
       run: |
-        "${GITHUB_ACTION_PATH}/verify_attestation.sh" run
+        "${{ github.action_path }}/verify_attestation.sh" run

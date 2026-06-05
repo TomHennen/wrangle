@@ -22,6 +22,7 @@ setup() {
     export SIGNER_WORKFLOW="TomHennen/wrangle/.github/workflows/build_and_publish_npm.yml"
     export BUNDLE_PATH=""
     export PREDICATE_TYPE="https://slsa.dev/provenance/v1"
+    export CHECKSUMS_PATH=""
 
     # shellcheck source=verify_attestation.sh
     source "$SCRIPT"
@@ -79,38 +80,56 @@ EOF
     run "$VALIDATE" "oci://ghcr.io/o/r@sha256:$(printf 'a%.0s' {1..64})" \
         "TomHennen/wrangle" \
         "TomHennen/wrangle/.github/workflows/build_and_publish_npm.yml" \
-        "" "https://slsa.dev/provenance/v1"
+        "" "https://slsa.dev/provenance/v1" "dist/checksums.txt"
     [[ "$status" -eq 0 ]]
 }
 
 @test "verify_attestation: validate rejects subject path traversal" {
     run "$VALIDATE" "../etc/passwd" "TomHennen/wrangle" \
-        "TomHennen/wrangle/.github/workflows/x.yml" "" "https://slsa.dev/provenance/v1"
+        "TomHennen/wrangle/.github/workflows/x.yml" "" "https://slsa.dev/provenance/v1" ""
     [[ "$status" -ne 0 ]]
     [[ "$output" == *"traversal"* ]]
 }
 
+@test "verify_attestation: validate rejects a dash-leading subject (gh flag injection)" {
+    run "$VALIDATE" "--predicate-type" "TomHennen/wrangle" \
+        "TomHennen/wrangle/.github/workflows/x.yml" "" "https://slsa.dev/provenance/v1" ""
+    [[ "$status" -ne 0 ]]
+    [[ "$output" == *"must not start with a dash"* ]]
+}
+
 @test "verify_attestation: validate rejects a non owner/repo repo" {
     run "$VALIDATE" "dist" "not-a-repo" \
-        "TomHennen/wrangle/.github/workflows/x.yml" "" "https://slsa.dev/provenance/v1"
+        "TomHennen/wrangle/.github/workflows/x.yml" "" "https://slsa.dev/provenance/v1" ""
     [[ "$status" -ne 0 ]]
+    [[ "$output" == *"must be owner/repo"* ]]
 }
 
 @test "verify_attestation: validate rejects a signer-workflow without a .yml workflow path" {
-    run "$VALIDATE" "dist" "TomHennen/wrangle" "TomHennen/wrangle" "" "https://slsa.dev/provenance/v1"
+    run "$VALIDATE" "dist" "TomHennen/wrangle" "TomHennen/wrangle" "" "https://slsa.dev/provenance/v1" ""
     [[ "$status" -ne 0 ]]
+    [[ "$output" == *"signer-workflow"* ]]
 }
 
 @test "verify_attestation: validate rejects a non-https predicate-type" {
     run "$VALIDATE" "dist" "TomHennen/wrangle" \
-        "TomHennen/wrangle/.github/workflows/x.yml" "" "http://evil/x"
+        "TomHennen/wrangle/.github/workflows/x.yml" "" "http://evil/x" ""
     [[ "$status" -ne 0 ]]
+    [[ "$output" == *"https:// URL"* ]]
 }
 
 @test "verify_attestation: validate rejects a bundle-path with traversal" {
     run "$VALIDATE" "dist" "TomHennen/wrangle" \
-        "TomHennen/wrangle/.github/workflows/x.yml" "../../etc/x" "https://slsa.dev/provenance/v1"
+        "TomHennen/wrangle/.github/workflows/x.yml" "../../etc/x" "https://slsa.dev/provenance/v1" ""
     [[ "$status" -ne 0 ]]
+    [[ "$output" == *"bundle-path"* ]]
+}
+
+@test "verify_attestation: validate rejects a checksums-path with traversal" {
+    run "$VALIDATE" "dist" "TomHennen/wrangle" \
+        "TomHennen/wrangle/.github/workflows/x.yml" "" "https://slsa.dev/provenance/v1" "../../etc/x"
+    [[ "$status" -ne 0 ]]
+    [[ "$output" == *"checksums-path"* ]]
 }
 
 # --- gh arg vector ---
@@ -151,6 +170,31 @@ EOF
     [[ "${lines[0]}" == "$TEST_DIR/dist/a.tgz" ]]
     [[ "${lines[1]}" == "$TEST_DIR/dist/b.tgz" ]]
     [[ "${#lines[@]}" -eq 2 ]]
+}
+
+@test "verify_attestation: CHECKSUMS_PATH selects only checksums-listed files, not the whole dir" {
+    mkdir -p "$TEST_DIR/dist"
+    # A real goreleaser dist: two release archives plus bookkeeping that must
+    # NOT be verified. Only the archives are in checksums.txt.
+    touch "$TEST_DIR/dist/app_linux.tar.gz" "$TEST_DIR/dist/app_darwin.tar.gz" \
+        "$TEST_DIR/dist/artifacts.json" "$TEST_DIR/dist/metadata.json"
+    printf 'aaa  app_linux.tar.gz\nbbb  app_darwin.tar.gz\n' > "$TEST_DIR/dist/checksums.txt"
+    export SUBJECT="$TEST_DIR/dist"
+    export CHECKSUMS_PATH="$TEST_DIR/dist/checksums.txt"
+    run wrangle_subjects
+    [[ "${#lines[@]}" -eq 2 ]]
+    [[ "$output" == *"$TEST_DIR/dist/app_linux.tar.gz"* ]]
+    [[ "$output" == *"$TEST_DIR/dist/app_darwin.tar.gz"* ]]
+    [[ "$output" != *"artifacts.json"* ]]
+    [[ "$output" != *"metadata.json"* ]]
+}
+
+@test "verify_attestation: CHECKSUMS_PATH preserves filenames with internal whitespace" {
+    printf 'aaa  my app.tar.gz\n' > "$TEST_DIR/checksums.txt"
+    export SUBJECT="dist"
+    export CHECKSUMS_PATH="$TEST_DIR/checksums.txt"
+    run wrangle_subjects
+    [[ "$output" == "dist/my app.tar.gz" ]]
 }
 
 # --- end-to-end verify (gh stub) ---

@@ -1347,7 +1347,6 @@ func TestFails(t *testing.T) {
     [[ "$status" -ne 0 ]]
 }
 
-
 # --- attest-build-provenance (wrangle builder identity, #316) ---
 
 @test "go: workflow has attest job producing GitHub attest-build-provenance" {
