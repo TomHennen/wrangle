@@ -233,8 +233,6 @@ jobs:
   # which on this image are the unsigned BuildKit attestations, not the
   # generator's signed provenance. Exercised only by the integration dispatch.
   vsa:
-    # The VSA is the durable, engine-independent consumer trust boundary, so it
-    # is independent of the interim verify-image double-check toggle.
     if: ${{ needs.gate.outputs.should-release == 'true' }}
     needs: [guard, gate, build, provenance]
     runs-on: ubuntu-latest

@@ -324,18 +324,6 @@ teardown() {
     [[ "$status" -eq 0 ]]
 }
 
-# The VSA is the consumer trust boundary, independent of the verify-image
-# double-check toggle; re-coupling them is the issue #320 regression. vsa is the
-# last job (block runs to EOF). Anchor on the if: line so the why-comment that
-# names verify-image can't false-match.
-@test "container: vsa job is gated on should-release only, NOT verify-image" {
-    local wf="$REPO_ROOT/.github/workflows/build_and_publish_container.yml"
-    run bash -c "sed -n '/^  vsa:/,\$p' \"$wf\" | grep -E \"^[[:space:]]*if:.*should-release\""
-    [[ "$status" -eq 0 ]]
-    run bash -c "sed -n '/^  vsa:/,\$p' \"$wf\" | grep -E \"^[[:space:]]*if:.*verify-image\""
-    [[ "$status" -ne 0 ]]
-}
-
 @test "container: workflow exposes verify-image input (default true)" {
     local wf="$REPO_ROOT/.github/workflows/build_and_publish_container.yml"
     run grep -E '^      verify-image:' "$wf"

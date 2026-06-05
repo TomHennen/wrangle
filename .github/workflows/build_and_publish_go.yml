@@ -367,8 +367,6 @@ jobs:
   # reusable workflow is blocked, and (b) surfaces a policy/tooling regression
   # loudly. Keep fail: true for both effects.
   vsa:
-    # The VSA is the durable, engine-independent consumer trust boundary, so it
-    # is independent of the interim verify-provenance double-check toggle.
     if: ${{ needs.gate.outputs.should-release == 'true' }}
     needs: [guard, gate, release, provenance]
     runs-on: ubuntu-latest

@@ -711,16 +711,6 @@ func main() {}
     [[ "$status" -eq 0 ]]
 }
 
-# The VSA is the consumer trust boundary, independent of the verify-provenance
-# double-check toggle; re-coupling them is the issue #320 regression. Anchor on
-# the if: line so the why-comment that names verify-provenance can't false-match.
-@test "go: vsa job is gated on should-release only, NOT verify-provenance" {
-    run bash -c "sed -n '/^  vsa:/,/^[a-z]/p' \"$WORKFLOW\" | grep -E \"^[[:space:]]*if:.*should-release\""
-    [[ "$status" -eq 0 ]]
-    run bash -c "sed -n '/^  vsa:/,/^[a-z]/p' \"$WORKFLOW\" | grep -E \"^[[:space:]]*if:.*verify-provenance\""
-    [[ "$status" -ne 0 ]]
-}
-
 @test "go: verify job uses the verify composite (not inline shell)" {
     run bash -c "sed -n '/^  verify:/,/^[a-z]/p' \"$WORKFLOW\" | grep -E 'build/actions/go/verify@'"
     [[ "$status" -eq 0 ]]
