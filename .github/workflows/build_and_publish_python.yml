@@ -267,7 +267,7 @@ jobs:
           path: provenance/
 
       # TODO: replace with $/actions/verify when GitHub ships $/ syntax (#136)
-      - uses: TomHennen/wrangle/actions/verify@93bc9156316fce318be37c48372b6ed626078161 # feat/attest-build-provenance-316 2026-06-06
+      - uses: TomHennen/wrangle/actions/verify@24e24b114e45e5ed1c9a2cd31c8b5ba5c521ecc9 # feat/attest-build-provenance-316 2026-06-06
         with:
           subject: dist/${{ matrix.artifact }}
           policy: policies/wrangle-provenance-python-v1.hjson
