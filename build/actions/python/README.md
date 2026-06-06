@@ -127,8 +127,6 @@ jq -e '.predicate.verifiedLevels | index("SLSA_BUILD_LEVEL_3")' <<<"$payload"
 
 `--type` must be the full URI `https://slsa.dev/verification_summary/v1` — cosign rejects the `slsaverificationsummary` alias.
 
-> **Pending a python regression fixture ([#325](https://github.com/TomHennen/wrangle/issues/325)).** This is the same cosign command shape npm uses (covered by wrangle's consumer test) with python literals; a python-specific VSA fixture + test case isn't in place yet.
-
 **One command, but no repo binding — `ampel verify` (not recommended yet).** ampel can check the VSA against a wrangle-hosted consumer policy in a single command, but ampel (v1.2.1) matches only the signing cert's issuer + SAN — **not** its source-repository extension — so it cannot bind the origin repo and would accept a wrangle-signed VSA built in a *different* repo. That gap is too big to recommend it as your check today; use the cosign command above. ampel may return as a one-command option once the binding is fixed — [#321](https://github.com/TomHennen/wrangle/issues/321).
 
 ## SBOM
