@@ -7,9 +7,9 @@
 # unless the attestation was signed by wrangle's reusable build workflow (the
 # job_workflow_ref that, run inside a reusable workflow, becomes both the
 # Sigstore cert identity and the provenance builder.id). The identity banner is
-# informational — it prints builder.id / buildType / signer so a human (and the
-# release log) can confirm the values match wrangle's, but the binding is the
-# flag, not the print.
+# informational — it prints builder.id / buildType / signer / issuer / the
+# name->digest subject set so a human (and the release log) can confirm the
+# values match wrangle's, but the binding is the flag, not the print.
 #
 # Inputs arrive as environment variables: SUBJECT (an oci://<image>@sha256:...
 # ref, or a path to a file or a directory of files), REPO (owner/repo where the
@@ -59,6 +59,10 @@ wrangle_print_identities() {
     printf 'buildType:   %s\n' "$(jq -r 'first(.[].verificationResult.statement.predicate.buildDefinition.buildType) // "unknown"' <<<"$json" 2>/dev/null || printf 'unknown')"
     printf 'signer SAN:  %s\n' "$(jq -r 'first(.[].verificationResult.signature.certificate.subjectAlternativeName) // "unknown"' <<<"$json" 2>/dev/null || printf 'unknown')"
     printf 'issuer:      %s\n' "$(jq -r 'first(.[].verificationResult.signature.certificate.issuer) // "unknown"' <<<"$json" 2>/dev/null || printf 'unknown')"
+    # The name->digest subject set the attestation binds: what verification
+    # actually matched the bytes against. `gh attestation verify` already failed
+    # closed if the subject digest didn't match, so this is for the audit log.
+    printf 'subjects:    %s\n' "$(jq -r '[first(.[].verificationResult.statement.subject)[] | "\(.name // "-")@sha256:\(.digest.sha256 // "unknown")"] | join(", ")' <<<"$json" 2>/dev/null || printf 'unknown')"
 }
 
 # Verify one subject, failing closed on a non-zero gh exit.
