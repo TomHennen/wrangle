@@ -42,10 +42,8 @@ on:
 jobs:
   build:
     permissions:
-      # Required by wrangle's reusable workflow's nested provenance job:
-      contents: write   # SLSA generator's upload-assets job declares this; GitHub validates at startup even when upload-assets is false
+      contents: write   # wrangle's vsa job attaches the VSA to the release on tags; GitHub validates at startup even on non-tag runs
       id-token: write   # OIDC for Sigstore signing
-      actions: read     # SLSA generator detects the GitHub Actions environment
       attestations: write   # wrangle's attest job writes GitHub-issued SLSA provenance
     uses: TomHennen/wrangle/.github/workflows/build_and_publish_npm.yml@v0.2.0
     with:

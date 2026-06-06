@@ -18,7 +18,6 @@ jobs:
   build-and-publish:
     permissions:
       contents: read       # checkout
-      actions: read        # SLSA provenance generator
       id-token: write      # OIDC for keyless Cosign signing
       packages: write      # push image + provenance to GHCR
       attestations: write  # wrangle's attest job writes GitHub-issued SLSA provenance
