@@ -112,8 +112,6 @@ jq -e '.predicate.resourceUri == "<imagename>@sha256:<digest>"' <<<"$payload"
 jq -e '.predicate.verifiedLevels | index("SLSA_BUILD_LEVEL_3")' <<<"$payload"
 ```
 
-> Use the command above, not `cosign download attestation` — that reads the `.att` tag and can't see this referrer VSA. `ampel verify` also works but can't yet bind the origin repo ([#321](https://github.com/TomHennen/wrangle/issues/321)).
-
 > **`slsa-verifier verify-vsa` is not usable here.** It only verifies *key-signed* VSAs (it requires `--public-key-path`); wrangle's VSAs are keyless (Fulcio/Sigstore), so there is no identity flag to pass. Tracked under the [Attestation trust gaps](../../../README.md) section / [#317](https://github.com/TomHennen/wrangle/issues/317).
 
 ## SBOM
