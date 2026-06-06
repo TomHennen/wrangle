@@ -238,7 +238,7 @@ jobs:
       # where the attestation is stored.
       # TODO: replace with $/actions/verify_attestation when GitHub ships $/ syntax (#136)
       - if: ${{ inputs.verify-provenance }}
-        uses: TomHennen/wrangle/actions/verify_attestation@638c1fd072ffedb67459b7abdcaa39b8ca38a1df # feat/attest-build-provenance-316 2026-06-04
+        uses: TomHennen/wrangle/actions/verify_attestation@66ffcaf32c859c1c14fb42bdd228e997acde04e4 # feat/attest-build-provenance-316 2026-06-06
         with:
           subject: dist
           repo: ${{ github.repository }}
@@ -297,7 +297,7 @@ jobs:
           path: provenance/
 
       # TODO: replace with $/actions/verify when GitHub ships $/ syntax (#136)
-      - uses: TomHennen/wrangle/actions/verify@cb043076b426c1e22b1305e39b7a59dc3a696f98 # main 2026-06-04
+      - uses: TomHennen/wrangle/actions/verify@66ffcaf32c859c1c14fb42bdd228e997acde04e4 # feat/attest-build-provenance-316 2026-06-06
         with:
           subject: dist/${{ matrix.artifact }}
           policy: policies/wrangle-provenance-python-v1.hjson
