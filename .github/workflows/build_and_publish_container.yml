@@ -190,7 +190,7 @@ jobs:
       # constant wrangle path (the cert SAN); repo is the caller's repo.
       # TODO: replace with $/actions/verify_attestation when GitHub ships $/ syntax (#136)
       - if: ${{ inputs.verify-image }}
-        uses: TomHennen/wrangle/actions/verify_attestation@ee2554470615b6ee5d11de60759122c713f0f808 # feat/attest-build-provenance-316 2026-06-06
+        uses: TomHennen/wrangle/actions/verify_attestation@9202be695ac2e4a073828d70f99595af1e48fcb3 # feat/attest-build-provenance-316 2026-06-06
         with:
           subject: oci://${{ needs.build.outputs.imagename }}@${{ needs.build.outputs.digest }}
           repo: ${{ github.repository }}
@@ -251,7 +251,7 @@ jobs:
           password: ${{ secrets.GITHUB_TOKEN }}
 
       # TODO: replace with $/actions/verify when GitHub ships $/ syntax (#136)
-      - uses: TomHennen/wrangle/actions/verify@ee2554470615b6ee5d11de60759122c713f0f808 # feat/attest-build-provenance-316 2026-06-06
+      - uses: TomHennen/wrangle/actions/verify@9202be695ac2e4a073828d70f99595af1e48fcb3 # feat/attest-build-provenance-316 2026-06-06
         with:
           subject: ${{ needs.build.outputs.digest }}
           policy: policies/wrangle-provenance-container-v1.hjson
