@@ -215,16 +215,14 @@ Asymmetry: container vs. python. The container reusable workflow's docker push h
 
 ### Release verification
 
-Every wrangle build-type reusable workflow that produces an attestation MUST verify it before declaring success. Verification is default-on with a per-build-type opt-out input (`verify-provenance` for python, `verify-image` for container). The opt-out moves the integrity guarantee from "wrangle owns it" to "adopter owns it" — appropriate for adopters running custom verification flows.
+Every wrangle build-type reusable workflow verifies its provenance before declaring success — there is no opt-out: a wrangle release is verified by construction. Verification is the `vsa` job (`actions/verify` → ampel), gated on `should-release`:
 
-Each build type verifies its provenance in-run — the `verify_attestation` step inside the `attest` job (`gh attestation verify --signer-workflow`):
+1. ampel collects the just-produced provenance — the attest job's signed bundle for npm/go/python (passed as a workflow artifact), or the image's OCI 1.1 referrer for container — and evaluates it against the build type's `wrangle-provenance-<type>-v1` PolicySet.
+2. It is fail-closed on the signer identity: the PolicySet's `common.identities` admits only wrangle's reusable build workflow (`build_and_publish_<type>.yml`) as the keyless signer — no `--signer` flag to forget — and also checks the SLSA builder/buildType/build-point tenets. The bats harness proves each PolicySet rejects an unsigned or wrong-signer attestation.
+3. A FAILED verdict fails the workflow; standard `needs:` propagation then blocks any caller's release-time job (e.g., python publish, container release tagging). This closes the "tampered between build and publish" window — the build provenance only covers what wrangle built, not what the registry serves on subsequent reads. For container, ampel pulls the provenance from the registry by digest, so the verdict also covers the registry round-trip.
+4. On a PASS, the same job emits the single signed VSA a consumer trusts — so verification and the consumer artifact are one step, and the wrangle signer identity is declared once (in the PolicySet) rather than duplicated in a separate verify flag.
 
-1. Runs immediately after the attest step, against the locally-emitted Sigstore bundle (`--bundle`), so it doesn't wait on the attestations API to propagate.
-2. Is gated on `should-release == 'true' && inputs.verify-<build-specific> == true` so it only runs when there is something to verify.
-3. Fails the workflow on verification failure. Standard `needs:` propagation then blocks any caller's release-time job (e.g., python publish, container release tagging).
-4. Binds the signer to wrangle's reusable build workflow (`--signer-workflow …/build_and_publish_<type>.yml`), fail-closed — no `--signer` flag to forget. The workflow path is fixed; the ref is whatever the adopter pinned wrangle at (a tag or SHA). The bats tests assert each build type names its own `build_and_publish_<type>.yml` as the signer.
-
-Why default-on. Verification belongs in wrangle as a default-on guarantee, not in adopter examples as a "recommended" step that they might forget. Without wrangle-owned verification, the "tampered between build and publish" attack window has no defender — the build provenance only covers what wrangle built, not what the registry serves on subsequent reads. Owning verification is what makes wrangle's "build → release" contract end-to-end rather than per-step.
+Why no opt-out. Verification is the point of wrangle's "build → release" contract; a release that skipped it would still emit a signed VSA consumers trust, with nothing behind it. Because the `vsa` job is gated on `should-release`, PR/dev builds produce no VSA at all — there is no green-looking VSA on an unverified build to mislead a consumer.
 
 Why opt-out exists. Some adopters run custom verification policies (different `--source-uri` constraints, custom cert identities, ratchet-style multi-tag-tolerance). For those cases the opt-out lets them keep wrangle's build/provenance/attestation while replacing the verify step. The contract becomes: wrangle still pushes/builds/attests, but the integrity-between-build-and-publish guarantee shifts to the adopter.
 

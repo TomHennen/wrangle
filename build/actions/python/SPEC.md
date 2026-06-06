@@ -4,7 +4,7 @@
 
 The Python build type builds, tests, and produces Python packages with SBOM generation and artifact hashes for SLSA provenance. It supports two layers of attestation: PEP 740 Sigstore attestations (publisher identity, verified by PyPI) and SLSA Build L3 provenance.
 
-Wrangle's reusable workflow handles build, test, SBOM generation, SLSA L3 provenance generation, and provenance verification. **Publishing is handled by the adopter's own workflow** because PyPI Trusted Publishing does not support reusable workflows ([pypi/warehouse#11096](https://github.com/pypi/warehouse/issues/11096)) — the OIDC `workflow_ref` claim must point at the caller, not at a reusable workflow. Wrangle verifies the dist against its provenance before declaring success; if verification fails the workflow fails and the caller's publish is blocked via `needs:` propagation. The adopter's publish job is just `download-artifact` + `pypa/gh-action-pypi-publish` — no boilerplate verify step. Adopters with a custom verification flow opt out via `verify-provenance: false`. The example workflow at `gh_workflow_examples/build_python.yml` shows the full wiring. When PyPI adds reusable workflow support (#157), publishing will collapse back into the reusable workflow.
+Wrangle's reusable workflow handles build, test, SBOM generation, SLSA L3 provenance generation, and provenance verification. **Publishing is handled by the adopter's own workflow** because PyPI Trusted Publishing does not support reusable workflows ([pypi/warehouse#11096](https://github.com/pypi/warehouse/issues/11096)) — the OIDC `workflow_ref` claim must point at the caller, not at a reusable workflow. The `vsa` job verifies the provenance (ampel against the wrangle PolicySet, fail-closed) and emits the signed VSA before publish; if verification fails the workflow fails and the caller's publish is blocked via `needs:` propagation. The adopter's publish job is just `download-artifact` + `pypa/gh-action-pypi-publish` — no boilerplate verify step. The example workflow at `gh_workflow_examples/build_python.yml` shows the full wiring. When PyPI adds reusable workflow support (#157), publishing will collapse back into the reusable workflow.
 
 ## Design principles
 
@@ -52,7 +52,6 @@ Before the first publish, the adopter must:
 | `python-version` | No | (auto-detect) | Python version override. If empty, detected from `pyproject.toml` via `actions/setup-python`'s `python-version-file` feature. |
 | `run-tests` | No | `true` | Whether to run pytest before building |
 | `release-events` | No | `non-pull-request` | Which events trigger release-time actions (provenance, verification, publish). See [`docs/SPEC.md`](../../../docs/SPEC.md) "Release-events gating" for the full vocabulary. |
-| `verify-provenance` | No | `true` | Run `gh attestation verify --signer-workflow` (via `actions/verify_attestation`) against the just-built dist's provenance before declaring the workflow successful. Verify failure fails the workflow; the caller's publish is then blocked via `needs:` propagation. Set to `false` to skip wrangle's verification. |
 
 Wrangle's reusable workflow has no `repository-url` input — publishing lives in the adopter's own workflow because PyPI Trusted Publishing requires the OIDC token's `workflow_ref` to point at the adopter, not at a reusable workflow ([pypi/warehouse#11096](https://github.com/pypi/warehouse/issues/11096)). The adopter's publish job sets `repository-url` directly on `pypa/gh-action-pypi-publish`.
 
@@ -130,16 +129,11 @@ Provenance is gated on the `release-events` input (default `non-pull-request`). 
 
 The separate `vsa:` job (which emits the signed SLSA VSA) declares `contents: write` so it can attach the VSA to the GitHub release on tag pushes. Callers of this reusable workflow must therefore grant `contents: write` themselves for that job.
 
-### 9. Verify provenance (reusable workflow, in the `attest:` job, gated on verify-provenance)
+### 9. Verify provenance and emit the VSA (reusable workflow `vsa:` job, gated on release-events)
 
-Immediately after `actions/attest-build-provenance` emits the provenance, the same `attest:` job runs `actions/verify_attestation` (`gh attestation verify --signer-workflow`) against the just-produced provenance:
+The `vsa:` job runs `actions/verify`, which drives ampel against the provenance the `attest:` job produced. ampel verifies the provenance's Sigstore signature against the `wrangle-provenance-python-v1` PolicySet's `common.identities` — fail-closed, so only wrangle's reusable-workflow signer (`TomHennen/wrangle/.github/workflows/build_and_publish_python.yml`, both the Sigstore cert SAN and the provenance `builder.id`) passes — and checks the SLSA tenets, then emits the signed SLSA VSA.
 
-- `--signer-workflow`: `TomHennen/wrangle/.github/workflows/build_and_publish_python.yml`. The attest step runs inside this reusable workflow, so its `job_workflow_ref` is both the Sigstore cert SAN and the provenance `builder.id`; verification fails closed unless this exact workflow signed the bundle.
-- `--repo`: `${{ github.repository }}` — the caller's repo, where the attestation is stored. The verify runs against the attest step's local offline bundle (`--bundle`), so `--repo` only scopes the (skipped) API lookup, not the integrity decision.
-
-If verification fails, the step fails — and via standard `needs:` propagation the reusable workflow fails. The caller's publish job, gated on `should-release == 'true'`, is therefore blocked. This catches the "dist tampered with between wrangle's build and the caller's publish" case as a wrangle-owned guarantee rather than per-adopter boilerplate.
-
-The verify step is gated on `inputs.verify-provenance` (boolean, default `true`). Adopters who run a custom verification flow set `verify-provenance: false`; in that mode the dist's integrity between wrangle and the caller's publish becomes an adopter-managed concern and the caller's publish job assumes responsibility for verification.
+The job is gated on `should-release` (the same `gate` job that gates `attest:`); it is not opt-out-able. If verification fails, the job fails — and via standard `needs:` propagation the reusable workflow fails. The caller's publish job, gated on `should-release == 'true'`, is therefore blocked. This catches the "dist tampered with between wrangle's build and the caller's publish" case as a wrangle-owned guarantee rather than per-adopter boilerplate.
 
 ### 10. Publish (adopter workflow, gated on should-release)
 
@@ -189,7 +183,7 @@ Callers of this reusable workflow must grant `contents: write` so the validator 
 
 ## Reusable workflow
 
-`.github/workflows/build_and_publish_python.yml` runs build-and-test in one job (`build`), generates and verifies SLSA provenance in a second job (`attest`), and emits the signed SLSA VSA in a third (`vsa`). Provenance comes from `actions/attest-build-provenance` run as a step *inside* the reusable workflow, not from a nested generator reusable workflow. Publishing lives in the adopter's calling workflow — see step 10 for why.
+`.github/workflows/build_and_publish_python.yml` runs build-and-test in one job (`build`), generates SLSA provenance in a second job (`attest`), and verifies that provenance and emits the signed SLSA VSA in a third (`vsa`). Provenance comes from `actions/attest-build-provenance` run as a step *inside* the reusable workflow, not from a nested generator reusable workflow. Publishing lives in the adopter's calling workflow — see step 10 for why.
 
 ```yaml
 on:
@@ -211,10 +205,6 @@ on:
         required: false
         type: string
         default: non-pull-request
-      verify-provenance:
-        required: false
-        type: boolean
-        default: true
     outputs:
       hashes:
         value: ${{ jobs.build.outputs.hashes }}
@@ -287,17 +277,9 @@ jobs:
         id: attest
         with:
           subject-path: dist/*
-      # In-run verification (replaces the old slsa-verifier verify job).
-      - if: ${{ inputs.verify-provenance }}
-        uses: TomHennen/wrangle/actions/verify_attestation@<sha>
-        with:
-          subject: dist
-          repo: ${{ github.repository }}
-          signer-workflow: TomHennen/wrangle/.github/workflows/build_and_publish_python.yml
-          bundle-path: ${{ steps.attest.outputs.bundle-path }}
 ```
 
-The `vsa` job (omitted above for brevity) emits the signed SLSA VSA via `actions/verify` and attaches it to the release on tag pushes; it needs `id-token: write` and `contents: write`. The publish job lives in the adopter's calling workflow (see `gh_workflow_examples/build_python.yml`), which depends on this reusable workflow's `dist-artifact-name`, `provenance-artifact-name`, `hashes`, and `should-release` outputs.
+The `vsa` job (omitted above for brevity) verifies the provenance against the wrangle PolicySet and emits the signed SLSA VSA via `actions/verify`, attaching it to the release on tag pushes; it needs `id-token: write` and `contents: write`. The publish job lives in the adopter's calling workflow (see `gh_workflow_examples/build_python.yml`), which depends on this reusable workflow's `dist-artifact-name`, `provenance-artifact-name`, `hashes`, and `should-release` outputs.
 
 ## Security model
 

@@ -160,11 +160,9 @@ with:
 
 Full vocabulary in [`docs/SPEC.md`](../../../docs/SPEC.md) "Release-events gating."
 
-## SLSA provenance verification (wrangle-side, post-publish)
+## SLSA provenance verification (the `vsa` job)
 
-After goreleaser publishes, wrangle runs `gh attestation verify --signer-workflow` against the just-built dist (the checksums-listed artifacts). This is wrangle dogfooding the same check downstream consumers will run — if it fails, consumers running verify will fail too, so the artifact is effectively rejected at the security-aware-consumer layer regardless of whether bad provenance reached the attestation store. (See "Publish first, attest second" above for why presence ≠ trust in the SLSA model.)
-
-A wrangle-side verify failure surfaces a tooling/identity regression (the bundle doesn't verify against wrangle's signer, or its subjects don't match what goreleaser uploaded) loudly in CI. To opt out (e.g., custom verification flow): `verify-provenance: false`.
+After goreleaser publishes, the `vsa` job verifies the provenance — ampel (via `actions/verify`) checks the provenance's Sigstore signature against the wrangle PolicySet's `common.identities` (fail-closed: only wrangle's reusable-workflow signer passes) and the SLSA tenets, then emits the signed VSA. It's gated on `should-release`, so it runs on every release; it is not opt-out-able. If verification fails the workflow fails and any downstream `needs:` job is blocked. This is wrangle dogfooding the same kind of check downstream consumers will run — if it fails, consumers running verify will fail too, so the artifact is effectively rejected at the security-aware-consumer layer regardless of whether bad provenance reached the attestation store. (See "Publish first, attest second" above for why presence ≠ trust in the SLSA model.)
 
 ### Verifying after install (downstream consumers)
 

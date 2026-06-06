@@ -77,16 +77,6 @@ Both attestations attach to the same image (different predicateTypes, no conflic
 11. actions/attest-build-provenance (in wrangle's reusable workflow) — canonical SLSA L3 provenance (signed, isolated)
 12. Cosign — image signature
 
-### Applying to future build types
-
-| Build type | Native SBOM | Native provenance | SLSA provenance (always) |
-|-----------|-------------|-------------------|--------------------------|
-| **Container** | BuildKit `--sbom=true` | BuildKit `--provenance=mode=max` | actions/attest-build-provenance (in wrangle's reusable workflow) |
-| **npm** | `npm sbom` | `npm publish --provenance` | actions/attest-build-provenance (in wrangle's reusable workflow) |
-| **Python** | `cyclonedx-py` from lockfile | PyPI Trusted Publishers | actions/attest-build-provenance (in wrangle's reusable workflow) |
-| **Go** | `cyclonedx-gomod` from go.sum | None (SLSA only) | actions/attest-build-provenance (in wrangle's reusable workflow) |
-| **Generic** | Syft (post-hoc fallback) | None (SLSA only) | actions/attest-build-provenance (in wrangle's reusable workflow) |
-
 ### Net new binaries for v0.1
 
 | Binary | Ecosystem | Required? |

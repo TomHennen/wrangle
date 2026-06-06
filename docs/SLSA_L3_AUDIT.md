@@ -79,6 +79,22 @@ adopter consuming wrangle through one of wrangle's **reusable workflows**:
 >   builds and attests. The cache-isolation findings (Findings 1–2) still apply
 >   verbatim — the build still runs in that workflow under the same release-build
 >   cache discipline.
+> - **Signing-key isolation** ([build-requirements](https://slsa.dev/spec/v1.2/build-requirements):
+>   *"secret material MUST NOT be accessible to the environment running the
+>   user-defined build steps"*). "Build and attest in the same reusable workflow"
+>   does **not** mean the same environment: build and signing are separate
+>   **jobs**, hence separate runner VMs with per-job OIDC. The jobs that run the
+>   adopter's build steps (`build`/`checks`/`release`) hold **no `id-token`** and
+>   so cannot mint a Sigstore token; the jobs that sign (`attest`, `vsa`) hold
+>   `id-token: write` but run **only trusted, non-user-controlled steps** —
+>   `download-artifact` (data, not code), `actions/attest-build-provenance`,
+>   `ampel`/`bnd`, and a `jq` normalize of the attest output. So the signing
+>   material is unreachable by user build steps — the same isolation the
+>   generator provided via a separate *workflow*, now via separate *jobs*. Scope:
+>   this prevents key *theft* by a compromised build step (the mini-Shai-Hulud
+>   class). It does **not** — and is not meant to — prevent a compromised build
+>   from producing an *honestly-signed* malicious artifact; that's source /
+>   dependency integrity, a separate track from build-platform key isolation.
 > - **buildType / predicate.** Provenance is now `predicateType
 >   https://slsa.dev/provenance/v1` with `buildType
 >   https://actions.github.io/buildtypes/workflow/v1` (was the generator's

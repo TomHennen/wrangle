@@ -6,7 +6,7 @@ The publish job lives in your own workflow — not in a wrangle reusable workflo
 
 ## Quick-start
 
-Copy [`gh_workflow_examples/build_python.yml`](../../../gh_workflow_examples/build_python.yml) into your repo at `.github/workflows/`. The example wires the required permissions (`attestations: write` so wrangle's attest job can write the GitHub-issued provenance, `id-token: write` for Sigstore keyless signing, `contents: write` so the VSA job can attach the VSA to the release on tag pushes) and includes the publish job with verify-before-publish. Most adopters only need to set the `path` input.
+Copy [`gh_workflow_examples/build_python.yml`](../../../gh_workflow_examples/build_python.yml) into your repo at `.github/workflows/`. The example wires the required permissions (`attestations: write` so wrangle's attest job can write the GitHub-issued provenance, `id-token: write` for Sigstore keyless signing, `contents: write` so the VSA job can attach the VSA to the release on tag pushes) and includes the publish job. Most adopters only need to set the `path` input.
 
 Pair with [source scan](../../../actions/scan/README.md) — build hardens *how* your artifact is produced; source scan covers *what was checked into the repo you're building from*.
 
@@ -77,9 +77,9 @@ with:
 >
 > Without the gate, publish runs on every non-PR event regardless of `release-events`.
 
-## SLSA provenance verification (default-on, opt-out)
+## SLSA provenance verification (the `vsa` job)
 
-The reusable workflow verifies the just-built dist against the SLSA L3 provenance before declaring success (`gh attestation verify --signer-workflow`, fail-closed unless wrangle's reusable workflow signed the bundle) — failure blocks your publish job via `needs:`. This catches tampering between wrangle's build and your publish, so your publish job stays as simple as `download-artifact` + `pypa/gh-action-pypi-publish`. Opt out with `verify-provenance: false` if you maintain a custom verification flow (the integrity guarantee then shifts to you).
+The `vsa` job verifies the SLSA L3 provenance — ampel (via `actions/verify`) checks the provenance's Sigstore signature against the wrangle PolicySet's `common.identities` (fail-closed: only wrangle's reusable-workflow signer passes) and the SLSA tenets, then emits the signed VSA. It's gated on `should-release`, so it runs on every release; it is not opt-out-able. If verification fails the workflow fails and your publish job is blocked via `needs:`. This catches tampering between wrangle's build and your publish, so your publish job stays as simple as `download-artifact` + `pypa/gh-action-pypi-publish`.
 
 ## Verifying after install (downstream consumers)
 

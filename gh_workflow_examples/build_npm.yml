@@ -18,11 +18,12 @@
 # https://docs.npmjs.com/trusted-publishers/ (Troubleshooting)
 # https://github.com/npm/documentation/issues/1755
 #
-# Wrangle's reusable workflow generates SLSA provenance (Build L3) AND verifies
-# the just-built tarball against it before declaring success. If
-# verification fails, the workflow fails and `needs: [build]` blocks
-# publish — so adopters don't need to wire `slsa-verifier` into their
-# own publish job. Pass `verify-provenance: false` to opt out.
+# Wrangle's reusable workflow generates SLSA provenance (Build L3); its
+# `vsa` job then verifies that provenance (fail-closed, via ampel against
+# the wrangle PolicySet) and emits the signed VSA before declaring
+# success. If verification fails, the workflow fails and `needs: [build]`
+# blocks publish — so adopters don't need to wire `slsa-verifier` into
+# their own publish job.
 #
 # Trigger note: this workflow publishes when `should-release` is true.
 # This template sets `release-events: tag-only` so only tag pushes
@@ -52,13 +53,12 @@ jobs:
       # node-version: ""                # optional: auto-detected from .nvmrc or package.json
       # run-tests: true                 # optional: skip with false
       # ignore-scripts: false           # optional: set true to suppress prepare/prepack/postpack hooks (breaks projects that rely on husky, prebuild-install)
-      # verify-provenance: true         # optional: wrangle verifies before declaring success; set false for custom verify
 
   publish:
     # Gate on the should-release output. should-release is "true" only when
-    # the wrangle workflow succeeded (which includes verify, on by default),
-    # so by the time this job runs the tarball has already been verified
-    # against its provenance.
+    # the wrangle workflow succeeded (which includes the vsa job's
+    # provenance verification), so by the time this job runs the tarball
+    # has already been verified against its provenance.
     if: ${{ needs.build.outputs.should-release == 'true' }}
     needs: [build]
     runs-on: ubuntu-latest

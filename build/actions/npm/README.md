@@ -79,9 +79,9 @@ See [`docs/SPEC.md`](../../../docs/SPEC.md) "Release-events gating" for the full
 >
 > Without the gate, publish runs on every non-PR event regardless of `release-events`.
 
-## SLSA provenance verification (default-on, opt-out)
+## SLSA provenance verification (the `vsa` job)
 
-The reusable workflow re-fetches the dist and verifies it against the L3 provenance before declaring success (`gh attestation verify --signer-workflow`, fail-closed unless wrangle's reusable workflow signed the bundle) — failure blocks your publish job via `needs:`. This closes the wrangle→caller-publish handoff (the caller→registry segment is bound by Trusted Publishing's `workflow_ref` claim, which npm validates at upload time). Opt out with `verify-provenance: false` if you maintain a custom verification flow.
+The `vsa` job verifies the L3 provenance — ampel (via `actions/verify`) checks the provenance's Sigstore signature against the wrangle PolicySet's `common.identities` (fail-closed: only wrangle's reusable-workflow signer passes) and the SLSA tenets, then emits the signed VSA. It's gated on `should-release`, so it runs on every release; it is not opt-out-able. If verification fails the workflow fails and your publish job is blocked via `needs:`. This closes the wrangle→caller-publish handoff (the caller→registry segment is bound by Trusted Publishing's `workflow_ref` claim, which npm validates at upload time).
 
 ## Verifying after install (downstream consumers)
 

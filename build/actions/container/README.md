@@ -31,7 +31,7 @@ Release builds run with the BuildKit `type=gha` cache disabled (BuildKit doesn't
 - Pushes to ghcr.io (other registries out of scope — see [`SPEC.md`](./SPEC.md#current-scope-ghcrio-only)).
 - Generates a BuildKit-native SBOM, attaches it to the image as an OCI attestation, and uploads it as a workflow artifact in SPDX JSON.
 
-The reusable workflow `build_and_publish_container.yml` layers on top: `actions/attest-build-provenance` produces L3 provenance (run inside the isolated reusable workflow, which names itself as the provenance `builder.id`), `gh attestation verify --signer-workflow` checks that provenance against the just-pushed digest, and the release-gate job enforces the order.
+The reusable workflow `build_and_publish_container.yml` layers on top: `actions/attest-build-provenance` produces L3 provenance (run inside the isolated reusable workflow, which names itself as the provenance `builder.id`), the `vsa` job verifies that provenance and emits the signed VSA, and the release-gate job enforces the order.
 
 Two pieces from the spec are not yet shipped — neither in the composite nor in the reusable workflow:
 
@@ -76,18 +76,11 @@ The scope is keyed by `github.event.pull_request.number` (a GitHub-assigned uniq
 
 > **Never invoke this workflow from `pull_request_target`.** That trigger runs in the base-repo context with cache write access, making a fork PR the highest-risk poisoning vector. Wrangle's reusable workflows will block any workflow that uses `pull_request_target` ([#202](https://github.com/TomHennen/wrangle/issues/202)).
 
-## SLSA attestation verification (default-on, opt-out)
+## SLSA attestation verification (the `vsa` job)
 
-The reusable workflow runs `gh attestation verify --signer-workflow` against the just-pushed image digest before declaring success. This catches the "registry served different bytes than wrangle pushed" attack window — failure blocks any downstream `needs:` job. The signer is pinned to wrangle's reusable workflow (`build_and_publish_container.yml`), which signed the provenance, so an attestation signed by any other identity does not pass.
+The `vsa` job verifies the image's L3 provenance — ampel (via `actions/verify`) checks the provenance's Sigstore signature against the wrangle PolicySet's `common.identities` (fail-closed: only wrangle's reusable-workflow signer passes) and the SLSA tenets, then emits the signed VSA. It's gated on `should-release`, so it runs on every release; it is not opt-out-able. If verification fails the workflow fails and any downstream `needs:` job is blocked. This also catches the "registry served different bytes than wrangle pushed" attack window, since the provenance the job evaluates is pulled from the registry by digest.
 
-To opt out (custom verification flow):
-
-```yaml
-with:
-  verify-image: false
-```
-
-**Private-repo limitation.** Verify currently does no registry auth, so private-repo adopters must set `verify-image: false` and verify in their own job. See [#182](https://github.com/TomHennen/wrangle/issues/182). When `cosign sign` of the image digest lands, this verify job will additionally check the image signature against the caller's `workflow_ref`.
+**Private-repo limitation.** The `vsa` job pulls the provenance referrer from the registry but does no registry auth, so private-repo images whose pulls are auth-gated are a known gap — tracked in [#182](https://github.com/TomHennen/wrangle/issues/182). When `cosign sign` of the image digest lands, the job will additionally check the image signature against the caller's `workflow_ref`.
 
 ### Verifying the VSA
 
