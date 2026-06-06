@@ -144,7 +144,7 @@ metadata/<type>/<shortname>/
 
 `<type>` is the build type (`container`, `python`, ...) and `<shortname>` is the path-derived name (`/` becomes `_`) so multiple builds in one workflow don't collide.
 
-The provenance file is namespaced by build type and shortname (e.g., `python-_.intoto.jsonl`, `python-pkg_foo.intoto.jsonl`). Wrangle passes `provenance-name` to the SLSA generator so multiple builds in the same workflow don't collide on the default filename — `actions/download-artifact` picks non-deterministically when two artifacts share a name in the same run, and a verify job downloading the wrong build's provenance would fail with a confusing hash mismatch. The actual filename is exposed via the workflow's `provenance-artifact-name` output so adopters and downstream consumers don't need to reconstruct the convention themselves.
+For npm/go/python the signed provenance bundle is uploaded as a workflow artifact namespaced by build type and shortname (`<type>-provenance-bundle-<shortname>`) so multiple builds in one workflow don't collide — `actions/download-artifact` picks non-deterministically when two artifacts share a name in the same run, and the VSA job reading the wrong build's bundle would fail with a confusing subject mismatch. The artifact name is exposed via the workflow's `provenance-artifact-name` output so adopters and downstream consumers don't need to reconstruct the convention themselves. (The container attestation is a registry referrer on the image digest, not a workflow artifact.)
 
 #### How the artifact maps to a directory
 
@@ -211,20 +211,20 @@ Why a shared composite. Centralizing the predicate means adopters get a single v
 
 Why over-generation is acceptable for the default. SLSA L3 provenance is non-falsifiable: a verifier checks `--source-uri` and (where the consumer specifies it) `--source-tag` against the provenance's recorded `workflow_ref`. A `schedule`-cron run that nobody downstream consumes is harmless because no consumer references that `workflow_ref`. The cost of over-generation is generator-job runtime; the cost of under-generation is "the consumer expected provenance and didn't get it." Asymmetric — over-generate by default, let adopters tighten when they have a stronger threat model (e.g., `tag-only` to ensure unauthorized `workflow_dispatch` cannot mint provenance for a release that downstream verifiers might trust under a default policy).
 
-Asymmetry: container vs. python. The container reusable workflow's docker push happens mid-composite inside `build/actions/container`; `release-events` currently gates the provenance and verify jobs in that workflow, not the push. The python reusable workflow has no publish step (PyPI Trusted Publishing's OIDC constraint means publish lives in the caller), so `release-events` gates provenance and verify, and `should-release` flows out to the caller's publish job. Build types MUST document this scope when their publish path differs from the python pattern.
+Asymmetry: container vs. python. The container reusable workflow's docker push happens mid-composite inside `build/actions/container`; `release-events` currently gates the attest and vsa jobs in that workflow, not the push. The python reusable workflow has no publish step (PyPI Trusted Publishing's OIDC constraint means publish lives in the caller), so `release-events` gates the attest and vsa jobs, and `should-release` flows out to the caller's publish job. Build types MUST document this scope when their publish path differs from the python pattern.
 
 ### Release verification
 
 Every wrangle build-type reusable workflow that produces an attestation MUST verify it before declaring success. Verification is default-on with a per-build-type opt-out input (`verify-provenance` for python, `verify-image` for container). The opt-out moves the integrity guarantee from "wrangle owns it" to "adopter owns it" — appropriate for adopters running custom verification flows.
 
-Each build type's verify job:
+Each build type verifies its provenance in-run — the `verify_attestation` step inside the `attest` job (`gh attestation verify --signer-workflow`):
 
-1. Runs after the corresponding provenance/attestation job.
+1. Runs immediately after the attest step, against the locally-emitted Sigstore bundle (`--bundle`), so it doesn't wait on the attestations API to propagate.
 2. Is gated on `should-release == 'true' && inputs.verify-<build-specific> == true` so it only runs when there is something to verify.
 3. Fails the workflow on verification failure. Standard `needs:` propagation then blocks any caller's release-time job (e.g., python publish, container release tagging).
-4. Pins the cert identity to the exact tag of the upstream attestation generator. The bats tests assert this lockstep so a single-side bump fails CI loudly.
+4. Binds the signer to wrangle's reusable build workflow (`--signer-workflow …/build_and_publish_<type>.yml`), fail-closed — no `--signer` flag to forget. The workflow path is fixed; the ref is whatever the adopter pinned wrangle at (a tag or SHA). The bats tests assert each build type names its own `build_and_publish_<type>.yml` as the signer.
 
-Why default-on. Verification belongs in wrangle as a default-on guarantee, not in adopter examples as a "recommended" step that they might forget. Without wrangle-owned verification, the "tampered between build and publish" attack window has no defender — the SLSA generator's provenance/attestation only covers what it built, not what the registry serves on subsequent reads. Owning verification is what makes wrangle's "build → release" contract end-to-end rather than per-step.
+Why default-on. Verification belongs in wrangle as a default-on guarantee, not in adopter examples as a "recommended" step that they might forget. Without wrangle-owned verification, the "tampered between build and publish" attack window has no defender — the build provenance only covers what wrangle built, not what the registry serves on subsequent reads. Owning verification is what makes wrangle's "build → release" contract end-to-end rather than per-step.
 
 Why opt-out exists. Some adopters run custom verification policies (different `--source-uri` constraints, custom cert identities, ratchet-style multi-tag-tolerance). For those cases the opt-out lets them keep wrangle's build/provenance/attestation while replacing the verify step. The contract becomes: wrangle still pushes/builds/attests, but the integrity-between-build-and-publish guarantee shifts to the adopter.
 

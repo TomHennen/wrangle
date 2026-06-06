@@ -19,8 +19,8 @@ name: "Build, test, and release a Go project with best practices."
 # Goreleaser owns its native publish: on tag pushes it creates the
 # GitHub Release, attaches archives + checksums, and runs whatever
 # downstream verbs the adopter's .goreleaser.yml configures (Docker
-# pushes, Homebrew taps, deb/rpm/snap, announce). The SLSA generator's
-# upload-assets job appends the provenance shortly after — same
+# pushes, Homebrew taps, deb/rpm/snap, announce). wrangle's attest job
+# produces the provenance shortly after — same
 # "publish first, attest second" shape as wrangle's container build
 # type.
 
@@ -274,7 +274,7 @@ jobs:
           printf 'module=%s\n' "$(go -C "$INPUT_PATH" list -m | head -n1)" >> "$GITHUB_OUTPUT"
 
       # Emit the dist filenames as a JSON array for the vsa job's matrix.
-      # Derived from the SLSA base64-subjects (the "<sha256>  <name>" lines the
+      # Derived from the build's base64 `hashes` output (the "<sha256>  <name>" lines the
       # provenance covers, from dist/checksums.txt), reduced to basenames.
       - id: distfiles
         shell: bash

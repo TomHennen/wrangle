@@ -173,7 +173,7 @@ jobs:
           printf 'metadata=python-metadata-%s\n' "$SHORTNAME" >> "$GITHUB_OUTPUT"
 
       # Emit the dist filenames as a JSON array for the vsa job's matrix.
-      # Derived from the SLSA base64-subjects (the "<sha256>  <name>" lines the
+      # Derived from the build's base64 `hashes` output (the "<sha256>  <name>" lines the
       # provenance covers), reduced to basenames.
       - id: distfiles
         shell: bash

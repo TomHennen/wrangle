@@ -792,9 +792,9 @@ write_pkg_json() {
 }
 
 @test "npm: example workflow grants contents: write to build job" {
-    # The SLSA generator's upload-assets job declares contents: write; GitHub
-    # validates that the caller of wrangle's reusable workflow grants the same
-    # at workflow startup.
+    # wrangle's vsa job declares contents: write (it attaches the VSA to the
+    # release on tags); GitHub validates that the caller of wrangle's reusable
+    # workflow grants the same at workflow startup, regardless of the run's ref.
     run grep -E 'contents: write' "$EXAMPLE"
     [[ "$status" -eq 0 ]]
 }
