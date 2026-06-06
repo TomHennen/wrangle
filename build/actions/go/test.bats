@@ -636,8 +636,10 @@ func main() {}
 
 # --- Reusable workflow tests ---
 
-@test "go: workflow has guard, gate, checks, release, provenance, verify jobs" {
-    for job in guard gate checks release provenance verify; do
+@test "go: workflow has guard, gate, checks, release, attest, vsa jobs" {
+    # attest (attest-build-provenance) + vsa replace the removed
+    # slsa-github-generator provenance: and slsa-verifier verify: jobs.
+    for job in guard gate checks release attest vsa; do
         run grep -E "^  ${job}:" "$WORKFLOW"
         [[ "$status" -eq 0 ]]
     done
@@ -696,26 +698,6 @@ func main() {}
     [[ "$status" -ne 0 ]]
 }
 
-@test "go: provenance job has upload-assets gated on tag push" {
-    run bash -c "sed -n '/^  provenance:/,/^[a-z]/p' \"$WORKFLOW\" | grep -E 'upload-assets:.*startsWith.*refs/tags'"
-    [[ "$status" -eq 0 ]]
-}
-
-@test "go: provenance job is gated on should-release" {
-    run bash -c "sed -n '/^  provenance:/,/^[a-z]/p' \"$WORKFLOW\" | grep -E 'if:.*should-release'"
-    [[ "$status" -eq 0 ]]
-}
-
-@test "go: verify job is gated on should-release AND verify-provenance" {
-    run bash -c "sed -n '/^  verify:/,/^[a-z]/p' \"$WORKFLOW\" | grep -E \"if:.*should-release.*verify-provenance\""
-    [[ "$status" -eq 0 ]]
-}
-
-@test "go: verify job uses the verify composite (not inline shell)" {
-    run bash -c "sed -n '/^  verify:/,/^[a-z]/p' \"$WORKFLOW\" | grep -E 'build/actions/go/verify@'"
-    [[ "$status" -eq 0 ]]
-}
-
 @test "go: workflow exposes run-race-detector and run-gofmt-check inputs" {
     run grep -E '^      run-race-detector:' "$WORKFLOW"
     [[ "$status" -eq 0 ]]
@@ -730,9 +712,16 @@ func main() {}
     done
 }
 
-@test "go: workflow pins third-party actions to SHAs (except SLSA generator's tag-required ref)" {
-    run bash -c "grep 'uses:.*@' \"$WORKFLOW\" | grep -v 'slsa-github-generator' | grep -v -P '@[0-9a-f]{40}' | grep -v '@__PR_HEAD__'"
+@test "go: workflow pins every third-party action to a SHA (no tag exceptions)" {
+    # attest-build-provenance is now the sole provenance; the old
+    # tag-pinned slsa-github-generator carve-out is gone, so every
+    # third-party uses: must be a 40-hex SHA. The integration harness's
+    # @__PR_HEAD__ placeholder stays exempt.
+    run bash -c "grep 'uses:.*@' \"$WORKFLOW\" | grep -v -P '@[0-9a-f]{40}' | grep -v '@__PR_HEAD__'"
     [[ "$status" -eq 1 ]]
+    # And the generator must be gone entirely.
+    run grep 'slsa-github-generator' "$WORKFLOW"
+    [[ "$status" -ne 0 ]]
 }
 
 @test "go: workflow checks + release jobs use namespaced metadata artifact names" {
@@ -1365,5 +1354,37 @@ func TestFails(t *testing.T) {
     run bash -c "sed -n '/^  attest:/,/^  [a-z]/p' \"$WORKFLOW\" | grep 'TomHennen/wrangle/actions/verify_attestation@'"
     [[ "$status" -eq 0 ]]
     run bash -c "sed -n '/^  attest:/,/^  [a-z]/p' \"$WORKFLOW\" | grep 'signer-workflow: TomHennen/wrangle/.github/workflows/build_and_publish_go.yml'"
+    [[ "$status" -eq 0 ]]
+}
+
+@test "go: workflow has NO provenance job and NO slsa generator/verifier ref" {
+    # attest-build-provenance is the sole provenance and verify_attestation
+    # the sole in-run verify; the old generator/verifier jobs are gone.
+    # Patterns are narrow on purpose: a bare `slsa.*generator` would
+    # false-fail on the workflow comment that names the old generator in prose.
+    run grep -E '^  provenance:' "$WORKFLOW"
+    [[ "$status" -ne 0 ]]
+    run grep 'slsa-github-generator' "$WORKFLOW"
+    [[ "$status" -ne 0 ]]
+    run grep 'slsa-verifier/actions' "$WORKFLOW"
+    [[ "$status" -ne 0 ]]
+}
+
+@test "go: vsa job references the per-eco provenance policy" {
+    run bash -c "sed -n '/^  vsa:/,\$p' \"$WORKFLOW\" | grep -F 'policy: policies/wrangle-provenance-go-v1.hjson'"
+    [[ "$status" -eq 0 ]]
+}
+
+@test "go: vsa job collects the staged bundle via the jsonl collector" {
+    # The bundle the attest job staged is read back as one-JSON-per-line.
+    run bash -c "sed -n '/^  vsa:/,\$p' \"$WORKFLOW\" | grep -F 'collector: jsonl:provenance/provenance.jsonl'"
+    [[ "$status" -eq 0 ]]
+}
+
+@test "go: attest job uploads the provenance bundle the vsa job needs" {
+    # The vsa job depends on attest and reads its uploaded bundle artifact.
+    run bash -c "sed -n '/^  attest:/,/^  [a-z]/p' \"$WORKFLOW\" | grep -E 'name: go-provenance-bundle-'"
+    [[ "$status" -eq 0 ]]
+    run bash -c "sed -n '/^  vsa:/,\$p' \"$WORKFLOW\" | grep -E 'needs:.*attest'"
     [[ "$status" -eq 0 ]]
 }

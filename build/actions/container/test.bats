@@ -292,12 +292,6 @@ teardown() {
     [[ "$status" -eq 0 ]]
 }
 
-@test "container: provenance job is gated on release-gate output" {
-    local wf="$REPO_ROOT/.github/workflows/build_and_publish_container.yml"
-    run bash -c "sed -n '/^  provenance:/,/^[a-z]/p' \"$wf\" | grep -E \"if:.*should-release\""
-    [[ "$status" -eq 0 ]]
-}
-
 @test "container: reusable workflow exposes release-events input and should-release output" {
     local wf="$REPO_ROOT/.github/workflows/build_and_publish_container.yml"
     run grep -E '^      release-events:' "$wf"
@@ -308,54 +302,11 @@ teardown() {
 
 # --- Verify-image (#176) ---
 
-@test "container: reusable workflow has verify job calling cosign verify-attestation" {
-    local wf="$REPO_ROOT/.github/workflows/build_and_publish_container.yml"
-    run grep -E '^  verify:' "$wf"
-    [[ "$status" -eq 0 ]]
-    run grep 'cosign verify-attestation' "$wf"
-    [[ "$status" -eq 0 ]]
-    run grep -E 'sigstore/cosign-installer@[0-9a-f]{40}' "$wf"
-    [[ "$status" -eq 0 ]]
-}
-
-@test "container: verify job is gated on should-release AND verify-image" {
-    local wf="$REPO_ROOT/.github/workflows/build_and_publish_container.yml"
-    run bash -c "sed -n '/^  verify:/,/^[a-z]/p' \"$wf\" | grep -E \"if:.*should-release.*verify-image\""
-    [[ "$status" -eq 0 ]]
-}
-
 @test "container: workflow exposes verify-image input (default true)" {
     local wf="$REPO_ROOT/.github/workflows/build_and_publish_container.yml"
     run grep -E '^      verify-image:' "$wf"
     [[ "$status" -eq 0 ]]
     run bash -c "sed -n '/^      verify-image:/,/^      [a-z]/p' \"$wf\" | grep -E 'default:[[:space:]]*true'"
-    [[ "$status" -eq 0 ]]
-}
-
-@test "container: verify job pins SLSA generator cert identity to the same tag as provenance job" {
-    # The cert identity in the verify command MUST point at the same SLSA
-    # generator tag the provenance: job invokes. A lockstep mismatch would
-    # break verification on every run.
-    local wf="$REPO_ROOT/.github/workflows/build_and_publish_container.yml"
-    local generator_tag verify_tag
-    generator_tag="$(grep -oE 'generator_container_slsa3\.yml@v[0-9]+\.[0-9]+\.[0-9]+' "$wf" | head -1 | sed 's/.*@//')"
-    verify_tag="$(grep -oE 'generator_container_slsa3\.yml@refs/tags/v[0-9]+\.[0-9]+\.[0-9]+' "$wf" | head -1 | sed 's@.*refs/tags/@@')"
-    [[ -n "$generator_tag" ]]
-    [[ -n "$verify_tag" ]]
-    [[ "$generator_tag" == "$verify_tag" ]]
-}
-
-@test "container: verify job depends on provenance" {
-    local wf="$REPO_ROOT/.github/workflows/build_and_publish_container.yml"
-    run bash -c "sed -n '/^  verify:/,/^[a-z]/p' \"$wf\" | grep -E 'needs:.*provenance'"
-    [[ "$status" -eq 0 ]]
-}
-
-@test "container: verify job pins certificate-github-workflow-repository to the calling repo" {
-    local wf="$REPO_ROOT/.github/workflows/build_and_publish_container.yml"
-    run grep 'certificate-github-workflow-repository' "$wf"
-    [[ "$status" -eq 0 ]]
-    run grep 'github.repository' "$wf"
     [[ "$status" -eq 0 ]]
 }
 
@@ -386,15 +337,16 @@ teardown() {
     [[ "$status" -eq 0 ]]
 }
 
-@test "container: vsa job installs cosign for the push (lockstep pin with verify job)" {
-    # The push runs cosign attach; the installer pin MUST match the verify job's
-    # so the two cosign versions never drift.
+@test "container: vsa job installs cosign for the push (single pin across the workflow)" {
+    # The push runs cosign attach; the installer must be SHA-pinned, and
+    # any other cosign-installer reference must share the same pin so the
+    # versions never drift.
     local wf="$REPO_ROOT/.github/workflows/build_and_publish_container.yml"
     run bash -c "sed -n '/^  vsa:/,\$p' \"$wf\" | grep -E 'sigstore/cosign-installer@[0-9a-f]{40}'"
     [[ "$status" -eq 0 ]]
     local distinct_pins
     distinct_pins="$(grep -oE 'sigstore/cosign-installer@[0-9a-f]{40}' "$wf" | sort -u | wc -l)"
-    # Exactly one distinct pin across the whole workflow proves lockstep.
+    # Exactly one distinct pin across the whole workflow.
     [[ "$distinct_pins" -eq 1 ]]
 }
 
@@ -472,5 +424,35 @@ teardown() {
     run bash -c "sed -n '/^  attest:/,/^  [a-z]/p' \"$wf\" | grep 'signer-workflow: TomHennen/wrangle/.github/workflows/build_and_publish_container.yml'"
     [[ "$status" -eq 0 ]]
     run bash -c "sed -n '/^  attest:/,/^  [a-z]/p' \"$wf\" | grep 'subject: oci://'"
+    [[ "$status" -eq 0 ]]
+}
+
+@test "container: workflow has NO provenance job and NO slsa generator/verifier ref" {
+    # attest-build-provenance is the sole provenance and verify_attestation
+    # the sole in-run verify; the old generator/cosign verify jobs are gone.
+    # Patterns are narrow on purpose: a bare `slsa-verifier` would false-fail
+    # on the workflow comment that names the old verifier job in prose.
+    local wf="$REPO_ROOT/.github/workflows/build_and_publish_container.yml"
+    run grep -E '^  provenance:' "$wf"
+    [[ "$status" -ne 0 ]]
+    run grep -E '^  verify:' "$wf"
+    [[ "$status" -ne 0 ]]
+    run grep 'slsa-github-generator' "$wf"
+    [[ "$status" -ne 0 ]]
+    run grep 'slsa-verifier/actions' "$wf"
+    [[ "$status" -ne 0 ]]
+}
+
+@test "container: vsa job references the per-eco provenance policy" {
+    local wf="$REPO_ROOT/.github/workflows/build_and_publish_container.yml"
+    run bash -c "sed -n '/^  vsa:/,\$p' \"$wf\" | grep -F 'policy: policies/wrangle-provenance-container-v1.hjson'"
+    [[ "$status" -eq 0 ]]
+}
+
+@test "container: vsa job collects provenance via the oci referrer collector" {
+    # The attest job pushed the bundle to the registry as an OCI referrer;
+    # the vsa job reads it back via the oci: collector (not a jsonl bundle).
+    local wf="$REPO_ROOT/.github/workflows/build_and_publish_container.yml"
+    run bash -c "sed -n '/^  vsa:/,\$p' \"$wf\" | grep -E 'collector: oci:'"
     [[ "$status" -eq 0 ]]
 }

@@ -712,18 +712,6 @@ write_pkg_json() {
     [[ "$status" -eq 1 ]]
 }
 
-@test "npm: workflow has provenance job calling slsa-github-generator" {
-    run grep '^  provenance:' "$WORKFLOW"
-    [[ "$status" -eq 0 ]]
-    run grep 'slsa-github-generator' "$WORKFLOW"
-    [[ "$status" -eq 0 ]]
-}
-
-@test "npm: provenance job is gated on release-gate output" {
-    run bash -c "sed -n '/^  provenance:/,/^[a-z]/p' \"$WORKFLOW\" | grep -E \"if:.*should-release\""
-    [[ "$status" -eq 0 ]]
-}
-
 @test "npm: workflow has gate job calling release_gate" {
     run grep -E '^  gate:' "$WORKFLOW"
     [[ "$status" -eq 0 ]]
@@ -755,9 +743,16 @@ write_pkg_json() {
     [[ "$status" -eq 0 ]]
 }
 
-@test "npm: workflow pins actions to SHAs except SLSA generator" {
-    run bash -c "grep 'uses:.*@' \"$WORKFLOW\" | grep -v 'slsa-github-generator' | grep -v -P '@[0-9a-f]{40}'"
+@test "npm: workflow pins every third-party action to a SHA (no tag exceptions)" {
+    # attest-build-provenance is now the sole provenance; the old
+    # tag-pinned slsa-github-generator carve-out is gone, so every
+    # third-party uses: must be a 40-hex SHA. wrangle self-refs are
+    # already SHA-pinned (@<sha> # main).
+    run bash -c "grep 'uses:.*@' \"$WORKFLOW\" | grep -v -P '@[0-9a-f]{40}'"
     [[ "$status" -eq 1 ]]
+    # And the generator must be gone entirely.
+    run grep 'slsa-github-generator' "$WORKFLOW"
+    [[ "$status" -ne 0 ]]
 }
 
 @test "npm: workflow uploads SBOM/metadata, not just dist" {
@@ -770,20 +765,6 @@ write_pkg_json() {
     [[ "$status" -eq 0 ]]
 }
 
-@test "npm: reusable workflow has verify job calling slsa-verifier" {
-    run grep -E '^  verify:' "$WORKFLOW"
-    [[ "$status" -eq 0 ]]
-    run grep 'slsa-verifier/actions/installer' "$WORKFLOW"
-    [[ "$status" -eq 0 ]]
-    run grep 'slsa-verifier verify-artifact' "$WORKFLOW"
-    [[ "$status" -eq 0 ]]
-}
-
-@test "npm: verify job is gated on should-release AND verify-provenance" {
-    run bash -c "sed -n '/^  verify:/,/^[a-z]/p' \"$WORKFLOW\" | grep -E \"if:.*should-release.*verify-provenance\""
-    [[ "$status" -eq 0 ]]
-}
-
 @test "npm: workflow exposes verify-provenance input (default true)" {
     run grep -E '^      verify-provenance:' "$WORKFLOW"
     [[ "$status" -eq 0 ]]
@@ -791,20 +772,8 @@ write_pkg_json() {
     [[ "$status" -eq 0 ]]
 }
 
-@test "npm: provenance job passes namespaced provenance-name to SLSA generator" {
-    run bash -c "sed -n '/^  provenance:/,/^[a-z]/p' \"$WORKFLOW\" | grep -E 'provenance-name:.*shortname'"
-    [[ "$status" -eq 0 ]]
-}
-
 @test "npm: build job exposes shortname output" {
     run bash -c "sed -n '/^  build:/,/^  [a-z]/p' \"$WORKFLOW\" | grep -E '^[[:space:]]*shortname:'"
-    [[ "$status" -eq 0 ]]
-}
-
-@test "npm: verify job depends on provenance and downloads its artifact" {
-    run bash -c "sed -n '/^  verify:/,/^[a-z]/p' \"$WORKFLOW\" | grep -E 'needs:.*provenance'"
-    [[ "$status" -eq 0 ]]
-    run bash -c "sed -n '/^  verify:/,/^[a-z]/p' \"$WORKFLOW\" | grep 'needs.provenance.outputs.provenance-name'"
     [[ "$status" -eq 0 ]]
 }
 
@@ -879,5 +848,37 @@ write_pkg_json() {
     run bash -c "sed -n '/^  attest:/,/^  [a-z]/p' \"$WORKFLOW\" | grep 'TomHennen/wrangle/actions/verify_attestation@'"
     [[ "$status" -eq 0 ]]
     run bash -c "sed -n '/^  attest:/,/^  [a-z]/p' \"$WORKFLOW\" | grep 'signer-workflow: TomHennen/wrangle/.github/workflows/build_and_publish_npm.yml'"
+    [[ "$status" -eq 0 ]]
+}
+
+@test "npm: workflow has NO provenance job and NO slsa generator/verifier ref" {
+    # attest-build-provenance is the sole provenance and verify_attestation
+    # the sole in-run verify; the old generator/verifier jobs are gone.
+    # Patterns are narrow on purpose: a bare `slsa-verifier` would false-fail
+    # on the workflow comment that names the old verifier job in prose.
+    run grep -E '^  provenance:' "$WORKFLOW"
+    [[ "$status" -ne 0 ]]
+    run grep 'slsa-github-generator' "$WORKFLOW"
+    [[ "$status" -ne 0 ]]
+    run grep 'slsa-verifier/actions' "$WORKFLOW"
+    [[ "$status" -ne 0 ]]
+}
+
+@test "npm: vsa job references the per-eco provenance policy" {
+    run bash -c "sed -n '/^  vsa:/,\$p' \"$WORKFLOW\" | grep -F 'policy: policies/wrangle-provenance-npm-v1.hjson'"
+    [[ "$status" -eq 0 ]]
+}
+
+@test "npm: vsa job collects the staged bundle via the jsonl collector" {
+    # The bundle the attest job staged is read back as one-JSON-per-line.
+    run bash -c "sed -n '/^  vsa:/,\$p' \"$WORKFLOW\" | grep -F 'collector: jsonl:provenance/provenance.jsonl'"
+    [[ "$status" -eq 0 ]]
+}
+
+@test "npm: attest job uploads the provenance bundle the vsa job needs" {
+    # The vsa job depends on attest and reads its uploaded bundle artifact.
+    run bash -c "sed -n '/^  attest:/,/^  [a-z]/p' \"$WORKFLOW\" | grep -E 'name: npm-provenance-bundle-'"
+    [[ "$status" -eq 0 ]]
+    run bash -c "sed -n '/^  vsa:/,\$p' \"$WORKFLOW\" | grep -E 'needs:.*attest'"
     [[ "$status" -eq 0 ]]
 }
