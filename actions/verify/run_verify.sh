@@ -125,26 +125,17 @@ wrangle_push_vsa() {
     cosign "${args[@]}"
 }
 
-# Attach the signed VSA to the GitHub release for the current tag (GITHUB_REF_NAME).
-# Create the release if it doesn't exist yet: wrangle no longer runs the SLSA
-# generator's upload-assets job, which used to create it as a side effect.
-#
-# Concurrency-tolerant by necessity: the verify action runs once per artifact in
-# the caller's vsa MATRIX (a python sdist+wheel is 2+ shards with fail-fast:false
-# and no max-parallel), so on a fresh tag several shards can clear `view` and race
-# on `create` at once. The create loser falls through to a second `view` that
-# confirms the release now exists — turning the "already exists" 422 into success
-# WITHOUT masking a genuine create failure (if the release truly can't be created,
-# the re-check also fails and `set -e` fails the step). An adopter who manages
-# releases themselves hits the first `view` and skips create entirely. Concurrent
-# `upload --clobber` calls target distinct per-artifact asset names, so they don't
-# collide.
+# Attach the signed VSA to the GitHub release for the current tag, IF one
+# exists. wrangle does not create releases — the adopter's release tooling
+# (release-please, goreleaser, manual) owns that; on a tag with no release the
+# VSA remains available as the workflow artifact.
 wrangle_attach_release() {
     local ref="$GITHUB_REF_NAME"
-    gh release view "$ref" >/dev/null 2>&1 \
-        || gh release create "$ref" --verify-tag --generate-notes \
-        || gh release view "$ref" >/dev/null 2>&1
-    gh release upload "$ref" "$VSA" --clobber
+    if gh release view "$ref" >/dev/null 2>&1; then
+        gh release upload "$ref" "$VSA" --clobber
+    else
+        printf 'wrangle: no GitHub release for %s; the signed VSA is the workflow artifact only.\n' "$ref" >&2
+    fi
 }
 
 main() {

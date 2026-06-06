@@ -55,18 +55,6 @@ on:
         required: false
         type: string
         default: isolated
-      verify-image:
-        description: |
-          When true (default), wrangle verifies the just-pushed image's SLSA
-          provenance in-run (`gh attestation verify --signer-workflow`,
-          fail-closed unless wrangle's reusable workflow signed it) before
-          declaring the workflow successful. Verify failure fails the
-          workflow. Set to false to skip wrangle's verification.
-          (When the composite action gains cosign image signing, this
-          input will also gate `cosign verify` of the signature.)
-        required: false
-        type: boolean
-        default: true
     secrets:
       gh_token:
         description: "GitHub token with write access"
@@ -154,8 +142,8 @@ jobs:
   # signing identity — closing the build-confusion gap (the generic generator's
   # builder.id named the generator, not the workflow that ran the build). This is
   # wrangle's sole container provenance; the attestation is pushed to the registry
-  # as an OCI referrer, verified in-run (verify_attestation), and read by the VSA
-  # job via the oci: collector (#316).
+  # as an OCI referrer and read by the vsa job via the oci: collector, which
+  # verifies its Sigstore signature against the policy.
   attest:
     if: ${{ needs.gate.outputs.should-release == 'true' }}
     needs: [guard, gate, build]
@@ -182,26 +170,11 @@ jobs:
           subject-digest: ${{ needs.build.outputs.digest }}
           push-to-registry: true
 
-      # Verify the just-produced provenance in-run against the local bundle and
-      # confirm wrangle's reusable workflow is the signer. This is the
-      # registry-bytes/tamper gate that replaces the old cosign verify job;
-      # failing here fails the workflow (blocking downstream release-time jobs).
-      # Gated on verify-image so adopters can opt out. signer-workflow is the
-      # constant wrangle path (the cert SAN); repo is the caller's repo.
-      # TODO: replace with $/actions/verify_attestation when GitHub ships $/ syntax (#136)
-      - if: ${{ inputs.verify-image }}
-        uses: TomHennen/wrangle/actions/verify_attestation@9202be695ac2e4a073828d70f99595af1e48fcb3 # feat/attest-build-provenance-316 2026-06-06
-        with:
-          subject: oci://${{ needs.build.outputs.imagename }}@${{ needs.build.outputs.digest }}
-          repo: ${{ github.repository }}
-          signer-workflow: TomHennen/wrangle/.github/workflows/build_and_publish_container.yml
-          bundle-path: ${{ steps.attest.outputs.bundle-path }}
-
   # Emit a signed SLSA Verification Summary Attestation (VSA) for the image.
   # ampel evaluates the image's SLSA provenance against the container PolicySet
-  # and bnd signs the result keyless with this workflow's OIDC identity. This is
-  # orthogonal to the in-run verify_attestation step (the registry-bytes-match
-  # gate); this one emits the single signed VSA a downstream consumer trusts.
+  # (verifying the bundle's Sigstore signature against the PolicySet's identity
+  # binding — fail-closed) and bnd signs the result keyless with this workflow's
+  # OIDC identity, emitting the single signed VSA a downstream consumer trusts.
   #
   # Like go/container's other post-build checks this runs AFTER the docker push,
   # so the image is already live; fail: true still fails the workflow conclusion
@@ -209,8 +182,7 @@ jobs:
   #
   # Collector: oci: lists the image's OCI 1.1 referrers and selects the signed
   # attest-build-provenance bundle (predicate slsa.dev/provenance/v1) the attest
-  # job pushed (push-to-registry) — ampel verifies its Sigstore signature against
-  # the PolicySet's identity binding. The unsigned BuildKit attestation is an
+  # job pushed (push-to-registry). The unsigned BuildKit attestation is an
   # index platform entry, NOT a referrer, so oci: never sees it. Needs `attest`
   # so the referrer exists before the collector reads it. Exercised only by the
   # integration dispatch.

@@ -1286,17 +1286,14 @@ func TestFails(t *testing.T) {
     [[ "$status" -eq 0 ]]
 }
 
-@test "go: attest job verifies signer is wrangle's reusable workflow" {
+@test "go: attest job no longer references the verify_attestation action" {
     run bash -c "sed -n '/^  attest:/,/^  [a-z]/p' \"$WORKFLOW\" | grep 'TomHennen/wrangle/actions/verify_attestation@'"
-    [[ "$status" -eq 0 ]]
-    run bash -c "sed -n '/^  attest:/,/^  [a-z]/p' \"$WORKFLOW\" | grep 'signer-workflow: TomHennen/wrangle/.github/workflows/build_and_publish_go.yml'"
-    [[ "$status" -eq 0 ]]
+    [[ "$status" -ne 0 ]]
 }
 
 @test "go: workflow has NO provenance job and NO slsa generator/verifier ref" {
-    # attest-build-provenance is the sole provenance and verify_attestation
-    # the sole in-run verify; the old generator/verifier jobs are gone.
-    # Patterns are narrow on purpose: a bare `slsa.*generator` would
+    # attest-build-provenance is the sole provenance; the vsa job is the sole
+    # verify. Patterns are narrow on purpose: a bare `slsa.*generator` would
     # false-fail on the workflow comment that names the old generator in prose.
     run grep -E '^  provenance:' "$WORKFLOW"
     [[ "$status" -ne 0 ]]

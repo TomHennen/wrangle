@@ -94,19 +94,6 @@ on:
         required: false
         type: string
         default: ""
-      verify-provenance:
-        description: |
-          When true (default), wrangle verifies the just-produced SLSA
-          provenance in-run (`gh attestation verify --signer-workflow`,
-          fail-closed unless wrangle's reusable workflow signed it) after
-          publishing. The verify step is informational — goreleaser has
-          already created the release by the time it runs, so failure does
-          not retract artifacts. What it catches is a tooling/identity
-          regression (the bundle doesn't verify against wrangle's signer).
-          Set false to skip.
-        required: false
-        type: boolean
-        default: true
       install-zig:
         description: |
           When true, install zig (via mlugg/setup-zig) before goreleaser
@@ -309,8 +296,8 @@ jobs:
   # signing identity — closing the build-confusion gap the generic generator left
   # open (its builder.id was the generator, not the workflow that ran the build).
   # L3: the attest step runs inside this reusable workflow, the isolated trusted
-  # builder. This is wrangle's sole provenance; the signed bundle is verified
-  # in-run (verify_attestation) and fed to the VSA job (#316).
+  # builder. This is wrangle's sole provenance; the signed bundle is fed to the
+  # vsa job, which verifies its Sigstore signature against the policy.
   attest:
     if: ${{ needs.gate.outputs.should-release == 'true' }}
     needs: [guard, gate, release]
@@ -336,30 +323,9 @@ jobs:
         with:
           subject-checksums: dist/checksums.txt
 
-      # Verify the just-produced provenance in-run against the local bundle and
-      # confirm wrangle's reusable workflow is the signer. This replaces the old
-      # go/verify composite check; goreleaser has already published by now, so
-      # it's an informational post-publish check (not a publish gate) gated on
-      # verify-provenance. signer-workflow is the constant wrangle path (the cert
-      # SAN); repo is the caller's repo, where the attestation is stored.
-      # checksums-path keeps the verified set in lockstep with what was attested
-      # (the checksums-listed artifacts only).
-      # TODO: replace with $/actions/verify_attestation when GitHub ships $/ syntax (#136)
-      - if: ${{ inputs.verify-provenance }}
-        uses: TomHennen/wrangle/actions/verify_attestation@9202be695ac2e4a073828d70f99595af1e48fcb3 # feat/attest-build-provenance-316 2026-06-06
-        with:
-          subject: dist
-          repo: ${{ github.repository }}
-          signer-workflow: TomHennen/wrangle/.github/workflows/build_and_publish_go.yml
-          bundle-path: ${{ steps.attest.outputs.bundle-path }}
-          checksums-path: dist/checksums.txt
-
-      # Hand the signed provenance bundle to the vsa job (a separate, per-artifact
-      # job) as a workflow artifact — the deterministic, same-run path that keeps
-      # the local-bundle guarantee verify_attestation relies on (no attestations-
-      # API propagation wait). jq -c normalizes to one-JSON-per-line so ampel's
-      # jsonl: collector reads it regardless of the toolkit's serialization. One
-      # multi-subject bundle (the matrix shards == checksums entries).
+      # Stage the signed provenance bundle as a workflow artifact for the vsa
+      # job; jq -c normalizes it to one JSON object per line for ampel's jsonl:
+      # collector. One multi-subject bundle (the matrix shards == checksums entries).
       - name: Stage the provenance bundle for the VSA
         env:
           BUNDLE_PATH: ${{ steps.attest.outputs.bundle-path }}
@@ -382,11 +348,10 @@ jobs:
   # attached to the release on tag via the verify action's attach step.
   #
   # goreleaser publishes INLINE in the `release` job, so by the time this runs
-  # the release is already live (same as the informational verify_attestation
-  # step above). fail: true therefore does NOT block goreleaser's publish; it
-  # (a) fails the overall workflow conclusion so any downstream caller job gated
-  # on this reusable workflow is blocked, and (b) surfaces a policy/tooling
-  # regression loudly. Keep fail: true for both effects.
+  # the release is already live. fail: true therefore does NOT block goreleaser's
+  # publish; it (a) fails the overall workflow conclusion so any downstream caller
+  # job gated on this reusable workflow is blocked, and (b) surfaces a
+  # policy/tooling regression loudly. Keep fail: true for both effects.
   vsa:
     if: ${{ needs.gate.outputs.should-release == 'true' }}
     needs: [guard, gate, release, attest]

@@ -55,19 +55,6 @@ on:
         required: false
         type: string
         default: ""
-      verify-provenance:
-        description: |
-          When true (default), wrangle verifies the just-produced SLSA
-          provenance in-run (`gh attestation verify --signer-workflow`,
-          fail-closed unless wrangle's reusable workflow signed it) before
-          declaring the workflow successful. If verification fails, the
-          workflow fails — and the caller's publish job is blocked via
-          standard `needs:` propagation, so a tampered dist between build
-          and publish cannot be released. Set to false to skip wrangle's
-          verification (e.g., adopters with a custom verification flow).
-        required: false
-        type: boolean
-        default: true
     outputs:
       hashes:
         description: "Base64-encoded SHA-256 hashes of built artifacts (for SLSA provenance)"
@@ -207,8 +194,8 @@ jobs:
   # signing identity — closing the build-confusion gap the generic generator left
   # open (its builder.id was the generator, not the workflow that ran the build).
   # L3: the attest step runs inside this reusable workflow, the isolated trusted
-  # builder. This is wrangle's sole provenance; the signed bundle is verified
-  # in-run (verify_attestation) and fed to the VSA job (#316).
+  # builder. This is wrangle's sole provenance; the signed bundle is fed to the
+  # vsa job, which verifies its Sigstore signature against the policy.
   attest:
     if: ${{ needs.gate.outputs.should-release == 'true' }}
     needs: [guard, gate, build]
@@ -230,26 +217,9 @@ jobs:
         with:
           subject-path: dist/*
 
-      # Verify the just-produced provenance in-run against the local bundle and
-      # confirm wrangle's reusable workflow is the signer. This is the
-      # registry-bytes/tamper gate that replaces the old slsa-verifier verify
-      # job; gated on verify-provenance so adopters can opt out. signer-workflow
-      # is the constant wrangle path (the cert SAN); repo is the caller's repo,
-      # where the attestation is stored.
-      # TODO: replace with $/actions/verify_attestation when GitHub ships $/ syntax (#136)
-      - if: ${{ inputs.verify-provenance }}
-        uses: TomHennen/wrangle/actions/verify_attestation@9202be695ac2e4a073828d70f99595af1e48fcb3 # feat/attest-build-provenance-316 2026-06-06
-        with:
-          subject: dist
-          repo: ${{ github.repository }}
-          signer-workflow: TomHennen/wrangle/.github/workflows/build_and_publish_python.yml
-          bundle-path: ${{ steps.attest.outputs.bundle-path }}
-
-      # Hand the signed provenance bundle to the vsa job (a separate, per-artifact
-      # job) as a workflow artifact — the deterministic, same-run path that keeps
-      # the local-bundle guarantee verify_attestation relies on (no attestations-
-      # API propagation wait). jq -c normalizes to one-JSON-per-line so ampel's
-      # jsonl: collector reads it regardless of the toolkit's serialization.
+      # Stage the signed provenance bundle as a workflow artifact for the vsa
+      # job; jq -c normalizes it to one JSON object per line for ampel's jsonl:
+      # collector.
       - name: Stage the provenance bundle for the VSA
         env:
           BUNDLE_PATH: ${{ steps.attest.outputs.bundle-path }}

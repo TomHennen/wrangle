@@ -300,16 +300,6 @@ teardown() {
     [[ "$status" -eq 0 ]]
 }
 
-# --- Verify-image (#176) ---
-
-@test "container: workflow exposes verify-image input (default true)" {
-    local wf="$REPO_ROOT/.github/workflows/build_and_publish_container.yml"
-    run grep -E '^      verify-image:' "$wf"
-    [[ "$status" -eq 0 ]]
-    run bash -c "sed -n '/^      verify-image:/,/^      [a-z]/p' \"$wf\" | grep -E 'default:[[:space:]]*true'"
-    [[ "$status" -eq 0 ]]
-}
-
 # --- VSA job: registry push + permissions ---
 # vsa: is the last job; the block runs from `  vsa:` to EOF.
 
@@ -419,19 +409,16 @@ teardown() {
     [[ "$status" -eq 0 ]]
 }
 
-@test "container: attest job verifies signer is wrangle's reusable workflow (oci subject)" {
+@test "container: attest job no longer references the verify_attestation action" {
     local wf="$REPO_ROOT/.github/workflows/build_and_publish_container.yml"
-    run bash -c "sed -n '/^  attest:/,/^  [a-z]/p' \"$wf\" | grep 'signer-workflow: TomHennen/wrangle/.github/workflows/build_and_publish_container.yml'"
-    [[ "$status" -eq 0 ]]
-    run bash -c "sed -n '/^  attest:/,/^  [a-z]/p' \"$wf\" | grep 'subject: oci://'"
-    [[ "$status" -eq 0 ]]
+    run bash -c "sed -n '/^  attest:/,/^  [a-z]/p' \"$wf\" | grep 'TomHennen/wrangle/actions/verify_attestation@'"
+    [[ "$status" -ne 0 ]]
 }
 
 @test "container: workflow has NO provenance job and NO slsa generator/verifier ref" {
-    # attest-build-provenance is the sole provenance and verify_attestation
-    # the sole in-run verify; the old generator/cosign verify jobs are gone.
-    # Patterns are narrow on purpose: a bare `slsa-verifier` would false-fail
-    # on the workflow comment that names the old verifier job in prose.
+    # attest-build-provenance is the sole provenance; the vsa job is the sole
+    # verify. Patterns are narrow on purpose: a bare `slsa-verifier` would
+    # false-fail on the workflow comment that names the old verifier job in prose.
     local wf="$REPO_ROOT/.github/workflows/build_and_publish_container.yml"
     run grep -E '^  provenance:' "$wf"
     [[ "$status" -ne 0 ]]

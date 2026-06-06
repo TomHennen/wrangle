@@ -316,10 +316,9 @@ STUB
 
 # --- attach to release (wrangle_attach_release) ---
 #
-# The verify action runs once per artifact in the caller's vsa MATRIX, so on a
-# fresh tag several shards can race on `gh release create`. These tests drive a
-# `gh` shim whose `release view` exit codes follow GH_VIEW_SEQ (one per call) so
-# the create-loser's re-check is exercised deterministically.
+# wrangle attaches the VSA only when a release already exists; it never creates
+# one. These tests drive a `gh` shim whose `release view` exit code follows
+# GH_VIEW_SEQ so both branches (release present / absent) are exercised.
 
 # Install a gh shim on PATH that logs calls and returns scripted exit codes.
 _install_gh_shim() {
@@ -351,30 +350,12 @@ SHIM
     ! grep -q "release create" "$GH_LOG"   # create must be skipped
 }
 
-@test "run_verify attach: missing release is created then uploaded to" {
+@test "run_verify attach: missing release skips create and upload, exits 0" {
     _install_gh_shim
     export GH_VIEW_SEQ="1"            # view fails (no release)
-    export GH_CREATE_CODE="0"        # create succeeds
     run "$SCRIPT" attach
-    [[ "$status" -eq 0 ]]
-    grep -q "release create v1.2.3 --verify-tag --generate-notes" "$GH_LOG"
-    grep -qx "release upload v1.2.3 $VSA --clobber" "$GH_LOG"
-}
-
-@test "run_verify attach: create race loser re-confirms existence and still uploads" {
-    _install_gh_shim
-    export GH_VIEW_SEQ="1 0"         # 1st view fails, create loses, 2nd view succeeds
-    export GH_CREATE_CODE="1"        # another shard won the create
-    run "$SCRIPT" attach
-    [[ "$status" -eq 0 ]]            # the race must NOT fail the step
-    grep -qx "release upload v1.2.3 $VSA --clobber" "$GH_LOG"
-}
-
-@test "run_verify attach: a genuine create failure fails closed (no upload)" {
-    _install_gh_shim
-    export GH_VIEW_SEQ="1 1"         # release never appears — not a race, a real failure
-    export GH_CREATE_CODE="1"
-    run "$SCRIPT" attach
-    [[ "$status" -ne 0 ]]           # must surface, not be masked
-    ! grep -q "release upload" "$GH_LOG"   # upload must not run on an unresolved release
+    [[ "$status" -eq 0 ]]            # no release is not an error — VSA stays the artifact
+    [[ "$output" == *"workflow artifact only"* ]]
+    ! grep -q "release create" "$GH_LOG"
+    ! grep -q "release upload" "$GH_LOG"
 }

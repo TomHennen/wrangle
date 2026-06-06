@@ -505,14 +505,6 @@ write_pyproject() {
     [[ "$status" -ne 0 ]]
 }
 
-@test "python: workflow exposes verify-provenance input (default true)" {
-    run grep -E '^      verify-provenance:' "$WORKFLOW"
-    [[ "$status" -eq 0 ]]
-    # Find the boolean default — must be true.
-    run bash -c "sed -n '/^      verify-provenance:/,/^      [a-z]/p' \"$WORKFLOW\" | grep -E 'default:[[:space:]]*true'"
-    [[ "$status" -eq 0 ]]
-}
-
 @test "python: build job exposes shortname output" {
     run bash -c "sed -n '/^  build:/,/^  [a-z]/p' \"$WORKFLOW\" | grep -E '^[[:space:]]*shortname:'"
     [[ "$status" -eq 0 ]]
@@ -573,18 +565,15 @@ write_pyproject() {
     [[ "$status" -eq 0 ]]
 }
 
-@test "python: attest job verifies signer is wrangle's reusable workflow" {
+@test "python: attest job no longer references the verify_attestation action" {
     run bash -c "sed -n '/^  attest:/,/^  [a-z]/p' \"$WORKFLOW\" | grep 'TomHennen/wrangle/actions/verify_attestation@'"
-    [[ "$status" -eq 0 ]]
-    run bash -c "sed -n '/^  attest:/,/^  [a-z]/p' \"$WORKFLOW\" | grep 'signer-workflow: TomHennen/wrangle/.github/workflows/build_and_publish_python.yml'"
-    [[ "$status" -eq 0 ]]
+    [[ "$status" -ne 0 ]]
 }
 
 @test "python: workflow has NO provenance job and NO slsa generator/verifier ref" {
-    # attest-build-provenance is the sole provenance and verify_attestation
-    # the sole in-run verify; the old generator/verifier jobs are gone.
-    # Patterns are narrow on purpose: a bare `slsa-verifier` would false-fail
-    # on the workflow comment that names the old verifier job in prose.
+    # attest-build-provenance is the sole provenance; the vsa job is the sole
+    # verify. Patterns are narrow on purpose: a bare `slsa-verifier` would
+    # false-fail on the workflow comment that names the old verifier job in prose.
     run grep -E '^  provenance:' "$WORKFLOW"
     [[ "$status" -ne 0 ]]
     run grep 'slsa-github-generator' "$WORKFLOW"
