@@ -112,7 +112,7 @@ jq -e '.predicate.resourceUri == "<imagename>@sha256:<digest>"' <<<"$payload"
 jq -e '.predicate.verifiedLevels | index("SLSA_BUILD_LEVEL_3")' <<<"$payload"
 ```
 
-> **Use `verify-attestation`, not `download attestation`, for this VSA.** It is stored as an OCI 1.1 **referrer** (new bundle format), not on the cosign-method `.att` tag that holds the image's SLSA provenance. `cosign download attestation` reads only the `.att` tag, so it cannot fetch the VSA — but cosign v3's `verify-attestation` reads the referrer directly, which is why the command above both verifies and emits it (its envelope is `{payload,…}`, decoded above with `.payload`, not the `.dsseEnvelope.payload` of an on-disk bundle file). `ampel verify` can also fetch the referrer (`oci:` collector) and check signature + identity + predicate fields, but ampel (v1.2.1) can't bind the origin repo ([#321](https://github.com/TomHennen/wrangle/issues/321)).
+> Use the command above, not `cosign download attestation` — that reads the `.att` tag and can't see this referrer VSA. `ampel verify` also works but can't yet bind the origin repo ([#321](https://github.com/TomHennen/wrangle/issues/321)).
 
 > **`slsa-verifier verify-vsa` is not usable here.** It only verifies *key-signed* VSAs (it requires `--public-key-path`); wrangle's VSAs are keyless (Fulcio/Sigstore), so there is no identity flag to pass. Tracked under the [Attestation trust gaps](../../../README.md) section / [#317](https://github.com/TomHennen/wrangle/issues/317).
 
