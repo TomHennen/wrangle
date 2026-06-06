@@ -23,6 +23,11 @@ SIGNER_REGEX='^https://github\.com/TomHennen/wrangle/\.github/workflows/build_an
 SIGNER_REPO="TomHennen/wrangle-test"
 ISSUER="https://token.actions.githubusercontent.com"
 VSA_PREDICATE="https://slsa.dev/verification_summary/v1"
+# A real PYTHON VSA (wheel subject) from run 26991037293 — same cosign
+# verify-blob-attestation shape as npm, but a distinct signer workflow and a
+# pkg:generic resourceUri, so it can drift independently of the npm path.
+PY_RESOURCE_URI="pkg:generic/wrangle_test_fixture@0.0.1.dev26991037293"
+PY_SIGNER_REGEX='^https://github\.com/TomHennen/wrangle/\.github/workflows/build_and_publish_python\.yml@'
 # A real CONTAINER VSA (digest subject) from the same run — covers the
 # digest-native ampel path (no file blob) that npm/go don't exercise.
 CONTAINER_DIGEST="sha256:9984046b479c57d037f15ddf10bb1266adb2b7707f810c47b53c97af3a5488ad"
@@ -36,6 +41,8 @@ setup() {
     VSA="$FIX/npm-vsa.intoto.jsonl"
     # The real package tarball the VSA's subject digest covers (cosign hashes it).
     BLOB="$FIX/npm-package.tgz"
+    PY_VSA="$FIX/python-vsa.intoto.jsonl"
+    PY_BLOB="$FIX/python-package.whl"
     COSIGN_BIN="$(command -v cosign || echo "${WRANGLE_BIN_DIR:-/nonexistent}/cosign")"
     AMPEL_BIN="$(command -v ampel || echo "${WRANGLE_BIN_DIR:-/nonexistent}/ampel")"
     TMP="$(mktemp -d)"
@@ -81,6 +88,42 @@ require_sigstore() {
     payload="$(jq -r '.dsseEnvelope.payload' "$VSA" | base64 -d)"
     [[ "$(jq -r '.predicate.verificationResult' <<<"$payload")" == "PASSED" ]]
     [[ "$(jq -r '.predicate.resourceUri' <<<"$payload")" == "$RESOURCE_URI" ]]
+    jq -e '.predicate.verifiedLevels | index("SLSA_BUILD_LEVEL_3")' <<<"$payload" >/dev/null
+}
+
+# --- Path A (python): the python README's verify-blob-attestation command ---
+# Same shape as npm, exercised against a real python wheel + its VSA so the
+# python README's literals (signer workflow, pkg:generic resourceUri) can't
+# drift unnoticed.
+
+@test "consumer A (python): cosign verify-blob-attestation verifies the wheel's signer + subject" {
+    [[ -x "$COSIGN_BIN" ]] || skip_or_fail "real cosign not available"
+    require_sigstore
+    run "$COSIGN_BIN" verify-blob-attestation --bundle "$PY_VSA" --new-bundle-format \
+        --certificate-oidc-issuer "$ISSUER" \
+        --certificate-identity-regexp "$PY_SIGNER_REGEX" \
+        --certificate-github-workflow-repository "$SIGNER_REPO" \
+        --type "$VSA_PREDICATE" \
+        "$PY_BLOB"
+    [[ "$status" -eq 0 ]]
+    [[ "$output" == *"Verified OK"* ]]
+}
+
+@test "consumer A (python): cosign rejects a wrong signer identity (fail-closed)" {
+    [[ -x "$COSIGN_BIN" ]] || skip_or_fail "real cosign not available"
+    require_sigstore
+    run "$COSIGN_BIN" verify-blob-attestation --bundle "$PY_VSA" --new-bundle-format \
+        --certificate-oidc-issuer "$ISSUER" \
+        --certificate-identity-regexp '^https://github\.com/attacker/repo/' \
+        --type "$VSA_PREDICATE" \
+        "$PY_BLOB"
+    [[ "$status" -ne 0 ]]
+}
+
+@test "consumer A (python): predicate fields decode to PASSED / pkg:generic resourceUri / L3" {
+    payload="$(jq -r '.dsseEnvelope.payload' "$PY_VSA" | base64 -d)"
+    [[ "$(jq -r '.predicate.verificationResult' <<<"$payload")" == "PASSED" ]]
+    [[ "$(jq -r '.predicate.resourceUri' <<<"$payload")" == "$PY_RESOURCE_URI" ]]
     jq -e '.predicate.verifiedLevels | index("SLSA_BUILD_LEVEL_3")' <<<"$payload" >/dev/null
 }
 
