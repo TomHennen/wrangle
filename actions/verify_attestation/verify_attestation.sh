@@ -94,8 +94,7 @@ wrangle_subjects() {
     if [[ -n "${CHECKSUMS_PATH:-}" ]]; then
         # checksums.txt lines are `<sha256>  <name>` (two-space separator);
         # split on the first two-space run so filenames with internal
-        # whitespace survive, and prefix with the SUBJECT base dir. Mirrors
-        # build/actions/go/verify's list_artifacts.
+        # whitespace survive, and prefix with the SUBJECT base dir.
         awk -v d="$SUBJECT/" 'NF > 0 { idx = index($0, "  "); if (idx > 0) print d substr($0, idx + 2) }' "$CHECKSUMS_PATH"
         return
     fi

@@ -46,7 +46,7 @@ Don't `curl | sh` — all binary downloads go through `lib/download_verify.sh`. 
 
 ## Action reference pinning
 
-Required pin format per context (third-party actions, the SLSA-generator tag exception, self-references, examples), the `@main` prohibition, and how self-references are bumped: see [DEP_MGMT.md](DEP_MGMT.md).
+Required pin format per context (third-party actions, self-references, examples), the `@main` prohibition, and how self-references are bumped: see [DEP_MGMT.md](DEP_MGMT.md).
 
 ## Installing and verifying tools
 
