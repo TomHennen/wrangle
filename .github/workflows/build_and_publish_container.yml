@@ -62,10 +62,11 @@ on:
         default: isolated
       verify-image:
         description: |
-          When true (default), wrangle runs `cosign verify-attestation`
-          against the just-pushed image's SLSA provenance attestation
-          before declaring the workflow successful. Verify failure fails
-          the workflow. Set to false to skip wrangle's verification.
+          When true (default), wrangle verifies the just-pushed image's SLSA
+          provenance in-run (`gh attestation verify --signer-workflow`,
+          fail-closed unless wrangle's reusable workflow signed it) before
+          declaring the workflow successful. Verify failure fails the
+          workflow. Set to false to skip wrangle's verification.
           (When the composite action gains cosign image signing, this
           input will also gate `cosign verify` of the signature.)
         required: false
@@ -88,7 +89,7 @@ on:
       should-release:
         description: |
           "true" if the current event matches release-events; "false" otherwise.
-          Wrangle gates the provenance job on this internally; callers can
+          Wrangle gates the attest and vsa jobs on this internally; callers can
           gate downstream release-time jobs on it too.
         value: ${{ jobs.gate.outputs.should-release }}
 
@@ -153,35 +154,13 @@ jobs:
         # shared cache or tightened to read-only / disabled.
         cache: ${{ needs.gate.outputs.should-release == 'true' && 'disabled' || inputs.pr-cache }}
 
-  provenance:
-    # Gated on release-events (default: non-pull-request) so adopters can
-    # tighten when provenance is produced without forking the workflow.
-    if: ${{ needs.gate.outputs.should-release == 'true' }}
-    needs: [guard, gate, build]
-    permissions:
-      actions: read # for detecting the Github Actions environment.
-      id-token: write # for creating OIDC tokens for signing.
-      packages: write # for uploading attestations.
-    # MUST use tag, not SHA — the SLSA generator validates its own invocation
-    # ref and rejects bare SHAs. GitHub's OIDC token only reports the tag/branch
-    # ref, so slsa-verifier cannot verify provenance from SHA-pinned calls.
-    # See: https://github.com/slsa-framework/slsa-verifier/issues/12
-    uses: slsa-framework/slsa-github-generator/.github/workflows/generator_container_slsa3.yml@v2.1.0 # zizmor: ignore[unpinned-uses] tag required by SLSA generator's OIDC verification
-    with:
-      image: ${{ needs.build.outputs.imagename }}
-      digest: ${{ needs.build.outputs.digest }}
-      registry-username: ${{ github.actor }}
-      private-repository: ${{ inputs.publish_provenance_for_private_repo }}
-    secrets:
-      registry-password: ${{ secrets.gh_token }}
-
-  # Generate SLSA build provenance via GitHub's attestation API, naming THIS
+  # Generate SLSA L3 build provenance via GitHub's attestation API, naming THIS
   # reusable workflow as builder.id (its job_workflow_ref) and the Sigstore
-  # signing identity. The container generator already isolates the build, but
-  # its builder.id is the generator, not wrangle's workflow — this names
-  # wrangle. Runs alongside the generator during the migration (#316) so both
-  # are produced; the generator path is dropped once the identities are
-  # confirmed. The attestation is pushed to the registry as an OCI referrer.
+  # signing identity — closing the build-confusion gap (the generic generator's
+  # builder.id named the generator, not the workflow that ran the build). This is
+  # wrangle's sole container provenance; the attestation is pushed to the registry
+  # as an OCI referrer, verified in-run (verify_attestation), and read by the VSA
+  # job via the oci: collector (#316).
   attest:
     if: ${{ needs.gate.outputs.should-release == 'true' }}
     needs: [guard, gate, build]
@@ -209,9 +188,11 @@ jobs:
           push-to-registry: true
 
       # Verify the just-produced provenance in-run against the local bundle and
-      # confirm wrangle's reusable workflow is the signer. Gated like the cosign
-      # verify-image job so adopters can opt out. signer-workflow is the constant
-      # wrangle path (the cert SAN); repo is the caller's repo.
+      # confirm wrangle's reusable workflow is the signer. This is the
+      # registry-bytes/tamper gate that replaces the old cosign verify job;
+      # failing here fails the workflow (blocking downstream release-time jobs).
+      # Gated on verify-image so adopters can opt out. signer-workflow is the
+      # constant wrangle path (the cert SAN); repo is the caller's repo.
       # TODO: replace with $/actions/verify_attestation when GitHub ships $/ syntax (#136)
       - if: ${{ inputs.verify-image }}
         uses: TomHennen/wrangle/actions/verify_attestation@638c1fd072ffedb67459b7abdcaa39b8ca38a1df # feat/attest-build-provenance-316 2026-06-04
@@ -221,66 +202,26 @@ jobs:
           signer-workflow: TomHennen/wrangle/.github/workflows/build_and_publish_container.yml
           bundle-path: ${{ steps.attest.outputs.bundle-path }}
 
-  # Verify the SLSA provenance attestation on the just-pushed image.
-  # Catches the "registry served bytes that don't match what wrangle
-  # pushed" attack window. Failing here fails the workflow, blocking
-  # any downstream release-time job via standard `needs:` propagation.
-  #
-  # Today the verify only covers the SLSA attestation. When the
-  # composite action gains `cosign sign` of the image digest, this job
-  # will also verify the image signature with the adopter's
-  # workflow_ref as the cert identity.
-  #
-  # The cert identity below is fixed by the SLSA generator's @v2.1.0
-  # pin in the provenance: job above — both refs MUST move together.
-  # Tests assert the lockstep so a single-side bump fails CI loudly.
-  verify:
-    if: ${{ needs.gate.outputs.should-release == 'true' && inputs.verify-image }}
-    needs: [guard, gate, build, provenance]
-    runs-on: ubuntu-latest
-    # No registry credentials needed: cosign verify-attestation against
-    # ghcr.io public images works anonymously, and the SLSA attestation
-    # signature is verified against Sigstore's transparency log (Rekor)
-    # which is also public. Adopters with private images that require
-    # auth-gated pulls should set `verify-image: false` and verify in
-    # their own job — see README.
-    permissions: {}
-    steps:
-      - uses: sigstore/cosign-installer@6f9f17788090df1f26f669e9d70d6ae9567deba6 # v4.1.2
-
-      - name: Verify SLSA provenance attestation
-        env:
-          IMAGE_REF: ${{ needs.build.outputs.imagename }}@${{ needs.build.outputs.digest }}
-          EXPECTED_REPO: ${{ github.repository }}
-        run: |
-          set -euo pipefail
-          cosign verify-attestation \
-            --type slsaprovenance \
-            --certificate-identity "https://github.com/slsa-framework/slsa-github-generator/.github/workflows/generator_container_slsa3.yml@refs/tags/v2.1.0" \
-            --certificate-oidc-issuer "https://token.actions.githubusercontent.com" \
-            --certificate-github-workflow-repository "$EXPECTED_REPO" \
-            "$IMAGE_REF" > /dev/null
-          printf 'Verified SLSA provenance attestation for %s\n' "$IMAGE_REF"
-
   # Emit a signed SLSA Verification Summary Attestation (VSA) for the image.
-  # ampel evaluates the image's SLSA provenance against the container-specific
-  # PolicySet and bnd signs the result keyless with this workflow's OIDC
-  # identity. This is orthogonal to the `verify` job above: that one is the
-  # registry-bytes-match gate (cosign verify-attestation); this one emits the
-  # single signed VSA a downstream consumer trusts.
+  # ampel evaluates the image's SLSA provenance against the container PolicySet
+  # and bnd signs the result keyless with this workflow's OIDC identity. This is
+  # orthogonal to the in-run verify_attestation step (the registry-bytes-match
+  # gate); this one emits the single signed VSA a downstream consumer trusts.
   #
   # Like go/container's other post-build checks this runs AFTER the docker push,
   # so the image is already live; fail: true still fails the workflow conclusion
   # (blocking downstream caller jobs) and surfaces a policy/tooling regression.
   #
-  # Collector: coci: reads the cosign-method (.att tag) SLSA attestation the
-  # v2.1.0 container generator attaches — the same one the verify job's
-  # `cosign verify-attestation` reads. oci: would only list OCI 1.1 referrers,
-  # which on this image are the unsigned BuildKit attestations, not the
-  # generator's signed provenance. Exercised only by the integration dispatch.
+  # Collector: oci: lists the image's OCI 1.1 referrers and selects the signed
+  # attest-build-provenance bundle (predicate slsa.dev/provenance/v1) the attest
+  # job pushed (push-to-registry) — ampel verifies its Sigstore signature against
+  # the PolicySet's identity binding. The unsigned BuildKit attestation is an
+  # index platform entry, NOT a referrer, so oci: never sees it. Needs `attest`
+  # so the referrer exists before the collector reads it. Exercised only by the
+  # integration dispatch.
   vsa:
     if: ${{ needs.gate.outputs.should-release == 'true' }}
-    needs: [guard, gate, build, provenance]
+    needs: [guard, gate, build, attest]
     runs-on: ubuntu-latest
     # No contents: write — unlike npm/go, the container VSA is NOT attached to a
     # GitHub release (containers produce none); it's pushed to the registry as an
@@ -319,7 +260,7 @@ jobs:
         with:
           subject: ${{ needs.build.outputs.digest }}
           policy: policies/wrangle-provenance-container-v1.hjson
-          collector: coci:${{ needs.build.outputs.imagename }}@${{ needs.build.outputs.digest }}
+          collector: oci:${{ needs.build.outputs.imagename }}@${{ needs.build.outputs.digest }}
           # resourceUri is the OCI image ref a container consumer fetches and
           # pins when verifying the VSA; the subject digest is the cryptographic bind.
           context: buildPoint:git+https://github.com/${{ github.repository }},vsa.resourceUri:${{ needs.build.outputs.imagename }}@${{ needs.build.outputs.digest }}
