@@ -14,11 +14,6 @@ on:
       registry:
         required: true
         type: string
-      publish_provenance_for_private_repo:
-        description: "Publish provenance to Sigstore for a private repo"
-        required: false
-        default: false
-        type: boolean
       release-events:
         description: |
           Which events should trigger SLSA provenance generation and

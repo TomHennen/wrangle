@@ -31,11 +31,11 @@ Release builds run with the BuildKit `type=gha` cache disabled (BuildKit doesn't
 - Pushes to ghcr.io (other registries out of scope — see [`SPEC.md`](./SPEC.md#current-scope-ghcrio-only)).
 - Generates a BuildKit-native SBOM, attaches it to the image as an OCI attestation, and uploads it as a workflow artifact in SPDX JSON.
 
-The reusable workflow `build_and_publish_container.yml` layers on top: `slsa-github-generator` produces L3 provenance, `cosign verify-attestation` checks that provenance against the just-pushed digest, and the release-gate job enforces the order.
+The reusable workflow `build_and_publish_container.yml` layers on top: `actions/attest-build-provenance` produces L3 provenance (run inside the isolated reusable workflow, which names itself as the provenance `builder.id`), `gh attestation verify --signer-workflow` checks that provenance against the just-pushed digest, and the release-gate job enforces the order.
 
 Two pieces from the spec are not yet shipped — neither in the composite nor in the reusable workflow:
 
-- **Cosign keyless signing of the image digest itself.** The reusable workflow already pulls in `cosign-installer` for `verify-attestation`, but it does not yet run `cosign sign` against the digest. No tracking issue today; please file one if you need it prioritized. Design: [`SPEC.md` §"Cosign image signing"](./SPEC.md#cosign-image-signing).
+- **Cosign keyless signing of the image digest itself.** The reusable workflow does not yet run `cosign sign` against the digest. No tracking issue today; please file one if you need it prioritized. Design: [`SPEC.md` §"Cosign image signing"](./SPEC.md#cosign-image-signing).
 - **OSV-Scanner against the produced SBOM (non-blocking).** The SBOM is generated and uploaded, but nothing in the container path scans it yet. No tracking issue today; same suggestion. Design: [`SPEC.md` §"Failure contract"](./SPEC.md#failure-contract).
 
 ## Controlling when provenance is generated
@@ -78,7 +78,7 @@ The scope is keyed by `github.event.pull_request.number` (a GitHub-assigned uniq
 
 ## SLSA attestation verification (default-on, opt-out)
 
-The reusable workflow runs `cosign verify-attestation --type slsaprovenance` against the just-pushed image digest before declaring success. This catches the "registry served different bytes than wrangle pushed" attack window — failure blocks any downstream `needs:` job. The cert identity is pinned to the SLSA generator's tag (`v2.1.0` today) and to your repository, so attestations from a different generator version or a different repo do not pass.
+The reusable workflow runs `gh attestation verify --signer-workflow` against the just-pushed image digest before declaring success. This catches the "registry served different bytes than wrangle pushed" attack window — failure blocks any downstream `needs:` job. The signer is pinned to wrangle's reusable workflow (`build_and_publish_container.yml`), which signed the provenance, so an attestation signed by any other identity does not pass.
 
 To opt out (custom verification flow):
 
@@ -115,7 +115,7 @@ jq -e '.predicate.resourceUri == "<imagename>@sha256:<digest>"' <<<"$payload"
 jq -e '.predicate.verifiedLevels | index("SLSA_BUILD_LEVEL_3")' <<<"$payload"
 ```
 
-> ⚠️ **Not yet verified end-to-end.** The VSA is stored as an OCI 1.1 **referrer** (new bundle format), and it is unconfirmed whether `cosign verify-attestation` (cosign v3) reads that referrer — it natively reads the cosign-method `.att` provenance wrangle uses for the image's SLSA provenance. Validation + a regression test are tracked in [#325](https://github.com/TomHennen/wrangle/issues/325). The cert *does* carry the origin repo, so the binding is achievable. `ampel verify` can also fetch the referrer (`oci:` collector) and check signature + identity + predicate fields, but ampel (v1.2.1) can't bind the origin repo ([#321](https://github.com/TomHennen/wrangle/issues/321)).
+> ⚠️ **Not yet verified end-to-end.** The VSA is stored as an OCI 1.1 **referrer** (new bundle format), and it is unconfirmed whether `cosign verify-attestation` (cosign v3) reads that referrer. The image's own SLSA build provenance is also stored as an OCI 1.1 referrer (by `actions/attest-build-provenance`); wrangle verifies that one in-run with `gh attestation verify`, which reads the referrer natively. Validation of the cosign VSA path + a regression test are tracked in [#325](https://github.com/TomHennen/wrangle/issues/325). The cert *does* carry the origin repo, so the binding is achievable. `ampel verify` can also fetch the referrer (`oci:` collector) and check signature + identity + predicate fields, but ampel (v1.2.1) can't bind the origin repo ([#321](https://github.com/TomHennen/wrangle/issues/321)).
 
 > **`slsa-verifier verify-vsa` is not usable here.** It only verifies *key-signed* VSAs (it requires `--public-key-path`); wrangle's VSAs are keyless (Fulcio/Sigstore), so there is no identity flag to pass. Tracked under the [Attestation trust gaps](../../../README.md) section / [#317](https://github.com/TomHennen/wrangle/issues/317).
 

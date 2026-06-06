@@ -6,7 +6,7 @@ The publish job lives in your own workflow — not in a wrangle reusable workflo
 
 ## Quick-start
 
-Copy [`gh_workflow_examples/build_python.yml`](../../../gh_workflow_examples/build_python.yml) into your repo at `.github/workflows/`. The example wires the required permissions (`contents: write` for the SLSA generator's upload-assets job, `id-token: write` for Sigstore, `actions: read`, `attestations: write` for wrangle's GitHub-issued provenance) and includes the publish job with verify-before-publish. Most adopters only need to set the `path` input.
+Copy [`gh_workflow_examples/build_python.yml`](../../../gh_workflow_examples/build_python.yml) into your repo at `.github/workflows/`. The example wires the required permissions (`attestations: write` so wrangle's attest job can write the GitHub-issued provenance, `id-token: write` for Sigstore keyless signing, `contents: write` so the VSA job can attach the VSA to the release on tag pushes) and includes the publish job with verify-before-publish. Most adopters only need to set the `path` input.
 
 Pair with [source scan](../../../actions/scan/README.md) — build hardens *how* your artifact is produced; source scan covers *what was checked into the repo you're building from*.
 
@@ -38,12 +38,12 @@ On the uv sub-path, release builds disable `setup-uv`'s cache (uv doesn't re-ver
 - Runs `pytest` if `tests/`, `test/`, or `[tool.pytest.ini_options]` is present in `pyproject.toml`. Discovery follows pytest's default convention — see [pytest's "Good Integration Practices"](https://docs.pytest.org/en/stable/explanation/goodpractices.html).
 - Builds wheel + sdist via `python -m build` or `uv build`.
 - Generates an SPDX SBOM via `syft`, installed and Cosign-keyless-verified by `tools/syft/install.sh`.
-- Computes SHA-256 hashes of the built artifacts in the format `slsa-github-generator`'s `base64-subjects` input expects.
+- Computes SHA-256 hashes of the built artifacts, which the reusable workflow's `attest` job feeds to `actions/attest-build-provenance` as the provenance subjects.
 
 ## Outputs from the reusable workflow
 
 - `dist-artifact-name` — workflow-artifact name to download with `actions/download-artifact` to retrieve the built wheel + sdist.
-- `provenance-artifact-name` — workflow-artifact name for the SLSA provenance (empty when `should-release` is false). Format: `python-<shortname>.intoto.jsonl` so multiple python builds in one workflow don't collide on the same artifact name. (When [#181](https://github.com/TomHennen/wrangle/issues/181) ships, consumers will see a single bundled `multiple.intoto.jsonl` on the release; the per-build namespaced files will become workflow-internal intermediates.)
+- `provenance-artifact-name` — workflow-artifact name for the SLSA provenance bundle (empty when `should-release` is false). Format: `python-provenance-bundle-<shortname>` (a Sigstore bundle covering all dist subjects) so multiple python builds in one workflow don't collide on the same artifact name.
 - `metadata-artifact-name` — workflow-artifact name for the SBOM and any scan output (`python-metadata-<shortname>`). See [`docs/SPEC.md`](../../../docs/SPEC.md) "Unified metadata layout."
 - `should-release` — `"true"` if the package should be released. Today that means the event matched `release-events`; future versions may apply additional checks, so treat the output as the source of truth rather than re-evaluating `release-events` yourself. Your publish job MUST gate on this (see below).
 - `hashes`, `version`.
@@ -79,7 +79,7 @@ with:
 
 ## SLSA provenance verification (default-on, opt-out)
 
-The reusable workflow verifies the just-built dist against the SLSA L3 provenance before declaring success — failure blocks your publish job via `needs:`. This catches tampering between wrangle's build and your publish, so your publish job stays as simple as `download-artifact` + `pypa/gh-action-pypi-publish`. Opt out with `verify-provenance: false` if you maintain a custom verification flow (the integrity guarantee then shifts to you).
+The reusable workflow verifies the just-built dist against the SLSA L3 provenance before declaring success (`gh attestation verify --signer-workflow`, fail-closed unless wrangle's reusable workflow signed the bundle) — failure blocks your publish job via `needs:`. This catches tampering between wrangle's build and your publish, so your publish job stays as simple as `download-artifact` + `pypa/gh-action-pypi-publish`. Opt out with `verify-provenance: false` if you maintain a custom verification flow (the integrity guarantee then shifts to you).
 
 ## Verifying after install (downstream consumers)
 
@@ -89,23 +89,21 @@ Two complementary verification paths, different roots of trust:
 
 > **Known limitation.** `pip install` does NOT verify PEP 740 attestations by default (experimental in pip 24.x). Until verification is the default, the load-bearing check is PyPI's upload-time `workflow_ref` validation — but that only holds when legacy token uploads are disabled (see "Before first use"), since a stolen token bypasses it entirely.
 
-**SLSA L3 provenance (against your GitHub release).** Proves *how the artifact was built* — inputs, builder, materials. Non-falsifiable because the generator runs in an isolated reusable workflow. Wrangle attaches the bundle to the GitHub release on tag pushes (`python-<shortname>.intoto.jsonl`, where `<shortname>` is the path-derived name — `.` becomes `_`):
+**SLSA L3 provenance (against GitHub's attestation store).** Proves *how the artifact was built* — inputs, builder, materials. Non-falsifiable because the attest step runs inside wrangle's isolated reusable workflow, which is named as the provenance's `builder.id` and as the Sigstore signing identity. The provenance is stored in GitHub's attestation store for your repo (not attached to the release), so a consumer verifies the downloaded wheel against it with `gh attestation verify`:
 
 ```bash
 curl -LO "https://github.com/<owner>/<repo>/releases/download/<tag>/<package>-<version>-py3-none-any.whl"
-curl -LO "https://github.com/<owner>/<repo>/releases/download/<tag>/python-<shortname>.intoto.jsonl"
 
-slsa-verifier verify-artifact \
-  --provenance-path python-<shortname>.intoto.jsonl \
-  --source-uri "github.com/<owner>/<repo>" \
-  <package>-<version>-py3-none-any.whl
+gh attestation verify "<package>-<version>-py3-none-any.whl" \
+  --repo <owner>/<repo> \
+  --signer-workflow TomHennen/wrangle/.github/workflows/build_and_publish_python.yml
 ```
 
-> **Tag-push only.** On non-tag publishes (e.g., `workflow_dispatch` from a branch) the provenance lives only as a 90-day workflow artifact and isn't retrievable by external consumers. [#181](https://github.com/TomHennen/wrangle/issues/181) tracks moving to a single bundled `multiple.intoto.jsonl` at the release layer.
+`--signer-workflow` is the binding: it fails closed unless wrangle's reusable workflow signed the provenance. `gh` fetches the attestation from GitHub's store by the wheel's digest, so no separate provenance file download is needed.
 
 ### Verifying the VSA
 
-On tag pushes wrangle also attaches a signed SLSA Verification Summary Attestation (VSA) per dist file — `<dist-file>.intoto.jsonl` (the wheel or sdist) — to the GitHub release, recording that the build provenance passed the `wrangle-provenance-v1` PolicySet. A consumer trusts that one signed VSA instead of re-running the policy engine. It is keyless-signed by **wrangle's** reusable workflow (`build_and_publish_python.yml`), not your own. Its `resourceUri` is `pkg:generic/<name>@<version>` — pin that exact string.
+On tag pushes wrangle also attaches a signed SLSA Verification Summary Attestation (VSA) per dist file — `<dist-file>.intoto.jsonl` (the wheel or sdist) — to the GitHub release, recording that the build provenance passed the `wrangle-provenance-python-v1` PolicySet. A consumer trusts that one signed VSA instead of re-running the policy engine. It is keyless-signed by **wrangle's** reusable workflow (`build_and_publish_python.yml`), not your own. Its `resourceUri` is `pkg:generic/<name>@<version>` — pin that exact string.
 
 **Recommended — `cosign verify-blob-attestation` + `jq`.** The complete check: cosign confirms the signature, the signer identity (wrangle's reusable workflow), **your origin repository** — `--certificate-github-workflow-repository`, the binding that proves *which repo* built the artifact — and that the dist file's hash matches the VSA subject. cosign doesn't read predicate fields, so a `jq` decode covers them:
 
@@ -140,4 +138,4 @@ Written to `metadata/python/<shortname>/sbom.spdx.json` and uploaded as the `pyt
 - [`SPEC.md`](./SPEC.md) — this action's full specification.
 - [`../../../docs/SPEC.md`](../../../docs/SPEC.md) — wrangle's architecture.
 - [`../../../actions/scan/README.md`](../../../actions/scan/README.md) — source-scan companion.
-- [PyPI Trusted Publishing](https://docs.pypi.org/trusted-publishers/), [SLSA generic generator](https://github.com/slsa-framework/slsa-github-generator/blob/main/internal/builders/generic/README.md).
+- [PyPI Trusted Publishing](https://docs.pypi.org/trusted-publishers/), [actions/attest-build-provenance](https://github.com/actions/attest-build-provenance).

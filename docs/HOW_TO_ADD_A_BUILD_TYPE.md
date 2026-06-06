@@ -88,7 +88,7 @@ Recommended commit sequence — each commit is testable on its own.
 1. **SPEC.md skeleton.** Write the design principles, planned step sequence, planned outputs. Discussing this with maintainers before writing code prevents scope creep.
 2. **Composite action skeleton + helpers.** `action.yml` with input validation and a single "build" step that's a placeholder. Helper scripts (`validate_inputs.sh`, etc.) wired up. `test.bats` with structural assertions.
 3. **Composite action implementation.** Real build/test/SBOM steps. Tests pass.
-4. **Reusable workflow.** `build_and_publish_<type>.yml` wrapping the composite + a provenance job calling `slsa-github-generator`. Outputs (`metadata-artifact-name`, `dist-artifact-name` if applicable, `provenance-artifact-name`).
+4. **Reusable workflow.** `build_and_publish_<type>.yml` wrapping the composite + an `attest:` job that runs `actions/attest-build-provenance` (use `subject-path: dist/*` for a flat dist like npm/python, or `subject-checksums: dist/checksums.txt` for a goreleaser-style dist like go), verifies the result in-run (`actions/verify_attestation`), and uploads the signed Sigstore bundle as a workflow artifact + a `vsa:` job that evaluates that bundle against the per-eco `wrangle-provenance-<type>-v1` PolicySet. Outputs (`metadata-artifact-name`, `dist-artifact-name` if applicable, `provenance-artifact-name`).
 5. **Example workflow.** `gh_workflow_examples/build_<type>.yml` — adopter-copyable. The `build:` job's permissions MUST grant everything wrangle's reusable workflow's nested jobs declare. See "Common gotchas" below.
 6. **Top-level doc updates** (`build/README.md`, `gh_workflow_examples/README.md`, `docs/SPEC.md`).
 7. **README.md.** Adopter-facing how-to. Verify the example actually works end-to-end before merging.
@@ -98,7 +98,7 @@ Each commit should pass `./test.sh`. The integration test runs against the merge
 
 ## Phase 4 — Integration fixture
 
-Every build type needs a fixture in the [tomhennen/wrangle-test](https://github.com/TomHennen/wrangle-test) companion repo. Without this, the integration test doesn't exercise the type, and bugs that only surface in real CI (permission cascades, output bindings, SLSA generator interactions) don't get caught.
+Every build type needs a fixture in the [tomhennen/wrangle-test](https://github.com/TomHennen/wrangle-test) companion repo. Without this, the integration test doesn't exercise the type, and bugs that only surface in real CI (permission cascades, output bindings, attestation/verification interactions) don't get caught.
 
 The canonical reference is `tomhennen/wrangle-test/.github/workflows/test-wrangle.yml.template`. Read it before writing yours — there's more than the per-type job:
 
@@ -121,12 +121,11 @@ Plus a job in the template:
 test-<type>:
   permissions:
     # The exact set depends on what wrangle's reusable workflow's nested jobs declare.
-    # Read the SLSA generator workflow you're calling and grant its UNION at startup —
-    # GitHub validates even jobs that will skip at runtime. See Common Gotchas below.
-    contents: write   # if your provenance job uses generator_generic_slsa3
-    id-token: write   # OIDC for Sigstore signing
-    actions: read     # SLSA generator env detection
+    # Read that reusable workflow and grant the UNION at startup — GitHub
+    # validates even jobs that will skip at runtime. See Common Gotchas below.
+    id-token: write   # OIDC for Sigstore keyless signing (attest + VSA)
     attestations: write   # wrangle's attest job writes GitHub-issued SLSA provenance
+    contents: write   # VSA attached to the GitHub release (npm/go/python); container uses packages: write instead
   uses: TomHennen/wrangle/.github/workflows/build_and_publish_<type>.yml@__WRANGLE_SHA__
   with:
     path: <type>
@@ -138,7 +137,7 @@ Two patterns the existing types need that aren't visible from the minimal exampl
 
 **Python:** `prep-python` runs first to patch `pyproject.toml`'s version per run (TestPyPI rejects re-uploads of the same version). A separate `publish-python` job runs after `test-python` to publish to TestPyPI — publish has to live in the calling workflow because PyPI Trusted Publishing's OIDC token must come from the caller, not a reusable workflow ([pypi/warehouse#11096](https://github.com/pypi/warehouse/issues/11096)). Multiple variants (`python/` for pip, `python-uv/` for uv) exist as separate fixtures with parallel `test-python` / `test-python-uv` jobs.
 
-**Container:** the `test-container` job passes `secrets: { gh_token: ${{ secrets.GITHUB_TOKEN }} }` because the container reusable workflow forwards a token to the SLSA generator for GHCR attestations. It also currently sets `publish_provenance_for_private_repo: true` to work around the SLSA generator misdetecting public repos as private when workflows run on PAT-pushed branches — that workaround is suspicious and tracked for investigation in [#170](https://github.com/TomHennen/wrangle/issues/170); future build types should NOT cargo-cult it without checking whether their integration setup actually needs it.
+**Container:** the `test-container` job passes `secrets: { gh_token: ${{ secrets.GITHUB_TOKEN }} }` because the container reusable workflow needs a token for GHCR operations (registry login, pushing the attestation and VSA referrers).
 
 If your build type has analogous needs (per-run version uniqueness, separate publish path, secrets forwarding, ecosystem-specific workarounds), build them into your fixture from the start. Don't try to make a minimal fixture work and then graft these on later — that's a multi-PR coordination cycle each time.
 
@@ -154,17 +153,17 @@ Lessons from container/shell/python that the next build type should *expect* to 
 
 GitHub validates a called reusable workflow's job-level permissions at workflow startup, regardless of any `if:` condition that might skip the job. The caller (your example workflow's `build:` job; wrangle-test's `test-<type>:` job) must grant every scope every called job declares — even when those jobs would skip at runtime.
 
-Specifically: if your reusable workflow's `provenance:` job uses `slsa-github-generator/.github/workflows/generator_generic_slsa3.yml@v2.1.0`, the caller must grant **`contents: write`** because that generator's `upload-assets` job declares `contents: write` even though it's gated by `if: inputs.upload-assets`.
+Wrangle's reusable workflows run an `attest:` job (`actions/attest-build-provenance`) that writes GitHub-issued SLSA provenance, and a `vsa:` job that emits a signed VSA. Together they need:
 
-The container generator (`generator_container_slsa3.yml`) is different — it declares `permissions: {}` at the workflow level and `packages: write` for upload, no `contents: write`. So container callers grant `packages: write` instead.
+- **`id-token: write`** — OIDC for Sigstore keyless signing (both the provenance attestation and the VSA).
+- **`attestations: write`** — for the `attest:` job to write the provenance to GitHub's attestation store.
+- **`contents: write`** — for the `vsa:` job to attach the VSA to the GitHub release (npm/go/python). This is *not* the old generator's `upload-assets` requirement — there is no generator upload job anymore. The container vsa job stores the VSA in the registry instead, so container callers grant **`packages: write`** (which the attest job also reuses to push the attestation referrer to GHCR) rather than `contents: write`.
 
-Independent of the generator, wrangle's reusable workflows also run an `attest:` job (`actions/attest-build-provenance`) that writes GitHub-issued SLSA provenance — so every caller must also grant **`attestations: write`** (and container callers already grant the `packages: write` it reuses to push the attestation referrer to GHCR).
+**What to do:** Read the reusable workflow you're calling, identify every permission its jobs declare, and grant the union in your reusable workflow's caller AND in the example workflow AND in the wrangle-test fixture's job. PR #156 hit this three times before getting it right.
 
-**What to do:** Read the SLSA generator workflow you're using, identify every permission its jobs declare, and grant the union in your reusable workflow's caller AND in the example workflow AND in the wrangle-test fixture's job. PR #156 hit this three times before getting it right.
+### Reusable-workflow output names
 
-### SLSA generator output names are not what you'd guess
-
-`generator_generic_slsa3.yml@v2.1.0` outputs `provenance-name` (the artifact filename), not `provenance-download-name` or `provenance-artifact-name`. PR #156 spent a commit on this. Read the generator's `workflow_call.outputs` block in its actual source — don't infer names from documentation summaries.
+The reusable workflow exposes `provenance-artifact-name` (the Sigstore bundle the `attest:` job uploads), `metadata-artifact-name`, and any type-specific outputs (e.g. `dist-artifact-name`). Read the workflow's `workflow_call.outputs` block in its actual source — don't infer names from documentation summaries.
 
 ### Cosign keyless verification identity is branch-dependent
 
@@ -232,8 +231,8 @@ Before requesting review on a new build-type PR, verify:
 - [ ] No inline `run:` blocks longer than ~5 lines or containing logic in `action.yml`. Helper scripts live in `build/actions/<type>/`.
 - [ ] Path validation delegates to `lib/validate_path.sh`.
 - [ ] Metadata is written to `metadata/<type>/<shortname>/` and uploaded as `<type>-metadata-<shortname>` (post-#167 convention).
-- [ ] Reusable workflow exposes `metadata-artifact-name`, `provenance-artifact-name` (if SLSA-generated), and any type-specific outputs (e.g., `dist-artifact-name` for python).
+- [ ] Reusable workflow exposes `metadata-artifact-name`, `provenance-artifact-name` (the attest job's Sigstore bundle, for artifact-producing types), and any type-specific outputs (e.g., `dist-artifact-name` for python).
 - [ ] Integration fixture exists in `tomhennen/wrangle-test` and a `test-<type>:` job is in the template. Permissions cascade through nested reusable workflows is verified (see Common Gotchas).
-- [ ] **End-to-end verification:** `slsa-verifier verify-artifact` (or the equivalent ecosystem-native verifier) actually succeeds against an artifact your build type produced. The integration test exercises this; if it doesn't, fix the test before requesting review.
+- [ ] **End-to-end verification:** `gh attestation verify` (or the build type's VSA) actually succeeds against an artifact your build type produced. The integration test exercises this; if it doesn't, fix the test before requesting review.
 - [ ] **wrangle-test CI run on the integration branch is green** (not just unit tests on the wrangle PR side — the full `dispatch` job).
 - [ ] If your PR surfaced a new lesson, this runbook is updated in the same commit.
