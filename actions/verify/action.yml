@@ -120,4 +120,12 @@ runs:
       env:
         VSA: ${{ inputs.artifact-name }}.intoto.jsonl
         GH_TOKEN: ${{ github.token }}
-      run: gh release upload "$GITHUB_REF_NAME" "$VSA" --clobber
+      run: |
+        set -euo pipefail
+        set -f
+        # Create the release if it doesn't exist yet. wrangle no longer runs the
+        # SLSA generator's upload-assets job, which used to create the release as
+        # a side effect; an adopter who manages releases themselves still gets
+        # the existing one (create is skipped), and the VSA is then attached.
+        gh release view "$GITHUB_REF_NAME" >/dev/null 2>&1 || gh release create "$GITHUB_REF_NAME" --verify-tag --generate-notes
+        gh release upload "$GITHUB_REF_NAME" "$VSA" --clobber
