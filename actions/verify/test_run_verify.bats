@@ -313,3 +313,68 @@ STUB
     [[ "$status" -eq 0 ]]
     [[ "$(cat "$TEST_DIR/order")" == $'emit\nsign\npush' ]]
 }
+
+# --- attach to release (wrangle_attach_release) ---
+#
+# The verify action runs once per artifact in the caller's vsa MATRIX, so on a
+# fresh tag several shards can race on `gh release create`. These tests drive a
+# `gh` shim whose `release view` exit codes follow GH_VIEW_SEQ (one per call) so
+# the create-loser's re-check is exercised deterministically.
+
+# Install a gh shim on PATH that logs calls and returns scripted exit codes.
+_install_gh_shim() {
+    cat > "$TEST_DIR/gh" <<'SHIM'
+#!/usr/bin/env bash
+printf '%s\n' "$*" >> "$GH_LOG"
+case "$1 $2" in
+  "release view")
+    n=$(cat "$GH_VIEW_N" 2>/dev/null || echo 0); n=$((n + 1)); printf '%s' "$n" > "$GH_VIEW_N"
+    code=$(printf '%s' "$GH_VIEW_SEQ" | cut -d' ' -f"$n"); exit "${code:-1}" ;;
+  "release create") exit "${GH_CREATE_CODE:-0}" ;;
+  "release upload") exit "${GH_UPLOAD_CODE:-0}" ;;
+esac
+exit 0
+SHIM
+    chmod +x "$TEST_DIR/gh"
+    export PATH="$TEST_DIR:$PATH"
+    export GH_LOG="$TEST_DIR/gh.log"; : > "$GH_LOG"
+    export GH_VIEW_N="$TEST_DIR/gh.viewn"; : > "$GH_VIEW_N"
+    export GITHUB_REF_NAME="v1.2.3"
+}
+
+@test "run_verify attach: existing release is uploaded to without create" {
+    _install_gh_shim
+    export GH_VIEW_SEQ="0"            # first view succeeds (release exists)
+    run "$SCRIPT" attach
+    [[ "$status" -eq 0 ]]
+    grep -qx "release upload v1.2.3 $VSA --clobber" "$GH_LOG"
+    ! grep -q "release create" "$GH_LOG"   # create must be skipped
+}
+
+@test "run_verify attach: missing release is created then uploaded to" {
+    _install_gh_shim
+    export GH_VIEW_SEQ="1"            # view fails (no release)
+    export GH_CREATE_CODE="0"        # create succeeds
+    run "$SCRIPT" attach
+    [[ "$status" -eq 0 ]]
+    grep -q "release create v1.2.3 --verify-tag --generate-notes" "$GH_LOG"
+    grep -qx "release upload v1.2.3 $VSA --clobber" "$GH_LOG"
+}
+
+@test "run_verify attach: create race loser re-confirms existence and still uploads" {
+    _install_gh_shim
+    export GH_VIEW_SEQ="1 0"         # 1st view fails, create loses, 2nd view succeeds
+    export GH_CREATE_CODE="1"        # another shard won the create
+    run "$SCRIPT" attach
+    [[ "$status" -eq 0 ]]            # the race must NOT fail the step
+    grep -qx "release upload v1.2.3 $VSA --clobber" "$GH_LOG"
+}
+
+@test "run_verify attach: a genuine create failure fails closed (no upload)" {
+    _install_gh_shim
+    export GH_VIEW_SEQ="1 1"         # release never appears — not a race, a real failure
+    export GH_CREATE_CODE="1"
+    run "$SCRIPT" attach
+    [[ "$status" -ne 0 ]]           # must surface, not be masked
+    ! grep -q "release upload" "$GH_LOG"   # upload must not run on an unresolved release
+}

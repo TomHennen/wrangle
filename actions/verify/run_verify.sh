@@ -125,16 +125,39 @@ wrangle_push_vsa() {
     cosign "${args[@]}"
 }
 
+# Attach the signed VSA to the GitHub release for the current tag (GITHUB_REF_NAME).
+# Create the release if it doesn't exist yet: wrangle no longer runs the SLSA
+# generator's upload-assets job, which used to create it as a side effect.
+#
+# Concurrency-tolerant by necessity: the verify action runs once per artifact in
+# the caller's vsa MATRIX (a python sdist+wheel is 2+ shards with fail-fast:false
+# and no max-parallel), so on a fresh tag several shards can clear `view` and race
+# on `create` at once. The create loser falls through to a second `view` that
+# confirms the release now exists — turning the "already exists" 422 into success
+# WITHOUT masking a genuine create failure (if the release truly can't be created,
+# the re-check also fails and `set -e` fails the step). An adopter who manages
+# releases themselves hits the first `view` and skips create entirely. Concurrent
+# `upload --clobber` calls target distinct per-artifact asset names, so they don't
+# collide.
+wrangle_attach_release() {
+    local ref="$GITHUB_REF_NAME"
+    gh release view "$ref" >/dev/null 2>&1 \
+        || gh release create "$ref" --verify-tag --generate-notes \
+        || gh release view "$ref" >/dev/null 2>&1
+    gh release upload "$ref" "$VSA" --clobber
+}
+
 main() {
     case "${1:-}" in
         # `run` does emit then sign then push in one process so the unsigned VSA
-        # never lives on disk across a step boundary. emit/sign/push stay
+        # never lives on disk across a step boundary. emit/sign/push/attach stay
         # callable for tests.
-        run)  wrangle_verify_emit_vsa; wrangle_sign_vsa; wrangle_push_vsa ;;
-        emit) wrangle_verify_emit_vsa ;;
-        sign) wrangle_sign_vsa ;;
-        push) wrangle_push_vsa ;;
-        *) printf 'Usage: %s {run|emit|sign|push}\n' "${0##*/}" >&2; return 2 ;;
+        run)    wrangle_verify_emit_vsa; wrangle_sign_vsa; wrangle_push_vsa ;;
+        emit)   wrangle_verify_emit_vsa ;;
+        sign)   wrangle_sign_vsa ;;
+        push)   wrangle_push_vsa ;;
+        attach) wrangle_attach_release ;;
+        *) printf 'Usage: %s {run|emit|sign|push|attach}\n' "${0##*/}" >&2; return 2 ;;
     esac
 }
 

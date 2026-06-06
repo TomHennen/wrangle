@@ -113,19 +113,15 @@ runs:
         path: ${{ inputs.artifact-name }}.intoto.jsonl
         if-no-files-found: error
 
-    # Canonical VSA storage: attach to the GitHub release on a tag push.
+    # Canonical VSA storage: attach to the GitHub release on a tag push. Creates
+    # the release if missing (concurrency-tolerant across the caller's vsa matrix
+    # shards) — see run_verify.sh's wrangle_attach_release.
     - name: Attach VSA to release
       if: github.ref_type == 'tag' && inputs.attach-to-release == 'true'
       shell: bash
       env:
+        WRANGLE_ROOT: ${{ github.action_path }}/../..
         VSA: ${{ inputs.artifact-name }}.intoto.jsonl
         GH_TOKEN: ${{ github.token }}
       run: |
-        set -euo pipefail
-        set -f
-        # Create the release if it doesn't exist yet. wrangle no longer runs the
-        # SLSA generator's upload-assets job, which used to create the release as
-        # a side effect; an adopter who manages releases themselves still gets
-        # the existing one (create is skipped), and the VSA is then attached.
-        gh release view "$GITHUB_REF_NAME" >/dev/null 2>&1 || gh release create "$GITHUB_REF_NAME" --verify-tag --generate-notes
-        gh release upload "$GITHUB_REF_NAME" "$VSA" --clobber
+        "$WRANGLE_ROOT/actions/verify/run_verify.sh" attach
