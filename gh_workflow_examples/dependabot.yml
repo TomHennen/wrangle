@@ -1,10 +1,11 @@
 # Copy this file to your repo at .github/dependabot.yml
 #
-# Do NOT enable auto-merge: wrangle deliberately adopts new upstream
-# versions only after a ~7-day delay (the `cooldown` below) so the
-# community can surface supply-chain attacks before they propagate.
-# This covers YOUR dependencies — not wrangle's pinned action SHAs or
-# tool binaries, which wrangle manages with hardcoded checksums.
+# The github-actions entry below raises update PRs for the action pins in
+# your workflows — including your `uses: TomHennen/wrangle/...` pin, which
+# is how you pick up new wrangle releases.
+#
+# Do NOT enable auto-merge: review updates after the ~7-day `cooldown`
+# below, so the community can surface supply-chain attacks first.
 version: 2
 updates:
   - package-ecosystem: "github-actions"
