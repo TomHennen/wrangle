@@ -22,6 +22,7 @@ name: Go Build
 
 on:
   push:
+    branches: ["main"]  # source scan + snapshot build on main (no publish); drop to skip per-merge builds
     tags: ["v*"]       # publish on version tags
   pull_request:
     branches: ["**"]   # build + test on PRs (no provenance, no publish)
