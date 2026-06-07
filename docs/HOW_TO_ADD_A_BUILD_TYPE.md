@@ -135,7 +135,7 @@ test-<type>:
 
 Two patterns the existing types need that aren't visible from the minimal example:
 
-**Python:** `prep-python` runs first to patch `pyproject.toml`'s version per run (TestPyPI rejects re-uploads of the same version). A separate `publish-python` job runs after `test-python` to publish to TestPyPI — publish has to live in the calling workflow because PyPI Trusted Publishing's OIDC token must come from the caller, not a reusable workflow ([pypi/warehouse#11096](https://github.com/pypi/warehouse/issues/11096)). Multiple variants (`python/` for pip, `python-uv/` for uv) exist as separate fixtures with parallel `test-python` / `test-python-uv` jobs.
+**Python:** `prep-python` pushes a version-bump commit before the build so `test-python` exercises wrangle's `ref:` input (building a commit pushed after the trigger). Publishing to a registry is exercised by the **showcase** (post-merge, tag-driven), not the per-PR integration test — publish must live in the calling workflow because Trusted Publishing's OIDC token binds to the caller's filename ([pypi/warehouse#11096](https://github.com/pypi/warehouse/issues/11096)), and npm allows only one trusted publisher per package, so a single workflow owns the publish slot. Multiple variants (`python/` for pip, `python-uv/` for uv) exist as separate fixtures with parallel `test-python` / `test-python-uv` jobs.
 
 **Container:** the `test-container` job passes `secrets: { gh_token: ${{ secrets.GITHUB_TOKEN }} }` because the container reusable workflow needs a token for GHCR operations (registry login, pushing the attestation and VSA referrers).
 
