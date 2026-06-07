@@ -14,13 +14,14 @@ What if... we could do this for developers, so they don't need to remember?
 Wrangle is a one-stop shop for GitHub Actions CI/CD.  Developers add **a single** job that
 uses one of wrangle's reusable workflows.  With that single job developers get:
 
-* Vulnerability scanning with osv
-* GitHub Action safety checks with Zizmor
+* Vulnerability scanning with [osv](https://github.com/google/osv-scanner)
+* GitHub Action safety checks with [Zizmor](https://github.com/zizmorcore/zizmor)
 * Automatic execution of unit tests
 * Automatic builds with safe defaults
-* SBOMs
-* SLSA Build Level 3 provenance
-* A SLSA VSA letting downstream users easily verify the artifacts you distribute.
+* [SBOMs](https://spdx.dev)
+* [SLSA Build Level 3 provenance](https://slsa.dev/spec/v1.2/levels)
+* Build provenance verified against SLSA policy (fail-closed) with [Ampel](https://github.com/carabiner-dev/ampel)
+* A [SLSA VSA](https://slsa.dev/verification_summary/v1) letting downstream users easily verify the artifacts you distribute.
 * and more
 
 The promise is that if developers use wrangle, wrangle will take care of drudgery, and let
