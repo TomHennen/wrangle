@@ -1,49 +1,74 @@
 # wrangle
 
-A composable CI/CD security framework for GitHub Actions. Adopters reference wrangle's reusable workflows and get source scanning, signed builds, SBOMs, and SLSA L3 provenance out of the box. Maintainers update the underlying tooling without adopters touching their repos.
+Developers want to ship features.  They'd like to do it securely but it's hard.  We ask too much of them:
+
+* Remember to scan for vulns
+* Remember not to use pull_request_target
+* Remember to run zizmor
+* Remember to produce an SBOM
+* Remember not to misconfigure caching
+* ...
+
+What if... we could do this for developers, so they don't need to remember?
+
+Wrangle is a one-stop shop for GitHub Actions CI/CD.  Developers add **a single** job that
+uses one of wrangle's reusable workflows.  With that single job developers get:
+
+* Vulnerability scanning with [osv](https://github.com/google/osv-scanner)
+* GitHub Action safety checks with [Zizmor](https://github.com/zizmorcore/zizmor)
+* Automatic execution of unit tests
+* Automatic builds with safe defaults
+* [SBOMs](https://spdx.dev)
+* [SLSA Build Level 3 provenance](https://slsa.dev/spec/v1.2/levels)
+* Build provenance verified against SLSA policy (fail-closed) with [Ampel](https://github.com/carabiner-dev/ampel)
+* A [SLSA VSA](https://slsa.dev/verification_summary/v1) letting downstream users easily verify the artifacts you distribute.
+* and more
+
+The promise is that if developers use wrangle, wrangle will take care of drudgery, safely,
+and let developers focus on the features they want to ship.
 
 ## Quick Start
 
-**Building an artifact?** Use a `build_and_publish_*` workflow (container, Python, npm, Go) or `build_shell.yml`. Each one scans your source (OSV, Zizmor, Scorecard, dependency-review) *and* builds, signs, and publishes — one workflow, no separate scan file needed. A load-bearing scan finding blocks the release. The embedded scan REQUIRES the caller to grant `actions: read` and `security-events: write` (the examples include them; omitting either fails the run at startup). See the [workflow examples](gh_workflow_examples/README.md).
+Developers can copy & adapt one of the ecosystem specific examples from [./gh_workflow_examples](gh_workflow_examples),
+putting it in their .github/workflows directory.
 
-**No build type?** Scan source only — create `.github/workflows/check_source_change.yml`:
+This is what it looks like for go (which also needs a `.goreleaser.yml` — see the table below).
 
 ```yaml
-name: Check Source Change
+name: Go Build
+
 on:
   push:
-    branches: ["main"]
+    branches: ["main"]  # source scan + snapshot build on main (no publish); drop to skip per-merge builds
+    tags: ["v*"]       # publish on version tags
   pull_request:
-    branches: ["**"]
+    branches: ["**"]   # build + test on PRs (no provenance, no publish)
+  workflow_dispatch:
 
 jobs:
-  check-change:
+  build:
     permissions:
-      actions: read
-      contents: read
-      security-events: write
-    uses: TomHennen/wrangle/.github/workflows/check_source_change.yml@v0.1.0
+      contents: write         # goreleaser creates the Release; verify job attaches the VSA
+      id-token: write         # OIDC for Sigstore signing
+      attestations: write     # GitHub-issued SLSA provenance
+      actions: read           # source scan: Scorecard reads the Actions API
+      security-events: write  # source-scan SARIF -> Security tab
+    uses: TomHennen/wrangle/.github/workflows/build_and_publish_go.yml@v0.2.0
+    with:
+      path: "."
 ```
 
-Runs OSV-Scanner, Zizmor, OSSF Scorecard, and dependency-review on every PR. Findings appear in the Security tab and the Actions step summary.
+Once they've done this they'll get tests run, scanning, attestations, etc.
 
-**Keep dependencies fresh.** Enable Dependabot with [`gh_workflow_examples/dependabot.yml`](gh_workflow_examples/dependabot.yml). Do not auto-merge — wrangle's supply-chain discipline favors a ~7-day delay so the community can catch attacks first. Dependabot covers your own dependencies; wrangle's pinned internals are bumped by wrangle.
+## Ecosystems
 
-## Attestation trust gaps (current)
+Go, Python, npm, and Container each produce a signed artifact — source scan, tests, SBOM, SLSA Build L3 provenance, and a VSA. Shell and source-only run checks without producing an artifact.
 
-wrangle emits real, signed SLSA provenance and VSAs today. A few gaps remain in the trust chain; we surface them so adopters and consumers aren't surprised:
-
-- **The verifiable "wrangle did this" anchor is the VSA's signing certificate** — the single signed attestation a consumer trusts, keyless-signed by *wrangle's* reusable workflow, so verify **that** identity (per each build-type README; `slsa-verifier verify-vsa` can't — it's key-signed-only). The provenance's `builder.id` now also names that workflow, but reading it means fetching and verifying the provenance; the VSA cert is the one identity to pin. (`verifier.id`, `carabiner.dev/ampel@v1`, is the engine, not wrangle.) Tracking: [#317](https://github.com/TomHennen/wrangle/issues/317).
-- **The VSA is provenance-only.** It attests the three SLSA build-provenance tenets (builder, build type, build point) and nothing else yet; SBOM / OSV / Scorecard results are folded in only once they're produced as signed attestations from a registered identity. Tracking: [#247](https://github.com/TomHennen/wrangle/issues/247).
-- **The one-command `ampel verify` consumer path doesn't bind the origin repo.** It checks the VSA's signer (wrangle's reusable workflow) + predicate fields, but ampel (v1.2.1) matches only the signing cert's issuer + SAN — not the source-repository extension — so it does not assert *which repo* built the artifact. The `cosign verify-blob-attestation` path does, via `--certificate-github-workflow-repository`. Tracking: [#321](https://github.com/TomHennen/wrangle/issues/321).
-
-Worked examples with the actual field values — and a visual audit of real provenance/VSAs — are tracked in [#200](https://github.com/TomHennen/wrangle/issues/200) and [#312](https://github.com/TomHennen/wrangle/issues/312).
-
-## Pieces
-
-- [Workflow examples](gh_workflow_examples/README.md) — copy-paste starting points
-- [Reusable workflows](.github/workflows/) — what adopters call via `uses:`; `build_and_publish_*` scan + build + publish, `check_source_change.yml` scans only
-- [Source scan action](actions/scan/README.md) — OSV, Zizmor, Scorecard, dependency-review orchestration
-- [Build actions](build/) — npm, python, container, shell
-- [Tools](tools/) — per-tool adapters and install scripts (OSV, Zizmor, Scorecard, Syft, dependency-review)
-- [Spec](docs/SPEC.md) — architecture, contracts, threat model
+| Ecosystem | README | Example |
+|-----------|--------|---------|
+| Go — uses your `.goreleaser.yml` | [README](build/actions/go/README.md) | [build_go.yml](gh_workflow_examples/build_go.yml) with example goreleaser configs in [pure-Go](gh_workflow_examples/build_go.goreleaser.yml) or [cgo cross-compile](gh_workflow_examples/build_go_cgo.goreleaser.yml) |
+| Python — uv or pip, auto-detected | [README](build/actions/python/README.md) | [build_python.yml](gh_workflow_examples/build_python.yml) |
+| npm — npm or pnpm, auto-detected | [README](build/actions/npm/README.md) | [build_npm.yml](gh_workflow_examples/build_npm.yml) |
+| Container | [README](build/actions/container/README.md) | [build_and_publish_containers.yml](gh_workflow_examples/build_and_publish_containers.yml) |
+| Shell | — | [build_shell.yml](gh_workflow_examples/build_shell.yml) |
+| Source-only — no build, scan only | [README](actions/scan/README.md) | [check_source_change.yml](gh_workflow_examples/check_source_change.yml) |
