@@ -30,6 +30,8 @@ Then check the diff against the conventions in the rest of this file.
 
 Comments explain *why*, not *what*. Explain hidden constraints or non-obvious decisions; don't restate the code, narrate history, or reference PR numbers, review threads, comment URLs, or policy docs (CLAUDE.md, SPEC.md, DEP_MGMT.md) — the rule lives in the doc, the comment states the constraint. Delete obvious comments that just paraphrase the line below them. One line max unless a hidden constraint really requires more.
 
+**Describe what the code does now, not what it used to do.** When you change or remove something, rewrite the comment to stand on its own describing current behavior — never "replaces the old X", "previously the generator…", "this is the new path", or "X now does Y instead of Z". A reader who never saw the prior version is the audience. Migration rationale and "what changed and why" belong in the PR description or an inline PR comment to the reviewer — not in the committed code.
+
 ## Shell scripts
 
 Every shell script MUST start with the exact preamble `set -euo pipefail` followed by `set -f` (disable globbing). Stricter supersets (`set -Eeuo pipefail`) and equivalent decompositions (`set -e -u -o pipefail`) are rejected — one canonical form. If you need ERR trap inheritance, add `set -E` on its own line after the preamble. Scripts that intentionally need globbing must wrap it in `set +f` / `set -f` with a comment, scoped as narrowly as possible. Sourced libs that toggle `set +f` MUST restore `set -f` before returning.
@@ -46,7 +48,7 @@ Don't `curl | sh` — all binary downloads go through `lib/download_verify.sh`. 
 
 ## Action reference pinning
 
-Required pin format per context (third-party actions, the SLSA-generator tag exception, self-references, examples), the `@main` prohibition, and how self-references are bumped: see [DEP_MGMT.md](DEP_MGMT.md).
+Required pin format per context (third-party actions, self-references, examples), the `@main` prohibition, and how self-references are bumped: see [DEP_MGMT.md](DEP_MGMT.md).
 
 ## Installing and verifying tools
 

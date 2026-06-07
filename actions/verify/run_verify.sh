@@ -125,16 +125,30 @@ wrangle_push_vsa() {
     cosign "${args[@]}"
 }
 
+# Attach the signed VSA to the GitHub release for the current tag, IF one
+# exists. wrangle does not create releases — the adopter's release tooling
+# (release-please, goreleaser, manual) owns that; on a tag with no release the
+# VSA remains available as the workflow artifact.
+wrangle_attach_release() {
+    local ref="$GITHUB_REF_NAME"
+    if gh release view "$ref" >/dev/null 2>&1; then
+        gh release upload "$ref" "$VSA" --clobber
+    else
+        printf 'wrangle: no GitHub release for %s; the signed VSA is the workflow artifact only.\n' "$ref" >&2
+    fi
+}
+
 main() {
     case "${1:-}" in
         # `run` does emit then sign then push in one process so the unsigned VSA
-        # never lives on disk across a step boundary. emit/sign/push stay
+        # never lives on disk across a step boundary. emit/sign/push/attach stay
         # callable for tests.
-        run)  wrangle_verify_emit_vsa; wrangle_sign_vsa; wrangle_push_vsa ;;
-        emit) wrangle_verify_emit_vsa ;;
-        sign) wrangle_sign_vsa ;;
-        push) wrangle_push_vsa ;;
-        *) printf 'Usage: %s {run|emit|sign|push}\n' "${0##*/}" >&2; return 2 ;;
+        run)    wrangle_verify_emit_vsa; wrangle_sign_vsa; wrangle_push_vsa ;;
+        emit)   wrangle_verify_emit_vsa ;;
+        sign)   wrangle_sign_vsa ;;
+        push)   wrangle_push_vsa ;;
+        attach) wrangle_attach_release ;;
+        *) printf 'Usage: %s {run|emit|sign|push|attach}\n' "${0##*/}" >&2; return 2 ;;
     esac
 }
 

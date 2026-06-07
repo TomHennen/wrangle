@@ -1,16 +1,18 @@
 {
     // ====================================================================
-    // wrangle-provenance-container-v1 — provenance-only PolicySet for the
-    // container build type
+    // wrangle-provenance-go-v1 — provenance-only PolicySet for the go
+    // build type
     // ====================================================================
     //
-    // The container sibling of the per-ecosystem wrangle-provenance-*-v1 family.
+    // The go sibling of the per-ecosystem wrangle-provenance-*-v1 family.
     // wrangle's provenance is GitHub-issued (actions/attest-build-provenance),
-    // so builder.id is THIS reusable workflow's path (build_and_publish_container
-    // .yml) — different per build type, so each build type needs its own
-    // PolicySet. buildType and the signer issuer are now shared across build
-    // types; only builder.id and the signer SAN are per-type. The baked builderId
-    // is a deliberate fail-closed property and MUST NOT be parameterized.
+    // so builder.id is THIS reusable workflow's path — different per build type
+    // (build_and_publish_go.yml here). The builder-id tenet bakes one exact
+    // value, so each build type needs its own PolicySet. buildType and the
+    // signer issuer are now shared across build types; only builder.id and the
+    // signer SAN are per-type, which is what forces the split. (The buildType is
+    // no longer ecosystem-specific — it is the generic GitHub Actions workflow
+    // build type — but a single PolicySet still cannot bake two builder.ids.)
     //
     // -- Upstream references are SHA-PINNED (Decision 2) ----------------------
     // Every tenet is an upstream carabiner-dev/policies file referenced by a
@@ -19,15 +21,15 @@
     // asserts this); bump together.
     //
     // -- Context model --------------------------------------------------------
-    // common.context bakes wrangle's container build-system identity (builderId,
-    // buildType) so a baked value wins over --context. The per-release buildPoint
-    // (source repo) and vsa.resourceUri (the OCI image ref) are supplied at
-    // verify time via actions/verify's `context` input.
+    // common.context bakes wrangle's build-system identity (builderId, buildType)
+    // so a baked value wins over --context (an adopter cannot weaken it). The
+    // per-release buildPoint (source repo) and vsa.resourceUri (artifact purl)
+    // are supplied at verify time via actions/verify's `context` input.
     // --------------------------------------------------------------------
 
-    id: "wrangle-provenance-container-v1"
+    id: "wrangle-provenance-go-v1"
     meta: {
-        description: "wrangle provenance-only release policy for containers: SLSA Build L3 provenance (builder/type/point). Emits a SLSA VSA."
+        description: "wrangle provenance-only release policy for go: SLSA Build L3 provenance (builder/type/point). Emits a SLSA VSA."
         frameworks: [
             {
                 id: "SLSA"
@@ -38,14 +40,16 @@
 
     common: {
         context: {
-            // Baked: wrangle's reusable container build workflow is the builder.
+            // Baked: wrangle's reusable go build workflow is the builder.
             // builder.id == the workflow's job_workflow_ref (attest-build-
-            // provenance run inside the reusable workflow). The builder-id tenet
+            // provenance run inside the reusable workflow), closing the build-
+            // confusion gap where the generic generator named the generator
+            // rather than the workflow that ran the build. The builder-id tenet
             // matches on `==` or `startsWith(value + '@')`, so binding the path
             // WITHOUT a @ref keeps the policy valid across the ref an adopter
             // pinned wrangle at.
             builderId: {
-                value: "https://github.com/TomHennen/wrangle/.github/workflows/build_and_publish_container.yml"
+                value: "https://github.com/TomHennen/wrangle/.github/workflows/build_and_publish_go.yml"
             }
             // Baked: the generic GitHub Actions workflow buildType that
             // attest-build-provenance emits (not an ecosystem-specific type).
@@ -59,7 +63,7 @@
                 type: "string"
             }
             // Supplied at verify time: captured into the VSA `resourceUri`
-            // (the OCI image ref). Optional.
+            // (e.g. the artifact purl). Optional.
             "vsa.resourceUri": {
                 type: "string"
             }
@@ -71,9 +75,9 @@
         // exercise tenet CEL. Identity ENFORCEMENT is covered separately by the
         // harness's fail-closed test. Preserve the markers if you edit this.
         //
-        // The SLSA provenance MUST be signed by wrangle's reusable container
-        // build workflow's keyless identity (fail-closed). attest-build-provenance
-        // run inside the reusable workflow makes the cert SAN that workflow's
+        // The SLSA provenance MUST be signed by wrangle's reusable go build
+        // workflow's keyless identity (fail-closed). attest-build-provenance run
+        // inside the reusable workflow makes the cert SAN that workflow's
         // job_workflow_ref; the ref varies (a tag or SHA the adopter pinned), so
         // the regexp binds the workflow PATH and accepts any ref.
         identities: [
@@ -82,7 +86,7 @@
                 sigstore: {
                     mode: "regexp"
                     issuer: "^https://token\\.actions\\.githubusercontent\\.com$"
-                    identity: "^https://github\\.com/TomHennen/wrangle/\\.github/workflows/build_and_publish_container\\.yml@.+$"
+                    identity: "^https://github\\.com/TomHennen/wrangle/\\.github/workflows/build_and_publish_go\\.yml@.+$"
                 }
             }
         ]

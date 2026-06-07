@@ -8,7 +8,7 @@ Three principles should guide all ecosystem best practices decisions:
 
 1. **Build-time SBOMs are always preferable.** SBOMs generated during the build — by the build tool itself — are more accurate and trustworthy than post-hoc scanning.
 2. **Use ecosystem-native tooling where available.** Prefer the ecosystem's own tools over generic bolt-on solutions.
-3. **Always produce canonical SLSA provenance in addition to ecosystem-native attestations.** Many native provenance solutions use old SLSA versions or proprietary formats. Generate both: ecosystem-native (for ecosystem consumers) + canonical SLSA L3 via `slsa-github-generator` (for cross-ecosystem policy engines and to advance SLSA adoption).
+3. **Always produce canonical SLSA provenance in addition to ecosystem-native attestations.** Many native provenance solutions use old SLSA versions or proprietary formats. Generate both: ecosystem-native (for ecosystem consumers) + canonical SLSA L3 via `actions/attest-build-provenance` run inside a reusable workflow (for cross-ecosystem policy engines and to advance SLSA adoption).
 
 ### Shell Ecosystem: Tool Decisions
 

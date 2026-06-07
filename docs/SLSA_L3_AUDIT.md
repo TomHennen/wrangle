@@ -55,6 +55,59 @@ adopter consuming wrangle through one of wrangle's **reusable workflows**:
 > follow-up fix" column is now the live state. The per-builder analysis below
 > is kept as the historical record of why the fix was needed.
 
+> **Update — 2026-06-06 ([#316](https://github.com/TomHennen/wrangle/issues/316)).**
+> Wrangle no longer produces provenance with the **slsa-github-generator**. All
+> four reusable build workflows now generate SLSA provenance with
+> [`actions/attest-build-provenance`](https://github.com/actions/attest-build-provenance)
+> run **inside the reusable workflow itself**, and the slsa-generator
+> `provenance:` job plus the slsa-verifier / `cosign verify-attestation` verify
+> jobs have been removed. **The Build Track levels in the table above are
+> unchanged** — the reusable workflow is still the isolated, trusted build
+> platform, but now the *build* step and the *attest* step run in that same
+> isolated workflow, so its `job_workflow_ref` is both the Sigstore signing
+> certificate SAN and the provenance `builder.id`. Consequences for the analysis
+> below, which is the pre-#316 historical record:
+> - **The build-vs-provenance-creation gap is closed.** The body below explains
+>   (e.g. "Ecosystem-specific builders vs the generic generator") that wrangle
+>   used the *generic* generator, which signs over a caller-supplied hash list
+>   and therefore names the generator — not the building workflow — as
+>   `builder.id`, leaving open "which workflow in the repo built this." That no
+>   longer applies: `builder.id` is now `build_and_publish_<type>.yml`.
+> - **The isolation argument moves anchor.** Where the body grounds L3 in the
+>   *generator's* isolated reusable workflow signing the provenance, L3 now rests
+>   on wrangle's *own* reusable workflow being the trusted builder that both
+>   builds and attests. The cache-isolation findings (Findings 1–2) still apply
+>   verbatim — the build still runs in that workflow under the same release-build
+>   cache discipline.
+> - **Signing-key isolation** ([build-requirements](https://slsa.dev/spec/v1.2/build-requirements):
+>   *"secret material MUST NOT be accessible to the environment running the
+>   user-defined build steps"*). "Build and attest in the same reusable workflow"
+>   does **not** mean the same environment: build and signing are separate
+>   **jobs**, hence separate runner VMs with per-job OIDC. The jobs that run the
+>   adopter's build steps (`build`/`checks`/`release`) hold **no `id-token`** and
+>   so cannot mint a Sigstore token; the jobs that sign (`attest`, `vsa`) hold
+>   `id-token: write` but run **only trusted, non-user-controlled steps** —
+>   `download-artifact` (data, not code), `actions/attest-build-provenance`,
+>   `ampel`/`bnd`, and a `jq` normalize of the attest output. So the signing
+>   material is unreachable by user build steps — the same isolation the
+>   generator provided via a separate *workflow*, now via separate *jobs*. Scope:
+>   this prevents key *theft* by a compromised build step (the mini-Shai-Hulud
+>   class). It does **not** — and is not meant to — prevent a compromised build
+>   from producing an *honestly-signed* malicious artifact; that's source /
+>   dependency integrity, a separate track from build-platform key isolation.
+> - **buildType / predicate.** Provenance is now `predicateType
+>   https://slsa.dev/provenance/v1` with `buildType
+>   https://actions.github.io/buildtypes/workflow/v1` (was the generator's
+>   `.../generic@v1` v0.2 / `.../container@v1`). The container path attests the
+>   pushed image by digest and stores the provenance as an OCI referrer instead
+>   of via the container generator.
+> - **Verification.** Consumers verify with `gh attestation verify
+>   --signer-workflow` (binding wrangle's reusable workflow) rather than
+>   `slsa-verifier` against the generator identity.
+>
+> The per-builder generator analysis below is retained as the historical record
+> of the pre-#316 architecture; it is not the current implementation.
+
 Two caveats narrow every Build L3 row above:
 
 - **Direct composite consumption is not a supported L3 path.** Calling the

@@ -38,7 +38,7 @@
 # AMPEL-IDENTITY-BINDING markers in policies/*.hjson.
 strip_identities() {
     sed -e '/AMPEL-IDENTITY-BINDING:START/,/AMPEL-IDENTITY-BINDING:END/d' \
-        -e '/^[[:space:]]*identities: \[ { ref: { id: "slsa-generator" } } \]$/d' "$1"
+        -e '/^[[:space:]]*identities: \[ { ref: { id: "[^"]*" } } \]$/d' "$1"
 }
 
 # skip_or_fail (fail-not-skip under CI) lives in a shared bats helper.
@@ -62,17 +62,26 @@ setup() {
     # harness exercises the production parser, not the JSON-only --context-json).
     CTX="buildPoint:git+https://github.com/TomHennen/wrangle,vsa.resourceUri:pkg:generic/wrangle-app@1.0.0"
 
-    PROVENANCE="$POLICIES_DIR/wrangle-provenance-v1.hjson"
+    # One provenance PolicySet per build type: builder.id is GitHub-issued
+    # (attest-build-provenance), so it names THIS reusable workflow and differs
+    # per type — hence the per-eco split (the baked builderId can't be shared).
+    PROVENANCE_NPM="$POLICIES_DIR/wrangle-provenance-npm-v1.hjson"
+    PROVENANCE_GO="$POLICIES_DIR/wrangle-provenance-go-v1.hjson"
+    PROVENANCE_PYTHON="$POLICIES_DIR/wrangle-provenance-python-v1.hjson"
     PROVENANCE_CONTAINER="$POLICIES_DIR/wrangle-provenance-container-v1.hjson"
 
     # Logic-only variants for the tenet tests (see the file header).
     DEFAULT_LOGIC="$BATS_TEST_TMPDIR/default-logic.hjson"
     STRICT_LOGIC="$BATS_TEST_TMPDIR/strict-logic.hjson"
-    PROVENANCE_LOGIC="$BATS_TEST_TMPDIR/provenance-logic.hjson"
+    PROVENANCE_NPM_LOGIC="$BATS_TEST_TMPDIR/provenance-npm-logic.hjson"
+    PROVENANCE_GO_LOGIC="$BATS_TEST_TMPDIR/provenance-go-logic.hjson"
+    PROVENANCE_PYTHON_LOGIC="$BATS_TEST_TMPDIR/provenance-python-logic.hjson"
     PROVENANCE_CONTAINER_LOGIC="$BATS_TEST_TMPDIR/provenance-container-logic.hjson"
     strip_identities "$DEFAULT" > "$DEFAULT_LOGIC"
     strip_identities "$STRICT"  > "$STRICT_LOGIC"
-    strip_identities "$PROVENANCE" > "$PROVENANCE_LOGIC"
+    strip_identities "$PROVENANCE_NPM" > "$PROVENANCE_NPM_LOGIC"
+    strip_identities "$PROVENANCE_GO" > "$PROVENANCE_GO_LOGIC"
+    strip_identities "$PROVENANCE_PYTHON" > "$PROVENANCE_PYTHON_LOGIC"
     strip_identities "$PROVENANCE_CONTAINER" > "$PROVENANCE_CONTAINER_LOGIC"
     # Structural self-check, both halves:
     # (a) Production side — a policy that shipped WITHOUT an identity gate would
@@ -83,19 +92,24 @@ setup() {
     #     every logic test into a vacuous identity-gate check. Fail if any
     #     admission survived. (The PASS tests are the functional half of (b): if
     #     the gate were still present, the unsigned good fixtures could not pass.)
-    for p in "$DEFAULT" "$STRICT" "$PROVENANCE" "$PROVENANCE_CONTAINER"; do
+    for p in "$DEFAULT" "$STRICT" "$PROVENANCE_NPM" "$PROVENANCE_GO" \
+             "$PROVENANCE_PYTHON" "$PROVENANCE_CONTAINER"; do
         grep -qE '^[[:space:]]*identities:' "$p" || {
             printf 'production policy %s has no identities admission — gate missing\n' "$p" >&2
             return 1
         }
     done
-    if grep -qE '^[[:space:]]*identities:' "$DEFAULT_LOGIC" "$STRICT_LOGIC" "$PROVENANCE_LOGIC" "$PROVENANCE_CONTAINER_LOGIC"; then
+    if grep -qE '^[[:space:]]*identities:' "$DEFAULT_LOGIC" "$STRICT_LOGIC" \
+            "$PROVENANCE_NPM_LOGIC" "$PROVENANCE_GO_LOGIC" \
+            "$PROVENANCE_PYTHON_LOGIC" "$PROVENANCE_CONTAINER_LOGIC"; then
         printf 'strip_identities left an identities admission in the logic variant\n' >&2
         return 1
     fi
 
-    export AMPEL POLICIES_DIR DEFAULT STRICT PROVENANCE PROVENANCE_CONTAINER
-    export DEFAULT_LOGIC STRICT_LOGIC PROVENANCE_LOGIC PROVENANCE_CONTAINER_LOGIC TD SUBJECT CTX
+    export AMPEL POLICIES_DIR DEFAULT STRICT TD SUBJECT CTX
+    export PROVENANCE_NPM PROVENANCE_GO PROVENANCE_PYTHON PROVENANCE_CONTAINER
+    export PROVENANCE_NPM_LOGIC PROVENANCE_GO_LOGIC PROVENANCE_PYTHON_LOGIC
+    export DEFAULT_LOGIC STRICT_LOGIC PROVENANCE_CONTAINER_LOGIC
 }
 
 # verify <policy> <fixture-bundle> [extra ampel args...]
@@ -123,6 +137,29 @@ expect_fail() {
     [ "$output" = "FAIL" ]
 }
 
+# expect_fail_closed <production-policy> <good-fixture>
+# Asserts the PRODUCTION policy (identity gate intact) rejects the SAME good
+# fixture that PASSES its logic variant — so the only thing that can fail is the
+# signer-identity admission (the fixtures are unsigned jsonl statements). Proves
+# the binding is wired and fail-closed without a --signer flag to forget.
+expect_fail_closed() {
+    local policy="$1" fixture="$2"
+    local rs="$BATS_TEST_TMPDIR/enforce.json"
+    run verify "$policy" "$fixture" \
+        --attest-results --attest-format=ampel --results-path="$rs" -f tty
+    [ "$status" -ne 0 ]
+    [ -s "$rs" ]
+    run jq -r '.predicate.status' "$rs"
+    [ "$output" = "FAIL" ]
+    # Fails specifically on identity validation — not tenet CEL (the logic
+    # variant proves that CEL passes on this fixture).
+    run jq -r '.predicate.results[] | select(.policy.id == "slsa-builder-id") | .status' "$rs"
+    [ "$output" = "FAIL" ]
+    run jq -r '[.predicate.results[].eval_results[]?.error.message]
+               | map(select(. == "attestation identity validation failed")) | length' "$rs"
+    [ "$output" -ge 1 ]
+}
+
 # --- Tenet logic (logic-only variant: identity gate stripped) --------------
 
 @test "ampel policy: default-v1 PASSES a good release bundle (SLSA_BUILD_LEVEL_3)" {
@@ -139,11 +176,11 @@ expect_fail() {
     [ "$output" = "pkg:generic/wrangle-app@1.0.0" ]
 }
 
-@test "ampel policy: provenance-v1 PASSES a good bundle (SLSA_BUILD_LEVEL_3, provenance-only)" {
-    # The provenance-only PolicySet ignores the bundle's SBOM/OSV statements and
-    # passes on the three SLSA tenets alone.
-    local vsa="$BATS_TEST_TMPDIR/prov-vsa.json"
-    run verify "$PROVENANCE_LOGIC" "$TD/good.bundle.jsonl" \
+@test "ampel policy: provenance-npm-v1 PASSES a good npm bundle (SLSA_BUILD_LEVEL_3, provenance-only)" {
+    # The provenance-only PolicySet passes on the three SLSA tenets alone. The
+    # fixture is a v1 attest-build-provenance statement carrying npm's builder.id.
+    local vsa="$BATS_TEST_TMPDIR/npm-vsa.json"
+    run verify "$PROVENANCE_NPM_LOGIC" "$TD/good-npm.bundle.jsonl" \
         --attest-results --attest-format=vsa --results-path="$vsa" -f tty
     [ "$status" -eq 0 ]
     run jq -r '.predicate.verificationResult' "$vsa"
@@ -151,20 +188,37 @@ expect_fail() {
     run jq -r '.predicate.verifiedLevels[0]' "$vsa"
     [ "$output" = "SLSA_BUILD_LEVEL_3" ]
     # The per-release resourceUri the caller supplies must land in the VSA — this
-    # is the field the emitted release VSA carries (build_and_publish_python.yml).
+    # is the field the emitted release VSA carries (build_and_publish_npm.yml).
     run jq -r '.predicate.resourceUri' "$vsa"
     [ "$output" = "pkg:generic/wrangle-app@1.0.0" ]
 }
 
-@test "ampel policy: provenance-v1 FAILS (slsa-builder-id) on a wrong builder identity" {
-    # Provenance-v1's own tenet CEL, exercised non-vacuously through its logic
-    # variant (a wrong builder is rejected by the builder-id tenet, not the gate).
-    expect_fail "$PROVENANCE_LOGIC" "$TD/bad-wrong-builder.bundle.jsonl" "slsa-builder-id"
+@test "ampel policy: provenance-go-v1 PASSES a good go bundle (SLSA_BUILD_LEVEL_3)" {
+    run verify "$PROVENANCE_GO_LOGIC" "$TD/good-go.bundle.jsonl" -f tty
+    [ "$status" -eq 0 ]
+}
+
+@test "ampel policy: provenance-python-v1 PASSES a good python bundle (SLSA_BUILD_LEVEL_3)" {
+    run verify "$PROVENANCE_PYTHON_LOGIC" "$TD/good-python.bundle.jsonl" -f tty
+    [ "$status" -eq 0 ]
+}
+
+@test "ampel policy: provenance-npm-v1 FAILS (slsa-builder-id) on a wrong builder identity" {
+    # The npm policy's own builder-id CEL, exercised non-vacuously through its
+    # logic variant (a wrong builder is rejected by the tenet, not the gate).
+    expect_fail "$PROVENANCE_NPM_LOGIC" "$TD/bad-wrong-builder.bundle.jsonl" "slsa-builder-id"
+}
+
+@test "ampel policy: provenance-npm-v1 FAILS (slsa-builder-id) on a sibling build type's builder" {
+    # The npm policy bakes npm's EXACT builder.id, so even a sibling wrangle build
+    # workflow (the go builder) is the wrong builder — proving the per-eco split's
+    # baked builderId is load-bearing, not a loose "any wrangle workflow" match.
+    expect_fail "$PROVENANCE_NPM_LOGIC" "$TD/good-go.bundle.jsonl" "slsa-builder-id"
 }
 
 @test "ampel policy: provenance-container-v1 PASSES a good container bundle (SLSA_BUILD_LEVEL_3)" {
-    # The container sibling bakes the container generator's builderId/buildType,
-    # so it passes the container-shaped fixture the generic policy would reject.
+    # The container sibling bakes the container build workflow's builder.id, so it
+    # passes the container fixture and rejects the other build types' builders.
     local vsa="$BATS_TEST_TMPDIR/cont-vsa.json"
     run verify "$PROVENANCE_CONTAINER_LOGIC" "$TD/good-container.bundle.jsonl" \
         --attest-results --attest-format=vsa --results-path="$vsa" -f tty
@@ -177,11 +231,11 @@ expect_fail() {
     [ "$output" = "pkg:generic/wrangle-app@1.0.0" ]
 }
 
-@test "ampel policy: provenance-container-v1 FAILS (slsa-builder-id) on the generic builder" {
-    # The generic-generator fixture is the "wrong builder" for the container
+@test "ampel policy: provenance-container-v1 FAILS (slsa-builder-id) on the npm builder" {
+    # The npm-build-workflow fixture is the "wrong builder" for the container
     # policy — its builder-id tenet must reject it (proves the baked container
-    # builderId is load-bearing, not inherited from the generic policy).
-    expect_fail "$PROVENANCE_CONTAINER_LOGIC" "$TD/good.bundle.jsonl" "slsa-builder-id"
+    # builderId is load-bearing, specific to the container build workflow).
+    expect_fail "$PROVENANCE_CONTAINER_LOGIC" "$TD/good-npm.bundle.jsonl" "slsa-builder-id"
 }
 
 @test "ampel policy: default-v1 FAILS (sbom-exists) when the SBOM is missing" {
@@ -237,42 +291,25 @@ expect_fail() {
     [ "$output" -ge 1 ]
 }
 
-@test "ampel policy: provenance-v1 (production) is FAIL-CLOSED — rejects an unsigned attestation on signer identity" {
-    # provenance-v1 is the policy build_and_publish_python.yml verifies real
-    # releases against, so its OWN identity gate must be proven fail-closed —
-    # not inherited from default-v1's test. Same good fixture that PASSES the
-    # logic variant; the only thing that can fail is signer-identity admission.
-    local rs="$BATS_TEST_TMPDIR/prov-enforce.json"
-    run verify "$PROVENANCE" "$TD/good.bundle.jsonl" \
-        --attest-results --attest-format=ampel --results-path="$rs" -f tty
-    [ "$status" -ne 0 ]
-    [ -s "$rs" ]
-    run jq -r '.predicate.status' "$rs"
-    [ "$output" = "FAIL" ]
-    run jq -r '.predicate.results[] | select(.policy.id == "slsa-builder-id") | .status' "$rs"
-    [ "$output" = "FAIL" ]
-    run jq -r '[.predicate.results[].eval_results[]?.error.message]
-               | map(select(. == "attestation identity validation failed")) | length' "$rs"
-    [ "$output" -ge 1 ]
+# Each per-eco provenance policy is what its build_and_publish_<eco>.yml verifies
+# real releases against, so each OWN identity gate must be proven fail-closed —
+# not inherited from another policy's test.
+@test "ampel policy: provenance-npm-v1 (production) is FAIL-CLOSED on signer identity" {
+    expect_fail_closed "$PROVENANCE_NPM" "$TD/good-npm.bundle.jsonl"
 }
 
-@test "ampel policy: provenance-container-v1 (production) is FAIL-CLOSED — rejects an unsigned attestation on signer identity" {
+@test "ampel policy: provenance-go-v1 (production) is FAIL-CLOSED on signer identity" {
+    expect_fail_closed "$PROVENANCE_GO" "$TD/good-go.bundle.jsonl"
+}
+
+@test "ampel policy: provenance-python-v1 (production) is FAIL-CLOSED on signer identity" {
+    expect_fail_closed "$PROVENANCE_PYTHON" "$TD/good-python.bundle.jsonl"
+}
+
+@test "ampel policy: provenance-container-v1 (production) is FAIL-CLOSED on signer identity" {
     # The container policy is what build_and_publish_container.yml verifies real
-    # image provenance against, so its OWN identity gate must be proven
-    # fail-closed. Same container fixture that PASSES the logic variant; the only
-    # thing that can fail is signer-identity admission (the fixture is unsigned).
-    local rs="$BATS_TEST_TMPDIR/cont-enforce.json"
-    run verify "$PROVENANCE_CONTAINER" "$TD/good-container.bundle.jsonl" \
-        --attest-results --attest-format=ampel --results-path="$rs" -f tty
-    [ "$status" -ne 0 ]
-    [ -s "$rs" ]
-    run jq -r '.predicate.status' "$rs"
-    [ "$output" = "FAIL" ]
-    run jq -r '.predicate.results[] | select(.policy.id == "slsa-builder-id") | .status' "$rs"
-    [ "$output" = "FAIL" ]
-    run jq -r '[.predicate.results[].eval_results[]?.error.message]
-               | map(select(. == "attestation identity validation failed")) | length' "$rs"
-    [ "$output" -ge 1 ]
+    # image provenance against, so its OWN identity gate must be proven fail-closed.
+    expect_fail_closed "$PROVENANCE_CONTAINER" "$TD/good-container.bundle.jsonl"
 }
 
 # --- Cross-file invariant --------------------------------------------------

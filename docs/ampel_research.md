@@ -115,14 +115,14 @@ Two PolicySets in `policies/`. Each upstream reference uses `git+https://github.
 
 Subject: the release artifact (sha256 of tarball/wheel/tgz/image). Tenets (AND-mode):
 
-1. **SLSA Build provenance present and valid.** Upstream `slsa/slsa-builder-id.json`, `slsa/slsa-build-type.json`, `slsa/slsa-build-point.json` (the three Fritoto `gate-publish` uses). Wrangle context binds the builder identity to `https://github.com/slsa-framework/slsa-github-generator/.github/workflows/generator_*` and source repo URI to `github.repository`.
+1. **SLSA Build provenance present and valid.** Upstream `slsa/slsa-builder-id.json`, `slsa/slsa-build-type.json`, `slsa/slsa-build-point.json` (the three Fritoto `gate-publish` uses). Wrangle context binds the builder identity to `https://github.com/slsa-framework/slsa-github-generator/.github/workflows/generator_*` (superseded by #316 — now `https://github.com/TomHennen/wrangle/.github/workflows/build_and_publish_<eco>.yml`) and source repo URI to `github.repository`.
 2. **Source commit verifies.** *(Gated on [#174](https://github.com/TomHennen/wrangle/issues/174) — wrangle doesn't emit a SLSA Source attestation today.)* Upstream `vsa/slsa-source-level3.json` with the chain-to-source-commit CEL from `fritoto-gate-publish.hjson` (§1 quote). Until #174 lands, omitted from `wrangle-default-v1` and the VSA doesn't claim `SLSA_SOURCE_LEVEL_*`; the rest ships independently.
 3. **SBOM present.** Upstream `sbom/sbom-exists.json` against an SPDX or CycloneDX predicate on the artifact.
 4. **OSV scan clean modulo VEX.** Upstream `openvex/no-exploitable-vulns-osv.json` with the VEX transformer.
 5. **zizmor SARIF clean.** Wrangle-authored, under the wrangle SARIF predicate type (§5) — lives in `policies/` (no upstream equivalent yet).
 6. **Sigstore signature on the artifact.** Wrangle workflow OIDC identity expected as signer. Wrangle-authored.
 
-Emits VSA with `verifiedLevels: ["SLSA_BUILD_LEVEL_3"]` (assuming slsa-github-generator), `verifier.id: https://github.com/TomHennen/wrangle/verifier/v1`, `resourceUri` set to the artifact's purl, and `policy.uri`/`policy.digest` recording the wrangle policy reference and content digest.
+Emits VSA with `verifiedLevels: ["SLSA_BUILD_LEVEL_3"]` (assuming valid build provenance; superseded by #316 — now from `actions/attest-build-provenance`, not slsa-github-generator), `verifier.id: https://github.com/TomHennen/wrangle/verifier/v1`, `resourceUri` set to the artifact's purl, and `policy.uri`/`policy.digest` recording the wrangle policy reference and content digest.
 
 #### `wrangle-strict-v1`
 

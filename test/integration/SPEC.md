@@ -121,12 +121,12 @@ If a malicious internal PR got as far as the companion repo's secrets, the worst
 
 The secrets table above describes the **compromise impact** of `GITHUB_TOKEN` (what an attacker can do if they steal it). Separately, the companion repo's generated workflow must **grant** each reusable workflow the permissions it actually needs to run. Each build type's reusable workflow documents its required permissions; the companion repo must grant at minimum what each called workflow declares.
 
-For the container builder specifically, `build_and_publish_container.yml` contains a `provenance` job gated `if: ${{ ! startsWith(github.event_name, 'pull_') }}`. Because the companion workflow triggers on `push`, the guard is truthy and the SLSA generator executes — so the `test-container` job must grant:
+For the container builder specifically, `build_and_publish_container.yml` contains an `attest` job (and a downstream `vsa` job) gated `if: ${{ needs.gate.outputs.should-release == 'true' }}`. Because the companion workflow triggers on `push`, the gate is truthy and the attest job runs `actions/attest-build-provenance`, naming this workflow as the builder — so the `test-container` job must grant:
 
 - `contents: read`
-- `packages: write`
-- `id-token: write` (for OIDC / Cosign keyless signing)
-- `actions: read` (for the SLSA generator)
+- `packages: write` (push the attestation and VSA referrers to GHCR)
+- `id-token: write` (OIDC for Sigstore keyless signing of the provenance and the VSA)
+- `attestations: write` (write the SLSA provenance to GitHub's attestation store)
 
 The shell and scan reusable workflows have smaller permission sets; consult each workflow's own declaration.
 
@@ -184,7 +184,7 @@ jobs:
       contents: read
       packages: write
       id-token: write
-      actions: read
+      attestations: write
     uses: TomHennen/wrangle/.github/workflows/build_and_publish_container.yml@__WRANGLE_SHA__
     with:
       path: container

@@ -11,7 +11,7 @@ Two components work together:
 | **Composite action** | `build/actions/container/action.yml` | Build, SBOM, publish, sign |
 | **Reusable workflow** | `.github/workflows/build_and_publish_container.yml` | Orchestrates composite action + SLSA L3 provenance + gate |
 
-The split exists because SLSA L3 provenance via `slsa-github-generator` requires a reusable workflow — it cannot run inside a composite action.
+The split exists because SLSA L3 requires the provenance to be produced by an isolated builder: wrangle runs `actions/attest-build-provenance` inside the reusable workflow, which a composite action cannot.
 
 ### Current scope: ghcr.io only
 
@@ -45,13 +45,12 @@ Multi-registry support is a planned extension. See "Known limitations" for the s
 | `path` | yes | Passed through to composite action |
 | `imagename` | yes | Passed through to composite action |
 | `registry` | yes | Passed through to composite action |
-| `publish_provenance_for_private_repo` | no | Opt-in to post provenance to public Rekor for private repos (default: `false`) |
 
 ### Reusable workflow secrets
 
 | Secret | Required | Description |
 |--------|----------|-------------|
-| `gh_token` | yes | GitHub token, forwarded to both composite action and SLSA generator |
+| `gh_token` | yes | GitHub token, used by the composite action and by the attest/verify jobs for GHCR operations (registry login, pushing the attestation and VSA referrers) |
 
 ### Reusable workflow outputs
 
@@ -90,27 +89,26 @@ Cosign signing lives inside the **composite action** (step 11), not the reusable
 The reusable workflow then adds:
 
 ```
-14. Generate SLSA L3 provenance (slsa-github-generator)
-15. Verify SLSA attestation (cosign verify-attestation; default-on, opt out via verify-image: false)
-16. Emit signed SLSA VSA (ampel against wrangle-provenance-container-v1; gated on should-release, independent of verify-image) and push it to the registry as an OCI referrer (cosign attach attestation)
-17. Gate job — verify both build+sign and provenance succeeded
+14. Generate SLSA L3 provenance (actions/attest-build-provenance, run inside the reusable workflow; pushed to the registry as an OCI 1.1 referrer on the image digest)
+15. Verify the provenance and emit the signed SLSA VSA (ampel against wrangle-provenance-container-v1; gated on should-release) and push the VSA to the registry as an OCI referrer (cosign attach attestation)
+16. Gate job — verify both build+sign and provenance succeeded
 ```
 
-Step 15 and step 16 are orthogonal: step 15 is the registry-bytes-match gate, step 16 emits the single signed VSA a downstream consumer trusts (it evaluates the image provenance against `wrangle-provenance-container-v1` and bnd-signs the result keyless with the calling workflow's OIDC identity). The container generator emits the same builderId/buildType the VSA's PolicySet bakes (`generator_container_slsa3.yml`, `…/container@v1`), which is why the container needs its own PolicySet rather than the generic one.
+Step 15 is the `verify` job: it both verifies the image provenance and emits the single signed VSA a downstream consumer trusts. ampel evaluates the image provenance against `wrangle-provenance-container-v1` — fail-closed against the PolicySet's `common.identities` (only wrangle's reusable-workflow signer passes) plus the SLSA tenets — and bnd-signs the resulting VSA keyless with the calling workflow's OIDC identity. Because ampel pulls the provenance from the registry by digest, this verification also catches the "registry served different bytes than wrangle pushed" window. `actions/attest-build-provenance` names `build_and_publish_container.yml` as the provenance `builder.id` and emits buildType `https://actions.github.io/buildtypes/workflow/v1`, the exact values the container PolicySet bakes. Each build type's provenance carries a distinct `builder.id` (its own reusable workflow path), which is why the container needs its own PolicySet — a single PolicySet cannot bake two builder IDs.
 
-Step 16 differs from the npm/Go VSA flow in *storage*: containers produce no GitHub release, so the signed VSA is pushed to the registry as an OCI referrer on the image digest (`cosign attach attestation`, which uploads the already-bnd-signed bundle verbatim — it does not re-sign) rather than attached to a release asset. `cosign attach` runs inside `actions/verify` in the same process as emit+sign, so the unsigned VSA never crosses a step boundary; the vsa job logs in to ghcr first and requests `packages: write` (not `contents: write`) for the push.
+Step 15 differs from the npm/Go VSA flow in *storage*: containers produce no GitHub release, so the signed VSA is pushed to the registry as an OCI referrer on the image digest (`cosign attach attestation`, which uploads the already-bnd-signed bundle verbatim — it does not re-sign) rather than attached to a release asset. It also differs in how ampel *reads* the build provenance it evaluates: the npm/Go/Python flows feed ampel the attest job's local Sigstore bundle via the `jsonl:` collector, but the container provenance lives only in the registry as an OCI referrer, so the container verify job uses the `oci:` collector to list the image's referrers and select the signed `attest-build-provenance` bundle. `cosign attach` runs inside `actions/verify` in the same process as emit+sign, so the unsigned VSA never crosses a step boundary; the verify job logs in to ghcr first and requests `packages: write` (not `contents: write`) for both the provenance pull and the VSA push.
 
-### Verify-image input
+### Provenance verification in the `verify` job
 
-The `verify-image` workflow input (boolean, default `true`) controls whether wrangle runs `cosign verify-attestation --type slsaprovenance` against the just-pushed image after the SLSA generator emits the attestation. Pinning details:
+Verification is part of the `verify` job, gated only on `should-release` (it is not opt-out-able). ampel verifies the image provenance against the `wrangle-provenance-container-v1` PolicySet:
 
-- `--certificate-identity`: `https://github.com/slsa-framework/slsa-github-generator/.github/workflows/generator_container_slsa3.yml@refs/tags/<TAG>`. The `<TAG>` is locked to the same tag the `provenance:` job invokes; the bats tests assert that lockstep so a single-side bump fails CI loudly.
-- `--certificate-oidc-issuer`: `https://token.actions.githubusercontent.com`. Mandatory; without it any Sigstore OIDC issuer would be accepted, defeating the identity binding.
-- `--certificate-github-workflow-repository`: `${{ github.repository }}`. Pins the attestation to the calling adopter's repo, so an attestation generated by another repo using the same SLSA generator version does not pass.
+- The PolicySet's `common.identities` pins wrangle's reusable-workflow signer (`TomHennen/wrangle/.github/workflows/build_and_publish_container.yml`). The attest step runs inside this reusable workflow, so its `job_workflow_ref` is both the Sigstore cert SAN and the provenance `builder.id`; verification fails closed unless this exact workflow signed the bundle. This is the load-bearing binding.
+- The provenance carries `predicateType: https://slsa.dev/provenance/v1`, the predicate `actions/attest-build-provenance` emits — the SLSA tenets are checked against it.
+- ampel pulls the provenance from the registry by digest via the `oci:` collector, so verification also confirms the registry serves the bytes wrangle pushed.
 
-Failing verification fails the workflow, which blocks any downstream release-time job depending on it via standard `needs:` propagation. Adopters with custom verification flows pass `verify-image: false`; in that mode wrangle still pushes the image and emits provenance, but the registry-side bytes-match guarantee becomes adopter-managed.
+Failing verification fails the workflow, which blocks any downstream release-time job depending on it via standard `needs:` propagation.
 
-When `cosign sign` of the image digest lands in the composite action (currently planned per "Signing details"), the verify job will additionally run `cosign verify` against the image signature. The cert identity for that step is the adopter's `${{ github.workflow_ref }}`, not the SLSA generator's tag — different signer, different cert subject.
+When `cosign sign` of the image digest lands in the composite action (currently planned per "Signing details"), the `verify` job will additionally run `cosign verify` against the image signature. The cert identity for that step is the adopter's `${{ github.workflow_ref }}`, not wrangle's reusable workflow — different signer, different cert subject.
 
 ## Input validation
 
@@ -134,8 +132,8 @@ Implements the build stage failure contract from `docs/SPEC.md`:
 | SBOM generation | **Pipeline stops** | Can't verify artifact contents without an SBOM. |
 | SBOM vulnerability scan | **Continue** (non-blocking) | Transitive dependency vulns are informational. Findings are uploaded as SARIF. Blocking creates alert fatigue on issues maintainers often can't act on, and it can itself become a *release blocker*: maintainers sometimes need to ship an image with one known, unavoidable vulnerability in order to publish the fix for a different one, or to accept an upstream CVE that has no patched version yet. A hard-block on scan findings would prevent that. Vulnerability triage is a policy decision the adopter owns, not something wrangle should preempt. |
 | Cosign signing | **Pipeline stops**; image already pushed | The image has already been pushed to the registry by the time signing runs (OCI registries require the blob to exist before a signature can be attached — see "Image pushed before signed"). Failing the pipeline is wrangle's signal that the image must not be treated as a release: it emits the fatal error message, fails the gate job, and blocks any downstream job that depends on the reusable workflow completing. Adopters are instructed not to tag or promote failed builds. Consumers who verify signatures (Kyverno, Sigstore policy-controller, manual `cosign verify`) will reject the unsigned image. The maintainer's remediation is to re-run the workflow, producing a new digest that can be signed cleanly. |
-| SLSA provenance | **Pipeline stops**; image already pushed | Same shape as Cosign: the image has shipped to the registry, but wrangle's notion of a *successful release* requires provenance. Failing the gate tells adopters not to promote the image, and the error message instructs them to re-run. Consumers enforcing provenance via `slsa-verifier` will reject the un-attested image. As with signing, the image being physically present in the registry isn't the problem — an unsigned/un-attested image has effectively not shipped under wrangle's contract as long as consumers enforce verification. |
-| VSA registry-push | **Pipeline stops** (fail-closed) | The signed VSA is pushed to the registry as an OCI referrer (`cosign attach attestation`) under `set -e`, so a push failure fails the vsa job and, via `needs:` propagation, the workflow. A VSA a consumer cannot fetch by digest is a silent gap — indistinguishable from never having produced one — so the push is treated like signing/provenance, not like the non-blocking SBOM scan. |
+| SLSA provenance | **Pipeline stops**; image already pushed | Same shape as Cosign: the image has shipped to the registry, but wrangle's notion of a *successful release* requires provenance. Failing the gate tells adopters not to promote the image, and the error message instructs them to re-run. Consumers enforcing provenance via `gh attestation verify` (or the signed VSA) will reject the un-attested image. As with signing, the image being physically present in the registry isn't the problem — an unsigned/un-attested image has effectively not shipped under wrangle's contract as long as consumers enforce verification. |
+| VSA registry-push | **Pipeline stops** (fail-closed) | The signed VSA is pushed to the registry as an OCI referrer (`cosign attach attestation`) under `set -e`, so a push failure fails the verify job and, via `needs:` propagation, the workflow. A VSA a consumer cannot fetch by digest is a silent gap — indistinguishable from never having produced one — so the push is treated like signing/provenance, not like the non-blocking SBOM scan. |
 
 ### Error messages on security-critical failures
 
@@ -146,7 +144,7 @@ When signing or provenance fails, the error message must tell the action adopter
 | Cosign signing (retries exhausted) | `wrangle: FATAL: Cosign signing failed after N attempts. The image was pushed but is NOT signed and MUST NOT be released. Re-run this workflow to retry.` |
 | SLSA provenance | `wrangle: FATAL: SLSA provenance generation failed. The image has no provenance and MUST NOT be released. Re-run this workflow to retry.` |
 
-The Cosign error is emitted directly by the signing step in the composite action. The SLSA provenance error is emitted by the **gate job** in the reusable workflow, since the provenance step runs inside `slsa-github-generator`'s reusable workflow and wrangle does not control its error output.
+The Cosign error is emitted directly by the signing step in the composite action. The SLSA provenance error is emitted by the **gate job** in the reusable workflow: the gate is the single point that observes whether the `attest:` job succeeded, so it is the natural place to surface the adopter-facing release-blocked message.
 
 ## Cosign image signing
 
@@ -156,7 +154,7 @@ The image is signed using Cosign keyless signing (Sigstore OIDC). This is distin
 |---|---|---|
 | What it signs | The image digest directly | An in-toto attestation about how the image was built |
 | What it proves | "This image was produced by a trusted GitHub Actions identity" | "This image was built from commit X in repo Y by builder Z" |
-| How consumers verify | `cosign verify` | `slsa-verifier verify-image` or `cosign verify-attestation` |
+| How consumers verify | `cosign verify` | `gh attestation verify oci://<image>@<digest> --signer-workflow ...` |
 | Ecosystem use | Kubernetes admission controllers (Kyverno, Sigstore policy-controller), registry policies | Policy engines (Ampel, in-toto), audit trails |
 
 Both are needed. Cosign signatures are the access-control layer (many orgs cannot deploy unsigned images). SLSA provenance is the audit/trust layer (rich metadata for policy decisions).
@@ -192,31 +190,25 @@ SBOM vulnerability scanning uses the shared scanning infrastructure defined in `
 
 ## SLSA L3 provenance
 
-Provenance is generated by `slsa-framework/slsa-github-generator`'s `generator_container_slsa3.yml` reusable workflow (currently pinned at v2.1.0).
+Provenance is generated by `actions/attest-build-provenance`, run as a step inside an `attest:` job in wrangle's own reusable workflow (`build_and_publish_container.yml`).
 
 ### What it produces
 
 - An in-toto attestation carrying a SLSA provenance predicate, signed via Sigstore keyless signing
-- The attestation is pushed to the container registry as a cosign attestation attached to the image digest
+- The attestation is pushed to the container registry as an OCI 1.1 referrer on the image digest
 - A transparency log entry in Rekor
 
-### Predicate version
+### Predicate version and builder identity
 
-As of `slsa-github-generator` v2.1.0 (the version wrangle currently pins), the container generator emits `predicateType: https://slsa.dev/provenance/v0.2`. The SLSA Provenance spec has since published v1.0, and some ecosystem tooling — notably `actions/attest-build-provenance` — produces `slsa.dev/provenance/v1` today. However, v1.0 support in the **container** builder of `slsa-github-generator` has not shipped; it's tracked upstream in [`slsa-framework/slsa-github-generator#1524`](https://github.com/slsa-framework/slsa-github-generator/issues/1524).
+`actions/attest-build-provenance` emits `predicateType: https://slsa.dev/provenance/v1` and buildType `https://actions.github.io/buildtypes/workflow/v1`. Crucially, it names the workflow that ran the build as the provenance `builder.id` — here, `build_and_publish_container.yml`'s `job_workflow_ref`. These are the exact values the container VSA PolicySet (`wrangle-provenance-container-v1`) bakes.
 
-Wrangle intentionally stays on `slsa-github-generator` (rather than switching to `actions/attest-build-provenance`) because that generator is what produces SLSA **L3** for containers — the "hardened build platform" property, which requires an isolated reusable-workflow builder. `actions/attest-build-provenance` produces v1 predicates but not the L3 isolation guarantee, so it isn't a drop-in replacement here.
+This is the property the old `slsa-github-generator` container builder could not give wrangle: the generator emitted `predicateType: https://slsa.dev/provenance/v0.2` and set `builder.id` to *the generator itself*, not to the workflow that ran the build — leaving a build-confusion gap (a consumer could not tell, from the builder identity alone, which trusted workflow produced the image). Running `actions/attest-build-provenance` inside wrangle's reusable workflow closes that gap and emits a v1 predicate in the same move.
 
-The plan:
+The L3 "hardened build platform" property is unchanged by the switch. L3 comes from the provenance being produced by an isolated, trusted builder; wrangle's reusable workflow *is* that builder. The `attest:` step runs inside it, so its `job_workflow_ref` is both the Sigstore certificate SAN and the provenance `builder.id`. `actions/attest-build-provenance` is an action, not a generator reusable workflow, but the isolation guarantee is provided by wrangle's reusable workflow being the trusted builder — not by the attestation tooling running as a separate `uses:` job.
 
-- Wait for upstream to ship v1.0 from the container generator.
-- Bump the pinned `slsa-github-generator` version in the same commit as any checksum update.
-- No wrangle-side contract changes should be required, since consumers already discriminate attestations by `predicateType` and both `v0.2` and `v1` predicates are valid for the same subject digest.
+### Why it runs in the reusable workflow, not the composite action
 
-The VSA PolicySet (`wrangle-provenance-container-v1`) is predicate-version-compatible with the current v0.2 container provenance: the upstream SLSA tenets it composes read both the v0.2 (`predicate.materials`, `predicate.builder.id`) and v1 (`predicate.buildDefinition`) shapes, so a future generator bump to v1 needs no policy change.
-
-### Why it must be a separate job
-
-The SLSA generator is a reusable workflow, not an action. It must run as a separate `uses:` job in the caller workflow. This is a security property — the generator controls its own execution environment, which is what enables the L3 "hardened build platform" guarantee.
+The `attest:` job must run in the reusable workflow rather than inside the composite action. This is a security property: the reusable workflow is the isolated builder whose `job_workflow_ref` becomes the provenance `builder.id`, and keeping attestation in a separate job from the build step is what gives wrangle the build-vs-attest separation a composite action (running entirely on the caller's runner under the caller's identity) cannot.
 
 ### Trigger restriction
 
@@ -224,7 +216,7 @@ Neither Cosign signing nor SLSA provenance runs on `pull_request` triggers. SLSA
 
 - **PRs must not produce artifacts that look production-ready.** A Cosign-signed image from a PR branch is binary-indistinguishable from a signed release image at the consumer's verification step, and its signing identity would be tied to the PR branch (or worse, a fork) rather than the release branch. Consumers whose verification policy accepts "any signature from this repo" would treat a PR-built image as a release — exactly the shape of a release-confusion supply chain attack. The safe default is that PR builds *cannot* produce a signed or attested image, period.
 - **SBOM generation and vulnerability scanning do run on PRs.** Those steps surface actionable information to the PR author (new CVEs, new dependencies pulled in by the change) without producing anything a consumer could mistake for a release. SBOM scan findings are uploaded as SARIF so they appear on the PR's Security tab.
-- **SLSA provenance is additionally blocked by upstream.** `slsa-github-generator`'s container reusable workflow does not support `pull_request` events, so even if wrangle wanted to produce provenance on PRs, it couldn't. But wrangle would skip it on PRs regardless, for the same reason signing is skipped.
+- **Skipping provenance on PRs is wrangle's own choice, not a tooling limitation.** The `attest:` job runs inside wrangle's reusable workflow, so wrangle controls whether it runs at all; it gates the job on `release-events` and skips it on PRs deliberately, for the same release-confusion reason signing is skipped. (`actions/attest-build-provenance` would happily run on a `pull_request` event — wrangle declines to, by policy.)
 
 In practice a PR-triggered run executes: validate → build → push → SBOM extract → SBOM scan, and then exits without invoking signing, provenance, or the release gate. The gate job's success condition encodes the full release contract (build + SBOM + sign + provenance), which is only achievable on non-PR events — so PR runs never produce a successful gate, and adopters should not configure release tagging or deployment workflows to react to PR-triggered container builds.
 
@@ -232,7 +224,10 @@ In practice a PR-triggered run executes: validate → build → push → SBOM ex
 
 ### Private repos
 
-Private repo names are posted to the public Rekor transparency log. The `publish_provenance_for_private_repo` input must be explicitly set to `true` to opt in.
+`actions/attest-build-provenance` keyless-signs against GitHub's Sigstore
+instance, which keeps private-repo attestations off the public Rekor log — so
+no private repo name leaks and no opt-in input is needed (unlike the former
+slsa-github-generator, whose public-Rekor posting required an explicit toggle).
 
 ## Gate job
 
@@ -249,8 +244,8 @@ The gate job is the single point that downstream consumers (deployment workflows
 When the gate job fails, the reusable workflow as a whole fails with a non-zero conclusion. Concretely:
 
 - **Downstream jobs don't run.** Any job in the calling workflow that declares `needs:` on the reusable workflow — typically release tagging, deployment, image promotion to a `:stable` tag, or GitHub Release creation — is skipped by GitHub Actions. This is the primary protection against adopters accidentally releasing a failed build.
-- **The fatal error message is emitted.** The failing step (for Cosign: the signing step inside the composite action; for SLSA provenance: the gate job itself, since wrangle doesn't control the SLSA generator's error output) writes the wrangle error message from the "Error messages on security-critical failures" table. The adopter sees a clear instruction to re-run the workflow, not a generic "job failed."
-- **The image is already in the registry.** Image push happens before signing (see "Image pushed before signed"), so when the gate fails, a pushed-but-unsigned or pushed-but-un-attested image exists at the computed digest. Wrangle's contract is that this image **must not be treated as a release**: no release tag, no deployment, no promotion. The defense is layered — the gate blocks downstream jobs, the error message blocks adopters, and consumer-side verification (`cosign verify` / `slsa-verifier`) blocks end users even if the first two layers are bypassed.
+- **The fatal error message is emitted.** The failing step (for Cosign: the signing step inside the composite action; for SLSA provenance: the gate job, which is the single point that observes the `attest:` job's outcome) writes the wrangle error message from the "Error messages on security-critical failures" table. The adopter sees a clear instruction to re-run the workflow, not a generic "job failed."
+- **The image is already in the registry.** Image push happens before signing (see "Image pushed before signed"), so when the gate fails, a pushed-but-unsigned or pushed-but-un-attested image exists at the computed digest. Wrangle's contract is that this image **must not be treated as a release**: no release tag, no deployment, no promotion. The defense is layered — the gate blocks downstream jobs, the error message blocks adopters, and consumer-side verification (`cosign verify` / `gh attestation verify`) blocks end users even if the first two layers are bypassed.
 - **No auto-rollback, no auto-delete.** Wrangle does not attempt to delete the unsigned image from the registry. `packages: delete` is a broader permission than most callers will grant, and a failed delete (e.g., if the registry is the reason signing failed) would turn a recoverable failure into an unrecoverable one. The image stays in the registry; re-running the workflow produces a new digest.
 - **Re-run is the remediation.** Adopters re-run the workflow; a new build produces a new digest, and signing and provenance are attempted fresh against that digest. See "Re-run behavior".
 
@@ -264,28 +259,29 @@ When the gate job fails, the reusable workflow as a whole fails with a non-zero 
 | `packages` | `write` | Push image to registry, attach Cosign signature |
 | `id-token` | `write` | Keyless Cosign signing via Sigstore OIDC |
 
-### Provenance job (in reusable workflow)
+### Attest job (in reusable workflow)
 
 | Permission | Scope | Why |
 |------------|-------|-----|
-| `actions` | `read` | Detect GitHub Actions environment |
-| `id-token` | `write` | OIDC token for Sigstore signing of provenance attestation |
-| `packages` | `write` | Upload provenance attestation to registry |
+| `id-token` | `write` | OIDC token for Sigstore keyless signing of the provenance attestation |
+| `attestations` | `write` | Write the provenance to GitHub's attestation store |
+| `packages` | `write` | Push the attestation referrer to the registry |
+| `contents` | `read` | `download-artifact` reads the same-run build outputs |
 
-### VSA job (in reusable workflow)
+### verify job (in reusable workflow)
 
 | Permission | Scope | Why |
 |------------|-------|-----|
 | `id-token` | `write` | OIDC token for bnd keyless signing of the VSA |
 | `packages` | `write` | Pull the image's provenance for the ampel collector **and** push the signed VSA to the registry as an OCI referrer |
 
-Note the absence of `contents: write`: the container VSA is stored in the registry, not attached to a GitHub release, so the vsa job needs no `contents` write scope. (npm/Go vsa jobs *do* request `contents: write` because they attach the VSA to a release.) The container caller grants only `contents: read`, so requesting `contents: write` here would be a startup-failing permission escalation.
+Note the absence of `contents: write`: the container VSA is stored in the registry, not attached to a GitHub release, so the verify job needs no `contents` write scope. (npm/Go verify jobs *do* request `contents: write` because they attach the VSA to a release.) The container caller grants only `contents: read`, so requesting `contents: write` here would be a startup-failing permission escalation.
 
 ## BuildKit-native provenance vs SLSA L3
 
 The `docker/build-push-action` with `provenance: mode=max` produces BuildKit-native provenance (in-toto attestation embedded in the OCI manifest). This is ecosystem-level provenance — useful but not cryptographically signed by a trusted third party.
 
-SLSA L3 provenance via `slsa-github-generator` is a stronger guarantee: it's produced by an isolated builder that controls its own signing keys via Sigstore OIDC, and it's independently verifiable via `slsa-verifier`. Both are generated; they are complementary, not redundant.
+SLSA L3 provenance via `actions/attest-build-provenance`, run inside wrangle's reusable workflow, is a stronger guarantee: it's produced by an isolated trusted builder (the reusable workflow, named as the provenance `builder.id`), signed keyless via Sigstore OIDC, and independently verifiable via `gh attestation verify`. Both are generated; they are complementary, not redundant.
 
 ## Trust model and roles
 
@@ -338,7 +334,7 @@ cosign download attestation \
   ghcr.io/<owner>/<repo>/<image>@sha256:<digest> > vsa.intoto.jsonl
 ```
 
-then verify it with `slsa-verifier verify-vsa` (primary) or `cosign verify-blob-attestation` (signer-identity check) — see the README's "Verifying the VSA" for the exact flags.
+then verify it with `cosign verify-blob-attestation` (the signer-identity check — wrangle's VSAs are keyless, so this is the usable path). `slsa-verifier verify-vsa` is *not* usable here: it only verifies key-signed VSAs (it requires `--public-key-path`), and wrangle's VSAs are keyless (Fulcio/Sigstore). See the README's "Verifying the VSA" for the exact flags.
 
 ### Guidance for action adopters
 
@@ -371,27 +367,25 @@ Notes on the flags:
 
 For policies that accept **multiple** releases under the same workflow (e.g., "any signed build from `.github/workflows/release.yml@refs/tags/v*`"), substitute `--certificate-identity-regexp '^https://github\.com/acme/svc/\.github/workflows/release\.yml@refs/tags/v'` (anchored) and `--certificate-oidc-issuer-regexp` as needed. The regex form is strictly more permissive; prefer the exact-match form whenever the caller knows the specific tag.
 
-**Verify the SLSA L3 provenance attestation.** The cleanest tool for SLSA verification is `slsa-verifier`, which understands the container generator's attestation format directly:
+**Verify the SLSA L3 provenance attestation.** The provenance is stored as an OCI referrer on the image digest; verify it with `gh attestation verify`, pinning wrangle's reusable workflow as the signer:
 
 ```bash
-slsa-verifier verify-image \
-  ghcr.io/acme/svc@sha256:abc123... \
-  --source-uri github.com/acme/svc \
-  --source-tag v1.2.3
+gh attestation verify oci://ghcr.io/acme/svc@sha256:abc123... \
+  --repo acme/svc \
+  --signer-workflow TomHennen/wrangle/.github/workflows/build_and_publish_container.yml
 ```
 
 What this checks:
 
-- The attestation was signed by the expected SLSA generator reusable-workflow identity (the "trusted builder").
+- The attestation was signed by wrangle's reusable workflow identity (`--signer-workflow`), which is the provenance `builder.id` — the "trusted builder." Verification fails closed unless this exact workflow signed the bundle.
 - The attestation's subject digest matches the passed image digest.
-- The attestation's `invocation.configSource.uri` matches the passed `--source-uri` — i.e., the image came from `acme/svc` and not some other repo that happened to publish to the same registry path.
-- `--source-tag` additionally checks that the commit the builder saw corresponds to the named tag. Omit it if you want to accept any tag/branch from the source repo.
+- `--repo` scopes the attestation to the caller's repo — i.e., the image's provenance was stored against `acme/svc` and not some other repo that happened to publish to the same registry path.
 
-**Enforce at admission time.** Both checks above run fine from a CLI, but for ongoing enforcement consumers should wire them into admission control so unverified images can't run in the first place. The policy engine should assert the same facts the CLI commands above assert — the same signing identity + issuer + workflow claims for Cosign, and the same source URI and builder identity for SLSA — so that what policy rejects at admission is the same thing a human running `cosign verify` / `slsa-verifier verify-image` would reject at the terminal:
+**Enforce at admission time.** Both checks above run fine from a CLI, but for ongoing enforcement consumers should wire them into admission control so unverified images can't run in the first place. The policy engine should assert the same facts the CLI commands above assert — the same signing identity + issuer + workflow claims for Cosign, and the same `builder.id` (wrangle's reusable workflow) and source repo for SLSA — so that what policy rejects at admission is the same thing a human running `cosign verify` / `gh attestation verify` would reject at the terminal:
 
 - Kubernetes with Kyverno or Sigstore `policy-controller` can assert the same `--certificate-identity` / `--certificate-oidc-issuer` / GitHub workflow claims at admission. Kyverno's `verifyImages` rule and policy-controller's `ClusterImagePolicy` both take these as structured fields.
 - Registry-side policies (e.g., `cosign policy`, Harbor's Cosign integration) can gate pulls on the same identity.
-- For SLSA provenance, `policy-controller` and Kyverno both support `attestations:` blocks that run CUE or Rego against the decoded provenance predicate — consumers can require, for example, a specific `builder.id` or that `invocation.configSource.uri` matches their own allowlist.
+- For SLSA provenance, `policy-controller` and Kyverno both support `attestations:` blocks that run CUE or Rego against the decoded provenance predicate — consumers can require, for example, a specific `builder.id` (wrangle's reusable workflow path) or that the build's source repo matches their own allowlist.
 
 ### Image pushed before signed
 
@@ -420,7 +414,7 @@ None of these can be fully eliminated without registry-side changes (e.g., a reg
 - **Signing by digest, not by tag**, so a post-push tag swap can't be laundered into a matching signature.
 - **ghcr.io only.** The current scope restriction means the registry shares its trust root (GitHub's infrastructure) with the runner, the OIDC issuer, and the source repo. An adopter using wrangle against ghcr.io is not meaningfully extending their TCB by adding the registry — it was already in it via Actions. An adopter using a third-party registry would be, which is one of the reasons multi-registry support is still out of scope.
 - **Short-lived OIDC credentials for the push**, so a compromised registry can't replay the push later with the same identity.
-- **Consumer-side digest-based verification** as the ultimate backstop. If the registry swaps bytes, the consumer's `cosign verify` and `slsa-verifier verify-image` against the expected digest will fail.
+- **Consumer-side digest-based verification** as the ultimate backstop. If the registry swaps bytes, the consumer's `cosign verify` and `gh attestation verify` against the expected digest will fail.
 
 When wrangle eventually supports pushing to other registries, this section should be revisited — adopters who push to a less-trusted registry are widening their TCB by that registry's operational and security posture, and the spec should make that explicit at the point they opt in.
 
@@ -446,10 +440,10 @@ The container README MUST include each of the following sections, in this order.
    - Show only `on: push` and `on: release` triggers, not `pull_request`, to reinforce the trigger restriction (see "Trigger restriction" in this spec).
    - Include the exact `permissions:` block the workflow needs (`contents: read`, `packages: write`, `id-token: write`).
 4. **Inputs, outputs, secrets** — tables that mirror the "Inputs and outputs" section of this spec but scoped to the reusable workflow (the adopter-facing surface). Link to this `SPEC.md` for the composite-action surface.
-5. **Verifying the output** — the `cosign verify` and `slsa-verifier verify-image` example commands from this spec's "Verification examples" section, with a note that the identity regex must be customized to match the caller's repo and workflow filename. Include the "verify by digest, not tag" rule.
+5. **Verifying the output** — the `cosign verify` and `gh attestation verify` example commands from this spec's "Verification examples" section, with a note that the identity regex must be customized to match the caller's repo and workflow filename. Include the "verify by digest, not tag" rule.
 6. **What to do when the workflow fails** — a short runbook: a failed gate means the image is in the registry but not signed/attested; do not tag, promote, or deploy it; re-run the workflow; the new digest will be signed cleanly. Link to the "What happens when the gate fails" section of this spec for the full explanation.
-7. **Current limitations** — the short version of this spec's "Known limitations" (ghcr.io only, no cosign SBOM attestation yet, multi-platform untested, provenance predicate v0.2). Link to this spec for the full list and upstream tracking issues.
-8. **Further reading** — link to this `SPEC.md`, the top-level `docs/SPEC.md` for wrangle's overall model, and the verification tool docs (`cosign`, `slsa-verifier`).
+7. **Current limitations** — the short version of this spec's "Known limitations" (ghcr.io only, no cosign SBOM attestation yet, multi-platform untested). Link to this spec for the full list and upstream tracking issues.
+8. **Further reading** — link to this `SPEC.md`, the top-level `docs/SPEC.md` for wrangle's overall model, and the verification tool docs (`cosign`, `gh attestation verify`).
 
 ### Constraints on the README
 
@@ -459,8 +453,7 @@ The container README MUST include each of the following sections, in this order.
 
 ## Known limitations
 
-- **ghcr.io only.** Today the container build action is only specified, implemented, and tested against GitHub Container Registry. The permissions model (`packages: write`), registry login path, and SLSA provenance wiring all assume ghcr.io. Multi-registry support is a planned future extension — adding it requires (at minimum) reworking the permissions model for non-GitHub registries, validating the SLSA generator's behavior against each target, and re-evaluating the "The remote registry is in the TCB" section for registries that don't share GitHub's trust root.
+- **ghcr.io only.** Today the container build action is only specified, implemented, and tested against GitHub Container Registry. The permissions model (`packages: write`), registry login path, and SLSA provenance wiring all assume ghcr.io. Multi-registry support is a planned future extension — adding it requires (at minimum) reworking the permissions model for non-GitHub registries, validating the attestation referrer push against each target, and re-evaluating the "The remote registry is in the TCB" section for registries that don't share GitHub's trust root.
 - **SBOM not yet published as a cosign attestation.** The SBOM is uploaded as a workflow artifact and embedded in the BuildKit-native image attestation, but wrangle does not yet attach it to the image digest as a `cosign attest --type spdxjson` attestation. Consumers currently need either the workflow artifact or `docker buildx imagetools inspect` to retrieve it, instead of a single `cosign download attestation` call against the signed digest. Planned for a future release.
 - **Multi-platform builds.** The action uses Buildx, which supports multi-platform builds, but this has not been tested. Multi-platform support is not currently specified or guaranteed.
-- **SLSA provenance predicate version.** As of `slsa-github-generator` v2.1.0, the container generator emits `predicateType: https://slsa.dev/provenance/v0.2`. Upstream v1.0 support for the container builder is tracked in [`slsa-framework/slsa-github-generator#1524`](https://github.com/slsa-framework/slsa-github-generator/issues/1524) and has not shipped. Wrangle will adopt v1.0 predicates once upstream releases them — see "Predicate version" above for details.
-- **`packages:write` always required for provenance.** Even for non-ghcr.io registries, due to GitHub Actions token handling (tracked upstream in slsa-github-generator#1257). This is one of the gaps that must be resolved before multi-registry support is feasible.
+- **`packages:write` required for the registry referrers.** The attest and verify jobs push their attestations to the registry as OCI referrers on the image digest, so they need `packages: write` even though the provenance signing itself is keyless. For non-ghcr.io registries this referrer-push path is one of the things multi-registry support would need to re-validate.
