@@ -105,6 +105,14 @@ on:
         required: false
         type: boolean
         default: false
+      scan-tools:
+        description: |
+          Space-separated source-scan tools (suffix :info for
+          non-blocking). A load-bearing (:fail) finding blocks the
+          release. Empty string disables scanning.
+        required: false
+        type: string
+        default: "osv zizmor scorecard:info dependency-review"
     outputs:
       hashes:
         description: "Base64-encoded SHA-256 hashes of built artifacts (for SLSA provenance)"
@@ -155,6 +163,29 @@ jobs:
         id: gate
         with:
           events: ${{ inputs.release-events }}
+
+  # Source scan. A load-bearing (:fail) finding fails this job, which
+  # blocks the release on release events (see release.if) — decoupled
+  # scan/build runs can't gate publish.
+  scan:
+    needs: [guard]
+    runs-on: ubuntu-latest
+    permissions:
+      actions: read
+      contents: read
+      security-events: write
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        if: ${{ inputs.scan-tools != '' }}
+        with:
+          persist-credentials: false
+          ref: ${{ inputs.ref || '' }}
+
+      # TODO: replace with $/actions/scan when GitHub ships $/ syntax (#136)
+      - uses: TomHennen/wrangle/actions/scan@5b79a1ca848b761ae5bd5524e80af70bb42207c9 # main 2026-06-07
+        if: ${{ inputs.scan-tools != '' }}
+        with:
+          tools: ${{ inputs.scan-tools }}
 
   # Quality gates with `contents: read` only. `go test` executes
   # arbitrary adopter test code; the minimum-permissions posture
@@ -209,12 +240,13 @@ jobs:
   # release proceeds with quality gates unenforced," so allow skipped
   # explicitly. A failed guard or gate still blocks release.
   release:
-    needs: [guard, gate, checks]
+    needs: [guard, gate, checks, scan]
     if: >
       always() && !cancelled() &&
       needs.guard.result == 'success' &&
       needs.gate.result == 'success' &&
-      (needs.checks.result == 'success' || needs.checks.result == 'skipped')
+      (needs.checks.result == 'success' || needs.checks.result == 'skipped') &&
+      (needs.scan.result == 'success' || needs.gate.outputs.should-release != 'true')
     runs-on: ubuntu-latest
     permissions:
       contents: write    # goreleaser creates the GitHub Release

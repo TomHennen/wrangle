@@ -1,0 +1,46 @@
+# Copy this file to your repo at .github/dependabot.yml
+#
+# The github-actions entry below raises update PRs for the action pins in
+# your workflows — including your `uses: TomHennen/wrangle/...` pin, which
+# is how you pick up new wrangle releases.
+#
+# Do NOT enable auto-merge: review updates after the ~7-day `cooldown`
+# below, so the community can surface supply-chain attacks first.
+version: 2
+updates:
+  - package-ecosystem: "github-actions"
+    directories:
+      - "/**"
+    schedule:
+      interval: "weekly"
+    open-pull-requests-limit: 5
+    cooldown:
+      default-days: 7
+
+  # Uncomment the ecosystem(s) your project uses:
+  # - package-ecosystem: "npm"
+  #   directories:
+  #     - "/**"
+  #   schedule:
+  #     interval: "weekly"
+  #   open-pull-requests-limit: 5
+  #   cooldown:
+  #     default-days: 7
+
+  # - package-ecosystem: "pip"
+  #   directories:
+  #     - "/**"
+  #   schedule:
+  #     interval: "weekly"
+  #   open-pull-requests-limit: 5
+  #   cooldown:
+  #     default-days: 7
+
+  # - package-ecosystem: "gomod"
+  #   directories:
+  #     - "/**"
+  #   schedule:
+  #     interval: "weekly"
+  #   open-pull-requests-limit: 5
+  #   cooldown:
+  #     default-days: 7

@@ -13,20 +13,23 @@ Wrangle's own workflows all have filenames that start with `local_`.
 - Provide example workflows.
 - Provide reuable workflow for code change...
 
-## build_and_publish_container.yml
+## build_and_publish_*.yml
 
-This reusable workflow allows callers to easily, build and publish their containers with a minimum of fuss.
+`build_and_publish_container.yml`, `build_and_publish_python.yml`, `build_and_publish_npm.yml`, `build_and_publish_go.yml`, and `build_shell.yml` let callers build and publish with a minimum of fuss, following best practices: SLSA provenance, SBOMs, signing, and a source scan up front.
 
-It's goal is to follow all best practices for building and publishing container images, including:
+**Embedded source scan.** Each of these workflows runs a `scan` job (the `actions/scan` composite) before building, so adopters get scanning *and* build/publish from one workflow — no separate `check_source_change.yml` needed.
 
-1. Publishing SLSA provenance.
-2. (TODO) Creating and publishing SBOMs.
-3. (TODO) Scanning for vulnerabilities.
-4. ...
+- **`scan-tools` input** — space-separated tools, default `"osv zizmor scorecard:info dependency-review"`. Suffix a tool with `:info` to make it non-blocking. Empty string disables scanning entirely.
+- **Publish gating.** A load-bearing (`:fail`) finding blocks publishing. The point where it blocks differs by build type:
+  - **container** — blocks the `build` job on *every* event; the docker push happens mid-composite and is not release-gated, so this is the documented exception.
+  - **go** — blocks the `release` job on release events; PR snapshot builds still run.
+  - **python / npm** — fails the run, so the caller's `needs:`-gated publish job is skipped.
+  - **shell** — fails the run (no artifact to gate).
+- **`actions: read` + `security-events: write`.** The caller MUST grant both — the embedded `scan` job requests them, and GitHub fails the run at startup if a called job requests a permission the caller didn't grant. Omitting either is a startup failure, not a silent downgrade.
 
-## check_source_changes.yml
+## check_source_change.yml
 
-This reusable workflow allows callers to easily scan their source changes.
+This reusable workflow lets callers scan their source changes only — the entry point for repos with no wrangle build type (a `build_and_publish_*` workflow already scans for repos that have one).
 
 It creates a summary of all the tool results in the GitHub Action.
 

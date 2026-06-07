@@ -19,13 +19,30 @@
 setup() {
     REPO_ROOT="$(cd "$BATS_TEST_DIRNAME/.." && pwd)"
     WORKFLOWS_DIR="$REPO_ROOT/.github/workflows"
-    REUSABLE_WORKFLOWS=(
-        "build_and_publish_npm.yml"
-        "build_and_publish_python.yml"
-        "build_and_publish_container.yml"
-        "build_shell.yml"
-        "check_source_change.yml"
-    )
+
+    # Auto-discover reusable workflows (those that declare `workflow_call`) so a
+    # newly added reusable workflow is guard-checked without editing a list that
+    # silently drifts. A reusable workflow that legitimately needs no guard goes
+    # in EXEMPT with a rationale.
+    EXEMPT_REUSABLE_WORKFLOWS=()
+    REUSABLE_WORKFLOWS=()
+    while IFS= read -r -d '' wf; do
+        grep -qE '^[[:space:]]*workflow_call:' "$wf" || continue
+        name="$(basename "$wf")"
+        for ex in "${EXEMPT_REUSABLE_WORKFLOWS[@]}"; do
+            [[ "$name" == "$ex" ]] && continue 2
+        done
+        REUSABLE_WORKFLOWS+=("$name")
+    done < <(find "$WORKFLOWS_DIR" -maxdepth 1 -name '*.yml' -type f -print0 | sort -z)
+}
+
+@test "wiring: reusable-workflow discovery is non-empty" {
+    # Fail closed: a broken glob or wrong dir would otherwise make every
+    # per-workflow assertion below pass vacuously over an empty list.
+    [[ "${#REUSABLE_WORKFLOWS[@]}" -gt 0 ]] || {
+        printf 'No reusable workflows discovered in %s\n' "$WORKFLOWS_DIR" >&2
+        return 1
+    }
 }
 
 @test "wiring: first job in each reusable workflow is guard" {

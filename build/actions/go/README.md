@@ -100,9 +100,9 @@ Two consequences worth knowing:
 - A consumer downloading after the attestation lands runs verify and gets a confirmed chain.
 - A consumer downloading after a wrangle-side verify failure (e.g., a tooling regression that produced provenance whose subjects don't match the artifacts) runs verify and gets "verification failed" → they reject the artifact. The fact that the broken provenance is technically in the store does no harm; verify is what's load-bearing.
 
-## Recommended companion: source scan
+## Source scan (built in)
 
-This action hardens *how* your artifact is produced; it does NOT scan your source. Pair with wrangle's source-scan workflow ([`actions/scan/README.md`](../../../actions/scan/README.md)) to catch vulnerable deps, dangerous workflow triggers, and missing branch protection — issues wrangle would otherwise faithfully L3-attest as legitimately built.
+The build action hardens *how* your artifact is produced; the `build_and_publish_go.yml` workflow also runs wrangle's source scan ([`actions/scan/README.md`](../../../actions/scan/README.md)) via its `scan-tools` input, so a separate `check_source_change.yml` is redundant. The scan catches vulnerable deps, dangerous workflow triggers, and missing branch protection — issues wrangle would otherwise faithfully L3-attest as legitimately built — and a load-bearing finding blocks the release. The caller MUST grant `actions: read` and `security-events: write` for the scan (the example wires them; omitting either fails the run at startup).
 
 Source-stage `gofmt` / `golangci-lint` is tracked in [#194](https://github.com/TomHennen/wrangle/issues/194). Until that lands, the build action's `checks` composite runs `gofmt -l` (with generated-file auto-skip) and `go vet ./...` as cheap toolchain-bundled gates. When #194 ships, those gates move to source-scan and the duplicate inside the build action goes away.
 
@@ -217,7 +217,7 @@ jq -e '.predicate.verifiedLevels | index("SLSA_BUILD_LEVEL_3")' <<<"$payload"
 - [`SPEC.md`](./SPEC.md) — this action's full specification
 - [`../../../docs/SPEC.md`](../../../docs/SPEC.md) — wrangle's overall architecture
 - [`../../../docs/SLSA_L3_AUDIT.md`](../../../docs/SLSA_L3_AUDIT.md) — per-builder L3 conformance audit
-- [`../../../actions/scan/README.md`](../../../actions/scan/README.md) — recommended source-scan companion
+- [`../../../actions/scan/README.md`](../../../actions/scan/README.md) — the embedded source scan (`scan-tools` input)
 - [goreleaser customization](https://goreleaser.com/customization/) — the underlying build tool
 - [actions/attest-build-provenance](https://github.com/actions/attest-build-provenance) — produces the GitHub-issued SLSA provenance
 - [govulncheck](https://pkg.go.dev/golang.org/x/vuln/cmd/govulncheck) — Go-aware callgraph vuln scanner

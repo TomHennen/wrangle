@@ -55,6 +55,14 @@ on:
         required: false
         type: string
         default: isolated
+      scan-tools:
+        description: |
+          Space-separated source-scan tools (suffix :info for
+          non-blocking). A load-bearing (:fail) finding blocks the
+          build (and therefore the push). Empty string disables scanning.
+        required: false
+        type: string
+        default: "osv zizmor scorecard:info dependency-review"
     secrets:
       gh_token:
         description: "GitHub token with write access"
@@ -105,11 +113,34 @@ jobs:
         with:
           events: ${{ inputs.release-events }}
 
+  # Source scan. The container push happens mid-composite in `build` and
+  # is not release-gated, so a load-bearing (:fail) finding must block
+  # `build` itself on every event — hence `build` needs `scan`.
+  scan:
+    needs: [guard]
+    runs-on: ubuntu-latest
+    permissions:
+      actions: read
+      contents: read
+      security-events: write
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        if: ${{ inputs.scan-tools != '' }}
+        with:
+          persist-credentials: false
+
+      # TODO: replace with $/actions/scan when GitHub ships $/ syntax (#136)
+      - uses: TomHennen/wrangle/actions/scan@5b79a1ca848b761ae5bd5524e80af70bb42207c9 # main 2026-06-07
+        if: ${{ inputs.scan-tools != '' }}
+        with:
+          tools: ${{ inputs.scan-tools }}
+
   build:
     # needs `gate` so the build can read should-release and disable the
     # BuildKit cache for release builds (SLSA L3 isolation — see the
     # `cache:` input below and docs/SLSA_L3_AUDIT.md Finding 2).
-    needs: [guard, gate]
+    # needs `scan` so a load-bearing finding blocks the mid-composite push.
+    needs: [guard, gate, scan]
     permissions:
       contents: read
       packages: write

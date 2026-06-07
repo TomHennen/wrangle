@@ -38,23 +38,24 @@ Wrangle covers the entire path from source to published artifact. Each stage has
 
 | Stage | What wrangle does | Reusable workflow | Status |
 |-------|------------------|-------------------|--------|
-| **Source** | Vulnerability scanning (OSV), workflow linting (Zizmor), supply chain scoring (Scorecard), run tests, SLSA source provenance | `check_source_change.yml` | v0.1 |
+| **Source** | Vulnerability scanning (OSV), workflow linting (Zizmor), supply chain scoring (Scorecard), run tests, SLSA source provenance | `check_source_change.yml` (standalone) or the embedded `scan` job of any `build_and_publish_*.yml` | v0.1 |
 | **Build** | Compile/build the project, generate SBOM, scan SBOM for vulnerabilities | `build_and_publish_*.yml` | v0.1 (container, python, npm, go) |
 | **Publish** | Push artifact to registry, sign with Cosign | `build_and_publish_*.yml` | v0.1 (container, python, npm, go) |
 | **Verify** | Generate SLSA L3 build provenance, verify attestations against policy (Ampel) | `build_and_publish_*.yml` / future | v0.1 (provenance), v0.2 (policy) |
 
+Each `build_and_publish_*.yml` embeds the source-scan stage as a `scan` job that runs before the build, so an adopter with a wrangle build type needs only the one build workflow — `check_source_change.yml` is the standalone entry point for repos with no build type.
+
 ### What adopters get today (container project example)
 
-With two workflow files, a container project gets:
+With one workflow file (`build_and_publish_container.yml`), a container project gets the source scan **and** the build:
 
-**Source workflow (`check_source_change.yml`):**
-- Run project tests (detected automatically or configured) on every PR
+**Source scan (the embedded `scan` job):**
 - OSV vulnerability scanning on every PR and push
 - Zizmor workflow security linting
 - OSSF Scorecard supply chain assessment
-- Results in GitHub Security tab via SARIF
+- Results in GitHub Security tab via SARIF (requires `security-events: write` from the caller)
 
-**Build workflow (`build_and_publish_container.yml`):**
+**Build (`build_and_publish_container.yml`):**
 - Docker image built with Buildx (multi-platform capable, cached)
 - SBOM generated automatically (SPDX format)
 - SBOM scanned for vulnerabilities before publish
@@ -184,6 +185,7 @@ The build stage has multiple failure points with different behaviors:
 
 | Failure | Behavior | Rationale |
 |---------|----------|-----------|
+| **Source scan finds a load-bearing (`:fail`) issue** | Publish is blocked (see the per-build-type gating points below). SARIF still uploaded. | The embedded `scan` job is a gate, not just a report — a known-bad source state should not ship. This is the *source* scan and is distinct from the SBOM vulnerability scan below, which is informational. Tools suffixed `:info` (Scorecard by default) never block. |
 | **Tests fail** | Pipeline stops. No artifact built or published. | Broken code should never be released. |
 | **Build fails** | Pipeline stops. | Nothing to publish. |
 | **SBOM generation fails** | Pipeline stops. | Can't verify what's in the artifact without an SBOM. |
@@ -212,6 +214,19 @@ Why a shared composite. Centralizing the predicate means adopters get a single v
 Why over-generation is acceptable for the default. SLSA L3 provenance is non-falsifiable: a verifier checks `--source-uri` and (where the consumer specifies it) `--source-tag` against the provenance's recorded `workflow_ref`. A `schedule`-cron run that nobody downstream consumes is harmless because no consumer references that `workflow_ref`. The cost of over-generation is generator-job runtime; the cost of under-generation is "the consumer expected provenance and didn't get it." Asymmetric — over-generate by default, let adopters tighten when they have a stronger threat model (e.g., `tag-only` to ensure unauthorized `workflow_dispatch` cannot mint provenance for a release that downstream verifiers might trust under a default policy).
 
 Asymmetry: container vs. python. The container reusable workflow's docker push happens mid-composite inside `build/actions/container`; `release-events` currently gates the attest and verify jobs in that workflow, not the push. The python reusable workflow has no publish step (PyPI Trusted Publishing's OIDC constraint means publish lives in the caller), so `release-events` gates the attest and verify jobs, and `should-release` flows out to the caller's publish job. Build types MUST document this scope when their publish path differs from the python pattern.
+
+### Source-scan gating
+
+Contract introduced in [#334](https://github.com/TomHennen/wrangle/issues/334). Every `build_and_publish_*.yml` runs the embedded `scan` job (`actions/scan`) before building, controlled by a `scan-tools` input (default `"osv zizmor scorecard:info dependency-review"`; `:info`-suffixed tools are non-blocking; empty string disables the scan). A load-bearing (`:fail`) scan finding blocks publishing — but, like `release-events`, *where* it blocks tracks each build type's publish path, because that path is what must be prevented:
+
+- **container** — the `build` job `needs: [scan]`, so a finding blocks the build (and therefore the mid-composite push) on **every** event, not only release events. This is the documented exception, mirroring the `release-events` container asymmetry above: the push is mid-composite and not release-gated, so the scan gate cannot defer to release time either.
+- **go** — the scan gates the `release` job on release events; PR snapshot builds still run, consistent with the `release-events` model.
+- **python / npm** — a finding fails the run, so the caller's `needs:`-gated publish job is skipped (same propagation as a failed verify).
+- **shell** — a finding fails the run; there is no publishable artifact to gate.
+
+Which tools actually gate a release depends on the event: `actions/scan` runs `dependency-review` only on `pull_request` and `scorecard` only on push, so at release time (a tag push) the effective blocking tools from the default `scan-tools` are `osv` and `zizmor`. `dependency-review` gates at PR-review time; `scorecard` is `:info` (non-blocking) by default.
+
+The embedded `scan` job requests `actions: read` + `contents: read` + `security-events: write`. A build caller MUST grant `actions: read` and `security-events: write` on top of its build permissions: GitHub fails a reusable-workflow run at startup (a hard `startup_failure`, not a silent downgrade) if a called job requests a permission the caller did not grant. The example callers grant both; adopters upgrading an existing caller MUST add them.
 
 ### Release verification
 
@@ -277,6 +292,8 @@ Two conditions narrow every Build L3 claim:
 │  (download binaries, run tools, normalize output)│
 └──────────────────────────────────────────────────┘
 ```
+
+This diagram traces the standalone scan path. Each `build_and_publish_*.yml` reuses the same lower layers from a `scan` job, embedding `actions/scan` ahead of its build jobs (see Source-scan gating).
 
 ### Directory Layout
 
@@ -1078,6 +1095,8 @@ Layers:
 ## Adoption Path
 
 ### For humans
+
+If the repo has a wrangle build type, adopt the matching `build_and_publish_*` example instead — it scans and builds, so a separate scan workflow is redundant. For a repo with no build type, adopt source scanning only:
 
 1. Copy the workflow from `gh_workflow_examples/check_source_change.yml` into your repo at `.github/workflows/check_source_change.yml`
 2. Adjust the branch name if your default branch isn't `main`

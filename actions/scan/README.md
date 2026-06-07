@@ -2,7 +2,7 @@
 
 Runs OSV-Scanner, Zizmor, Scorecard, and Dependency Review against your repo on every PR and push to main. Catches vulnerable dependencies, workflow-config mistakes, and supply-chain gaps before they merge. As wrangle adds source-side tools over time, adopters pick them up automatically by bumping the version pin — no per-tool wiring in your repo.
 
-This is the companion to wrangle's build/publish workflows: build hardens *how* your artifact is produced; source scan covers *what was checked into the repo you're building from*.
+Wrangle's `build_and_publish_*` workflows embed this scan (via their `scan-tools` input), so adopters with a wrangle build type get it automatically. The standalone workflow below is for repos with no wrangle build type.
 
 ## Quick-start
 
@@ -26,7 +26,7 @@ jobs:
     uses: TomHennen/wrangle/.github/workflows/check_source_change.yml@v0.1.0
 ```
 
-Findings appear in the Security tab; the run's step summary shows an overview. Pair with whichever build/publish workflow your project uses.
+Findings appear in the Security tab; the run's step summary shows an overview.
 
 ## What runs
 
@@ -35,7 +35,7 @@ Findings appear in the Security tab; the run's step summary shows an overview. P
 - **[Scorecard](https://github.com/ossf/scorecard)** — repo-config gaps (branch protection, code review, signed commits).
 - **[Dependency Review](https://github.com/actions/dependency-review-action)** — PR-time gate on lockfile changes. Blocks the merge when a PR adds a vulnerable dep at the configured severity (default `high`). Complements OSV: OSV is the periodic whole-lockfile scan; dependency-review fires only on what's being added.
 
-## Why pair with build/publish
+## Why source scanning matters
 
 Source scan catches two distinct classes of problem the build side can't see:
 

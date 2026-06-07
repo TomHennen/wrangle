@@ -12,7 +12,7 @@ Wrangle publishes via [npm Trusted Publishing](https://docs.npmjs.com/trusted-pu
 
 Copy [`gh_workflow_examples/build_npm.yml`](../../../gh_workflow_examples/build_npm.yml) into your repo at `.github/workflows/`. The example wires the required permissions (`attestations: write` so wrangle's attest job can write the GitHub-issued provenance, `id-token: write` for Sigstore keyless signing, `contents: write` so the verify job can attach the VSA to the release on tag pushes) and includes the publish job. Most adopters only need to set the `path` input.
 
-Pair with [source scan](../../../actions/scan/README.md) — build hardens *how* your artifact is produced; source scan covers *what was checked into the repo you're building from*.
+The `build_and_publish_npm.yml` workflow embeds [source scan](../../../actions/scan/README.md) via its `scan-tools` input — build hardens *how* your artifact is produced, source scan covers *what was checked into the repo you're building from*, and a load-bearing finding fails the run (blocking publish). The caller MUST grant `actions: read` and `security-events: write` for the scan (the example wires them; omitting either fails the run at startup). No separate `check_source_change.yml` needed.
 
 For the composite-only path (build + test + SBOM; you wire your own provenance and publish), use `TomHennen/wrangle/build/actions/npm@v0.2.0` as a step.
 
