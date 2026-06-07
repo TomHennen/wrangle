@@ -724,6 +724,25 @@ write_pkg_json() {
     [[ "$status" -eq 0 ]]
 }
 
+@test "npm: workflow has a scan job using the scan action" {
+    run grep -E '^  scan:' "$WORKFLOW"
+    [[ "$status" -eq 0 ]]
+    run bash -c "sed -n '/^  scan:/,/^  [a-z]/p' \"$WORKFLOW\" | grep -E 'uses:[[:space:]]*TomHennen/wrangle/actions/scan@'"
+    [[ "$status" -eq 0 ]]
+}
+
+@test "npm: scan steps are gated on scan-tools so empty disables scanning" {
+    # scan-tools: "" skips both steps; the scan job then concludes success
+    # and never blocks the provenance/publish path.
+    run bash -c "sed -n '/^  scan:/,/^  [a-z]/p' \"$WORKFLOW\" | grep -E \"if:.*inputs.scan-tools != ''\""
+    [[ "$status" -eq 0 ]]
+}
+
+@test "npm: provenance job needs scan (load-bearing finding blocks provenance)" {
+    run bash -c "sed -n '/^  provenance:/,/^  [a-z]/p' \"$WORKFLOW\" | grep -E 'needs:.*scan'"
+    [[ "$status" -eq 0 ]]
+}
+
 @test "npm: workflow has gate job calling release_gate" {
     run grep -E '^  gate:' "$WORKFLOW"
     [[ "$status" -eq 0 ]]

@@ -26,6 +26,26 @@ setup() {
     [ "$status" -eq 0 ]
 }
 
+# --- Reusable workflow scan job ---------------------------------------------
+# build_shell.yml's scan is independent: there is no artifact to gate
+# publishing of, so nothing downstream needs scan. A load-bearing finding
+# fails the run alongside the shell build/test via the workflow conclusion.
+
+@test "shell: workflow has a scan job using the scan action" {
+    local wf="$REPO_ROOT/.github/workflows/build_shell.yml"
+    run grep -E '^  scan:' "$wf"
+    [[ "$status" -eq 0 ]]
+    run bash -c "sed -n '/^  scan:/,/^  [a-z]/p' \"$wf\" | grep -E 'uses:[[:space:]]*TomHennen/wrangle/actions/scan@'"
+    [[ "$status" -eq 0 ]]
+}
+
+@test "shell: scan steps are gated on scan-tools so empty disables scanning" {
+    # scan-tools: "" skips both steps; the scan job then concludes success.
+    local wf="$REPO_ROOT/.github/workflows/build_shell.yml"
+    run bash -c "sed -n '/^  scan:/,/^  [a-z]/p' \"$wf\" | grep -E \"if:.*inputs.scan-tools != ''\""
+    [[ "$status" -eq 0 ]]
+}
+
 # --- Delegation to extracted scripts ----------------------------------------
 
 @test "shell: run_shellcheck.sh and run_bats.sh exist and are executable" {

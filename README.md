@@ -4,7 +4,9 @@ A composable CI/CD security framework for GitHub Actions. Adopters reference wra
 
 ## Quick Start
 
-Add source scanning to any GitHub repo — create `.github/workflows/check_source_change.yml`:
+**Building an artifact?** Use a `build_and_publish_*` workflow (container, Python, npm, Go) or `build_shell.yml`. Each one scans your source (OSV, Zizmor, Scorecard, dependency-review) *and* builds, signs, and publishes — one workflow, no separate scan file needed. A load-bearing scan finding blocks the release. Add `security-events: write` to the caller's permissions to also surface findings in the Security tab. See the [workflow examples](gh_workflow_examples/README.md).
+
+**No build type?** Scan source only — create `.github/workflows/check_source_change.yml`:
 
 ```yaml
 name: Check Source Change
@@ -25,7 +27,7 @@ jobs:
 
 Runs OSV-Scanner, Zizmor, OSSF Scorecard, and dependency-review on every PR. Findings appear in the Security tab and the Actions step summary.
 
-For build/publish — npm, Python, container, shell — see the [workflow examples](gh_workflow_examples/README.md).
+**Keep dependencies fresh.** Enable Dependabot with [`gh_workflow_examples/dependabot.yml`](gh_workflow_examples/dependabot.yml). Do not auto-merge — wrangle's supply-chain discipline favors a ~7-day delay so the community can catch attacks first. Dependabot covers your own dependencies; wrangle's pinned internals are bumped by wrangle.
 
 ## Attestation trust gaps (current)
 
@@ -41,7 +43,7 @@ Worked examples with the actual field values — and a visual audit of real prov
 ## Pieces
 
 - [Workflow examples](gh_workflow_examples/README.md) — copy-paste starting points
-- [Reusable workflows](.github/workflows/) — what adopters call via `uses:`
+- [Reusable workflows](.github/workflows/) — what adopters call via `uses:`; `build_and_publish_*` scan + build + publish, `check_source_change.yml` scans only
 - [Source scan action](actions/scan/README.md) — OSV, Zizmor, Scorecard, dependency-review orchestration
 - [Build actions](build/) — npm, python, container, shell
 - [Tools](tools/) — per-tool adapters and install scripts (OSV, Zizmor, Scorecard, Syft, dependency-review)

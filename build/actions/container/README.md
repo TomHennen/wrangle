@@ -12,7 +12,7 @@ Copy [`gh_workflow_examples/build_and_publish_containers.yml`](../../../gh_workf
 | `imagename` | `ghcr.io/<owner>/<repo>/<image>` |
 | `registry` | `ghcr.io` |
 
-The example wires in the required permissions and `gh_token` secret. Pair with [source scan](../../../actions/scan/README.md) — build hardens *how*, source scan covers *what was committed*.
+The example wires in the required permissions and `gh_token` secret. The `build_and_publish_container.yml` workflow embeds [source scan](../../../actions/scan/README.md) via its `scan-tools` input — build hardens *how*, source scan covers *what was committed*, and a load-bearing finding blocks the build (and push). No separate `check_source_change.yml` needed.
 
 For the full design (failure contract, trust model, planned signing/provenance steps in the composite), see [`SPEC.md`](./SPEC.md). This README only describes shipped behavior.
 
@@ -129,4 +129,4 @@ OSV-Scanner against the SBOM is planned (non-blocking — vulnerability triage i
 
 - [`SPEC.md`](./SPEC.md) — this action's full specification.
 - [`../../../docs/SPEC.md`](../../../docs/SPEC.md) — wrangle's architecture.
-- [`../../../actions/scan/README.md`](../../../actions/scan/README.md) — source-scan companion.
+- [`../../../actions/scan/README.md`](../../../actions/scan/README.md) — the embedded source scan (`scan-tools` input).

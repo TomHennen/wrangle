@@ -17,6 +17,14 @@ on:
         required: false
         type: string
         default: ""
+      scan-tools:
+        description: |
+          Space-separated source-scan tools (suffix :info for
+          non-blocking). A load-bearing (:fail) finding fails the run.
+          Empty string disables scanning.
+        required: false
+        type: string
+        default: "osv zizmor scorecard:info dependency-review"
 
 jobs:
   # Refuse trigger patterns known to expose this workflow to supply-chain
@@ -30,6 +38,27 @@ jobs:
     steps:
       # TODO: replace with $/actions/preflight_guard when GitHub ships $/ syntax (#136)
       - uses: TomHennen/wrangle/actions/preflight_guard@cb043076b426c1e22b1305e39b7a59dc3a696f98 # main 2026-06-04
+
+  # Source scan. A load-bearing (:fail) finding fails the run alongside
+  # the shell build/test (there is no artifact to gate publishing of).
+  scan:
+    needs: [guard]
+    runs-on: ubuntu-latest
+    permissions:
+      actions: read
+      contents: read
+      security-events: write
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        if: ${{ inputs.scan-tools != '' }}
+        with:
+          persist-credentials: false
+
+      # TODO: replace with $/actions/scan when GitHub ships $/ syntax (#136)
+      - uses: TomHennen/wrangle/actions/scan@cb043076b426c1e22b1305e39b7a59dc3a696f98 # main 2026-06-04
+        if: ${{ inputs.scan-tools != '' }}
+        with:
+          tools: ${{ inputs.scan-tools }}
 
   shell-build:
     needs: [guard]

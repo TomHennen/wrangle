@@ -1,0 +1,45 @@
+# Copy this file to your repo at .github/dependabot.yml
+#
+# Do NOT enable auto-merge: wrangle deliberately adopts new upstream
+# versions only after a ~7-day delay (the `cooldown` below) so the
+# community can surface supply-chain attacks before they propagate.
+# This covers YOUR dependencies — not wrangle's pinned action SHAs or
+# tool binaries, which wrangle manages with hardcoded checksums.
+version: 2
+updates:
+  - package-ecosystem: "github-actions"
+    directories:
+      - "/**"
+    schedule:
+      interval: "weekly"
+    open-pull-requests-limit: 5
+    cooldown:
+      default-days: 7
+
+  # Uncomment the ecosystem(s) your project uses:
+  # - package-ecosystem: "npm"
+  #   directories:
+  #     - "/**"
+  #   schedule:
+  #     interval: "weekly"
+  #   open-pull-requests-limit: 5
+  #   cooldown:
+  #     default-days: 7
+
+  # - package-ecosystem: "pip"
+  #   directories:
+  #     - "/**"
+  #   schedule:
+  #     interval: "weekly"
+  #   open-pull-requests-limit: 5
+  #   cooldown:
+  #     default-days: 7
+
+  # - package-ecosystem: "gomod"
+  #   directories:
+  #     - "/**"
+  #   schedule:
+  #     interval: "weekly"
+  #   open-pull-requests-limit: 5
+  #   cooldown:
+  #     default-days: 7

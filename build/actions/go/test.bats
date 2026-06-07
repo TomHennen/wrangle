@@ -691,6 +691,27 @@ func main() {}
     grep -qE '^    needs: \[.*checks.*\]' <<<"$section"
 }
 
+@test "go: workflow has a scan job using the scan action" {
+    run grep -E "^  scan:" "$WORKFLOW"
+    [[ "$status" -eq 0 ]]
+    section="$(awk '/^  [a-z][a-z_-]*:$/ { in_section = ($0 == "  scan:") } in_section' "$WORKFLOW")"
+    grep -qE 'uses:[[:space:]]*TomHennen/wrangle/actions/scan@' <<<"$section"
+}
+
+@test "go: scan steps are gated on scan-tools so empty disables scanning (job concludes success)" {
+    # The behavior contract: scan-tools: "" skips both steps, so the scan
+    # job succeeds and never blocks release.
+    section="$(awk '/^  [a-z][a-z_-]*:$/ { in_section = ($0 == "  scan:") } in_section' "$WORKFLOW")"
+    grep -qE "if:.*inputs\\.scan-tools != ''" <<<"$section"
+}
+
+@test "go: workflow release job needs scan (load-bearing finding blocks publish)" {
+    section="$(awk '/^  [a-z][a-z_-]*:$/ { in_section = ($0 == "  release:") } in_section' "$WORKFLOW")"
+    grep -qE '^    needs: \[.*scan.*\]' <<<"$section"
+    # The if: gates release on the scan result for release events.
+    grep -qE "needs\\.scan\\.result" <<<"$section"
+}
+
 @test "go: workflow does NOT have a publish job (goreleaser owns publish inline)" {
     run grep '^  publish:' "$WORKFLOW"
     [[ "$status" -ne 0 ]]

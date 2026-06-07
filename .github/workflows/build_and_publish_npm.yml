@@ -87,6 +87,14 @@ on:
         required: false
         type: boolean
         default: true
+      scan-tools:
+        description: |
+          Space-separated source-scan tools (suffix :info for
+          non-blocking). A load-bearing (:fail) finding fails the run,
+          blocking the caller's publish. Empty string disables scanning.
+        required: false
+        type: string
+        default: "osv zizmor scorecard:info dependency-review"
     outputs:
       hashes:
         description: "Base64-encoded SHA-256 hashes of built artifacts (for SLSA provenance)"
@@ -140,6 +148,29 @@ jobs:
         id: gate
         with:
           events: ${{ inputs.release-events }}
+
+  # Source scan. A load-bearing (:fail) finding fails this job, failing
+  # the run so the caller's publish (gated on this workflow via needs:)
+  # is blocked — decoupled scan/build runs can't gate publish.
+  scan:
+    needs: [guard]
+    runs-on: ubuntu-latest
+    permissions:
+      actions: read
+      contents: read
+      security-events: write
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        if: ${{ inputs.scan-tools != '' }}
+        with:
+          persist-credentials: false
+          ref: ${{ inputs.ref || '' }}
+
+      # TODO: replace with $/actions/scan when GitHub ships $/ syntax (#136)
+      - uses: TomHennen/wrangle/actions/scan@cb043076b426c1e22b1305e39b7a59dc3a696f98 # main 2026-06-04
+        if: ${{ inputs.scan-tools != '' }}
+        with:
+          tools: ${{ inputs.scan-tools }}
 
   build:
     needs: [guard]
@@ -234,7 +265,7 @@ jobs:
   # write is mandatory even when upload-assets is false.
   provenance:
     if: ${{ needs.gate.outputs.should-release == 'true' }}
-    needs: [guard, gate, build]
+    needs: [guard, gate, build, scan]
     permissions:
       actions: read    # detect the GitHub Actions environment
       id-token: write  # OIDC for Sigstore signing

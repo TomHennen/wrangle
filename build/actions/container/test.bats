@@ -116,6 +116,28 @@ teardown() {
     [[ "$status" -eq 0 ]]
 }
 
+@test "container: workflow has a scan job using the scan action" {
+    local wf="$REPO_ROOT/.github/workflows/build_and_publish_container.yml"
+    run grep -E "^  scan:" "$wf"
+    [[ "$status" -eq 0 ]]
+    run bash -c "sed -n '/^  scan:/,/^  [a-z]/p' \"$wf\" | grep -E 'uses:[[:space:]]*TomHennen/wrangle/actions/scan@'"
+    [[ "$status" -eq 0 ]]
+}
+
+@test "container: scan steps are gated on scan-tools so empty disables scanning" {
+    # scan-tools: "" skips both steps; the scan job then concludes success
+    # and never blocks the build/push.
+    local wf="$REPO_ROOT/.github/workflows/build_and_publish_container.yml"
+    run bash -c "sed -n '/^  scan:/,/^  [a-z]/p' \"$wf\" | grep -E \"if:.*inputs.scan-tools != ''\""
+    [[ "$status" -eq 0 ]]
+}
+
+@test "container: build job needs scan (load-bearing finding blocks the mid-composite push)" {
+    local wf="$REPO_ROOT/.github/workflows/build_and_publish_container.yml"
+    run bash -c "sed -n '/^  build:/,/^  [a-z]/p' \"$wf\" | grep -E 'needs:.*scan'"
+    [[ "$status" -eq 0 ]]
+}
+
 @test "container: reusable workflow forces cache disabled for release builds" {
     # Release builds MUST be cache-free: 'disabled' when should-release is
     # true, otherwise the adopter's pr-cache policy.

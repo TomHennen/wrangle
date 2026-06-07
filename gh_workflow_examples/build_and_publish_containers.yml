@@ -21,6 +21,7 @@ jobs:
       actions: read        # SLSA provenance generator
       id-token: write      # OIDC for keyless Cosign signing
       packages: write      # push image + provenance to GHCR
+      security-events: write  # source-scan SARIF -> Security tab
     uses: TomHennen/wrangle/.github/workflows/build_and_publish_container.yml@v0.1.0
     with:
       path: PATH/TO/FOLDER/WITH/Dockerfile

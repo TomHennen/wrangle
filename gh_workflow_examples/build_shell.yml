@@ -13,6 +13,7 @@ jobs:
   shell-build:
     permissions:
       contents: read
+      security-events: write  # source-scan SARIF -> Security tab
     uses: TomHennen/wrangle/.github/workflows/build_shell.yml@v0.1.0
     # with:
     #   scan-path: "."       # optional: subdirectory to scan (default: repo root)

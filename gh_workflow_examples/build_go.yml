@@ -31,6 +31,7 @@ jobs:
       contents: write   # goreleaser creates the Release + SLSA generator's upload-assets
       id-token: write   # OIDC for Sigstore signing
       actions: read     # SLSA generator detects the GA environment
+      security-events: write  # source-scan SARIF -> Security tab
     uses: TomHennen/wrangle/.github/workflows/build_and_publish_go.yml@v0.2.0
     with:
       path: "."

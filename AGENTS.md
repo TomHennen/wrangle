@@ -7,17 +7,18 @@ out of the box.
 
 ## Quick Start
 
-To adopt wrangle's source scanning on any GitHub repository:
+Pick the path that matches the repository:
 
-1. Detect the default branch name (usually `main` or `master`)
-2. Create `.github/workflows/check_source_change.yml` with the content below
-3. Commit and push
+- **The repo builds an artifact** (container, Python, npm, Go, or shell) — adopt the matching `build_and_publish_*` / `build_shell.yml` workflow. It scans the source *and* builds, signs, and publishes in one run, so you do **not** also add `check_source_change.yml`. See [Build Workflows](#build-workflows).
+- **The repo has no wrangle build type** — adopt source scanning only via `check_source_change.yml`. See [Source Scanning Workflow](#source-scanning-workflow).
 
-That's it. No secrets, tokens, or additional configuration required.
+Either way: detect the default branch name (usually `main` or `master`), create the workflow file, commit, and push. No secrets, tokens, or additional configuration required.
+
+Also enable Dependabot from `gh_workflow_examples/dependabot.yml`, but do not configure auto-merge — wrangle's supply-chain discipline favors a ~7-day delay before adopting new versions. (Dependabot covers the user's own dependencies; wrangle's pinned internals are bumped by wrangle.)
 
 ## Source Scanning Workflow
 
-Create this file at `.github/workflows/check_source_change.yml`:
+Use this when the repo has no wrangle build type. Create this file at `.github/workflows/check_source_change.yml`:
 
 ```yaml
 name: Check Source Change
@@ -46,6 +47,7 @@ After adoption, every PR and push will automatically run:
 - **OSV-Scanner** — vulnerability scanning against the OSV database
 - **Zizmor** — security-focused linting of GitHub Actions workflows
 - **OSSF Scorecard** — supply chain health assessment
+- **dependency-review** — flags vulnerable or disallowed dependency changes in a PR
 
 Results appear in:
 - The GitHub Actions step summary (markdown table)
@@ -62,23 +64,38 @@ Results appear in:
 
 No other permissions are needed. No secrets are required.
 
-## Detecting Project Type
+## Build Workflows
 
-Wrangle supports different build types. For now, source scanning works
-for **all project types**. To determine if additional build workflows
-are available:
+If the repo builds an artifact, prefer the matching build workflow — it
+runs the source scan *and* builds/signs/publishes, so the standalone
+`check_source_change.yml` is redundant:
 
-| If you find... | Project type | Build workflow available? |
-|---------------|-------------|-------------------------|
-| `Dockerfile` | Container | Yes — `build_and_publish_container.yml` |
-| `.sh` files, `test.bats` | Shell | Yes — `build_shell.yml` |
-| `package.json` | npm | Not yet (planned for v0.2) |
-| `pyproject.toml`, `setup.py` | Python | Not yet (planned for v0.2) |
-| `go.mod` | Go | Not yet (planned for v0.2) |
+| If you find... | Project type | Build workflow |
+|---------------|-------------|----------------|
+| `Dockerfile` | Container | `build_and_publish_container.yml` |
+| `.sh` files, `test.bats` | Shell | `build_shell.yml` |
+| `package.json` | npm | `build_and_publish_npm.yml` |
+| `pyproject.toml`, `setup.py` | Python | `build_and_publish_python.yml` |
+| `go.mod` | Go | `build_and_publish_go.yml` |
+
+Copy-pasteable callers, required permissions, and how to verify the
+output live in each [workflow example](gh_workflow_examples/README.md)
+and `build/actions/<type>/README.md`.
+
+Two notes for every build workflow:
+
+- **`scan-tools` input** — space-separated source-scan tools, default
+  `"osv zizmor scorecard:info dependency-review"`. Suffix a tool with
+  `:info` to make it non-blocking; empty string disables scanning. A
+  load-bearing (`:fail`) finding blocks publishing.
+- **Caller permissions** — grant `security-events: write` so scan SARIF
+  reaches the Security tab. Omitting it does not break the build or the
+  gate (findings still appear in the step summary and the
+  `wrangle-scan-results` artifact); only Security-tab upload is lost.
 
 If you cannot determine the project type, add only the source scanning
-workflow above. It is always applicable. Note to the user that build
-and publish workflows can be added once the project type is identified.
+workflow above. It is always applicable. Note to the user that a build
+and publish workflow can be added once the project type is identified.
 
 ## Verifying Your Work (CI Testing)
 
@@ -96,5 +113,5 @@ PR CI tests the actual code in the PR branch, not `main`, because wrangle's own 
 
 - Do not add secrets to the workflow — wrangle doesn't need them
 - Do not use `@main` in production — always use a release tag (e.g., `@v0.1.0`)
-- Do not add extra permissions beyond the three listed above
-- Do not modify the reusable workflow call — wrangle handles tool selection internally
+- Do not add extra permissions beyond those listed for the workflow you adopt
+- Do not configure Dependabot auto-merge — adopt new versions only after a delay (see Quick Start)

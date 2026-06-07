@@ -20,6 +20,7 @@ setup() {
     REPO_ROOT="$(cd "$BATS_TEST_DIRNAME/.." && pwd)"
     WORKFLOWS_DIR="$REPO_ROOT/.github/workflows"
     REUSABLE_WORKFLOWS=(
+        "build_and_publish_go.yml"
         "build_and_publish_npm.yml"
         "build_and_publish_python.yml"
         "build_and_publish_container.yml"
