@@ -9,10 +9,10 @@ out of the box.
 
 Pick the path that matches the repository:
 
-- **The repo builds an artifact** (container, Python, npm, Go, or shell) — adopt the matching `build_and_publish_*` / `build_shell.yml` workflow. It scans the source *and* builds, signs, and publishes in one run, so you do **not** also add `check_source_change.yml`. See [Build Workflows](#build-workflows).
+- **The repo builds an artifact** (container, Python, npm, Go, or shell) — adopt the matching `build_and_publish_*` / `build_shell.yml` workflow. It scans the source *and* builds the artifact in one run (signing + publishing too for all types except shell, which only validates), so you do **not** also add `check_source_change.yml`. See [Build Workflows](#build-workflows).
 - **The repo has no wrangle build type** — adopt source scanning only via `check_source_change.yml`. See [Source Scanning Workflow](#source-scanning-workflow).
 
-Either way: detect the default branch name (usually `main` or `master`), create the workflow file, commit, and push. No secrets, tokens, or additional configuration required.
+Either way: detect the default branch name (usually `main` or `master`), create the workflow file, commit, and push. Source scanning needs no secrets; among the build workflows only the container type needs one (`gh_token`, which its example wires).
 
 Also enable Dependabot from `gh_workflow_examples/dependabot.yml`, but do not configure auto-merge — wrangle's supply-chain discipline favors a ~7-day delay before adopting new versions. (Dependabot covers the user's own dependencies; wrangle's pinned internals are bumped by wrangle.)
 
@@ -67,7 +67,8 @@ No other permissions are needed. No secrets are required.
 ## Build Workflows
 
 If the repo builds an artifact, prefer the matching build workflow — it
-runs the source scan *and* builds/signs/publishes, so the standalone
+runs the source scan *and* builds the artifact (signing + publishing too,
+except shell which only validates), so the standalone
 `check_source_change.yml` is redundant:
 
 | If you find... | Project type | Build workflow |
@@ -111,7 +112,7 @@ PR CI tests the actual code in the PR branch, not `main`, because wrangle's own 
 
 ## Do NOT
 
-- Do not add secrets to the workflow — wrangle doesn't need them
+- Do not add secrets beyond what the workflow documents — source scanning needs none; the container build needs only `gh_token` (see its example)
 - Do not use `@main` in production — always use a release tag (e.g., `@v0.1.0`)
 - Do not add extra permissions beyond those listed for the workflow you adopt
 - Do not configure Dependabot auto-merge — adopt new versions only after a delay (see Quick Start)

@@ -309,7 +309,7 @@ OSV-Scanner supports all major Python lockfile formats:
 - `uv.lock`
 - `Pipfile.lock`
 
-The source scanning workflow (`check_source_change.yml`) handles this — no additional scanning needed in the build action. The SBOM scan is complementary, covering transitive dependencies resolved at build time.
+The embedded `scan` job (`build_and_publish_python.yml`, via `scan-tools`) handles this — no additional scanning needed in the build action. The SBOM scan is complementary, covering transitive dependencies resolved at build time.
 
 ## Known limitations
 
