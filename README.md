@@ -24,8 +24,8 @@ uses one of wrangle's reusable workflows.  With that single job developers get:
 * A [SLSA VSA](https://slsa.dev/verification_summary/v1) letting downstream users easily verify the artifacts you distribute.
 * and more
 
-The promise is that if developers use wrangle, wrangle will take care of drudgery, and let
-developers focus on the features they want to ship.
+The promise is that if developers use wrangle, wrangle will take care of drudgery, safely,
+and let developers focus on the features they want to ship.
 
 ## Quick Start
 
@@ -39,6 +39,7 @@ name: Go Build
 
 on:
   push:
+    branches: ["main"]  # source scan + snapshot build on main (no publish); drop to skip per-merge builds
     tags: ["v*"]       # publish on version tags
   pull_request:
     branches: ["**"]   # build + test on PRs (no provenance, no publish)
