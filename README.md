@@ -1,43 +1,60 @@
 # wrangle
 
-A composable CI/CD security framework for GitHub Actions. Adopters reference wrangle's reusable workflows and get source scanning, signed builds, SBOMs, and SLSA L3 provenance out of the box. Maintainers update the underlying tooling without adopters touching their repos.
+Developers want to ship features.  They'd like to do it securely but it's hard.  We ask too much of them:
+
+* Remember to scan for vulns
+* Remember not to use pull_request_target
+* Remember to run zizmor
+* Remember to produce an SBOM
+* Remember not to misconfiguring caching
+* ...
+
+What if... we could do this for developers, so they don't need to remember?
+
+Wrangle is one-stop shop for GitHub Actions CI/CD.  Developers add **a single** job that
+uses one of wrangle's reusable workflows.  With that single job developers get:
+
+* Vulnerability scanning with osv
+* GitHub Action safety checks with Zizmor
+* Automatic execution of unit tests
+* Automatic builds with safe defaults
+* SBOMs
+* SLSA Build Level 3 provenance
+* A SLSA VSA letting downstream users easily verify the artifacts you distribute.
+* and more
+
+The promise is that if developers use wrangle, wrangle will take care of drudgery, and let
+developers focus on the features they want to ship.
 
 ## Quick Start
 
-**Building an artifact?** Use a `build_and_publish_*` workflow (container, Python, npm, Go) or `build_shell.yml`. Each one scans your source (OSV, Zizmor, Scorecard, dependency-review) *and* builds, signs, and publishes — one workflow, no separate scan file needed. A load-bearing scan finding blocks the release. The embedded scan REQUIRES the caller to grant `actions: read` and `security-events: write` (the examples include them; omitting either fails the run at startup). See the [workflow examples](gh_workflow_examples/README.md).
+Developers can copy & adapt one of the ecosystem specific examples from [./gh_workflow_examples](gh_workflow_examples),
+putting it in their .github/workflows directory.
 
-**No build type?** Scan source only — create `.github/workflows/check_source_change.yml`:
+This is what it looks like for go.
 
 ```yaml
-name: Check Source Change
+name: Go Build
+
 on:
   push:
-    branches: ["main"]
+    tags: ["v*", "main"]
   pull_request:
     branches: ["**"]
+  workflow_dispatch:
 
 jobs:
-  check-change:
+  build:
     permissions:
-      actions: read
-      contents: read
-      security-events: write
-    uses: TomHennen/wrangle/.github/workflows/check_source_change.yml@v0.1.0
+      contents: write
+      id-token: write
+      attestations: write
+    uses: TomHennen/wrangle/.github/workflows/build_and_publish_go.yml@...
+    with:
+      path: "."
 ```
 
-Runs OSV-Scanner, Zizmor, OSSF Scorecard, and dependency-review on every PR. Findings appear in the Security tab and the Actions step summary.
-
-**Keep dependencies fresh.** Enable Dependabot with [`gh_workflow_examples/dependabot.yml`](gh_workflow_examples/dependabot.yml). Do not auto-merge — wrangle's supply-chain discipline favors a ~7-day delay so the community can catch attacks first. Dependabot covers your own dependencies; wrangle's pinned internals are bumped by wrangle.
-
-## Attestation trust gaps (current)
-
-wrangle emits real, signed SLSA provenance and VSAs today. A few gaps remain in the trust chain; we surface them so adopters and consumers aren't surprised:
-
-- **The verifiable "wrangle did this" anchor is the VSA's signing certificate** — the single signed attestation a consumer trusts, keyless-signed by *wrangle's* reusable workflow, so verify **that** identity (per each build-type README; `slsa-verifier verify-vsa` can't — it's key-signed-only). The provenance's `builder.id` now also names that workflow, but reading it means fetching and verifying the provenance; the VSA cert is the one identity to pin. (`verifier.id`, `carabiner.dev/ampel@v1`, is the engine, not wrangle.) Tracking: [#317](https://github.com/TomHennen/wrangle/issues/317).
-- **The VSA is provenance-only.** It attests the three SLSA build-provenance tenets (builder, build type, build point) and nothing else yet; SBOM / OSV / Scorecard results are folded in only once they're produced as signed attestations from a registered identity. Tracking: [#247](https://github.com/TomHennen/wrangle/issues/247).
-- **The one-command `ampel verify` consumer path doesn't bind the origin repo.** It checks the VSA's signer (wrangle's reusable workflow) + predicate fields, but ampel (v1.2.1) matches only the signing cert's issuer + SAN — not the source-repository extension — so it does not assert *which repo* built the artifact. The `cosign verify-blob-attestation` path does, via `--certificate-github-workflow-repository`. Tracking: [#321](https://github.com/TomHennen/wrangle/issues/321).
-
-Worked examples with the actual field values — and a visual audit of real provenance/VSAs — are tracked in [#200](https://github.com/TomHennen/wrangle/issues/200) and [#312](https://github.com/TomHennen/wrangle/issues/312).
+Once they've done this they'll get tests run, scanning, attestations, etc.
 
 ## Pieces
 
