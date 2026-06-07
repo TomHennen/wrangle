@@ -50,13 +50,13 @@ Required pin format per context (third-party actions, the SLSA-generator tag exc
 
 ## Installing and verifying tools
 
-How to choose an install method and verification tier — the decision tree, the integrity-tier ladder, and the freshness-first rule — is in [DEP_MGMT.md](DEP_MGMT.md). Install-script mechanics (`lib/download_verify.sh`, `$WRANGLE_BIN_DIR`, idempotency, atomic `mv`) are the Install Script Interface contract in SPEC.md.
+How to choose an install method and verification tier — the decision tree, the integrity-tier ladder, and the freshness-first rule — is in [DEP_MGMT.md](DEP_MGMT.md). Install-script mechanics (`lib/download_verify.sh`, `$WRANGLE_BIN_DIR`, idempotency, atomic `mv`) are the [Install Script Interface contract](docs/contracts/install_script.md); the verification-tier ladder is [docs/contracts/verification.md](docs/contracts/verification.md).
 
 ## Pins drift across files
 
 Prevent the same pin literal drifting across files (single-source or a divergence-fail test): see [DEP_MGMT.md § Drift](DEP_MGMT.md#drift).
 
-## Adapter contract (see SPEC.md §Adapter Script Interface for the full contract)
+## Adapter contract (see [docs/contracts/adapter.md](docs/contracts/adapter.md) for the full contract)
 
 Adapters take `<src_dir>` (read-only) and `<output_dir>` (writable), write `output.sarif` (SARIF 2.1.0), exit 0 (no findings) / 1 (findings) / 2 (tool error). Do not write outside `output_dir`. Do not access secrets (env is stripped by the orchestrator). `jq` exit codes are checked — malformed SARIF MUST cause exit 2, not silent success.
 

