@@ -302,8 +302,12 @@ wrangle/
 ## Component & integration contracts
 
 The precise interface contracts — every invariant paired with the test or lint
-that enforces it — live in [`docs/contracts/`](contracts/). This section is a
-map; load the relevant contract when working on that component.
+that enforces it — live in [`docs/contracts/`](contracts/) (full index:
+[contracts/README.md](contracts/README.md)). This section is a map; load the
+relevant contract when working on that component. Two further contracts live
+under their own headings here: the [data layout](contracts/metadata.md)
+(§Unified metadata layout) and [trigger safety](contracts/triggers.md)
+(§Trigger Model).
 
 | Contract | Covers |
 |---|---|
@@ -356,7 +360,7 @@ To close that gap, action-pattern wrappers SHOULD write a per-tool marker file a
 3. The marker takes precedence over the SARIF count. Wrappers MAY also write a synthesized empty SARIF as a fallback so downstream consumers (step summary, Code Scanning upload) always have a file; the marker prevents that fallback from being misread as zero findings.
 4. `lib/format_sarif_summary.sh` surfaces a `Tool error` status in the step-summary table when the marker is present, and the per-tool Code Scanning upload in `actions/scan/action.yml` SHOULD be gated on the marker's absence to avoid overwriting prior valid runs with an empty SARIF.
 
-The marker is the canonical signal — adapter-pattern tools already disambiguate via their exit code (0/1/2) per the Adapter Contract above, so they do not write a marker.
+The marker is the canonical signal — adapter-pattern tools already disambiguate via their exit code (0/1/2) per [contracts/adapter.md](contracts/adapter.md), so they do not write a marker.
 
 Use the action pattern when:
 - The tool has a well-maintained official GitHub Action
@@ -380,7 +384,7 @@ The install scripts include OS/arch detection (`linux/darwin`, `amd64/arm64`) as
 
 1. Create `tools/foo/` directory with:
    - `install.sh` — uses `lib/download_verify.sh` for download and verification
-   - `adapter.sh` — follows the adapter contract above
+   - `adapter.sh` — follows [contracts/adapter.md](contracts/adapter.md)
    - `test.bats` — tests using mock binaries (fast, deterministic)
 2. Add `foo` to the orchestrator's default tool list in `actions/scan/action.yml`
 
@@ -503,10 +507,12 @@ load-bearing security invariants are specified in
 The download/verify helpers (`wrangle_download_verify`,
 `wrangle_verify_provenance`, `wrangle_verify_signature`) and the shared output
 helpers (`sarif_to_md.sh`, `tool_banner.sh`, `sanitize.sh`, `log_findings.sh`)
-are defined in [`lib/`](../lib/) and documented at their definitions. Their
-caller-facing invariants live in the relevant interface contracts under
-[`docs/contracts/`](contracts/); this spec no longer restates their signatures
-(the old embedded copies had drifted from `lib/`).
+are defined in [`lib/`](../lib/), each with a header comment specifying its exit
+codes and any env defaults (e.g. `WRANGLE_MAX_FINDING_MESSAGE`,
+`WRANGLE_MAX_SUMMARY`). The download/verify trio's caller-facing invariants are
+in [contracts/verification.md](contracts/verification.md); the output helpers'
+limits are also covered by §Output Sanitization below. This spec no longer
+restates their signatures — the old embedded copies had drifted from `lib/`.
 
 ### Sandboxing and Isolation
 
