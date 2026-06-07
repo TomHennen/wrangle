@@ -31,11 +31,11 @@ Release builds run with the BuildKit `type=gha` cache disabled (BuildKit doesn't
 - Pushes to ghcr.io (other registries out of scope — see [`SPEC.md`](./SPEC.md#current-scope-ghcrio-only)).
 - Generates a BuildKit-native SBOM, attaches it to the image as an OCI attestation, and uploads it as a workflow artifact in SPDX JSON.
 
-The reusable workflow `build_and_publish_container.yml` layers on top: `slsa-github-generator` produces L3 provenance, `cosign verify-attestation` checks that provenance against the just-pushed digest, and the release-gate job enforces the order.
+The reusable workflow `build_and_publish_container.yml` layers on top: `actions/attest-build-provenance` produces L3 provenance (run inside the isolated reusable workflow, which names itself as the provenance `builder.id`), the `verify` job verifies that provenance and emits the signed VSA, and the release-gate job enforces the order.
 
 Two pieces from the spec are not yet shipped — neither in the composite nor in the reusable workflow:
 
-- **Cosign keyless signing of the image digest itself.** The reusable workflow already pulls in `cosign-installer` for `verify-attestation`, but it does not yet run `cosign sign` against the digest. No tracking issue today; please file one if you need it prioritized. Design: [`SPEC.md` §"Cosign image signing"](./SPEC.md#cosign-image-signing).
+- **Cosign keyless signing of the image digest itself.** The reusable workflow does not yet run `cosign sign` against the digest. No tracking issue today; please file one if you need it prioritized. Design: [`SPEC.md` §"Cosign image signing"](./SPEC.md#cosign-image-signing).
 - **OSV-Scanner against the produced SBOM (non-blocking).** The SBOM is generated and uploaded, but nothing in the container path scans it yet. No tracking issue today; same suggestion. Design: [`SPEC.md` §"Failure contract"](./SPEC.md#failure-contract).
 
 ## Controlling when provenance is generated
@@ -76,18 +76,11 @@ The scope is keyed by `github.event.pull_request.number` (a GitHub-assigned uniq
 
 > **Never invoke this workflow from `pull_request_target`.** That trigger runs in the base-repo context with cache write access, making a fork PR the highest-risk poisoning vector. Wrangle's reusable workflows will block any workflow that uses `pull_request_target` ([#202](https://github.com/TomHennen/wrangle/issues/202)).
 
-## SLSA attestation verification (default-on, opt-out)
+## SLSA attestation verification (the `verify` job)
 
-The reusable workflow runs `cosign verify-attestation --type slsaprovenance` against the just-pushed image digest before declaring success. This catches the "registry served different bytes than wrangle pushed" attack window — failure blocks any downstream `needs:` job. The cert identity is pinned to the SLSA generator's tag (`v2.1.0` today) and to your repository, so attestations from a different generator version or a different repo do not pass.
+The `verify` job evaluates the image provenance against the [`wrangle-provenance-container-v1`](../../../policies/wrangle-provenance-container-v1.hjson) PolicySet (fail-closed) and emits the signed VSA. It's gated on `should-release`, so it runs on every release; it is not opt-out-able. If verification fails the workflow fails and any downstream `needs:` job is blocked.
 
-To opt out (custom verification flow):
-
-```yaml
-with:
-  verify-image: false
-```
-
-**Private-repo limitation.** Verify currently does no registry auth, so private-repo adopters must set `verify-image: false` and verify in their own job. See [#182](https://github.com/TomHennen/wrangle/issues/182). When `cosign sign` of the image digest lands, this verify job will additionally check the image signature against the caller's `workflow_ref`.
+**Private-repo limitation.** The `verify` job pulls the provenance referrer from the registry but does no registry auth, so private-repo images whose pulls are auth-gated are a known gap — tracked in [#182](https://github.com/TomHennen/wrangle/issues/182). When `cosign sign` of the image digest lands, the job will additionally check the image signature against the caller's `workflow_ref`.
 
 ### Verifying the VSA
 

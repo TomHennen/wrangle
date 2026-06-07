@@ -36,16 +36,16 @@ This is the key architectural decision. Wrangle produces **two layers of provena
 - Inspectable via `docker buildx imagetools inspect`.
 - **Critical caveat:** BuildKit attestations are **not cryptographically signed** — they're just OCI image layers. Anyone with registry push access can tamper with them.
 
-**Layer 2 — Canonical SLSA L3 via `slsa-github-generator`:**
-- `slsa-github-generator`'s container generator produces signed, isolated provenance.
+**Layer 2 — Canonical SLSA L3 via `actions/attest-build-provenance` (run inside wrangle's reusable workflow):**
+- `actions/attest-build-provenance`, run as a step inside wrangle's reusable workflow, produces signed, isolated provenance pushed to the registry as an OCI 1.1 referrer on the image digest.
 - **Cryptographically signed** (Sigstore, non-forgeable).
-- **Builder isolation** (reusable workflow the caller can't control = SLSA L3).
-- **Cross-ecosystem verifiable** (`slsa-verifier`, Ampel).
+- **Builder isolation** (the reusable workflow the caller can't control *is* the trusted builder; it names itself as the provenance `builder.id` = SLSA L3).
+- **v1 predicate** (`https://slsa.dev/provenance/v1`), **cross-ecosystem verifiable** (`gh attestation verify`, Ampel).
 - **Advances SLSA adoption** — adopters get canonical SLSA provenance as a side effect.
 
-Both attestations attach to the same image (different predicateTypes, no conflict). Docker consumers read the BuildKit provenance. SLSA policy engines read the slsa-github-generator provenance.
+Both attestations attach to the same image (different predicateTypes, no conflict). Docker consumers read the BuildKit provenance. SLSA policy engines read the `attest-build-provenance` provenance.
 
-**Why both:** Many ecosystem-native provenance solutions use old SLSA versions, lack signing, or use proprietary formats. The BuildKit provenance gives immediate ecosystem value. The SLSA provenance prepares adopters for policy enforcement and advances the spec. Wrangle bridges the gap.
+**Why both:** Many ecosystem-native provenance solutions use old SLSA versions, lack signing, or use proprietary formats. The BuildKit provenance gives immediate ecosystem value. The signed SLSA provenance prepares adopters for policy enforcement and advances the spec. Wrangle bridges the gap.
 
 **Image signing: Cosign** (must have, v0.1 — already in wrangle)
 - Keyless signing via Sigstore OIDC.
@@ -74,18 +74,8 @@ Both attestations attach to the same image (different predicateTypes, no conflic
 
 **Publish + Verify stage:**
 10. Image pushed to ghcr.io with SBOM + BuildKit provenance attached
-11. slsa-github-generator — canonical SLSA L3 provenance (signed, isolated)
+11. actions/attest-build-provenance (in wrangle's reusable workflow) — canonical SLSA L3 provenance (signed, isolated)
 12. Cosign — image signature
-
-### Applying to future build types
-
-| Build type | Native SBOM | Native provenance | SLSA provenance (always) |
-|-----------|-------------|-------------------|--------------------------|
-| **Container** | BuildKit `--sbom=true` | BuildKit `--provenance=mode=max` | slsa-github-generator/container |
-| **npm** | `npm sbom` | `npm publish --provenance` | slsa-github-generator/generic |
-| **Python** | `cyclonedx-py` from lockfile | PyPI Trusted Publishers | slsa-github-generator/generic |
-| **Go** | `cyclonedx-gomod` from go.sum | None (SLSA only) | slsa-github-generator/go |
-| **Generic** | Syft (post-hoc fallback) | None (SLSA only) | slsa-github-generator/generic |
 
 ### Net new binaries for v0.1
 
@@ -94,7 +84,7 @@ Both attestations attach to the same image (different predicateTypes, no conflic
 | Hadolint | Docker | Yes (1 binary) |
 | container-structure-test | Docker | Optional (1 binary) |
 
-Everything else is either on the runner already (docker/buildx, Cosign) or already in wrangle (OSV-Scanner, Zizmor, Scorecard). slsa-github-generator is a reusable workflow, not a binary.
+Everything else is either on the runner already (docker/buildx, Cosign) or already in wrangle (OSV-Scanner, Zizmor, Scorecard). Canonical SLSA L3 provenance comes from `actions/attest-build-provenance`, a GitHub Action run inside wrangle's reusable workflow — no extra binary, and no nested generator reusable workflow.
 
 ---
 

@@ -10,7 +10,7 @@ The publish job lives in your own workflow — not in a wrangle reusable workflo
 
 Wrangle publishes via [npm Trusted Publishing](https://docs.npmjs.com/trusted-publishers/) — no `NPM_TOKEN` lives in your repo. You'll do a one-time setup on npmjs.com first; see [Before first use](#before-first-use). Then:
 
-Copy [`gh_workflow_examples/build_npm.yml`](../../../gh_workflow_examples/build_npm.yml) into your repo at `.github/workflows/`. The example wires the required permissions (`contents: write` for the SLSA generator's upload-assets job, `id-token: write` for Sigstore, `actions: read`) and includes the publish job. Most adopters only need to set the `path` input.
+Copy [`gh_workflow_examples/build_npm.yml`](../../../gh_workflow_examples/build_npm.yml) into your repo at `.github/workflows/`. The example wires the required permissions (`attestations: write` so wrangle's attest job can write the GitHub-issued provenance, `id-token: write` for Sigstore keyless signing, `contents: write` so the verify job can attach the VSA to the release on tag pushes) and includes the publish job. Most adopters only need to set the `path` input.
 
 The `build_and_publish_npm.yml` workflow embeds [source scan](../../../actions/scan/README.md) via its `scan-tools` input — build hardens *how* your artifact is produced, source scan covers *what was checked into the repo you're building from*, and a load-bearing finding fails the run (blocking publish). No separate `check_source_change.yml` needed.
 
@@ -47,13 +47,13 @@ The build-platform L3 claim is distinct from — and additional to — the SLSA 
 - Runs tests if `scripts.test` is non-default (the npm-default `"echo \"Error: no test specified\" && exit 1"` is detected and skipped).
 - Packs to `dist/` via `npm pack` or `pnpm pack`.
 - Generates an SPDX SBOM via [`syft`](https://github.com/anchore/syft) (Cosign-keyless-verified install) over the source tree.
-- Computes SHA-256 hashes for `slsa-github-generator`'s `base64-subjects`.
+- Computes SHA-256 hashes of the built artifacts, which the reusable workflow's `attest` job feeds to `actions/attest-build-provenance` as the provenance subjects.
 
 ## Outputs from the reusable workflow
 
 - `dist-artifact-name` — workflow-artifact name for the tarball.
 - `tarball` — `.tgz` filename relative to the dist artifact root. Scoped packages produce `scope-name-version.tgz`.
-- `provenance-artifact-name` — workflow-artifact name for the SLSA provenance (`npm-<shortname>.intoto.jsonl`; empty when `should-release` is false).
+- `provenance-artifact-name` — workflow-artifact name for the SLSA provenance bundle (`npm-provenance-bundle-<shortname>`, a Sigstore bundle covering all dist subjects; empty when `should-release` is false).
 - `metadata-artifact-name` — workflow-artifact name for the SBOM (`npm-metadata-<shortname>`).
 - `should-release` — `"true"` if the package should be released. Today that means the event matched `release-events`; future versions may apply additional checks, so treat the output as the source of truth rather than re-evaluating `release-events` yourself. Your publish job MUST gate on this (see below).
 - `hashes`, `version`.
@@ -79,9 +79,9 @@ See [`docs/SPEC.md`](../../../docs/SPEC.md) "Release-events gating" for the full
 >
 > Without the gate, publish runs on every non-PR event regardless of `release-events`.
 
-## SLSA provenance verification (default-on, opt-out)
+## SLSA provenance verification (the `verify` job)
 
-The reusable workflow re-fetches the dist and verifies it against the L3 provenance before declaring success — failure blocks your publish job via `needs:`. This closes the wrangle→caller-publish handoff (the caller→registry segment is bound by Trusted Publishing's `workflow_ref` claim, which npm validates at upload time). Opt out with `verify-provenance: false` if you maintain a custom verification flow.
+The `verify` job verifies the L3 provenance — ampel (via `actions/verify`) checks the provenance's Sigstore signature against the wrangle PolicySet's `common.identities` (fail-closed: only wrangle's reusable-workflow signer passes) and the SLSA tenets, then emits the signed VSA. It's gated on `should-release`, so it runs on every release; it is not opt-out-able. If verification fails the workflow fails and your publish job is blocked via `needs:`. This closes the wrangle→caller-publish handoff (the caller→registry segment is bound by Trusted Publishing's `workflow_ref` claim, which npm validates at upload time).
 
 ## Verifying after install (downstream consumers)
 
@@ -99,23 +99,21 @@ Proves the bundle was published from the expected GitHub repo + workflow.
 
 > **Known limitation.** `npm install` doesn't run `npm audit signatures` by default; consumers must opt in. Until verification is the default, the load-bearing check is npm's upload-time `workflow_ref` validation — but that only holds when "Require two-factor authentication and disallow tokens" is enabled on the package (see "Before first use"), since a stolen token bypasses it entirely.
 
-**Wrangle's L3 SLSA provenance (against the GitHub release).** Non-falsifiable because the generator runs in an isolated reusable workflow. Attached to the GitHub release on tag pushes:
+**Wrangle's L3 SLSA provenance (against GitHub's attestation store).** Non-falsifiable because the attest step runs inside wrangle's isolated reusable workflow, which is named as the provenance's `builder.id` and as the Sigstore signing identity. The provenance is stored in GitHub's attestation store for your repo (not attached to the release), so a consumer verifies the downloaded tarball against it with `gh attestation verify`:
 
 ```bash
 curl -LO https://github.com/<owner>/<repo>/releases/download/<tag>/<scope>-<name>-<version>.tgz
-curl -LO https://github.com/<owner>/<repo>/releases/download/<tag>/npm-<shortname>.intoto.jsonl
 
-slsa-verifier verify-artifact \
-  --provenance-path npm-<shortname>.intoto.jsonl \
-  --source-uri github.com/<owner>/<repo> \
-  <scope>-<name>-<version>.tgz
+gh attestation verify <scope>-<name>-<version>.tgz \
+  --repo <owner>/<repo> \
+  --signer-workflow TomHennen/wrangle/.github/workflows/build_and_publish_npm.yml
 ```
 
-> **Tag-push only.** On non-tag publishes the provenance lives only as a 90-day workflow artifact, not retrievable by external consumers. Same constraint applies to private npm registries: the L3 bundle lives at the GitHub release, not the private registry. [#181](https://github.com/TomHennen/wrangle/issues/181) tracks moving to a single bundled `multiple.intoto.jsonl` at the release layer.
+`--signer-workflow` is the binding: it fails closed unless wrangle's reusable workflow signed the provenance. `gh` fetches the attestation from GitHub's store by the tarball's digest, so no separate provenance file download is needed.
 
 ### Verifying the VSA
 
-On tag pushes wrangle attaches a signed SLSA Verification Summary Attestation (VSA) per tarball — `<tarball>.intoto.jsonl` — to the GitHub release, recording that the build provenance passed the `wrangle-provenance-v1` PolicySet. A consumer trusts that single signed VSA instead of re-running the policy engine. It is keyless-signed by **wrangle's** reusable workflow (`build_and_publish_npm.yml`), not your own. Its `resourceUri` is the npm purl `pkg:npm/<name>@<version>` (scoped names verbatim, e.g. `pkg:npm/@scope/pkg@1.2.3`) — pin that exact string.
+On tag pushes wrangle attaches a signed SLSA Verification Summary Attestation (VSA) per tarball — `<tarball>.intoto.jsonl` — to the GitHub release, recording that the build provenance passed the `wrangle-provenance-npm-v1` PolicySet. A consumer trusts that single signed VSA instead of re-running the policy engine. It is keyless-signed by **wrangle's** reusable workflow (`build_and_publish_npm.yml`), not your own. Its `resourceUri` is the npm purl `pkg:npm/<name>@<version>` (scoped names verbatim, e.g. `pkg:npm/@scope/pkg@1.2.3`) — pin that exact string.
 
 Grab the tarball and its VSA from the release:
 

@@ -2,7 +2,7 @@
 
 **Wrangle wraps your existing `.goreleaser.yml`; it does not replace it.** Bring your goreleaser config; wrangle adds gofmt/vet/test/govulncheck, an SPDX SBOM, SLSA L3 provenance, and post-publish verification around it. Goreleaser publishes natively on tag push, so your Docker pushes, Homebrew taps, deb/rpm/snap, and announcements all keep working — wrangle attaches SLSA provenance to the GitHub Release shortly after.
 
-> **Note:** This README documents *currently-shipped* behavior. For the full design — ecosystem-specific-builder-vs-generic-generator pick, cache isolation analysis, permissions architecture — see [`SPEC.md`](./SPEC.md).
+> **Note:** This README documents *currently-shipped* behavior. For the full design — provenance model, cache isolation analysis, permissions architecture — see [`SPEC.md`](./SPEC.md).
 
 ## Quick-start
 
@@ -19,9 +19,9 @@ on:
 jobs:
   build:
     permissions:
-      contents: write   # goreleaser creates the Release + SLSA generator's upload-assets
-      id-token: write   # OIDC for Sigstore signing
-      actions: read     # SLSA generator detects the GA environment
+      contents: write   # goreleaser creates the Release; the verify job attaches the VSA to it
+      id-token: write   # OIDC for Sigstore keyless signing
+      attestations: write   # wrangle's attest job writes GitHub-issued SLSA provenance
     uses: TomHennen/wrangle/.github/workflows/build_and_publish_go.yml@v0.2.0
     with:
       path: "."
@@ -42,8 +42,8 @@ builds:
     env:
       - -buildvcs=false        # don't embed VCS info (timestamps, dirty flag)
 
-# checksums.txt is what wrangle base64-encodes for the SLSA generator —
-# its filename is pinned by convention.
+# checksums.txt is the canonical subject set wrangle hands to
+# attest-build-provenance — its filename is pinned by convention.
 checksum:
   name_template: "checksums.txt"
 ```
@@ -75,7 +75,7 @@ If your `.goreleaser.yml` sets `CGO_ENABLED=1` but you haven't passed `install-z
 
 ## What the SLSA provenance covers (and what it doesn't)
 
-Wrangle hashes the contents of goreleaser's `dist/checksums.txt` and hands those hashes to the SLSA generator. Anything in `checksums.txt` is a provenance subject; anything outside it is NOT — including artifacts goreleaser pushes to OCI registries, Homebrew taps, or chat webhooks.
+Wrangle hands goreleaser's `dist/checksums.txt` to `actions/attest-build-provenance` as the provenance subject set. Anything in `checksums.txt` is a provenance subject; anything outside it is NOT — including artifacts goreleaser pushes to OCI registries, Homebrew taps, or chat webhooks.
 
 | Goreleaser output | Covered by wrangle's SLSA provenance? |
 |---|---|
@@ -90,15 +90,15 @@ If your release ships Docker images alongside binaries and you need provenance f
 
 ## "Publish first, attest second" — the timing model
 
-Goreleaser publishes the release inline (creates the GitHub Release, uploads archives, runs Docker pushes / Homebrew taps / announcements). The SLSA generator's `upload-assets` job appends the provenance file to that release shortly after — typically 30s-2min later. Same shape as wrangle's container build type (`docker push` first, attestation second).
+Goreleaser publishes the release inline (creates the GitHub Release, uploads archives, runs Docker pushes / Homebrew taps / announcements). Wrangle's `attest` job then writes the SLSA provenance to GitHub's attestation store shortly after — typically 30s-2min later. Same shape as wrangle's container build type (`docker push` first, attestation second).
 
-**This is fine — because the SLSA contract is "consumer runs the verifier," not "consumer trusts that a provenance file exists."** A security-aware consumer always runs `slsa-verifier verify-artifact` (or equivalent) against the bytes they downloaded. They don't trust the presence of an `.intoto.jsonl`; they trust the result of verifying it.
+**This is fine — because the SLSA contract is "consumer runs the verifier," not "consumer trusts that a provenance file exists."** A security-aware consumer always runs `gh attestation verify` (or equivalent) against the bytes they downloaded. They don't trust the presence of an attestation; they trust the result of verifying it.
 
 Two consequences worth knowing:
 
-- A consumer downloading during the gap sees archives without the provenance file. If they run verify, they get "no provenance found" → they should treat the artifact as untrusted and retry later. If they download without running verify, they've already opted out of SLSA's guarantees.
-- A consumer downloading after the provenance lands runs verify and gets a confirmed chain.
-- A consumer downloading after a wrangle-side verify failure (e.g., a tooling regression that produced provenance whose hashes don't match the artifacts) runs verify and gets "verification failed" → they reject the artifact. The fact that the broken provenance is technically on the release does no harm; verify is what's load-bearing.
+- A consumer downloading during the gap finds no attestation yet. If they run verify, they get "no attestation found" → they should treat the artifact as untrusted and retry later. If they download without running verify, they've already opted out of SLSA's guarantees.
+- A consumer downloading after the attestation lands runs verify and gets a confirmed chain.
+- A consumer downloading after a wrangle-side verify failure (e.g., a tooling regression that produced provenance whose subjects don't match the artifacts) runs verify and gets "verification failed" → they reject the artifact. The fact that the broken provenance is technically in the store does no harm; verify is what's load-bearing.
 
 ## Source scan (built in)
 
@@ -113,7 +113,7 @@ Consumed through wrangle's reusable workflow (`build_and_publish_go.yml`), the G
 - **Reusable consumption only.** Calling the `build/actions/go/*` composites directly from a workflow you author yourself forfeits the build-vs-sign job separation and is **not** a supported L3 path.
 - **GitHub-hosted runners only.** Self-hosted runners invalidate the build-environment isolation the L3 verdict assumes.
 
-Release builds run with `actions/setup-go`'s `cache: false` so the bytes the SLSA generator signs derive without consulting any shared, cross-build Go module/build cache — Go's build cache trusts pre-derived compiled output keyed by source fingerprint, the same shape as the uv-cache gap [`docs/SLSA_L3_AUDIT.md`](../../../docs/SLSA_L3_AUDIT.md) Finding 1 already calls out. PR builds keep the cache for fast iteration; they produce no provenance.
+Release builds run with `actions/setup-go`'s `cache: false` so the bytes wrangle attests derive without consulting any shared, cross-build Go module/build cache — Go's build cache trusts pre-derived compiled output keyed by source fingerprint, the same shape as the uv-cache gap [`docs/SLSA_L3_AUDIT.md`](../../../docs/SLSA_L3_AUDIT.md) Finding 1 already calls out. PR builds keep the cache for fast iteration; they produce no provenance.
 
 ## Permissions architecture
 
@@ -131,7 +131,7 @@ Cost: ~30s extra latency for the second checkout + setup-go. Benefit: a compromi
 | Output | What it is |
 |---|---|
 | `dist-artifact-name` | Workflow-artifact name for the goreleaser-produced `dist/` contents (binaries, archives, `checksums.txt`). |
-| `provenance-artifact-name` | SLSA provenance file (empty when `should-release` is false). Format: `go-<shortname>.intoto.jsonl`. |
+| `provenance-artifact-name` | SLSA provenance bundle — a Sigstore bundle covering all dist subjects (empty when `should-release` is false). Format: `go-provenance-bundle-<shortname>`. |
 | `metadata-artifact-name` | SBOM artifact: `go-metadata-<shortname>`. Contents: `sbom.spdx.json`. |
 | `checks-metadata-artifact-name` | govulncheck output: `go-checks-metadata-<shortname>`. Contents: `govulncheck.json` (informational findings). |
 | `should-release` | `"true"` if the event matches `release-events`. |
@@ -160,32 +160,28 @@ with:
 
 Full vocabulary in [`docs/SPEC.md`](../../../docs/SPEC.md) "Release-events gating."
 
-## SLSA provenance verification (wrangle-side, post-publish)
+## SLSA provenance verification (the `verify` job)
 
-After goreleaser publishes, wrangle runs `slsa-verifier verify-artifact` against the just-built dist. This is wrangle dogfooding the same check downstream consumers will run — if it fails, consumers running verify will fail too, so the artifact is effectively rejected at the security-aware-consumer layer regardless of whether bad provenance landed on the release. (See "Publish first, attest second" above for why presence ≠ trust in the SLSA model.)
-
-A wrangle-side verify failure surfaces a tooling regression (hash mismatch between what the generator signed and what goreleaser uploaded) loudly in CI. To opt out (e.g., custom verification flow): `verify-provenance: false`.
+After goreleaser publishes, the `verify` job verifies the provenance — ampel (via `actions/verify`) checks the provenance's Sigstore signature against the wrangle PolicySet's `common.identities` (fail-closed: only wrangle's reusable-workflow signer passes) and the SLSA tenets, then emits the signed VSA. It's gated on `should-release`, so it runs on every release; it is not opt-out-able. If verification fails the workflow fails and any downstream `needs:` job is blocked. This is wrangle dogfooding the same kind of check downstream consumers will run — if it fails, consumers running verify will fail too, so the artifact is effectively rejected at the security-aware-consumer layer regardless of whether bad provenance reached the attestation store. (See "Publish first, attest second" above for why presence ≠ trust in the SLSA model.)
 
 ### Verifying after install (downstream consumers)
 
+The provenance is stored in GitHub's attestation store for your repo (not attached to the release), so a consumer verifies the downloaded archive against it with `gh attestation verify` — `gh` fetches the attestation by the archive's digest, so no separate provenance file download is needed:
+
 ```bash
-# Download binary + provenance from your GitHub release
+# Download the archive from your GitHub release
 curl -LO "https://github.com/<owner>/<repo>/releases/download/<tag>/<binary>-<version>-linux-amd64.tar.gz"
-curl -LO "https://github.com/<owner>/<repo>/releases/download/<tag>/go-<shortname>.intoto.jsonl"
 
-# Install slsa-verifier (https://github.com/slsa-framework/slsa-verifier#installation)
-
-slsa-verifier verify-artifact \
-  --provenance-path go-<shortname>.intoto.jsonl \
-  --source-uri "github.com/<owner>/<repo>" \
-  <binary>-<version>-linux-amd64.tar.gz
+gh attestation verify "<binary>-<version>-linux-amd64.tar.gz" \
+  --repo <owner>/<repo> \
+  --signer-workflow TomHennen/wrangle/.github/workflows/build_and_publish_go.yml
 ```
 
-Provenance is attached to the GitHub Release on tag pushes only. Non-tag events publish nothing — provenance lives only as a 90-day workflow artifact.
+`--signer-workflow` is the binding: it fails closed unless wrangle's reusable workflow signed the provenance.
 
 ### Verifying the VSA
 
-On tag pushes wrangle attaches a signed SLSA Verification Summary Attestation (VSA) per archive — `<archive>.intoto.jsonl` — to the GitHub release, recording that the build provenance passed the `wrangle-provenance-v1` PolicySet. A consumer trusts that single signed VSA instead of re-running the policy engine. It is keyless-signed by **wrangle's** reusable workflow (`build_and_publish_go.yml`), not your own. Its `resourceUri` is the golang module purl `pkg:golang/<module-path>@<version>` (the module path is the `module` directive in your `go.mod`) — pin that value.
+On tag pushes wrangle attaches a signed SLSA Verification Summary Attestation (VSA) per archive — `<archive>.intoto.jsonl` — to the GitHub release, recording that the build provenance passed the `wrangle-provenance-go-v1` PolicySet. A consumer trusts that single signed VSA instead of re-running the policy engine. It is keyless-signed by **wrangle's** reusable workflow (`build_and_publish_go.yml`), not your own. Its `resourceUri` is the golang module purl `pkg:golang/<module-path>@<version>` (the module path is the `module` directive in your `go.mod`) — pin that value.
 
 Grab the archive and its VSA from the release:
 
@@ -223,5 +219,5 @@ jq -e '.predicate.verifiedLevels | index("SLSA_BUILD_LEVEL_3")' <<<"$payload"
 - [`../../../docs/SLSA_L3_AUDIT.md`](../../../docs/SLSA_L3_AUDIT.md) — per-builder L3 conformance audit
 - [`../../../actions/scan/README.md`](../../../actions/scan/README.md) — the embedded source scan (`scan-tools` input)
 - [goreleaser customization](https://goreleaser.com/customization/) — the underlying build tool
-- [SLSA generic generator](https://github.com/slsa-framework/slsa-github-generator/blob/main/internal/builders/generic/README.md)
+- [actions/attest-build-provenance](https://github.com/actions/attest-build-provenance) — produces the GitHub-issued SLSA provenance
 - [govulncheck](https://pkg.go.dev/golang.org/x/vuln/cmd/govulncheck) — Go-aware callgraph vuln scanner

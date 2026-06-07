@@ -11,9 +11,9 @@ description: |
   Goreleaser owns its native publish on tag pushes: it creates the
   GitHub Release, attaches archives + checksums, and runs whatever
   downstream verbs the adopter's .goreleaser.yml configures (Docker
-  pushes, Homebrew taps, deb/rpm/snap, announce, etc.). The SLSA
-  generator's upload-assets job in the reusable workflow appends
-  the provenance file shortly after.
+  pushes, Homebrew taps, deb/rpm/snap, announce, etc.). wrangle's
+  attest job in the reusable workflow produces the provenance
+  shortly after.
 
 inputs:
   path:
@@ -31,8 +31,8 @@ inputs:
       Whether the Go module + build caches (actions/setup-go's
       `cache` input) are used. "enabled" (default) restores+saves
       both; "disabled" passes `cache: false`. The reusable workflow
-      sets this to "disabled" for release builds — the bytes the
-      SLSA generator signs must derive without consulting any
+      sets this to "disabled" for release builds — the bytes
+      wrangle's attest job signs must derive without consulting any
       shared cross-build cache. See SPEC.md "Cache isolation" for
       the L3 reasoning.
     required: false
@@ -73,7 +73,7 @@ outputs:
     description: "The release version (git tag) goreleaser used, or 'snapshot' for non-tag builds"
     value: ${{ steps.metadata.outputs.version }}
   hashes:
-    description: "Base64-encoded SHA-256 hashes of built artifacts (for SLSA generator)"
+    description: "Base64-encoded SHA-256 hashes of built artifacts (SLSA provenance subjects; feeds the VSA matrix)"
     value: ${{ steps.hash.outputs.hashes }}
   shortname:
     description: "Path-derived short name for artifact namespacing (e.g., '.' becomes '_')"

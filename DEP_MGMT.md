@@ -88,7 +88,6 @@ whatever is already set.
 | Dependency | Pin format |
 |---|---|
 | Third-party GitHub Action | `@<40-hex sha> # vX` |
-| SLSA generator reusable workflow | tag only `@vX.Y.Z` + `# zizmor: ignore[unpinned-uses]` (sanctioned exception — its OIDC verification keys off the tag) |
 | Wrangle self-ref in a reusable workflow | `@<sha> # main YYYY-MM-DD` |
 | Wrangle composite → sibling composite | relative path `./actions/…` |
 | Wrangle action in examples/docs | release tag `@vX.Y.Z` |

@@ -113,11 +113,15 @@ runs:
         path: ${{ inputs.artifact-name }}.intoto.jsonl
         if-no-files-found: error
 
-    # Canonical VSA storage: attach to the GitHub release on a tag push.
+    # Canonical VSA storage: on a tag push, attach the VSA to the GitHub release
+    # if one exists (wrangle does not create releases) — see run_verify.sh's
+    # wrangle_attach_release.
     - name: Attach VSA to release
       if: github.ref_type == 'tag' && inputs.attach-to-release == 'true'
       shell: bash
       env:
+        WRANGLE_ROOT: ${{ github.action_path }}/../..
         VSA: ${{ inputs.artifact-name }}.intoto.jsonl
         GH_TOKEN: ${{ github.token }}
-      run: gh release upload "$GITHUB_REF_NAME" "$VSA" --clobber
+      run: |
+        "$WRANGLE_ROOT/actions/verify/run_verify.sh" attach

@@ -18,9 +18,9 @@ jobs:
   build-and-publish:
     permissions:
       contents: read       # checkout
-      actions: read        # SLSA provenance generator
       id-token: write      # OIDC for keyless Cosign signing
       packages: write      # push image + provenance to GHCR
+      attestations: write  # wrangle's attest job writes GitHub-issued SLSA provenance
       security-events: write  # source-scan SARIF -> Security tab
     uses: TomHennen/wrangle/.github/workflows/build_and_publish_container.yml@v0.1.0
     with:

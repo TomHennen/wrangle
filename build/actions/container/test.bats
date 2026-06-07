@@ -314,12 +314,6 @@ teardown() {
     [[ "$status" -eq 0 ]]
 }
 
-@test "container: provenance job is gated on release-gate output" {
-    local wf="$REPO_ROOT/.github/workflows/build_and_publish_container.yml"
-    run bash -c "sed -n '/^  provenance:/,/^[a-z]/p' \"$wf\" | grep -E \"if:.*should-release\""
-    [[ "$status" -eq 0 ]]
-}
-
 @test "container: reusable workflow exposes release-events input and should-release output" {
     local wf="$REPO_ROOT/.github/workflows/build_and_publish_container.yml"
     run grep -E '^      release-events:' "$wf"
@@ -328,101 +322,49 @@ teardown() {
     [[ "$status" -eq 0 ]]
 }
 
-# --- Verify-image (#176) ---
+# --- verify job: registry push + permissions ---
+# verify: is the last job; the block runs from `  verify:` to EOF.
 
-@test "container: reusable workflow has verify job calling cosign verify-attestation" {
-    local wf="$REPO_ROOT/.github/workflows/build_and_publish_container.yml"
-    run grep -E '^  verify:' "$wf"
-    [[ "$status" -eq 0 ]]
-    run grep 'cosign verify-attestation' "$wf"
-    [[ "$status" -eq 0 ]]
-    run grep -E 'sigstore/cosign-installer@[0-9a-f]{40}' "$wf"
-    [[ "$status" -eq 0 ]]
-}
-
-@test "container: verify job is gated on should-release AND verify-image" {
-    local wf="$REPO_ROOT/.github/workflows/build_and_publish_container.yml"
-    run bash -c "sed -n '/^  verify:/,/^[a-z]/p' \"$wf\" | grep -E \"if:.*should-release.*verify-image\""
-    [[ "$status" -eq 0 ]]
-}
-
-@test "container: workflow exposes verify-image input (default true)" {
-    local wf="$REPO_ROOT/.github/workflows/build_and_publish_container.yml"
-    run grep -E '^      verify-image:' "$wf"
-    [[ "$status" -eq 0 ]]
-    run bash -c "sed -n '/^      verify-image:/,/^      [a-z]/p' \"$wf\" | grep -E 'default:[[:space:]]*true'"
-    [[ "$status" -eq 0 ]]
-}
-
-@test "container: verify job pins SLSA generator cert identity to the same tag as provenance job" {
-    # The cert identity in the verify command MUST point at the same SLSA
-    # generator tag the provenance: job invokes. A lockstep mismatch would
-    # break verification on every run.
-    local wf="$REPO_ROOT/.github/workflows/build_and_publish_container.yml"
-    local generator_tag verify_tag
-    generator_tag="$(grep -oE 'generator_container_slsa3\.yml@v[0-9]+\.[0-9]+\.[0-9]+' "$wf" | head -1 | sed 's/.*@//')"
-    verify_tag="$(grep -oE 'generator_container_slsa3\.yml@refs/tags/v[0-9]+\.[0-9]+\.[0-9]+' "$wf" | head -1 | sed 's@.*refs/tags/@@')"
-    [[ -n "$generator_tag" ]]
-    [[ -n "$verify_tag" ]]
-    [[ "$generator_tag" == "$verify_tag" ]]
-}
-
-@test "container: verify job depends on provenance" {
-    local wf="$REPO_ROOT/.github/workflows/build_and_publish_container.yml"
-    run bash -c "sed -n '/^  verify:/,/^[a-z]/p' \"$wf\" | grep -E 'needs:.*provenance'"
-    [[ "$status" -eq 0 ]]
-}
-
-@test "container: verify job pins certificate-github-workflow-repository to the calling repo" {
-    local wf="$REPO_ROOT/.github/workflows/build_and_publish_container.yml"
-    run grep 'certificate-github-workflow-repository' "$wf"
-    [[ "$status" -eq 0 ]]
-    run grep 'github.repository' "$wf"
-    [[ "$status" -eq 0 ]]
-}
-
-# --- VSA job: registry push + permissions ---
-# vsa: is the last job; the block runs from `  vsa:` to EOF.
-
-@test "container: vsa job does NOT request contents: write (caller grants only read)" {
+@test "container: verify job does NOT request contents: write (caller grants only read)" {
     # The container caller grants contents: read; requesting write here is a
     # startup-failing permission escalation. This is the dispatch-failure fix.
     # Match the permission-block entry (6-space indent), not the explanatory
     # comment that also mentions the phrase.
     local wf="$REPO_ROOT/.github/workflows/build_and_publish_container.yml"
-    run bash -c "sed -n '/^  vsa:/,\$p' \"$wf\" | grep -E '^      contents:[[:space:]]*write'"
+    run bash -c "sed -n '/^  verify:/,\$p' \"$wf\" | grep -E '^      contents:[[:space:]]*write'"
     [[ "$status" -ne 0 ]]
 }
 
-@test "container: vsa job requests packages: write for the registry push" {
+@test "container: verify job requests packages: write for the registry push" {
     local wf="$REPO_ROOT/.github/workflows/build_and_publish_container.yml"
-    run bash -c "sed -n '/^  vsa:/,\$p' \"$wf\" | grep -E '^      packages:[[:space:]]*write'"
+    run bash -c "sed -n '/^  verify:/,\$p' \"$wf\" | grep -E '^      packages:[[:space:]]*write'"
     [[ "$status" -eq 0 ]]
 }
 
-@test "container: vsa job pushes the VSA as an OCI referrer (oci-target + attach-to-release false)" {
+@test "container: verify job pushes the VSA as an OCI referrer (oci-target + attach-to-release false)" {
     local wf="$REPO_ROOT/.github/workflows/build_and_publish_container.yml"
-    run bash -c "sed -n '/^  vsa:/,\$p' \"$wf\" | grep -E 'oci-target:'"
+    run bash -c "sed -n '/^  verify:/,\$p' \"$wf\" | grep -E 'oci-target:'"
     [[ "$status" -eq 0 ]]
-    run bash -c "sed -n '/^  vsa:/,\$p' \"$wf\" | grep -E 'attach-to-release:[[:space:]]*\"false\"'"
+    run bash -c "sed -n '/^  verify:/,\$p' \"$wf\" | grep -E 'attach-to-release:[[:space:]]*\"false\"'"
     [[ "$status" -eq 0 ]]
 }
 
-@test "container: vsa job installs cosign for the push (lockstep pin with verify job)" {
-    # The push runs cosign attach; the installer pin MUST match the verify job's
-    # so the two cosign versions never drift.
+@test "container: verify job installs cosign for the push (single pin across the workflow)" {
+    # The push runs cosign attach; the installer must be SHA-pinned, and
+    # any other cosign-installer reference must share the same pin so the
+    # versions never drift.
     local wf="$REPO_ROOT/.github/workflows/build_and_publish_container.yml"
-    run bash -c "sed -n '/^  vsa:/,\$p' \"$wf\" | grep -E 'sigstore/cosign-installer@[0-9a-f]{40}'"
+    run bash -c "sed -n '/^  verify:/,\$p' \"$wf\" | grep -E 'sigstore/cosign-installer@[0-9a-f]{40}'"
     [[ "$status" -eq 0 ]]
     local distinct_pins
     distinct_pins="$(grep -oE 'sigstore/cosign-installer@[0-9a-f]{40}' "$wf" | sort -u | wc -l)"
-    # Exactly one distinct pin across the whole workflow proves lockstep.
+    # Exactly one distinct pin across the whole workflow.
     [[ "$distinct_pins" -eq 1 ]]
 }
 
-@test "container: vsa job authenticates to ghcr before the push" {
+@test "container: verify job authenticates to ghcr before the push" {
     local wf="$REPO_ROOT/.github/workflows/build_and_publish_container.yml"
-    run bash -c "sed -n '/^  vsa:/,\$p' \"$wf\" | grep -E 'docker/login-action@[0-9a-f]{40}'"
+    run bash -c "sed -n '/^  verify:/,\$p' \"$wf\" | grep -E 'docker/login-action@[0-9a-f]{40}'"
     [[ "$status" -eq 0 ]]
 }
 
@@ -468,5 +410,56 @@ teardown() {
     # block would trip zizmor's template-injection audit. It must flow
     # through env: per CLAUDE.md's expression-injection rule.
     run grep -F 'STOP_COMMANDS_TOKEN: ${{ steps.stopcmd.outputs.stop-commands-token }}' "$ACTION_DIR/action.yml"
+    [[ "$status" -eq 0 ]]
+}
+
+# --- attest-build-provenance (wrangle builder identity, #316) ---
+
+@test "container: workflow has attest job pushing GitHub attest-build-provenance to the registry" {
+    local wf="$REPO_ROOT/.github/workflows/build_and_publish_container.yml"
+    run grep -E '^  attest:' "$wf"
+    [[ "$status" -eq 0 ]]
+    run bash -c "sed -n '/^  attest:/,/^  [a-z]/p' \"$wf\" | grep 'actions/attest-build-provenance@'"
+    [[ "$status" -eq 0 ]]
+    run bash -c "sed -n '/^  attest:/,/^  [a-z]/p' \"$wf\" | grep -E 'push-to-registry:[[:space:]]*true'"
+    [[ "$status" -eq 0 ]]
+}
+
+@test "container: attest job is gated on should-release" {
+    local wf="$REPO_ROOT/.github/workflows/build_and_publish_container.yml"
+    run bash -c "sed -n '/^  attest:/,/^  [a-z]/p' \"$wf\" | grep -E 'if:.*should-release'"
+    [[ "$status" -eq 0 ]]
+}
+
+@test "container: attest job no longer references the verify_attestation action" {
+    local wf="$REPO_ROOT/.github/workflows/build_and_publish_container.yml"
+    run bash -c "sed -n '/^  attest:/,/^  [a-z]/p' \"$wf\" | grep 'TomHennen/wrangle/actions/verify_attestation@'"
+    [[ "$status" -ne 0 ]]
+}
+
+@test "container: workflow has NO provenance job and NO slsa generator/verifier ref" {
+    # attest-build-provenance is the sole provenance; the verify job is the sole
+    # verify. Patterns are narrow on purpose: a bare `slsa-verifier` would
+    # false-fail on the workflow comment that names the old verifier job in prose.
+    local wf="$REPO_ROOT/.github/workflows/build_and_publish_container.yml"
+    run grep -E '^  provenance:' "$wf"
+    [[ "$status" -ne 0 ]]
+    run grep 'slsa-github-generator' "$wf"
+    [[ "$status" -ne 0 ]]
+    run grep 'slsa-verifier/actions' "$wf"
+    [[ "$status" -ne 0 ]]
+}
+
+@test "container: verify job references the per-eco provenance policy" {
+    local wf="$REPO_ROOT/.github/workflows/build_and_publish_container.yml"
+    run bash -c "sed -n '/^  verify:/,\$p' \"$wf\" | grep -F 'policy: policies/wrangle-provenance-container-v1.hjson'"
+    [[ "$status" -eq 0 ]]
+}
+
+@test "container: verify job collects provenance via the oci referrer collector" {
+    # The attest job pushed the bundle to the registry as an OCI referrer;
+    # the verify job reads it back via the oci: collector (not a jsonl bundle).
+    local wf="$REPO_ROOT/.github/workflows/build_and_publish_container.yml"
+    run bash -c "sed -n '/^  verify:/,\$p' \"$wf\" | grep -E 'collector: oci:'"
     [[ "$status" -eq 0 ]]
 }

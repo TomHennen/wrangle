@@ -8,10 +8,12 @@
 #    tag name as the version.
 #
 # Wrangle's reusable workflow handles build, tests, SBOM, SLSA L3
-# provenance generation, post-publish verify, and dispatch of every
-# downstream goreleaser verb (Docker pushes, Homebrew taps,
-# deb/rpm/snap, announcements). Goreleaser publishes natively on tag
-# push; this caller workflow just gates which events trigger that.
+# provenance generation, its `verify` job's provenance verification (fail-
+# closed, via ampel against the wrangle PolicySet) plus signed-VSA
+# emission, and dispatch of every downstream goreleaser verb (Docker
+# pushes, Homebrew taps, deb/rpm/snap, announcements). Goreleaser
+# publishes natively on tag push; this caller workflow just gates which
+# events trigger that.
 #
 # Trigger note: `release-events: tag-only` means only tag pushes
 # publish a release. PR builds run the full pipeline (build → tests
@@ -28,9 +30,9 @@ on:
 jobs:
   build:
     permissions:
-      contents: write   # goreleaser creates the Release + SLSA generator's upload-assets
+      contents: write   # goreleaser creates the Release + wrangle's verify job attaches the VSA
       id-token: write   # OIDC for Sigstore signing
-      actions: read     # SLSA generator detects the GA environment
+      attestations: write   # wrangle's attest job writes GitHub-issued SLSA provenance
       security-events: write  # source-scan SARIF -> Security tab
     uses: TomHennen/wrangle/.github/workflows/build_and_publish_go.yml@v0.2.0
     with:
@@ -40,4 +42,3 @@ jobs:
       # run-tests: true                 # optional: skip with false (also skips gofmt/vet/govulncheck)
       # run-race-detector: true         # optional: set false when CGO is disabled (race detector requires cgo)
       # run-gofmt-check: true           # optional: set false only if the `// Code generated` auto-skip isn't enough
-      # verify-provenance: true         # optional: wrangle verifies post-publish; set false for custom verify

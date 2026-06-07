@@ -4,6 +4,8 @@
 
 Tracking: [#208](https://github.com/TomHennen/wrangle/issues/208). Companion: [#207](https://github.com/TomHennen/wrangle/issues/207) (pnpm-only single-package, lands first).
 
+> **Note (predates #316):** this doc was written while wrangle produced L3 provenance via the `generator_generic_slsa3.yml` generic generator. As of #316 wrangle uses `actions/attest-build-provenance` run inside its reusable workflow. The multi-subject approach below still applies — `actions/attest-build-provenance`'s `subject-path`/`subject-checksums` covers N tarballs as N subjects in one bundle — but ignore the generic-generator / `base64-subjects` mechanics; the speculative plan is otherwise unchanged.
+
 ## Overview
 
 A workspaces project is a single `package.json` with a `"workspaces": ["packages/*"]` (or equivalent) field plus multiple package directories underneath. One `npm pack`/`pnpm pack`/`yarn pack` at the workspaces root (or per-package) produces **N tarballs**, one per workspace package. This is the dominant modern-JS monorepo shape — every popular framework that ships multiple coordinated packages from one repo uses it (TanStack, Effect-TS, Babel, Material UI, Vite ecosystem, the npm-CLI itself).

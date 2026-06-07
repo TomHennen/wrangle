@@ -45,8 +45,8 @@ builds:
     goarch: [amd64, arm64]
 
 # Pin the checksums filename — wrangle base64-encodes
-# dist/checksums.txt for the SLSA generator's subjects input. Custom
-# names break that hand-off.
+# dist/checksums.txt for attest-build-provenance's subject-checksums
+# input. Custom names break that hand-off.
 checksum:
   name_template: "checksums.txt"
 

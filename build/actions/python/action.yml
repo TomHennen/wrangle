@@ -53,7 +53,7 @@ outputs:
     description: "The package version that was built"
     value: ${{ steps.metadata.outputs.version }}
   hashes:
-    description: "Base64-encoded SHA-256 hashes of built artifacts (for SLSA generator)"
+    description: "Base64-encoded SHA-256 hashes of built artifacts (SLSA provenance subjects; feeds the VSA matrix)"
     value: ${{ steps.hash.outputs.hashes }}
   shortname:
     description: "Path-derived short name for artifact namespacing (e.g., '.' becomes '_')"

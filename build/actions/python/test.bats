@@ -403,20 +403,6 @@ write_pyproject() {
     [[ "$status" -eq 1 ]]
 }
 
-@test "python: workflow has provenance job calling slsa-github-generator" {
-    run grep '^  provenance:' "$WORKFLOW"
-    [[ "$status" -eq 0 ]]
-    run grep 'slsa-github-generator' "$WORKFLOW"
-    [[ "$status" -eq 0 ]]
-}
-
-@test "python: provenance job is gated on release-gate output" {
-    # Provenance gates on the gate job's should-release output so adopters
-    # can tighten the predicate via release-events without forking the workflow.
-    run bash -c "sed -n '/^  provenance:/,/^[a-z]/p' \"$WORKFLOW\" | grep -E \"if:.*should-release\""
-    [[ "$status" -eq 0 ]]
-}
-
 @test "python: workflow has a scan job using the scan action" {
     run grep -E '^  scan:' "$WORKFLOW"
     [[ "$status" -eq 0 ]]
@@ -426,13 +412,13 @@ write_pyproject() {
 
 @test "python: scan steps are gated on scan-tools so empty disables scanning" {
     # scan-tools: "" skips both steps; the scan job then concludes success
-    # and never blocks the provenance/publish path.
+    # and never blocks the attest/publish path.
     run bash -c "sed -n '/^  scan:/,/^  [a-z]/p' \"$WORKFLOW\" | grep -E \"if:.*inputs.scan-tools != ''\""
     [[ "$status" -eq 0 ]]
 }
 
-@test "python: provenance job needs scan (load-bearing finding blocks provenance)" {
-    run bash -c "sed -n '/^  provenance:/,/^  [a-z]/p' \"$WORKFLOW\" | grep -E 'needs:.*scan'"
+@test "python: attest job needs scan (load-bearing finding blocks attestation + publish)" {
+    run bash -c "sed -n '/^  attest:/,/^  [a-z]/p' \"$WORKFLOW\" | grep -E 'needs:.*scan'"
     [[ "$status" -eq 0 ]]
 }
 
@@ -479,10 +465,16 @@ write_pyproject() {
     [[ "$status" -eq 0 ]]
 }
 
-@test "python: workflow pins actions to SHAs except SLSA generator" {
-    # The SLSA generator MUST be referenced by tag (#147). Everything else SHA-pins.
-    run bash -c "grep 'uses:.*@' \"$WORKFLOW\" | grep -v 'slsa-github-generator' | grep -v -P '@[0-9a-f]{40}'"
+@test "python: workflow pins every third-party action to a SHA (no tag exceptions)" {
+    # attest-build-provenance is now the sole provenance; the old
+    # tag-pinned slsa-github-generator carve-out is gone, so every
+    # third-party uses: must be a 40-hex SHA. wrangle self-refs are
+    # already SHA-pinned (@<sha> # main).
+    run bash -c "grep 'uses:.*@' \"$WORKFLOW\" | grep -v -P '@[0-9a-f]{40}'"
     [[ "$status" -eq 1 ]]
+    # And the generator must be gone entirely.
+    run grep 'slsa-github-generator' "$WORKFLOW"
+    [[ "$status" -ne 0 ]]
 }
 
 @test "python: workflow uploads SBOM/metadata, not just dist" {
@@ -532,56 +524,15 @@ write_pyproject() {
     [[ "$status" -ne 0 ]]
 }
 
-@test "python: reusable workflow has verify job calling slsa-verifier" {
-    run grep -E '^  verify:' "$WORKFLOW"
-    [[ "$status" -eq 0 ]]
-    run grep 'slsa-verifier/actions/installer' "$WORKFLOW"
-    [[ "$status" -eq 0 ]]
-    run grep 'slsa-verifier verify-artifact' "$WORKFLOW"
-    [[ "$status" -eq 0 ]]
-}
-
-@test "python: verify job is gated on should-release AND verify-provenance" {
-    run bash -c "sed -n '/^  verify:/,/^[a-z]/p' \"$WORKFLOW\" | grep -E \"if:.*should-release.*verify-provenance\""
-    [[ "$status" -eq 0 ]]
-}
-
-@test "python: workflow exposes verify-provenance input (default true)" {
-    run grep -E '^      verify-provenance:' "$WORKFLOW"
-    [[ "$status" -eq 0 ]]
-    # Find the boolean default — must be true.
-    run bash -c "sed -n '/^      verify-provenance:/,/^      [a-z]/p' \"$WORKFLOW\" | grep -E 'default:[[:space:]]*true'"
-    [[ "$status" -eq 0 ]]
-}
-
-@test "python: provenance job passes namespaced provenance-name to SLSA generator" {
-    # actions/download-artifact picks non-deterministically when two artifacts
-    # share a name in the same run. Multiple python builds in one workflow
-    # would both produce 'multiple.intoto.jsonl' under the SLSA generator's
-    # default. We pass provenance-name to namespace by shortname.
-    run bash -c "sed -n '/^  provenance:/,/^[a-z]/p' \"$WORKFLOW\" | grep -E 'provenance-name:.*shortname'"
-    [[ "$status" -eq 0 ]]
-}
-
 @test "python: build job exposes shortname output" {
     run bash -c "sed -n '/^  build:/,/^  [a-z]/p' \"$WORKFLOW\" | grep -E '^[[:space:]]*shortname:'"
     [[ "$status" -eq 0 ]]
 }
 
-@test "python: verify job depends on provenance and downloads its artifact" {
-    # needs: must include 'provenance' so verify runs after the SLSA generator,
-    # and the verify job must download the provenance artifact via its name
-    # output (not hardcode the filename).
-    run bash -c "sed -n '/^  verify:/,/^[a-z]/p' \"$WORKFLOW\" | grep -E 'needs:.*provenance'"
-    [[ "$status" -eq 0 ]]
-    run bash -c "sed -n '/^  verify:/,/^[a-z]/p' \"$WORKFLOW\" | grep 'needs.provenance.outputs.provenance-name'"
-    [[ "$status" -eq 0 ]]
-}
-
 @test "python: example workflow grants contents: write to build job" {
-    # The SLSA generator's upload-assets job declares contents: write; GitHub
-    # validates that the caller of wrangle's reusable workflow grants the same
-    # at workflow startup, regardless of upload-assets being true or false.
+    # wrangle's verify job declares contents: write (it attaches the VSA to the
+    # release on tags); GitHub validates that the caller of wrangle's reusable
+    # workflow grants the same at workflow startup, regardless of the run's ref.
     # Without this, adopters who copy the example hit startup_failure on the
     # first run. See PR #156's debugging history.
     run grep -E 'contents: write' "$EXAMPLE"
@@ -616,5 +567,55 @@ write_pyproject() {
     # pytest executes arbitrary project test code; the guard neutralizes
     # workflow-command injection via its stdout.
     run bash -c "grep -A1 'stop_commands_guard.sh\" run' \"$ACTION\" | grep -F run_tests.sh"
+    [[ "$status" -eq 0 ]]
+}
+
+# --- attest-build-provenance (wrangle builder identity, #316) ---
+
+@test "python: workflow has attest job producing GitHub attest-build-provenance" {
+    run grep -E '^  attest:' "$WORKFLOW"
+    [[ "$status" -eq 0 ]]
+    run grep 'actions/attest-build-provenance@' "$WORKFLOW"
+    [[ "$status" -eq 0 ]]
+}
+
+@test "python: attest job is gated on should-release" {
+    run bash -c "sed -n '/^  attest:/,/^  [a-z]/p' \"$WORKFLOW\" | grep -E 'if:.*should-release'"
+    [[ "$status" -eq 0 ]]
+}
+
+@test "python: attest job no longer references the verify_attestation action" {
+    run bash -c "sed -n '/^  attest:/,/^  [a-z]/p' \"$WORKFLOW\" | grep 'TomHennen/wrangle/actions/verify_attestation@'"
+    [[ "$status" -ne 0 ]]
+}
+
+@test "python: workflow has NO provenance job and NO slsa generator/verifier ref" {
+    # attest-build-provenance is the sole provenance; the verify job is the sole
+    # verify. Patterns are narrow on purpose: a bare `slsa-verifier` would
+    # false-fail on the workflow comment that names the old verifier job in prose.
+    run grep -E '^  provenance:' "$WORKFLOW"
+    [[ "$status" -ne 0 ]]
+    run grep 'slsa-github-generator' "$WORKFLOW"
+    [[ "$status" -ne 0 ]]
+    run grep 'slsa-verifier/actions' "$WORKFLOW"
+    [[ "$status" -ne 0 ]]
+}
+
+@test "python: verify job references the per-eco provenance policy" {
+    run bash -c "sed -n '/^  verify:/,\$p' \"$WORKFLOW\" | grep -F 'policy: policies/wrangle-provenance-python-v1.hjson'"
+    [[ "$status" -eq 0 ]]
+}
+
+@test "python: verify job collects the staged bundle via the jsonl collector" {
+    # The bundle the attest job staged is read back as one-JSON-per-line.
+    run bash -c "sed -n '/^  verify:/,\$p' \"$WORKFLOW\" | grep -F 'collector: jsonl:provenance/provenance.jsonl'"
+    [[ "$status" -eq 0 ]]
+}
+
+@test "python: attest job uploads the provenance bundle the verify job needs" {
+    # The verify job depends on attest and reads its uploaded bundle artifact.
+    run bash -c "sed -n '/^  attest:/,/^  [a-z]/p' \"$WORKFLOW\" | grep -E 'name: python-provenance-bundle-'"
+    [[ "$status" -eq 0 ]]
+    run bash -c "sed -n '/^  verify:/,\$p' \"$WORKFLOW\" | grep -E 'needs:.*attest'"
     [[ "$status" -eq 0 ]]
 }

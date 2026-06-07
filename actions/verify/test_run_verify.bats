@@ -313,3 +313,49 @@ STUB
     [[ "$status" -eq 0 ]]
     [[ "$(cat "$TEST_DIR/order")" == $'emit\nsign\npush' ]]
 }
+
+# --- attach to release (wrangle_attach_release) ---
+#
+# wrangle attaches the VSA only when a release already exists; it never creates
+# one. These tests drive a `gh` shim whose `release view` exit code follows
+# GH_VIEW_SEQ so both branches (release present / absent) are exercised.
+
+# Install a gh shim on PATH that logs calls and returns scripted exit codes.
+_install_gh_shim() {
+    cat > "$TEST_DIR/gh" <<'SHIM'
+#!/usr/bin/env bash
+printf '%s\n' "$*" >> "$GH_LOG"
+case "$1 $2" in
+  "release view")
+    n=$(cat "$GH_VIEW_N" 2>/dev/null || echo 0); n=$((n + 1)); printf '%s' "$n" > "$GH_VIEW_N"
+    code=$(printf '%s' "$GH_VIEW_SEQ" | cut -d' ' -f"$n"); exit "${code:-1}" ;;
+  "release create") exit "${GH_CREATE_CODE:-0}" ;;
+  "release upload") exit "${GH_UPLOAD_CODE:-0}" ;;
+esac
+exit 0
+SHIM
+    chmod +x "$TEST_DIR/gh"
+    export PATH="$TEST_DIR:$PATH"
+    export GH_LOG="$TEST_DIR/gh.log"; : > "$GH_LOG"
+    export GH_VIEW_N="$TEST_DIR/gh.viewn"; : > "$GH_VIEW_N"
+    export GITHUB_REF_NAME="v1.2.3"
+}
+
+@test "run_verify attach: existing release is uploaded to without create" {
+    _install_gh_shim
+    export GH_VIEW_SEQ="0"            # first view succeeds (release exists)
+    run "$SCRIPT" attach
+    [[ "$status" -eq 0 ]]
+    grep -qx "release upload v1.2.3 $VSA --clobber" "$GH_LOG"
+    ! grep -q "release create" "$GH_LOG"   # create must be skipped
+}
+
+@test "run_verify attach: missing release skips create and upload, exits 0" {
+    _install_gh_shim
+    export GH_VIEW_SEQ="1"            # view fails (no release)
+    run "$SCRIPT" attach
+    [[ "$status" -eq 0 ]]            # no release is not an error — VSA stays the artifact
+    [[ "$output" == *"workflow artifact only"* ]]
+    ! grep -q "release create" "$GH_LOG"
+    ! grep -q "release upload" "$GH_LOG"
+}

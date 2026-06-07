@@ -1,12 +1,12 @@
 #!/usr/bin/env bats
 
-# Tests for the Go build composites (checks/, release/, verify/) and
+# Tests for the Go build composites (checks/, release/) and
 # the reusable workflow build_and_publish_go.yml.
 #
 # Three layers, matching the npm build_and_pack.sh pattern:
 #   1. Pure-function tests that source the scripts and call decision
 #      functions directly (is_generated_file, list_unformatted,
-#      count_findings, encode_hashes, list_artifacts). No shims.
+#      count_findings, encode_hashes). No shims.
 #   2. Behavioral tests that invoke validate_inputs.sh and the main
 #      orchestrators against fixture project directories.
 #   3. Structural greps over the action.yml files and the reusable
@@ -26,10 +26,8 @@ setup() {
     REPO_ROOT="$(cd "$GO_ACTION_DIR/../../.." && pwd)"
     CHECKS_DIR="$GO_ACTION_DIR/checks"
     RELEASE_DIR="$GO_ACTION_DIR/release"
-    VERIFY_DIR="$GO_ACTION_DIR/verify"
     CHECKS_ACTION="$CHECKS_DIR/action.yml"
     RELEASE_ACTION="$RELEASE_DIR/action.yml"
-    VERIFY_ACTION="$VERIFY_DIR/action.yml"
     WORKFLOW="$REPO_ROOT/.github/workflows/build_and_publish_go.yml"
     EXAMPLE="$REPO_ROOT/gh_workflow_examples/build_go.yml"
     GITHUB_OUTPUT="$BATS_TEST_TMPDIR/github_output"
@@ -214,59 +212,6 @@ func main() {}
     [[ "$status" -eq 0 ]]
     grep -qE '^shortname=cmd_example$' "$GITHUB_OUTPUT"
     grep -qE '^version=v0\.1\.0$' "$GITHUB_OUTPUT"
-}
-
-# ====================================================================
-# Layer 1: Pure-function tests for verify_provenance.sh
-# ====================================================================
-
-@test "go.verify: list_artifacts parses checksums.txt and prefixes with dist-dir/" {
-    local checksums="$BATS_TEST_TMPDIR/checksums.txt"
-    printf 'aaa  one.tar.gz\nbbb  two.tar.gz\n' > "$checksums"
-    run bash -c 'source "$1"; list_artifacts "dist" "$2"' -- "$VERIFY_DIR/verify_provenance.sh" "$checksums"
-    [[ "$status" -eq 0 ]]
-    [[ "${lines[0]}" == "dist/one.tar.gz" ]]
-    [[ "${lines[1]}" == "dist/two.tar.gz" ]]
-}
-
-@test "go.verify: list_artifacts errors on missing checksums file" {
-    run bash -c 'source "$1"; list_artifacts "dist" "$2"' -- "$VERIFY_DIR/verify_provenance.sh" "$BATS_TEST_TMPDIR/missing.txt"
-    [[ "$status" -ne 0 ]]
-    [[ "$output" == *"checksums file not found"* ]]
-}
-
-@test "go.verify: list_artifacts excludes goreleaser-metadata files from output (only what's in checksums)" {
-    # The whole point: goreleaser writes artifacts.json/config.yaml/
-    # metadata.json into dist/, but they aren't in checksums.txt. If
-    # we globbed dist/ we'd try to verify them and slsa-verifier
-    # would fail with "artifact hash does not match provenance
-    # subject." This test confirms list_artifacts pulls only from
-    # checksums.txt.
-    local checksums="$BATS_TEST_TMPDIR/checksums.txt"
-    printf 'aaa  app_linux_amd64.tar.gz\n' > "$checksums"
-    run bash -c 'source "$1"; list_artifacts "dist" "$2"' -- "$VERIFY_DIR/verify_provenance.sh" "$checksums"
-    [[ "$status" -eq 0 ]]
-    # Only one artifact, even though dist/ on a real run contains
-    # several goreleaser-internal files.
-    [[ "${#lines[@]}" -eq 1 ]]
-    [[ "${lines[0]}" == "dist/app_linux_amd64.tar.gz" ]]
-}
-
-@test "go.verify: list_artifacts preserves internal whitespace in filenames (no OFS collapse)" {
-    # Earlier impl used `$1=""; sub(/^ +/, "")` which rebuilt $0 with
-    # awk's OFS (single space), silently collapsing multi-space
-    # filenames. The split-on-first-two-spaces approach preserves
-    # what's after the hash exactly. sha256sum uses two spaces as
-    # the hash/filename separator, so the rest is the filename
-    # verbatim.
-    local checksums="$BATS_TEST_TMPDIR/checksums.txt"
-    # Hypothetical: filename with two internal spaces. Goreleaser
-    # archives don't ship this in practice, but the primitive should
-    # handle it.
-    printf 'aaa  my  file.tar.gz\n' > "$checksums"
-    run bash -c 'source "$1"; list_artifacts "dist" "$2"' -- "$VERIFY_DIR/verify_provenance.sh" "$checksums"
-    [[ "$status" -eq 0 ]]
-    [[ "${lines[0]}" == "dist/my  file.tar.gz" ]]
 }
 
 # ====================================================================
@@ -465,10 +410,6 @@ func main() {}
     [[ -f "$RELEASE_ACTION" ]]
 }
 
-@test "go: verify/action.yml exists" {
-    [[ -f "$VERIFY_ACTION" ]]
-}
-
 @test "go: workflow file exists" {
     [[ -f "$WORKFLOW" ]]
 }
@@ -559,11 +500,6 @@ func main() {}
     [[ "$status" -eq 0 ]]
 }
 
-@test "go.verify: verify_provenance.sh uses set -f" {
-    run grep '^set -f' "$VERIFY_DIR/verify_provenance.sh"
-    [[ "$status" -eq 0 ]]
-}
-
 @test "go.release: action installs syft via tools/syft (not curl | sh, no install-to-/usr/local/bin)" {
     # No curl-pipe-shell anywhere.
     run grep -E 'curl[^|]*\| *sh' "$RELEASE_ACTION"
@@ -607,8 +543,8 @@ func main() {}
 @test "go: composites pass inputs through env, never through inputs interpolation in run blocks" {
     # The wrangle-wide convention: external input never gets
     # interpolated into a `run:` block; it flows via env:. Inspect
-    # all three composite action.yml files.
-    for action in "$CHECKS_ACTION" "$RELEASE_ACTION" "$VERIFY_ACTION"; do
+    # both composite action.yml files.
+    for action in "$CHECKS_ACTION" "$RELEASE_ACTION"; do
         run awk '
             BEGIN { in_run = 0; run_col = -1; bad = 0 }
             /^[[:space:]]*run:[[:space:]]+[^|>]/ && /\$\{\{[[:space:]]*inputs\./ {
@@ -636,8 +572,10 @@ func main() {}
 
 # --- Reusable workflow tests ---
 
-@test "go: workflow has guard, gate, checks, release, provenance, verify jobs" {
-    for job in guard gate checks release provenance verify; do
+@test "go: workflow has guard, gate, checks, release, attest, verify jobs" {
+    # attest (attest-build-provenance) + verify replace the removed
+    # slsa-github-generator provenance: and slsa-verifier verify: jobs.
+    for job in guard gate checks release attest verify; do
         run grep -E "^  ${job}:" "$WORKFLOW"
         [[ "$status" -eq 0 ]]
     done
@@ -647,7 +585,7 @@ func main() {}
     # Without an explicit `if:`, GitHub Actions skips a downstream job
     # whose needed-job is *skipped*. So `run-tests: false` (which
     # sets `if: ${{ inputs.run-tests }}` on checks → skips it) would
-    # cascade to release/provenance/verify and nothing would build.
+    # cascade to release/attest/verify and nothing would build.
     # The release job's `if:` must explicitly allow needs.checks.result
     # == 'skipped' to keep the documented behavior — "checks skipped,
     # release proceeds with quality gates unenforced."
@@ -717,26 +655,6 @@ func main() {}
     [[ "$status" -ne 0 ]]
 }
 
-@test "go: provenance job has upload-assets gated on tag push" {
-    run bash -c "sed -n '/^  provenance:/,/^[a-z]/p' \"$WORKFLOW\" | grep -E 'upload-assets:.*startsWith.*refs/tags'"
-    [[ "$status" -eq 0 ]]
-}
-
-@test "go: provenance job is gated on should-release" {
-    run bash -c "sed -n '/^  provenance:/,/^[a-z]/p' \"$WORKFLOW\" | grep -E 'if:.*should-release'"
-    [[ "$status" -eq 0 ]]
-}
-
-@test "go: verify job is gated on should-release AND verify-provenance" {
-    run bash -c "sed -n '/^  verify:/,/^[a-z]/p' \"$WORKFLOW\" | grep -E \"if:.*should-release.*verify-provenance\""
-    [[ "$status" -eq 0 ]]
-}
-
-@test "go: verify job uses the verify composite (not inline shell)" {
-    run bash -c "sed -n '/^  verify:/,/^[a-z]/p' \"$WORKFLOW\" | grep -E 'build/actions/go/verify@'"
-    [[ "$status" -eq 0 ]]
-}
-
 @test "go: workflow exposes run-race-detector and run-gofmt-check inputs" {
     run grep -E '^      run-race-detector:' "$WORKFLOW"
     [[ "$status" -eq 0 ]]
@@ -751,9 +669,16 @@ func main() {}
     done
 }
 
-@test "go: workflow pins third-party actions to SHAs (except SLSA generator's tag-required ref)" {
-    run bash -c "grep 'uses:.*@' \"$WORKFLOW\" | grep -v 'slsa-github-generator' | grep -v -P '@[0-9a-f]{40}' | grep -v '@__PR_HEAD__'"
+@test "go: workflow pins every third-party action to a SHA (no tag exceptions)" {
+    # attest-build-provenance is now the sole provenance; the old
+    # tag-pinned slsa-github-generator carve-out is gone, so every
+    # third-party uses: must be a 40-hex SHA. The integration harness's
+    # @__PR_HEAD__ placeholder stays exempt.
+    run bash -c "grep 'uses:.*@' \"$WORKFLOW\" | grep -v -P '@[0-9a-f]{40}' | grep -v '@__PR_HEAD__'"
     [[ "$status" -eq 1 ]]
+    # And the generator must be gone entirely.
+    run grep 'slsa-github-generator' "$WORKFLOW"
+    [[ "$status" -ne 0 ]]
 }
 
 @test "go: workflow checks + release jobs use namespaced metadata artifact names" {
@@ -1368,3 +1293,52 @@ func TestFails(t *testing.T) {
     [[ "$status" -ne 0 ]]
 }
 
+# --- attest-build-provenance (wrangle builder identity, #316) ---
+
+@test "go: workflow has attest job producing GitHub attest-build-provenance" {
+    run grep -E '^  attest:' "$WORKFLOW"
+    [[ "$status" -eq 0 ]]
+    run grep 'actions/attest-build-provenance@' "$WORKFLOW"
+    [[ "$status" -eq 0 ]]
+}
+
+@test "go: attest job is gated on should-release" {
+    run bash -c "sed -n '/^  attest:/,/^  [a-z]/p' \"$WORKFLOW\" | grep -E 'if:.*should-release'"
+    [[ "$status" -eq 0 ]]
+}
+
+@test "go: attest job no longer references the verify_attestation action" {
+    run bash -c "sed -n '/^  attest:/,/^  [a-z]/p' \"$WORKFLOW\" | grep 'TomHennen/wrangle/actions/verify_attestation@'"
+    [[ "$status" -ne 0 ]]
+}
+
+@test "go: workflow has NO provenance job and NO slsa generator/verifier ref" {
+    # attest-build-provenance is the sole provenance; the verify job is the sole
+    # verify. Patterns are narrow on purpose: a bare `slsa.*generator` would
+    # false-fail on the workflow comment that names the old generator in prose.
+    run grep -E '^  provenance:' "$WORKFLOW"
+    [[ "$status" -ne 0 ]]
+    run grep 'slsa-github-generator' "$WORKFLOW"
+    [[ "$status" -ne 0 ]]
+    run grep 'slsa-verifier/actions' "$WORKFLOW"
+    [[ "$status" -ne 0 ]]
+}
+
+@test "go: verify job references the per-eco provenance policy" {
+    run bash -c "sed -n '/^  verify:/,\$p' \"$WORKFLOW\" | grep -F 'policy: policies/wrangle-provenance-go-v1.hjson'"
+    [[ "$status" -eq 0 ]]
+}
+
+@test "go: verify job collects the staged bundle via the jsonl collector" {
+    # The bundle the attest job staged is read back as one-JSON-per-line.
+    run bash -c "sed -n '/^  verify:/,\$p' \"$WORKFLOW\" | grep -F 'collector: jsonl:provenance/provenance.jsonl'"
+    [[ "$status" -eq 0 ]]
+}
+
+@test "go: attest job uploads the provenance bundle the verify job needs" {
+    # The verify job depends on attest and reads its uploaded bundle artifact.
+    run bash -c "sed -n '/^  attest:/,/^  [a-z]/p' \"$WORKFLOW\" | grep -E 'name: go-provenance-bundle-'"
+    [[ "$status" -eq 0 ]]
+    run bash -c "sed -n '/^  verify:/,\$p' \"$WORKFLOW\" | grep -E 'needs:.*attest'"
+    [[ "$status" -eq 0 ]]
+}

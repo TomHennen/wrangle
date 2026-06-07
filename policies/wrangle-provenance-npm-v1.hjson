@@ -1,28 +1,24 @@
 {
     // ====================================================================
-    // wrangle-provenance-v1 — provenance-only release-verification PolicySet
+    // wrangle-provenance-npm-v1 — provenance-only PolicySet for the npm
+    // build type
     // ====================================================================
     //
-    // Evaluated by the Ampel policy engine (built from tools/go.mod) at the
-    // release boundary. A PASS produces the signed SLSA Verification Summary
-    // Attestation (VSA) downstream consumers trust (see docs/ampel_research.md §2).
-    //
-    // -- Why a separate provenance-only PolicySet -----------------------------
-    // This is the SLSA build-provenance subset of wrangle-default-v1 (builder-id,
-    // build-type, build-point) and nothing else. It is what a real release can
-    // satisfy today with zero new attestations: the slsa-github-generator signs
-    // the provenance, and common.identities admits exactly that signer. The SBOM
-    // and OSV tenets in wrangle-default-v1 cannot pass on a real release until
-    // those attestations are produced AND signed by an identity registered in
-    // common.identities — ampel applies common.identities as a global admission
-    // filter over every consumed attestation. That work is tracked separately;
-    // this PolicySet lets releases emit a real, provenance-backed VSA now.
+    // The npm sibling of the per-ecosystem wrangle-provenance-*-v1 family.
+    // wrangle's provenance is GitHub-issued (actions/attest-build-provenance),
+    // so builder.id is THIS reusable workflow's path — different per build type
+    // (build_and_publish_npm.yml here). The builder-id tenet bakes one exact
+    // value, so each build type needs its own PolicySet. buildType and the
+    // signer issuer are now shared across build types; only builder.id and the
+    // signer SAN are per-type, which is what forces the split. (The buildType is
+    // no longer ecosystem-specific — it is the generic GitHub Actions workflow
+    // build type — but a single PolicySet still cannot bake two builder.ids.)
     //
     // -- Upstream references are SHA-PINNED (Decision 2) ----------------------
     // Every tenet is an upstream carabiner-dev/policies file referenced by a
-    // `git+https://...@<sha>#<path>` VCS locator, resolved over github.com at
-    // verify time. The single SHA must be identical across every locator in
-    // every policies/*.hjson (policies/test.bats asserts this); bump together.
+    // `git+https://...@<sha>#<path>` VCS locator. The single SHA must be
+    // identical across every locator in every policies/*.hjson (policies/test.bats
+    // asserts this); bump together.
     //
     // -- Context model --------------------------------------------------------
     // common.context bakes wrangle's build-system identity (builderId, buildType)
@@ -31,9 +27,9 @@
     // are supplied at verify time via actions/verify's `context` input.
     // --------------------------------------------------------------------
 
-    id: "wrangle-provenance-v1"
+    id: "wrangle-provenance-npm-v1"
     meta: {
-        description: "wrangle provenance-only release policy: SLSA Build L3 provenance (builder/type/point). Emits a SLSA VSA."
+        description: "wrangle provenance-only release policy for npm: SLSA Build L3 provenance (builder/type/point). Emits a SLSA VSA."
         frameworks: [
             {
                 id: "SLSA"
@@ -44,16 +40,21 @@
 
     common: {
         context: {
-            // Baked: wrangle builds with slsa-framework/slsa-github-generator.
-            // The builder-id tenet matches on `==` or `startsWith(value + '@')`,
-            // so binding the workflow path WITHOUT a @ref keeps the policy valid
-            // across generator version bumps (e.g. v2.1.0 -> v2.2.0).
+            // Baked: wrangle's reusable npm build workflow is the builder.
+            // builder.id == the workflow's job_workflow_ref (attest-build-
+            // provenance run inside the reusable workflow), closing the build-
+            // confusion gap where the generic generator named the generator
+            // rather than the workflow that ran the build. The builder-id tenet
+            // matches on `==` or `startsWith(value + '@')`, so binding the path
+            // WITHOUT a @ref keeps the policy valid across the ref an adopter
+            // pinned wrangle at.
             builderId: {
-                value: "https://github.com/slsa-framework/slsa-github-generator/.github/workflows/generator_generic_slsa3.yml"
+                value: "https://github.com/TomHennen/wrangle/.github/workflows/build_and_publish_npm.yml"
             }
-            // Baked: buildType emitted by the generic SLSA generator.
+            // Baked: the generic GitHub Actions workflow buildType that
+            // attest-build-provenance emits (not an ecosystem-specific type).
             buildType: {
-                value: "https://github.com/slsa-framework/slsa-github-generator/generic@v1"
+                value: "https://actions.github.io/buildtypes/workflow/v1"
             }
             // Supplied at verify time: the source repository VCS locator, e.g.
             // "git+https://github.com/<owner>/<repo>"; actions/verify passes it
@@ -74,16 +75,18 @@
         // exercise tenet CEL. Identity ENFORCEMENT is covered separately by the
         // harness's fail-closed test. Preserve the markers if you edit this.
         //
-        // The SLSA provenance MUST be signed by the slsa-github-generator's
-        // keyless identity (fail-closed); the regexp covers the generator's
-        // release tags.
+        // The SLSA provenance MUST be signed by wrangle's reusable npm build
+        // workflow's keyless identity (fail-closed). attest-build-provenance run
+        // inside the reusable workflow makes the cert SAN that workflow's
+        // job_workflow_ref; the ref varies (a tag or SHA the adopter pinned), so
+        // the regexp binds the workflow PATH and accepts any ref.
         identities: [
             {
-                id: "slsa-generator"
+                id: "wrangle-builder"
                 sigstore: {
                     mode: "regexp"
                     issuer: "^https://token\\.actions\\.githubusercontent\\.com$"
-                    identity: "^https://github\\.com/slsa-framework/slsa-github-generator/\\.github/workflows/generator_generic_slsa3\\.yml@refs/tags/v.+$"
+                    identity: "^https://github\\.com/TomHennen/wrangle/\\.github/workflows/build_and_publish_npm\\.yml@.+$"
                 }
             }
         ]
@@ -95,21 +98,21 @@
             // 1. Built by the expected (wrangle) builder identity.
             id: "slsa-builder-id"
             source: { location: { uri: "git+https://github.com/carabiner-dev/policies@85078db9e808479feb0d1aec08299b8a93c85f11#slsa/slsa-builder-id.json" } }
-            identities: [ { ref: { id: "slsa-generator" } } ]
+            identities: [ { ref: { id: "wrangle-builder" } } ]
             meta: { controls: [ { framework: "SLSA", class: "BUILD", id: "LEVEL_3" } ] }
         }
         {
-            // 2. Built by the expected build type (GitHub Actions generic generator).
+            // 2. Built by the expected build type (GitHub Actions workflow).
             id: "slsa-build-type"
             source: { location: { uri: "git+https://github.com/carabiner-dev/policies@85078db9e808479feb0d1aec08299b8a93c85f11#slsa/slsa-build-type.json" } }
-            identities: [ { ref: { id: "slsa-generator" } } ]
+            identities: [ { ref: { id: "wrangle-builder" } } ]
             meta: { controls: [ { framework: "SLSA", class: "BUILD", id: "LEVEL_3" } ] }
         }
         {
             // 3. Built from the expected source repository (build point).
             id: "slsa-build-point"
             source: { location: { uri: "git+https://github.com/carabiner-dev/policies@85078db9e808479feb0d1aec08299b8a93c85f11#slsa/slsa-build-point.json" } }
-            identities: [ { ref: { id: "slsa-generator" } } ]
+            identities: [ { ref: { id: "wrangle-builder" } } ]
             meta: { controls: [ { framework: "SLSA", class: "BUILD", id: "LEVEL_3" } ] }
         }
     ]

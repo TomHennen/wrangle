@@ -75,18 +75,6 @@ on:
         required: false
         type: string
         default: ""
-      verify-provenance:
-        description: |
-          When true (default), wrangle runs `slsa-verifier verify-artifact`
-          against the just-built tarball before declaring the workflow
-          successful. If verification fails, the workflow fails — and the
-          caller's publish job is blocked via standard `needs:` propagation,
-          so a tampered tarball between build and publish cannot be released.
-          Set to false to skip wrangle's verification (e.g., adopters with
-          a custom verification flow).
-        required: false
-        type: boolean
-        default: true
       scan-tools:
         description: |
           Space-separated source-scan tools (suffix :info for
@@ -109,8 +97,8 @@ on:
         description: "Name of the uploaded dist/ artifact (download with this name to publish)"
         value: ${{ jobs.build.outputs.dist-artifact-name }}
       provenance-artifact-name:
-        description: "Name of the SLSA provenance workflow artifact (= the provenance filename). Empty when should-release is false."
-        value: ${{ jobs.provenance.outputs.provenance-name }}
+        description: "Name of the workflow artifact containing the SLSA provenance bundle — one JSON object per line, covering all dist subjects. Empty when should-release is false."
+        value: ${{ jobs.attest.outputs.bundle-artifact-name }}
       metadata-artifact-name:
         description: "Name of the workflow artifact (a zip of `metadata/npm/<shortname>/`'s contents) containing the SBOM. Format: `npm-metadata-<shortname>`. Adopters fetch via `actions/download-artifact` — the metadata files land at the top level of the configured `path:`, not under `metadata/npm/<shortname>/`."
         value: ${{ jobs.build.outputs.metadata-artifact-name }}
@@ -118,7 +106,7 @@ on:
         description: |
           "true" if the current event matches release-events and the caller
           should perform release-time actions (publish, attestation upload,
-          etc.); "false" otherwise. Wrangle gates the provenance job on
+          etc.); "false" otherwise. Wrangle gates the attest and verify jobs on
           this internally; the caller's publish job should gate on it too.
         value: ${{ jobs.gate.outputs.should-release }}
 
@@ -133,7 +121,7 @@ jobs:
     permissions: {}    # reads env only — no workspace, no API, no secrets
     steps:
       # TODO: replace with $/actions/preflight_guard when GitHub ships $/ syntax (#136)
-      - uses: TomHennen/wrangle/actions/preflight_guard@cb043076b426c1e22b1305e39b7a59dc3a696f98 # main 2026-06-04
+      - uses: TomHennen/wrangle/actions/preflight_guard@5b79a1ca848b761ae5bd5524e80af70bb42207c9 # main 2026-06-07
 
   gate:
     needs: [guard]
@@ -144,7 +132,7 @@ jobs:
     steps:
       # No checkout: release_gate resolves via ${{ github.action_path }}.
       # TODO: replace with $/actions/release_gate when GitHub ships $/ syntax (#136)
-      - uses: TomHennen/wrangle/actions/release_gate@cb043076b426c1e22b1305e39b7a59dc3a696f98 # main 2026-06-04
+      - uses: TomHennen/wrangle/actions/release_gate@5b79a1ca848b761ae5bd5524e80af70bb42207c9 # main 2026-06-07
         id: gate
         with:
           events: ${{ inputs.release-events }}
@@ -167,7 +155,7 @@ jobs:
           ref: ${{ inputs.ref || '' }}
 
       # TODO: replace with $/actions/scan when GitHub ships $/ syntax (#136)
-      - uses: TomHennen/wrangle/actions/scan@cb043076b426c1e22b1305e39b7a59dc3a696f98 # main 2026-06-04
+      - uses: TomHennen/wrangle/actions/scan@5b79a1ca848b761ae5bd5524e80af70bb42207c9 # main 2026-06-07
         if: ${{ inputs.scan-tools != '' }}
         with:
           tools: ${{ inputs.scan-tools }}
@@ -185,7 +173,7 @@ jobs:
       shortname: ${{ steps.build.outputs.shortname }}
       dist-artifact-name: ${{ steps.names.outputs.dist }}
       metadata-artifact-name: ${{ steps.names.outputs.metadata }}
-      # JSON array of dist filenames, so the vsa job can fan out one VSA per artifact.
+      # JSON array of dist filenames, so the verify job can fan out one VSA per artifact.
       dist-files: ${{ steps.distfiles.outputs.files }}
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
@@ -194,7 +182,7 @@ jobs:
           ref: ${{ inputs.ref || '' }}
 
       # TODO: replace with $/build/actions/npm when GitHub ships $/ syntax (#136)
-      - uses: TomHennen/wrangle/build/actions/npm@cb043076b426c1e22b1305e39b7a59dc3a696f98 # main 2026-06-04
+      - uses: TomHennen/wrangle/build/actions/npm@5b79a1ca848b761ae5bd5524e80af70bb42207c9 # main 2026-06-07
         id: build
         with:
           path: ${{ inputs.path }}
@@ -223,8 +211,8 @@ jobs:
           set -euo pipefail
           printf 'name=%s\n' "$(jq -r .name "$INPUT_PATH/package.json")" >> "$GITHUB_OUTPUT"
 
-      # Emit the dist filenames as a JSON array for the vsa job's matrix.
-      # Derived from the SLSA base64-subjects (the "<sha256>  <name>" lines the
+      # Emit the dist filenames as a JSON array for the verify job's matrix.
+      # Derived from the build's base64 `hashes` output (the "<sha256>  <name>" lines the
       # provenance covers), reduced to basenames.
       - id: distfiles
         shell: bash
@@ -233,8 +221,8 @@ jobs:
         run: |
           set -euo pipefail
           files="$(printf '%s' "$HASHES" | base64 -d | awk '{ sub(/^.*\//, "", $2); print $2 }' | jq -R . | jq -cs .)"
-          # Fail closed: an empty array would expand the vsa matrix to zero
-          # shards, skipping the release-gating VSA job — and a skipped job
+          # Fail closed: an empty array would expand the verify matrix to zero
+          # shards, skipping the release-gating verify job — and a skipped job
           # propagates as success. Never let the gate collapse silently.
           if [[ "$files" == "[]" ]]; then
               printf 'no dist files to attest — refusing to emit an empty VSA matrix\n' >&2
@@ -253,76 +241,59 @@ jobs:
           path: ${{ steps.build.outputs.metadata-dir }}/
           if-no-files-found: error
 
-  # Generate SLSA L3 provenance for the built artifacts. The generator
-  # runs in an isolated reusable workflow that the caller cannot tamper
-  # with — this is what makes the provenance non-falsifiable. Gated on
-  # the release-events input so adopters can tighten when provenance is
-  # produced (e.g., tag-only) without forking the workflow.
-  #
-  # contents: write is required because the generator's upload-assets
-  # job declares it. GitHub validates every called job's permissions
-  # at startup regardless of the job's `if:` condition, so granting
-  # write is mandatory even when upload-assets is false.
-  provenance:
+  # Generate SLSA L3 build provenance via GitHub's attestation API, naming THIS
+  # reusable workflow as builder.id (its job_workflow_ref) and the Sigstore
+  # signing identity
+  attest:
     if: ${{ needs.gate.outputs.should-release == 'true' }}
+    # needs `scan` so a load-bearing finding blocks attestation + the caller's publish.
     needs: [guard, gate, build, scan]
-    permissions:
-      actions: read    # detect the GitHub Actions environment
-      id-token: write  # OIDC for Sigstore signing
-      contents: write  # required by generator's upload-assets job at startup
-    # MUST use tag, not SHA — the SLSA generator validates its own invocation
-    # ref. See https://github.com/TomHennen/wrangle/issues/147
-    uses: slsa-framework/slsa-github-generator/.github/workflows/generator_generic_slsa3.yml@v2.1.0 # zizmor: ignore[unpinned-uses] tag required by SLSA generator's OIDC verification
-    with:
-      base64-subjects: ${{ needs.build.outputs.hashes }}
-      # Namespace the provenance filename by shortname so multiple npm
-      # builds in one workflow don't collide on the default name.
-      provenance-name: npm-${{ needs.build.outputs.shortname }}.intoto.jsonl
-      upload-assets: ${{ startsWith(github.ref, 'refs/tags/') }}
-
-  # Verify the just-built tarball matches the just-generated provenance.
-  # Catches "tarball tampered with after build, before publish". Failing
-  # here fails the workflow, which (via standard `needs:` propagation)
-  # blocks the caller's publish job. Adopters with custom verification
-  # flows pass `verify-provenance: false` and wire their own.
-  verify:
-    if: ${{ needs.gate.outputs.should-release == 'true' && inputs.verify-provenance }}
-    needs: [guard, gate, build, provenance]
     runs-on: ubuntu-latest
-    permissions: {}    # default token; download-artifact reads same-run artifacts
+    permissions:
+      id-token: write       # OIDC for Sigstore keyless signing
+      attestations: write   # write the attestation to GitHub's store
+      contents: read        # download-artifact reads the same-run dist
+    outputs:
+      bundle-artifact-name: npm-provenance-bundle-${{ needs.build.outputs.shortname }}
     steps:
       - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
         with:
           name: ${{ needs.build.outputs.dist-artifact-name }}
           path: dist/
 
-      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+      - uses: actions/attest-build-provenance@a2bbfa25375fe432b6a289bc6b6cd05ecd0c4c32 # v4.1.0
+        id: attest
         with:
-          name: ${{ needs.provenance.outputs.provenance-name }}
-          path: provenance/
+          subject-path: dist/*
 
-      - uses: slsa-framework/slsa-verifier/actions/installer@ea584f4502babc6f60d9bc799dbbb13c1caa9ee6 # v2.7.1
-
-      - name: Verify SLSA provenance
+      # Stage the signed provenance bundle as a workflow artifact for the verify
+      # job; jq -c normalizes it to one JSON object per line for ampel's jsonl:
+      # collector.
+      - name: Stage the provenance bundle for the VSA
         env:
-          SOURCE_URI: github.com/${{ github.repository }}
-          PROVENANCE_NAME: ${{ needs.provenance.outputs.provenance-name }}
+          BUNDLE_PATH: ${{ steps.attest.outputs.bundle-path }}
         run: |
           set -euo pipefail
-          slsa-verifier verify-artifact \
-              --provenance-path "provenance/${PROVENANCE_NAME}" \
-              --source-uri "$SOURCE_URI" \
-              dist/*
+          set -f
+          jq -c . "$BUNDLE_PATH" > "$RUNNER_TEMP/provenance.jsonl"
+
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: npm-provenance-bundle-${{ needs.build.outputs.shortname }}
+          path: ${{ runner.temp }}/provenance.jsonl
+          if-no-files-found: error
 
   # Emit a signed SLSA Verification Summary Attestation (VSA) per dist artifact.
-  # ampel evaluates the provenance against the wrangle-provenance-v1 PolicySet
-  # and bnd signs the result keyless with this workflow's OIDC identity; a FAILED
-  # policy fails the step (fail: true) and blocks the caller's publish via needs:
-  # propagation. Provenance-only for now — SBOM/OSV tenets follow once those are
-  # produced as signed attestations a registered identity covers.
-  vsa:
+  # ampel evaluates the attest-build-provenance bundle against the
+  # wrangle-provenance-npm-v1 PolicySet (which binds wrangle's builder identity
+  # and verifies the bundle's Sigstore signature — fail-closed) and bnd signs the
+  # result keyless with this workflow's OIDC identity; a FAILED policy fails the
+  # step (fail: true) and blocks the caller's publish via needs: propagation.
+  # Provenance-only for now — SBOM/OSV tenets follow once those are produced as
+  # signed attestations a registered identity covers.
+  verify:
     if: ${{ needs.gate.outputs.should-release == 'true' }}
-    needs: [guard, gate, build, provenance]
+    needs: [guard, gate, build, attest]
     runs-on: ubuntu-latest
     permissions:
       id-token: write    # bnd keyless-signs the VSA via this workflow's OIDC identity
@@ -337,17 +308,19 @@ jobs:
           name: ${{ needs.build.outputs.dist-artifact-name }}
           path: dist/
 
+      # The one multi-subject provenance bundle the attest job staged; each
+      # matrix shard reads it and self-selects its own subject digest.
       - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
         with:
-          name: ${{ needs.provenance.outputs.provenance-name }}
+          name: npm-provenance-bundle-${{ needs.build.outputs.shortname }}
           path: provenance/
 
       # TODO: replace with $/actions/verify when GitHub ships $/ syntax (#136)
-      - uses: TomHennen/wrangle/actions/verify@cb043076b426c1e22b1305e39b7a59dc3a696f98 # main 2026-06-04
+      - uses: TomHennen/wrangle/actions/verify@5b79a1ca848b761ae5bd5524e80af70bb42207c9 # main 2026-06-07
         with:
           subject: dist/${{ matrix.artifact }}
-          policy: policies/wrangle-provenance-v1.hjson
-          collector: jsonl:provenance/${{ needs.provenance.outputs.provenance-name }}
+          policy: policies/wrangle-provenance-npm-v1.hjson
+          collector: jsonl:provenance/provenance.jsonl
           # resourceUri is the npm purl consumers pin when verifying the VSA;
           # the subject digest is the cryptographic bind.
           context: buildPoint:git+https://github.com/${{ github.repository }},vsa.resourceUri:pkg:npm/${{ needs.build.outputs.name }}@${{ needs.build.outputs.version }}

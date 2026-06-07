@@ -1,6 +1,7 @@
 #!/bin/bash
-# Computes the base64-encoded SHA-256 hashes for the SLSA generator's
-# `base64-subjects` input from goreleaser's dist/checksums.txt.
+# Computes the base64-encoded SHA-256 hashes (the '<sha256>  <name>' lines)
+# from goreleaser's dist/checksums.txt; the reusable workflow derives the
+# per-artifact VSA matrix from them.
 #
 # Goreleaser writes dist/checksums.txt in the standard `sha256sum`
 # format — `<hex>  <filename>` per line — which is exactly what the
