@@ -102,7 +102,7 @@ Two consequences worth knowing:
 
 ## Source scan (built in)
 
-The build action hardens *how* your artifact is produced; the `build_and_publish_go.yml` workflow also runs wrangle's source scan ([`actions/scan/README.md`](../../../actions/scan/README.md)) via its `scan-tools` input, so a separate `check_source_change.yml` is redundant. The scan catches vulnerable deps, dangerous workflow triggers, and missing branch protection — issues wrangle would otherwise faithfully L3-attest as legitimately built — and a load-bearing finding blocks the release.
+The build action hardens *how* your artifact is produced; the `build_and_publish_go.yml` workflow also runs wrangle's source scan ([`actions/scan/README.md`](../../../actions/scan/README.md)) via its `scan-tools` input, so a separate `check_source_change.yml` is redundant. The scan catches vulnerable deps, dangerous workflow triggers, and missing branch protection — issues wrangle would otherwise faithfully L3-attest as legitimately built — and a load-bearing finding blocks the release. The caller MUST grant `actions: read` and `security-events: write` for the scan (the example wires them; omitting either fails the run at startup).
 
 Source-stage `gofmt` / `golangci-lint` is tracked in [#194](https://github.com/TomHennen/wrangle/issues/194). Until that lands, the build action's `checks` composite runs `gofmt -l` (with generated-file auto-skip) and `go vet ./...` as cheap toolchain-bundled gates. When #194 ships, those gates move to source-scan and the duplicate inside the build action goes away.
 

@@ -21,6 +21,7 @@ jobs:
       id-token: write      # OIDC for keyless Cosign signing
       packages: write      # push image + provenance to GHCR
       attestations: write  # wrangle's attest job writes GitHub-issued SLSA provenance
+      actions: read  # source scan: Scorecard reads the Actions API
       security-events: write  # source-scan SARIF -> Security tab
     uses: TomHennen/wrangle/.github/workflows/build_and_publish_container.yml@v0.1.0
     with:

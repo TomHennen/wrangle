@@ -25,7 +25,7 @@ Wrangle's own workflows all have filenames that start with `local_`.
   - **go** — blocks the `release` job on release events; PR snapshot builds still run.
   - **python / npm** — fails the run, so the caller's `needs:`-gated publish job is skipped.
   - **shell** — fails the run (no artifact to gate).
-- **`security-events: write`.** Grant this in the *caller's* permissions to upload scan SARIF to the Security tab. Omitting it does NOT fail the run or disable gating — GitHub silently caps the called job's permission, so findings still appear in the step summary and the `wrangle-scan-results` artifact, and a `:fail` finding still blocks publish. Only Security-tab integration is lost.
+- **`actions: read` + `security-events: write`.** The caller MUST grant both — the embedded `scan` job requests them, and GitHub fails the run at startup if a called job requests a permission the caller didn't grant. Omitting either is a startup failure, not a silent downgrade.
 
 ## check_source_change.yml
 

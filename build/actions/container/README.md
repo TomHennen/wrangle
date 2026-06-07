@@ -12,7 +12,7 @@ Copy [`gh_workflow_examples/build_and_publish_containers.yml`](../../../gh_workf
 | `imagename` | `ghcr.io/<owner>/<repo>/<image>` |
 | `registry` | `ghcr.io` |
 
-The example wires in the required permissions and `gh_token` secret. The `build_and_publish_container.yml` workflow embeds [source scan](../../../actions/scan/README.md) via its `scan-tools` input — build hardens *how*, source scan covers *what was committed*, and a load-bearing finding blocks the build (and push). No separate `check_source_change.yml` needed.
+The example wires in the required permissions and `gh_token` secret. The `build_and_publish_container.yml` workflow embeds [source scan](../../../actions/scan/README.md) via its `scan-tools` input — build hardens *how*, source scan covers *what was committed*, and a load-bearing finding blocks the build (and push). The caller MUST grant `actions: read` and `security-events: write` for the scan (the example wires them; omitting either fails the run at startup). No separate `check_source_change.yml` needed.
 
 For the full design (failure contract, trust model, planned signing/provenance steps in the composite), see [`SPEC.md`](./SPEC.md). This README only describes shipped behavior.
 

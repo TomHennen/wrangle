@@ -4,7 +4,7 @@ A composable CI/CD security framework for GitHub Actions. Adopters reference wra
 
 ## Quick Start
 
-**Building an artifact?** Use a `build_and_publish_*` workflow (container, Python, npm, Go) or `build_shell.yml`. Each one scans your source (OSV, Zizmor, Scorecard, dependency-review) *and* builds, signs, and publishes — one workflow, no separate scan file needed. A load-bearing scan finding blocks the release. Add `security-events: write` to the caller's permissions to also surface findings in the Security tab. See the [workflow examples](gh_workflow_examples/README.md).
+**Building an artifact?** Use a `build_and_publish_*` workflow (container, Python, npm, Go) or `build_shell.yml`. Each one scans your source (OSV, Zizmor, Scorecard, dependency-review) *and* builds, signs, and publishes — one workflow, no separate scan file needed. A load-bearing scan finding blocks the release. The embedded scan REQUIRES the caller to grant `actions: read` and `security-events: write` (the examples include them; omitting either fails the run at startup). See the [workflow examples](gh_workflow_examples/README.md).
 
 **No build type?** Scan source only — create `.github/workflows/check_source_change.yml`:
 

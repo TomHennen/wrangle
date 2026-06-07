@@ -226,7 +226,7 @@ Contract introduced in [#334](https://github.com/TomHennen/wrangle/issues/334). 
 
 Which tools actually gate a release depends on the event: `actions/scan` runs `dependency-review` only on `pull_request` and `scorecard` only on push, so at release time (a tag push) the effective blocking tools from the default `scan-tools` are `osv` and `zizmor`. `dependency-review` gates at PR-review time; `scorecard` is `:info` (non-blocking) by default.
 
-Unlike the binary fail-propagation of a load-bearing finding, the **`security-events: write`** caller grant is *not* load-bearing for gating. GitHub silently caps a called job's permissions to the caller's grant and does NOT fail the run when a permission is missing, so omitting `security-events: write` still runs the scan, still surfaces findings in the step summary and the `wrangle-scan-results` artifact, and still blocks publish on a `:fail` finding — only the Security-tab SARIF upload is lost. Callers SHOULD grant it; the gate does not depend on it.
+The embedded `scan` job requests `actions: read` + `contents: read` + `security-events: write`. A build caller MUST grant `actions: read` and `security-events: write` on top of its build permissions: GitHub fails a reusable-workflow run at startup (a hard `startup_failure`, not a silent downgrade) if a called job requests a permission the caller did not grant. The example callers grant both; adopters upgrading an existing caller MUST add them.
 
 ### Release verification
 

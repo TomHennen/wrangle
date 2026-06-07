@@ -89,10 +89,11 @@ Two notes for every build workflow:
   `"osv zizmor scorecard:info dependency-review"`. Suffix a tool with
   `:info` to make it non-blocking; empty string disables scanning. A
   load-bearing (`:fail`) finding blocks publishing.
-- **Caller permissions** — grant `security-events: write` so scan SARIF
-  reaches the Security tab. Omitting it does not break the build or the
-  gate (findings still appear in the step summary and the
-  `wrangle-scan-results` artifact); only Security-tab upload is lost.
+- **Caller permissions** — REQUIRED to grant `actions: read` and
+  `security-events: write` (the embedded `scan` job requests them).
+  Omitting either fails the run at startup: GitHub rejects a
+  reusable-workflow run when a called job requests a permission the
+  caller didn't grant.
 
 If you cannot determine the project type, add only the source scanning
 workflow above. It is always applicable. Note to the user that a build

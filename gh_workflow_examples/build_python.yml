@@ -43,6 +43,7 @@ jobs:
       contents: write   # wrangle's verify job attaches the VSA to the release on tags; GitHub validates at startup even on non-tag runs
       id-token: write   # OIDC for Sigstore signing
       attestations: write   # wrangle's attest job writes GitHub-issued SLSA provenance
+      actions: read  # source scan: Scorecard reads the Actions API
       security-events: write  # source-scan SARIF -> Security tab
     uses: TomHennen/wrangle/.github/workflows/build_and_publish_python.yml@v0.2.0
     with:

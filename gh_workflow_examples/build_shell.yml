@@ -13,6 +13,7 @@ jobs:
   shell-build:
     permissions:
       contents: read
+      actions: read  # source scan: Scorecard reads the Actions API
       security-events: write  # source-scan SARIF -> Security tab
     uses: TomHennen/wrangle/.github/workflows/build_shell.yml@v0.1.0
     # with:
