@@ -89,7 +89,7 @@ on:
         description: "Name of the uploaded dist/ artifact (download with this name to publish)"
         value: ${{ jobs.build.outputs.dist-artifact-name }}
       provenance-artifact-name:
-        description: "Name of the SLSA provenance bundle workflow artifact — a Sigstore bundle (one JSON object per line) covering all dist subjects. Empty when should-release is false."
+        description: "Name of the workflow artifact containing the SLSA provenance bundle — one JSON object per line, covering all dist subjects. Empty when should-release is false."
         value: ${{ jobs.attest.outputs.bundle-artifact-name }}
       metadata-artifact-name:
         description: "Name of the workflow artifact (a zip of `metadata/npm/<shortname>/`'s contents) containing the SBOM. Format: `npm-metadata-<shortname>`. Adopters fetch via `actions/download-artifact` — the metadata files land at the top level of the configured `path:`, not under `metadata/npm/<shortname>/`."
@@ -98,7 +98,7 @@ on:
         description: |
           "true" if the current event matches release-events and the caller
           should perform release-time actions (publish, attestation upload,
-          etc.); "false" otherwise. Wrangle gates the attest and vsa jobs on
+          etc.); "false" otherwise. Wrangle gates the attest and verify jobs on
           this internally; the caller's publish job should gate on it too.
         value: ${{ jobs.gate.outputs.should-release }}
 
@@ -142,7 +142,7 @@ jobs:
       shortname: ${{ steps.build.outputs.shortname }}
       dist-artifact-name: ${{ steps.names.outputs.dist }}
       metadata-artifact-name: ${{ steps.names.outputs.metadata }}
-      # JSON array of dist filenames, so the vsa job can fan out one VSA per artifact.
+      # JSON array of dist filenames, so the verify job can fan out one VSA per artifact.
       dist-files: ${{ steps.distfiles.outputs.files }}
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
@@ -180,7 +180,7 @@ jobs:
           set -euo pipefail
           printf 'name=%s\n' "$(jq -r .name "$INPUT_PATH/package.json")" >> "$GITHUB_OUTPUT"
 
-      # Emit the dist filenames as a JSON array for the vsa job's matrix.
+      # Emit the dist filenames as a JSON array for the verify job's matrix.
       # Derived from the build's base64 `hashes` output (the "<sha256>  <name>" lines the
       # provenance covers), reduced to basenames.
       - id: distfiles
@@ -190,8 +190,8 @@ jobs:
         run: |
           set -euo pipefail
           files="$(printf '%s' "$HASHES" | base64 -d | awk '{ sub(/^.*\//, "", $2); print $2 }' | jq -R . | jq -cs .)"
-          # Fail closed: an empty array would expand the vsa matrix to zero
-          # shards, skipping the release-gating VSA job — and a skipped job
+          # Fail closed: an empty array would expand the verify matrix to zero
+          # shards, skipping the release-gating verify job — and a skipped job
           # propagates as success. Never let the gate collapse silently.
           if [[ "$files" == "[]" ]]; then
               printf 'no dist files to attest — refusing to emit an empty VSA matrix\n' >&2
@@ -211,12 +211,8 @@ jobs:
           if-no-files-found: error
 
   # Generate SLSA L3 build provenance via GitHub's attestation API, naming THIS
-  # reusable workflow as builder.id (its job_workflow_ref) and as the Sigstore
-  # signing identity — closing the build-confusion gap the generic generator left
-  # open (its builder.id was the generator, not the workflow that ran the build).
-  # L3: the attest step runs inside this reusable workflow, the isolated trusted
-  # builder. This is wrangle's sole provenance; the signed bundle is fed to the
-  # vsa job, which verifies its Sigstore signature against the policy.
+  # reusable workflow as builder.id (its job_workflow_ref) and the Sigstore
+  # signing identity
   attest:
     if: ${{ needs.gate.outputs.should-release == 'true' }}
     needs: [guard, gate, build]
@@ -238,7 +234,7 @@ jobs:
         with:
           subject-path: dist/*
 
-      # Stage the signed provenance bundle as a workflow artifact for the vsa
+      # Stage the signed provenance bundle as a workflow artifact for the verify
       # job; jq -c normalizes it to one JSON object per line for ampel's jsonl:
       # collector.
       - name: Stage the provenance bundle for the VSA
@@ -263,7 +259,7 @@ jobs:
   # step (fail: true) and blocks the caller's publish via needs: propagation.
   # Provenance-only for now — SBOM/OSV tenets follow once those are produced as
   # signed attestations a registered identity covers.
-  vsa:
+  verify:
     if: ${{ needs.gate.outputs.should-release == 'true' }}
     needs: [guard, gate, build, attest]
     runs-on: ubuntu-latest

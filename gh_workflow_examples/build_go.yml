@@ -8,7 +8,7 @@
 #    tag name as the version.
 #
 # Wrangle's reusable workflow handles build, tests, SBOM, SLSA L3
-# provenance generation, its `vsa` job's provenance verification (fail-
+# provenance generation, its `verify` job's provenance verification (fail-
 # closed, via ampel against the wrangle PolicySet) plus signed-VSA
 # emission, and dispatch of every downstream goreleaser verb (Docker
 # pushes, Homebrew taps, deb/rpm/snap, announcements). Goreleaser
@@ -30,7 +30,7 @@ on:
 jobs:
   build:
     permissions:
-      contents: write   # goreleaser creates the Release + wrangle's vsa job attaches the VSA
+      contents: write   # goreleaser creates the Release + wrangle's verify job attaches the VSA
       id-token: write   # OIDC for Sigstore signing
       attestations: write   # wrangle's attest job writes GitHub-issued SLSA provenance
     uses: TomHennen/wrangle/.github/workflows/build_and_publish_go.yml@v0.2.0

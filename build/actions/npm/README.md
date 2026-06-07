@@ -10,7 +10,7 @@ The publish job lives in your own workflow — not in a wrangle reusable workflo
 
 Wrangle publishes via [npm Trusted Publishing](https://docs.npmjs.com/trusted-publishers/) — no `NPM_TOKEN` lives in your repo. You'll do a one-time setup on npmjs.com first; see [Before first use](#before-first-use). Then:
 
-Copy [`gh_workflow_examples/build_npm.yml`](../../../gh_workflow_examples/build_npm.yml) into your repo at `.github/workflows/`. The example wires the required permissions (`attestations: write` so wrangle's attest job can write the GitHub-issued provenance, `id-token: write` for Sigstore keyless signing, `contents: write` so the VSA job can attach the VSA to the release on tag pushes) and includes the publish job. Most adopters only need to set the `path` input.
+Copy [`gh_workflow_examples/build_npm.yml`](../../../gh_workflow_examples/build_npm.yml) into your repo at `.github/workflows/`. The example wires the required permissions (`attestations: write` so wrangle's attest job can write the GitHub-issued provenance, `id-token: write` for Sigstore keyless signing, `contents: write` so the verify job can attach the VSA to the release on tag pushes) and includes the publish job. Most adopters only need to set the `path` input.
 
 Pair with [source scan](../../../actions/scan/README.md) — build hardens *how* your artifact is produced; source scan covers *what was checked into the repo you're building from*.
 
@@ -79,9 +79,9 @@ See [`docs/SPEC.md`](../../../docs/SPEC.md) "Release-events gating" for the full
 >
 > Without the gate, publish runs on every non-PR event regardless of `release-events`.
 
-## SLSA provenance verification (the `vsa` job)
+## SLSA provenance verification (the `verify` job)
 
-The `vsa` job verifies the L3 provenance — ampel (via `actions/verify`) checks the provenance's Sigstore signature against the wrangle PolicySet's `common.identities` (fail-closed: only wrangle's reusable-workflow signer passes) and the SLSA tenets, then emits the signed VSA. It's gated on `should-release`, so it runs on every release; it is not opt-out-able. If verification fails the workflow fails and your publish job is blocked via `needs:`. This closes the wrangle→caller-publish handoff (the caller→registry segment is bound by Trusted Publishing's `workflow_ref` claim, which npm validates at upload time).
+The `verify` job verifies the L3 provenance — ampel (via `actions/verify`) checks the provenance's Sigstore signature against the wrangle PolicySet's `common.identities` (fail-closed: only wrangle's reusable-workflow signer passes) and the SLSA tenets, then emits the signed VSA. It's gated on `should-release`, so it runs on every release; it is not opt-out-able. If verification fails the workflow fails and your publish job is blocked via `needs:`. This closes the wrangle→caller-publish handoff (the caller→registry segment is bound by Trusted Publishing's `workflow_ref` claim, which npm validates at upload time).
 
 ## Verifying after install (downstream consumers)
 

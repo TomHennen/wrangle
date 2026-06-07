@@ -785,7 +785,7 @@ write_pkg_json() {
 }
 
 @test "npm: example workflow grants contents: write to build job" {
-    # wrangle's vsa job declares contents: write (it attaches the VSA to the
+    # wrangle's verify job declares contents: write (it attaches the VSA to the
     # release on tags); GitHub validates that the caller of wrangle's reusable
     # workflow grants the same at workflow startup, regardless of the run's ref.
     run grep -E 'contents: write' "$EXAMPLE"
@@ -843,7 +843,7 @@ write_pkg_json() {
 }
 
 @test "npm: workflow has NO provenance job and NO slsa generator/verifier ref" {
-    # attest-build-provenance is the sole provenance; the vsa job is the sole
+    # attest-build-provenance is the sole provenance; the verify job is the sole
     # verify. Patterns are narrow on purpose: a bare `slsa-verifier` would
     # false-fail on the workflow comment that names the old verifier job in prose.
     run grep -E '^  provenance:' "$WORKFLOW"
@@ -854,21 +854,21 @@ write_pkg_json() {
     [[ "$status" -ne 0 ]]
 }
 
-@test "npm: vsa job references the per-eco provenance policy" {
-    run bash -c "sed -n '/^  vsa:/,\$p' \"$WORKFLOW\" | grep -F 'policy: policies/wrangle-provenance-npm-v1.hjson'"
+@test "npm: verify job references the per-eco provenance policy" {
+    run bash -c "sed -n '/^  verify:/,\$p' \"$WORKFLOW\" | grep -F 'policy: policies/wrangle-provenance-npm-v1.hjson'"
     [[ "$status" -eq 0 ]]
 }
 
-@test "npm: vsa job collects the staged bundle via the jsonl collector" {
+@test "npm: verify job collects the staged bundle via the jsonl collector" {
     # The bundle the attest job staged is read back as one-JSON-per-line.
-    run bash -c "sed -n '/^  vsa:/,\$p' \"$WORKFLOW\" | grep -F 'collector: jsonl:provenance/provenance.jsonl'"
+    run bash -c "sed -n '/^  verify:/,\$p' \"$WORKFLOW\" | grep -F 'collector: jsonl:provenance/provenance.jsonl'"
     [[ "$status" -eq 0 ]]
 }
 
-@test "npm: attest job uploads the provenance bundle the vsa job needs" {
-    # The vsa job depends on attest and reads its uploaded bundle artifact.
+@test "npm: attest job uploads the provenance bundle the verify job needs" {
+    # The verify job depends on attest and reads its uploaded bundle artifact.
     run bash -c "sed -n '/^  attest:/,/^  [a-z]/p' \"$WORKFLOW\" | grep -E 'name: npm-provenance-bundle-'"
     [[ "$status" -eq 0 ]]
-    run bash -c "sed -n '/^  vsa:/,\$p' \"$WORKFLOW\" | grep -E 'needs:.*attest'"
+    run bash -c "sed -n '/^  verify:/,\$p' \"$WORKFLOW\" | grep -E 'needs:.*attest'"
     [[ "$status" -eq 0 ]]
 }

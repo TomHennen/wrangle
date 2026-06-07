@@ -19,7 +19,7 @@ on:
 jobs:
   build:
     permissions:
-      contents: write   # goreleaser creates the Release; the VSA job attaches the VSA to it
+      contents: write   # goreleaser creates the Release; the verify job attaches the VSA to it
       id-token: write   # OIDC for Sigstore keyless signing
       attestations: write   # wrangle's attest job writes GitHub-issued SLSA provenance
     uses: TomHennen/wrangle/.github/workflows/build_and_publish_go.yml@v0.2.0
@@ -160,9 +160,9 @@ with:
 
 Full vocabulary in [`docs/SPEC.md`](../../../docs/SPEC.md) "Release-events gating."
 
-## SLSA provenance verification (the `vsa` job)
+## SLSA provenance verification (the `verify` job)
 
-After goreleaser publishes, the `vsa` job verifies the provenance — ampel (via `actions/verify`) checks the provenance's Sigstore signature against the wrangle PolicySet's `common.identities` (fail-closed: only wrangle's reusable-workflow signer passes) and the SLSA tenets, then emits the signed VSA. It's gated on `should-release`, so it runs on every release; it is not opt-out-able. If verification fails the workflow fails and any downstream `needs:` job is blocked. This is wrangle dogfooding the same kind of check downstream consumers will run — if it fails, consumers running verify will fail too, so the artifact is effectively rejected at the security-aware-consumer layer regardless of whether bad provenance reached the attestation store. (See "Publish first, attest second" above for why presence ≠ trust in the SLSA model.)
+After goreleaser publishes, the `verify` job verifies the provenance — ampel (via `actions/verify`) checks the provenance's Sigstore signature against the wrangle PolicySet's `common.identities` (fail-closed: only wrangle's reusable-workflow signer passes) and the SLSA tenets, then emits the signed VSA. It's gated on `should-release`, so it runs on every release; it is not opt-out-able. If verification fails the workflow fails and any downstream `needs:` job is blocked. This is wrangle dogfooding the same kind of check downstream consumers will run — if it fails, consumers running verify will fail too, so the artifact is effectively rejected at the security-aware-consumer layer regardless of whether bad provenance reached the attestation store. (See "Publish first, attest second" above for why presence ≠ trust in the SLSA model.)
 
 ### Verifying after install (downstream consumers)
 

@@ -572,10 +572,10 @@ func main() {}
 
 # --- Reusable workflow tests ---
 
-@test "go: workflow has guard, gate, checks, release, attest, vsa jobs" {
-    # attest (attest-build-provenance) + vsa replace the removed
+@test "go: workflow has guard, gate, checks, release, attest, verify jobs" {
+    # attest (attest-build-provenance) + verify replace the removed
     # slsa-github-generator provenance: and slsa-verifier verify: jobs.
-    for job in guard gate checks release attest vsa; do
+    for job in guard gate checks release attest verify; do
         run grep -E "^  ${job}:" "$WORKFLOW"
         [[ "$status" -eq 0 ]]
     done
@@ -585,7 +585,7 @@ func main() {}
     # Without an explicit `if:`, GitHub Actions skips a downstream job
     # whose needed-job is *skipped*. So `run-tests: false` (which
     # sets `if: ${{ inputs.run-tests }}` on checks → skips it) would
-    # cascade to release/attest/vsa and nothing would build.
+    # cascade to release/attest/verify and nothing would build.
     # The release job's `if:` must explicitly allow needs.checks.result
     # == 'skipped' to keep the documented behavior — "checks skipped,
     # release proceeds with quality gates unenforced."
@@ -1292,7 +1292,7 @@ func TestFails(t *testing.T) {
 }
 
 @test "go: workflow has NO provenance job and NO slsa generator/verifier ref" {
-    # attest-build-provenance is the sole provenance; the vsa job is the sole
+    # attest-build-provenance is the sole provenance; the verify job is the sole
     # verify. Patterns are narrow on purpose: a bare `slsa.*generator` would
     # false-fail on the workflow comment that names the old generator in prose.
     run grep -E '^  provenance:' "$WORKFLOW"
@@ -1303,21 +1303,21 @@ func TestFails(t *testing.T) {
     [[ "$status" -ne 0 ]]
 }
 
-@test "go: vsa job references the per-eco provenance policy" {
-    run bash -c "sed -n '/^  vsa:/,\$p' \"$WORKFLOW\" | grep -F 'policy: policies/wrangle-provenance-go-v1.hjson'"
+@test "go: verify job references the per-eco provenance policy" {
+    run bash -c "sed -n '/^  verify:/,\$p' \"$WORKFLOW\" | grep -F 'policy: policies/wrangle-provenance-go-v1.hjson'"
     [[ "$status" -eq 0 ]]
 }
 
-@test "go: vsa job collects the staged bundle via the jsonl collector" {
+@test "go: verify job collects the staged bundle via the jsonl collector" {
     # The bundle the attest job staged is read back as one-JSON-per-line.
-    run bash -c "sed -n '/^  vsa:/,\$p' \"$WORKFLOW\" | grep -F 'collector: jsonl:provenance/provenance.jsonl'"
+    run bash -c "sed -n '/^  verify:/,\$p' \"$WORKFLOW\" | grep -F 'collector: jsonl:provenance/provenance.jsonl'"
     [[ "$status" -eq 0 ]]
 }
 
-@test "go: attest job uploads the provenance bundle the vsa job needs" {
-    # The vsa job depends on attest and reads its uploaded bundle artifact.
+@test "go: attest job uploads the provenance bundle the verify job needs" {
+    # The verify job depends on attest and reads its uploaded bundle artifact.
     run bash -c "sed -n '/^  attest:/,/^  [a-z]/p' \"$WORKFLOW\" | grep -E 'name: go-provenance-bundle-'"
     [[ "$status" -eq 0 ]]
-    run bash -c "sed -n '/^  vsa:/,\$p' \"$WORKFLOW\" | grep -E 'needs:.*attest'"
+    run bash -c "sed -n '/^  verify:/,\$p' \"$WORKFLOW\" | grep -E 'needs:.*attest'"
     [[ "$status" -eq 0 ]]
 }

@@ -157,7 +157,7 @@ Wrangle's reusable workflows run an `attest:` job (`actions/attest-build-provena
 
 - **`id-token: write`** — OIDC for Sigstore keyless signing (both the provenance attestation and the VSA).
 - **`attestations: write`** — for the `attest:` job to write the provenance to GitHub's attestation store.
-- **`contents: write`** — for the `vsa:` job to attach the VSA to the GitHub release (npm/go/python). This is *not* the old generator's `upload-assets` requirement — there is no generator upload job anymore. The container vsa job stores the VSA in the registry instead, so container callers grant **`packages: write`** (which the attest job also reuses to push the attestation referrer to GHCR) rather than `contents: write`.
+- **`contents: write`** — for the `vsa:` job to attach the VSA to the GitHub release (npm/go/python). This is *not* the old generator's `upload-assets` requirement — there is no generator upload job anymore. The container verify job stores the VSA in the registry instead, so container callers grant **`packages: write`** (which the attest job also reuses to push the attestation referrer to GHCR) rather than `contents: write`.
 
 **What to do:** Read the reusable workflow you're calling, identify every permission its jobs declare, and grant the union in your reusable workflow's caller AND in the example workflow AND in the wrangle-test fixture's job. PR #156 hit this three times before getting it right.
 

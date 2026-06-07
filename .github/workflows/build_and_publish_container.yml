@@ -72,7 +72,7 @@ on:
       should-release:
         description: |
           "true" if the current event matches release-events; "false" otherwise.
-          Wrangle gates the attest and vsa jobs on this internally; callers can
+          Wrangle gates the attest and verify jobs on this internally; callers can
           gate downstream release-time jobs on it too.
         value: ${{ jobs.gate.outputs.should-release }}
 
@@ -139,11 +139,7 @@ jobs:
 
   # Generate SLSA L3 build provenance via GitHub's attestation API, naming THIS
   # reusable workflow as builder.id (its job_workflow_ref) and the Sigstore
-  # signing identity — closing the build-confusion gap (the generic generator's
-  # builder.id named the generator, not the workflow that ran the build). This is
-  # wrangle's sole container provenance; the attestation is pushed to the registry
-  # as an OCI referrer and read by the vsa job via the oci: collector, which
-  # verifies its Sigstore signature against the policy.
+  # signing identity
   attest:
     if: ${{ needs.gate.outputs.should-release == 'true' }}
     needs: [guard, gate, build]
@@ -155,7 +151,7 @@ jobs:
       contents: read
     steps:
       # push-to-registry authenticates to ghcr with the job's GITHUB_TOKEN, like
-      # the build and vsa jobs. Same pin as the vsa job's login — bump together.
+      # the build and verify jobs. Same pin as the verify job's login — bump together.
       - name: Log in to ghcr for the attestation push
         uses: docker/login-action@650006c6eb7dba73a995cc03b0b2d7f5ca915bee # v4.2.0
         with:
@@ -168,7 +164,7 @@ jobs:
         with:
           subject-name: ${{ needs.build.outputs.imagename }}
           subject-digest: ${{ needs.build.outputs.digest }}
-          push-to-registry: true
+          push-to-registry: true   # store the provenance as an OCI referrer on the image
 
   # Emit a signed SLSA Verification Summary Attestation (VSA) for the image.
   # ampel evaluates the image's SLSA provenance against the container PolicySet
@@ -186,7 +182,7 @@ jobs:
   # index platform entry, NOT a referrer, so oci: never sees it. Needs `attest`
   # so the referrer exists before the collector reads it. Exercised only by the
   # integration dispatch.
-  vsa:
+  verify:
     if: ${{ needs.gate.outputs.should-release == 'true' }}
     needs: [guard, gate, build, attest]
     runs-on: ubuntu-latest

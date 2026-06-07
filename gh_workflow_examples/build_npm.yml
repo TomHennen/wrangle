@@ -19,7 +19,7 @@
 # https://github.com/npm/documentation/issues/1755
 #
 # Wrangle's reusable workflow generates SLSA provenance (Build L3); its
-# `vsa` job then verifies that provenance (fail-closed, via ampel against
+# `verify` job then verifies that provenance (fail-closed, via ampel against
 # the wrangle PolicySet) and emits the signed VSA before declaring
 # success. If verification fails, the workflow fails and `needs: [build]`
 # blocks publish — so adopters don't need to wire `slsa-verifier` into
@@ -43,7 +43,7 @@ on:
 jobs:
   build:
     permissions:
-      contents: write   # wrangle's vsa job attaches the VSA to the release on tags; GitHub validates at startup even on non-tag runs
+      contents: write   # wrangle's verify job attaches the VSA to the release on tags; GitHub validates at startup even on non-tag runs
       id-token: write   # OIDC for Sigstore signing
       attestations: write   # wrangle's attest job writes GitHub-issued SLSA provenance
     uses: TomHennen/wrangle/.github/workflows/build_and_publish_npm.yml@v0.2.0
@@ -56,7 +56,7 @@ jobs:
 
   publish:
     # Gate on the should-release output. should-release is "true" only when
-    # the wrangle workflow succeeded (which includes the vsa job's
+    # the wrangle workflow succeeded (which includes the verify job's
     # provenance verification), so by the time this job runs the tarball
     # has already been verified against its provenance.
     if: ${{ needs.build.outputs.should-release == 'true' }}

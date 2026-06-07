@@ -116,7 +116,7 @@ on:
         description: "Name of the uploaded dist/ artifact (download with this name to retrieve binaries + checksums.txt)"
         value: ${{ jobs.release.outputs.dist-artifact-name }}
       provenance-artifact-name:
-        description: "Name of the SLSA provenance bundle workflow artifact — a Sigstore bundle (one JSON object per line) covering all dist subjects. Empty when should-release is false."
+        description: "Name of the workflow artifact containing the SLSA provenance bundle — one JSON object per line, covering all dist subjects. Empty when should-release is false."
         value: ${{ jobs.attest.outputs.bundle-artifact-name }}
       metadata-artifact-name:
         description: "Name of the workflow artifact containing sbom.spdx.json. Format: `go-metadata-<shortname>`."
@@ -127,7 +127,7 @@ on:
       should-release:
         description: |
           "true" if the current event matches release-events; "false"
-          otherwise. Wrangle gates the attest and vsa jobs on this internally.
+          otherwise. Wrangle gates the attest and verify jobs on this internally.
         value: ${{ jobs.gate.outputs.should-release }}
 
 jobs:
@@ -184,7 +184,7 @@ jobs:
           run-race-detector: ${{ inputs.run-race-detector }}
           run-gofmt-check: ${{ inputs.run-gofmt-check }}
           # Caches are disabled on release builds (the same `should-release`
-          # signal that gates the attest/vsa jobs) — Go's build cache trusts pre-
+          # signal that gates the attest/verify jobs) — Go's build cache trusts pre-
           # derived compiled output without re-derivation (same shape as
           # the uv-cache L3 gap). PR builds keep caching for fast
           # iteration; no provenance is produced.
@@ -225,7 +225,7 @@ jobs:
       shortname: ${{ steps.release.outputs.shortname }}
       dist-artifact-name: go-dist-${{ steps.release.outputs.shortname }}
       metadata-artifact-name: go-metadata-${{ steps.release.outputs.shortname }}
-      # JSON array of dist filenames, so the vsa job can fan out one VSA per artifact.
+      # JSON array of dist filenames, so the verify job can fan out one VSA per artifact.
       dist-files: ${{ steps.distfiles.outputs.files }}
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
@@ -260,7 +260,7 @@ jobs:
           set -euo pipefail
           printf 'module=%s\n' "$(go -C "$INPUT_PATH" list -m | head -n1)" >> "$GITHUB_OUTPUT"
 
-      # Emit the dist filenames as a JSON array for the vsa job's matrix.
+      # Emit the dist filenames as a JSON array for the verify job's matrix.
       # Derived from the build's base64 `hashes` output (the "<sha256>  <name>" lines the
       # provenance covers, from dist/checksums.txt), reduced to basenames.
       - id: distfiles
@@ -270,8 +270,8 @@ jobs:
         run: |
           set -euo pipefail
           files="$(printf '%s' "$HASHES" | base64 -d | awk '{ sub(/^.*\//, "", $2); print $2 }' | jq -R . | jq -cs .)"
-          # Fail closed: an empty array would expand the vsa matrix to zero
-          # shards, skipping the release-gating VSA job — and a skipped job
+          # Fail closed: an empty array would expand the verify matrix to zero
+          # shards, skipping the release-gating verify job — and a skipped job
           # propagates as success. Never let the gate collapse silently.
           if [[ "$files" == "[]" ]]; then
               printf 'no dist files to attest — refusing to emit an empty VSA matrix\n' >&2
@@ -292,12 +292,8 @@ jobs:
           if-no-files-found: error
 
   # Generate SLSA L3 build provenance via GitHub's attestation API, naming THIS
-  # reusable workflow as builder.id (its job_workflow_ref) and as the Sigstore
-  # signing identity — closing the build-confusion gap the generic generator left
-  # open (its builder.id was the generator, not the workflow that ran the build).
-  # L3: the attest step runs inside this reusable workflow, the isolated trusted
-  # builder. This is wrangle's sole provenance; the signed bundle is fed to the
-  # vsa job, which verifies its Sigstore signature against the policy.
+  # reusable workflow as builder.id (its job_workflow_ref) and the Sigstore
+  # signing identity
   attest:
     if: ${{ needs.gate.outputs.should-release == 'true' }}
     needs: [guard, gate, release]
@@ -323,7 +319,7 @@ jobs:
         with:
           subject-checksums: dist/checksums.txt
 
-      # Stage the signed provenance bundle as a workflow artifact for the vsa
+      # Stage the signed provenance bundle as a workflow artifact for the verify
       # job; jq -c normalizes it to one JSON object per line for ampel's jsonl:
       # collector. One multi-subject bundle (the matrix shards == checksums entries).
       - name: Stage the provenance bundle for the VSA
@@ -352,7 +348,7 @@ jobs:
   # publish; it (a) fails the overall workflow conclusion so any downstream caller
   # job gated on this reusable workflow is blocked, and (b) surfaces a
   # policy/tooling regression loudly. Keep fail: true for both effects.
-  vsa:
+  verify:
     if: ${{ needs.gate.outputs.should-release == 'true' }}
     needs: [guard, gate, release, attest]
     runs-on: ubuntu-latest
