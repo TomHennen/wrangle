@@ -34,14 +34,24 @@ on:
         required: false
         type: string
         default: "osv zizmor scorecard:info dependency-review"
+      go-cache:
+        description: >
+          Set to "enabled" to cache the Go module + build caches the
+          scan tools build from source (osv-scanner et al. — #343).
+          Default off: the cache is ~1.5–3 GB against this repo's
+          Actions cache quota. Source scanning produces no provenance,
+          so caching is L3-safe here regardless.
+        required: false
+        type: string
+        default: ""
       go-tools-dir:
         description: >
           Workspace-relative directory holding a go.mod + go.sum whose
           `go install tool` deps your setup-script builds. When set, the
-          build and scan jobs cache the Go module + build caches keyed on
+          shell-build job caches the Go module + build caches keyed on
           that go.sum, so those tools aren't recompiled from source every
           run. The cache counts against your repo's Actions quota. Empty
-          (default) disables Go caching.
+          (default) disables it. To cache the scan tools, use go-cache.
         required: false
         type: string
         default: ""
@@ -82,7 +92,7 @@ jobs:
         if: ${{ inputs.scan-tools != '' }}
         with:
           tools: ${{ inputs.scan-tools }}
-          go-cache: ${{ inputs.go-tools-dir != '' && 'enabled' || '' }}
+          go-cache: ${{ inputs.go-cache }}
 
   shell-build:
     needs: [guard]
