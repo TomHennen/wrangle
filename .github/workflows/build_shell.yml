@@ -37,11 +37,11 @@ on:
       go-tools-dir:
         description: >
           Workspace-relative directory holding a go.mod + go.sum whose
-          `go install tool` deps the setup-script builds (e.g. wrangle's
-          own "tools"). When set, the build caches the Go module + build
-          caches keyed on that go.sum and enables the same on the scan
-          job. Empty (default) disables Go caching — leave it off for
-          shell builds that don't compile Go tooling.
+          `go install tool` deps your setup-script builds. When set, the
+          build and scan jobs cache the Go module + build caches keyed on
+          that go.sum, so those tools aren't recompiled from source every
+          run. The cache counts against your repo's Actions quota. Empty
+          (default) disables Go caching.
         required: false
         type: string
         default: ""
@@ -82,8 +82,6 @@ jobs:
         if: ${{ inputs.scan-tools != '' }}
         with:
           tools: ${{ inputs.scan-tools }}
-          # Only the dogfood caller sets go-tools-dir; adopters get no
-          # surprise Go cache against their quota.
           go-cache: ${{ inputs.go-tools-dir != '' && 'enabled' || '' }}
 
   shell-build:
