@@ -110,6 +110,19 @@ adopter consuming wrangle through one of wrangle's **reusable workflows**:
 > The per-builder generator analysis below is retained as the historical record
 > of the pre-#316 architecture; it is not the current implementation.
 
+> **Update — 2026-06-13 ([#396](https://github.com/TomHennen/wrangle/issues/396)).**
+> The source-scan job in all four `build_and_publish_*` workflows gained an
+> opt-in `go-cache` input (default off) that caches the Go module + build
+> caches `actions/scan`'s `go install` populates for osv-scanner et al. On
+> these attested workflows the cache is **force-disabled on release**
+> (`needs.gate.outputs.should-release == 'true'`), exactly like the artifact
+> caches Findings 1–2 gate: the scan gates the attested release and the Go
+> build cache trusts compiled output on a hit, so a release-blocking scanner
+> must build cold — otherwise a poisoned cache could forge a passing scan.
+> Only PR / non-release runs cache (no provenance; per-PR cache scope).
+> **The Build Track levels above are unchanged** — nothing cached reaches a
+> release build.
+
 Two caveats narrow every Build L3 row above:
 
 - **Direct composite consumption is not a supported L3 path.** Calling the

@@ -132,6 +132,20 @@ teardown() {
     [[ "$status" -eq 0 ]]
 }
 
+@test "container: scan job needs gate so go-cache can read should-release" {
+    local wf="$REPO_ROOT/.github/workflows/build_and_publish_container.yml"
+    run bash -c "sed -n '/^  scan:/,/^  [a-z]/p' \"$wf\" | grep -E 'needs:.*gate'"
+    [[ "$status" -eq 0 ]]
+}
+
+@test "container: scan job forces go-cache off on release" {
+    # The scan gates the attested build; its Go tool cache must build cold on
+    # release so a poisoned cache cannot forge a passing scan.
+    local wf="$REPO_ROOT/.github/workflows/build_and_publish_container.yml"
+    run bash -c "sed -n '/^  scan:/,/^  [a-z]/p' \"$wf\" | grep -E \"go-cache:.*should-release == 'true' && ''\""
+    [[ "$status" -eq 0 ]]
+}
+
 @test "container: build job needs scan (load-bearing finding blocks the mid-composite push)" {
     local wf="$REPO_ROOT/.github/workflows/build_and_publish_container.yml"
     run bash -c "sed -n '/^  build:/,/^  [a-z]/p' \"$wf\" | grep -E 'needs:.*scan'"
