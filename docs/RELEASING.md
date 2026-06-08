@@ -78,31 +78,39 @@ where both repos are at known commits.
 ## 2. Wrangle's own release tags
 
 Wrangle's reusable workflows are pinned by adopters at a specific
-release. Today these tags are cut manually, and every release **must be
-published as a GitHub Release** — a bare `git tag`/`git push` creates no
-Release object, and only a published Release gets an immutable tag (see
-the prerequisite below).
+release. These tags are cut manually, and every release **must be
+published as a GitHub Release** — a bare `git tag`/`git push` creates
+only a loose tag with no release attestation. Two tag-immutability
+controls (below) are already configured on the repo.
 
 1. Update the version reference in
    [`AGENTS.md`](../AGENTS.md) and any pinned `uses:` examples in
    `gh_workflow_examples/`.
 2. Publish a Release on the target commit: GitHub's **Draft a new
    release** UI (pick the commit, type `vX.Y.Z`, publish), or
-   `gh release create vX.Y.Z`. Do **not** release with a bare
-   `git tag && git push` — it produces no Release, so the tag stays
-   mutable.
+   `gh release create vX.Y.Z`. Never ship a bare `git tag && git push`
+   — it creates no Release, so no attestation.
 3. After the tag exists, update the companion's
    `showcase.yml` to repoint its `@main` pins to `@vX.Y.Z`
    ([`wrangle-test#10`](https://github.com/TomHennen/wrangle-test/issues/10)).
 
-**Prerequisite — [immutable releases](https://docs.github.com/en/code-security/concepts/supply-chain-security/immutable-releases),
-enabled once in repo settings.** With it on, each published Release's
-tag is locked to its commit and can't be moved or deleted, so an adopter
-pinning `@vX.Y.Z` gets SHA-grade integrity from a tag. It binds only
-releases cut after it's enabled; tags published earlier stay mutable
-until republished. wrangle attaches nothing to its own Releases, so this
-imposes no draft-then-publish ordering here — unlike the build-type
-publish flows, which do (the VSA is attached post-publish).
+**Tag immutability — two controls, already enabled (one-time setup; not
+re-done per release):**
+
+- [Immutable releases](https://docs.github.com/en/code-security/concepts/supply-chain-security/immutable-releases)
+  (repo setting): a published Release's tag is locked to its commit, its
+  assets can't change, and its name can't be reused. Binds only releases
+  cut after it was turned on, so `v0.2.0` and earlier stay mutable until
+  republished.
+- A repository **tag ruleset** (no bypass) blocking updates and
+  deletions: **no** tag can be moved or deleted. This is the backstop
+  that makes a `uses: …@vX.Y.Z` pin safe even for a tag with no Release —
+  a tag can never be repointed at other code, so a stray tag can't be
+  weaponized.
+
+wrangle attaches nothing to its own Releases, so this needs no
+draft-then-publish ordering here — unlike the build-type publish flows,
+which do (the VSA is attached post-publish).
 
 Wrangle does not currently ship a release-helper workflow; tagging is
 a release-management concern that belongs to the maintainer's chosen
