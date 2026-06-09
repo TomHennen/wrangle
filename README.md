@@ -60,6 +60,12 @@ jobs:
 
 Once they've done this they'll get tests run, scanning, attestations, etc.
 
+Add one more file to keep wrangle current: copy
+[`gh_workflow_examples/dependabot.yml`](gh_workflow_examples/dependabot.yml) to
+`.github/dependabot.yml`. It raises a PR whenever a newer wrangle release is available so your
+pin (and the security tooling behind it) doesn't go stale — review and merge those yourself, and
+don't enable auto-merge (see [Staying up to date](#staying-up-to-date)).
+
 ## How Wrangle Works
 
 Behind that one workflow call, wrangle runs your code through a pipeline of well-known security
