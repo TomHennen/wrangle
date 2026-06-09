@@ -4,7 +4,7 @@ Wrangle's reusable workflows are exercised end-to-end in three places. This is t
 
 ## The three layers
 
-- **Dogfooding** — wrangle runs its own workflows on its own repo (`check_source_change.yml`, `build_shell.yml`). If a feature doesn't work on wrangle itself, it is broken. Covers only the build types wrangle actually *is* (shell, source-change), not npm/python/container/go.
+- **Dogfooding** — wrangle runs its own workflows on its own repo: `local_build_shell.yml` calls `build_shell.yml`, which embeds the source scan and runs the integration bats suites via `test/setup_integration.sh`. If a feature doesn't work on wrangle itself, it is broken. Covers only the build type wrangle actually *is* (shell), not npm/python/container/go.
 - **Integration test (PR-time)** — on every internal PR, `integration-test.yml` runs `test/integration/dispatch.sh`, which pushes an ephemeral branch to the companion repo (`tomhennen/wrangle-test`) and waits for the companion's run to pass. It is the only e2e coverage for the build types wrangle can't dogfood. Design + threat model: [test/integration/SPEC.md](../test/integration/SPEC.md).
 - **Showcase (post-merge)** — `release-showcase.yml` fires on **every push to `main`** and, via `push_showcase_tag.sh`, pushes a `vYYYYMMDD-<sha>` tracking tag to the companion repo whenever wrangle's source changed since the last tag. The companion's `showcase.yml` then runs the reusable workflows against a real release. This is an **unattended heartbeat** — it runs automatically on the merge commit, with no human in the loop.
 

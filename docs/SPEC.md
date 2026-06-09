@@ -1078,13 +1078,13 @@ Layers:
 4. **SARIF schema validation** — validates fixture/output SARIF against the 2.1.0 JSON schema
 5. **zizmor** — workflow security linter run against `.github/workflows/`, `actions/`, `tools/`, `build/`. Findings fail `make test`; the only suppression surface is `.zizmor.yml`.
 
-`./test.sh` (the canonical preflight) runs all of the above. Use `./test.sh quick` for an inner-loop iteration that skips zizmor when you're only touching shell or bats fixtures — but the full suite must pass before pushing. `./test.sh ci` is an explicit alias for the full suite.
+`./test.sh` (the canonical preflight) runs all of the above. Use `./test.sh quick` for an inner-loop iteration that skips zizmor when you're only touching shell or bats fixtures — but the full suite must pass before pushing. `./test.sh ci` is an explicit alias for the full suite. `./test.sh integration` is the non-hermetic layer: it installs the real integration toolchain (test/setup_integration.sh) inside the same container and runs the Makefile's INTEGRATION_BATS suites — the local equivalent of the dogfooded shell build.
 
 **Adapter testing pattern:** Per-tool `test.bats` files (in `tools/<name>/`) test the adapter and install scripts in isolation using mock tool binaries that produce fixture SARIF. This keeps local tests fast and deterministic. The `test/` directory contains integration tests that exercise the orchestrator and composite action end-to-end, plus shared fixtures (sample SARIF files, SARIF JSON schema) and CI-specific tests that download real tools and run them against the wrangle repo itself (dogfooding).
 
 ### CI (integration)
 
-`.github/workflows/test.yml` runs `make test` plus integration tests that exercise the composite action via `uses: ./actions/scan`.
+`.github/workflows/test.yml` runs `make test` (the containerized unit suite) plus the pin-ancestry check. The integration bats suites run through wrangle's dogfooded shell build: `local_build_shell.yml` calls `build_shell.yml` with `test/setup_integration.sh` as the setup-script, which also embeds the source scan (`uses: ./actions/scan` equivalent coverage).
 
 ### End-to-end (cross-repo)
 

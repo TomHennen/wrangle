@@ -1,0 +1,31 @@
+name: Build Shell
+
+# Wrangle dogfooding its own shell build type: source scan + shellcheck over
+# the whole tree + the integration bats suites (real binaries + network,
+# installed by the setup-script). Subsumes the standalone scan trigger —
+# build_shell.yml embeds the same scan job.
+
+on:
+  push:
+    branches: ["main"]
+  pull_request:
+    branches: ["**"]
+  workflow_dispatch:
+
+jobs:
+  build-shell:
+    permissions:
+      actions: read
+      contents: read
+      security-events: write
+    # ./ resolves to this repo at the PR branch ref, so PR CI tests
+    # the actual code in the PR (not main).
+    uses: ./.github/workflows/build_shell.yml
+    with:
+      setup-script: test/setup_integration.sh
+      # Same list as the Makefile's INTEGRATION_BATS (drift-checked by
+      # test/test_setup_integration.bats).
+      bats-path: "tools/osv/test.bats policies/test.bats actions/verify/test_run_verify.bats actions/verify/test_validate_verify_inputs.bats test/consumer/verify_consumer_vsa.bats"
+      # Explicit rather than relying on build_shell.yml's default, so a
+      # default drift can't silently change wrangle's own scan coverage.
+      scan-tools: "osv zizmor scorecard:info dependency-review"

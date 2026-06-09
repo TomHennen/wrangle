@@ -2,7 +2,7 @@
 set -euo pipefail
 set -f
 
-# Run bats tests, either against an explicit <bats-path> or by
+# Run bats tests, either against explicit <bats-path> entries or by
 # auto-detecting .bats files under <scan-path>.
 #
 # bats EXECUTES caller-supplied .bats files (arbitrary bash), a direct
@@ -11,7 +11,8 @@ set -f
 # stop_commands_guard.sh — see #225 / docs/SLSA_L3_AUDIT.md Finding 3.
 #
 # Usage: run_bats.sh <bats-path> <scan-path>
-#   bats-path:  explicit path to .bats files, or "" to auto-detect.
+#   bats-path:  space-separated path(s) to .bats files or directories,
+#               or "" to auto-detect.
 #   scan-path:  subtree to auto-detect .bats files under (already
 #               validated by run_shellcheck.sh, which runs first).
 
@@ -28,12 +29,17 @@ SCAN_PATH="$2"
 
 printf '=== bats ===\n'
 
-# Validate bats-path if provided via the shared allowlist (relative, no
+# Validate every bats-path entry via the shared allowlist (relative, no
 # traversal, safe charset); lib/validate_path.sh exits non-zero and set -e
 # aborts here. scan-path is validated by run_shellcheck.sh, which runs first.
+# The split is safe under set -f (no glob expansion), and the allowlist
+# charset has no whitespace, so entries can't contain hidden separators.
 if [[ -n "$BATS_PATH" ]]; then
-    "$VALIDATE_PATH" "$BATS_PATH"
-    "$GUARD" run bats "$BATS_PATH"
+    read -r -a bats_paths <<< "$BATS_PATH"
+    for p in "${bats_paths[@]}"; do
+        "$VALIDATE_PATH" "$p"
+    done
+    "$GUARD" run bats "${bats_paths[@]}"
 else
     # Auto-detect: find all .bats files under scan-path. scan-path was
     # validated by run_shellcheck.sh, which runs first.

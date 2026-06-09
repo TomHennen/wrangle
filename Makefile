@@ -1,4 +1,13 @@
-.PHONY: all test lint shellcheck shellstyle workflowstyle bats zizmor bump-action-pins
+.PHONY: all test lint shellcheck shellstyle workflowstyle bats zizmor integration bump-action-pins
+
+# bash, not the default sh: the integration recipe sources lib/env.sh,
+# whose `set -o pipefail` dash doesn't reliably support.
+SHELL := /bin/bash
+
+# The bats suites that need real binaries and network (skip_or_fail-gated).
+# local_build_shell.yml passes the same list as build_shell.yml's bats-path;
+# test/test_setup_integration.bats fails if the two drift.
+INTEGRATION_BATS := tools/osv/test.bats policies/test.bats actions/verify/test_run_verify.bats actions/verify/test_validate_verify_inputs.bats test/consumer/verify_consumer_vsa.bats
 
 # Default target
 all: test
@@ -36,6 +45,13 @@ shellcheck:
 bats:
 	@echo "=== bats ==="
 	@bats test/ test/lib/ test/consumer/ test/integration/ tools/*/test.bats actions/*/*.bats build/actions/*/test.bats
+
+# Non-hermetic: installs real tools (network, registries, Sigstore) via
+# test/setup_integration.sh, then runs the integration bats suites. NOT in
+# `test` — the default suite stays deterministic. Run via ./test.sh integration.
+integration:
+	@echo "=== integration ==="
+	@source lib/env.sh && ./test/setup_integration.sh && bats $(INTEGRATION_BATS)
 
 # Workflow security linting (matches tools/zizmor/action.yml's CI invocation).
 # --no-online-audits keeps the test container offline-friendly; the

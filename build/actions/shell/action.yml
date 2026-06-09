@@ -1,7 +1,8 @@
 name: Wrangle Shell Build
 description: |
-  Build action for shell projects. Runs shellcheck on all .sh files
-  and bats tests (if present).
+  Build action for shell projects. Optionally runs a setup script to
+  install test dependencies, then shellcheck (.sh at full severity,
+  .bats at warning+) and bats tests (if present).
   This is the build type wrangle uses on itself (dogfooding).
 
 inputs:
@@ -15,9 +16,9 @@ inputs:
     default: "."
   bats-path:
     description: >
-      Path to bats test files. If set, overrides auto-detection and runs bats
-      against exactly this path. If empty (default), bats auto-detects .bats
-      files under scan-path.
+      Space-separated path(s) to bats test files or directories. If set,
+      overrides auto-detection and runs bats against exactly these paths.
+      If empty (default), bats auto-detects .bats files under scan-path.
     required: false
     default: ""
   setup-script:

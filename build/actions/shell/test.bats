@@ -86,9 +86,11 @@ setup() {
 }
 
 @test "shell: run_shellcheck.sh runs shellcheck under the stop-commands guard" {
-    # shellcheck echoes excerpts of source lines in its diagnostics, and
-    # the source files come from the caller's repo. A `.sh` file with a
+    # The shellcheck diagnostics echo excerpts of source lines, and the
+    # source files come from the caller's repo. A `.sh` file with a
     # line starting `::add-mask::` could reach the step log unguarded.
+    # (A comment here must not BEGIN with the word shellcheck — that
+    # token starts a directive and is a parse error mid-sentence.)
     # GUARD must resolve to lib/stop_commands_guard.sh and the xargs
     # invocation must spawn it, not bare shellcheck.
     run grep -F 'GUARD="$SCRIPT_DIR/../../../lib/stop_commands_guard.sh"' "$ACTION_DIR/run_shellcheck.sh"
@@ -113,13 +115,13 @@ setup() {
     # and auto-detected file list) must run under the guard.
     run grep -F 'GUARD="$SCRIPT_DIR/../../../lib/stop_commands_guard.sh"' "$ACTION_DIR/run_bats.sh"
     [[ "$status" -eq 0 ]]
-    run grep -F '"$GUARD" run bats "$BATS_PATH"' "$ACTION_DIR/run_bats.sh"
+    run grep -F '"$GUARD" run bats "${bats_paths[@]}"' "$ACTION_DIR/run_bats.sh"
     [[ "$status" -eq 0 ]]
     run grep -F '"$GUARD" run bats "${bats_files[@]}"' "$ACTION_DIR/run_bats.sh"
     [[ "$status" -eq 0 ]]
-    # Bare `bats "$BATS_PATH"` / `bats "${bats_files[@]}"` (no guard)
+    # Bare `bats "${bats_paths[@]}"` / `bats "${bats_files[@]}"` (no guard)
     # must not creep back.
-    run grep -E '^[[:space:]]+bats[[:space:]]+"\$BATS_PATH"[[:space:]]*$' "$ACTION_DIR/run_bats.sh"
+    run grep -E '^[[:space:]]+bats[[:space:]]+"\$\{bats_paths\[@\]}"[[:space:]]*$' "$ACTION_DIR/run_bats.sh"
     [[ "$status" -ne 0 ]]
     run grep -E '^[[:space:]]+bats[[:space:]]+"\$\{bats_files\[@\]}"[[:space:]]*$' "$ACTION_DIR/run_bats.sh"
     [[ "$status" -ne 0 ]]
@@ -169,6 +171,14 @@ setup() {
     run "$ACTION_DIR/run_bats.sh" "/etc" "."
     [ "$status" -eq 1 ]
     [[ "$output" == *"path must be relative"* ]]
+}
+
+@test "shell: run_bats.sh validates every entry of a multi-path bats-path" {
+    # The second entry is traversal; validation must reject the whole call
+    # before bats is invoked (so this needs no bats on PATH).
+    run "$ACTION_DIR/run_bats.sh" "test/a.bats ../evil.bats" "."
+    [ "$status" -eq 1 ]
+    [[ "$output" == *"path traversal not allowed"* ]]
 }
 
 @test "shell: run_bats.sh skips cleanly when no .bats files are found" {

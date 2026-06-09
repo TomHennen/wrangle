@@ -36,14 +36,22 @@ if [[ ! -d "$SCAN_PATH" ]]; then
     exit 1
 fi
 
-# find -print0 + xargs -0 for safe filename handling. shellcheck also
-# supports .bats files (bash syntax). Each xargs batch is one guarded
-# invocation; the guard preserves shellcheck's exit status so findings
-# still fail the step. -x --source-path=SCRIPTDIR follows `source`d libs
-# relative to each script's own directory, so findings in sourced helpers
-# surface instead of being masked by SC1091 "not following".
-find "$SCAN_PATH" \( -name '*.sh' -o -name '*.bats' \) \
+# find -print0 + xargs -0 for safe filename handling. Each xargs batch is
+# one guarded invocation; the guard preserves shellcheck's exit status so
+# findings still fail the step. -x --source-path=SCRIPTDIR follows
+# `source`d libs relative to each script's own directory, so findings in
+# sourced helpers surface instead of being masked by SC1091 "not following".
+find "$SCAN_PATH" -name '*.sh' \
     -not -path '*/.git/*' \
     -not -path '*/node_modules/*' \
     -print0 | xargs -0 -r "$GUARD" run shellcheck -x --source-path=SCRIPTDIR
+
+# .bats files (bash syntax) are linted at warning+ only: shellcheck's
+# info/style classes misfire on core bats idioms — every @test runs in its
+# own subshell (SC2030/SC2031) and fixture strings carry literal `$`
+# (SC2016) — which would bury the real findings for any bats suite.
+find "$SCAN_PATH" -name '*.bats' \
+    -not -path '*/.git/*' \
+    -not -path '*/node_modules/*' \
+    -print0 | xargs -0 -r "$GUARD" run shellcheck -x --source-path=SCRIPTDIR --severity=warning
 printf 'shellcheck: all scripts under %s passed\n' "$SCAN_PATH"
