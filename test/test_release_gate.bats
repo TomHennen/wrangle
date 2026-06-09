@@ -4,7 +4,8 @@
 
 setup() {
     SCRIPT="$BATS_TEST_DIRNAME/../actions/release_gate/release_gate.sh"
-    export TEST_DIR="$(mktemp -d)"
+    TEST_DIR="$(mktemp -d)"
+    export TEST_DIR
     export GITHUB_OUTPUT="$TEST_DIR/output"
     : > "$GITHUB_OUTPUT"
 }

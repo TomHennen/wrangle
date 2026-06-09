@@ -12,7 +12,7 @@ setup() {
     TEST_DIR="$(mktemp -d)"
     ORIG_DIR="$(pwd)"
 
-    cd "$TEST_DIR"
+    cd "$TEST_DIR" || exit 1
     git init -q
     git config user.email "t@t"
     git config user.name "t"
@@ -27,7 +27,7 @@ setup() {
 }
 
 teardown() {
-    cd "$ORIG_DIR"
+    cd "$ORIG_DIR" || exit 1
     rm -rf "$TEST_DIR"
 }
 
@@ -62,8 +62,8 @@ EOF
     grep -q "@${NEW_SHA} # test-branch 2099-12-31" .github/workflows/a.yml
     # No fragment of the old comment may survive — these substrings
     # are what leaked through under BSD sed before the fix.
-    ! grep -q "implement-npm-build-type-draft" .github/workflows/a.yml
-    ! grep -q "2026-05-11" .github/workflows/a.yml
+    if grep -q "implement-npm-build-type-draft" .github/workflows/a.yml; then return 1; fi
+    if grep -q "2026-05-11" .github/workflows/a.yml; then return 1; fi
 }
 
 @test "bump_action_pins: adds comment when pin lacks one" {

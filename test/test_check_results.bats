@@ -3,14 +3,16 @@
 # Tests for lib/check_results.sh
 
 setup() {
-    export TEST_DIR="$(mktemp -d)"
-    export ORIG_DIR="$(pwd)"
+    TEST_DIR="$(mktemp -d)"
+    export TEST_DIR
+    ORIG_DIR="$(pwd)"
+    export ORIG_DIR
     export METADATA="$TEST_DIR/metadata"
     mkdir -p "$METADATA"
 }
 
 teardown() {
-    cd "$ORIG_DIR"
+    cd "$ORIG_DIR" || exit 1
     rm -rf "$TEST_DIR"
 }
 

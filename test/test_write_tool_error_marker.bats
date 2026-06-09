@@ -3,7 +3,8 @@
 # Tests for lib/write_tool_error_marker.sh (wrangle_write_tool_error_marker)
 
 setup() {
-    export ORIG_DIR="$(pwd)"
+    ORIG_DIR="$(pwd)"
+    export ORIG_DIR
     TMPDIR_TEST="$(mktemp -d)"
     source "$ORIG_DIR/lib/write_tool_error_marker.sh"
 }

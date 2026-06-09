@@ -4,8 +4,10 @@
 # Uses mock tool directories with mock install/adapter scripts.
 
 setup() {
-    export TEST_DIR="$(mktemp -d)"
-    export ORIG_DIR="$(pwd)"
+    TEST_DIR="$(mktemp -d)"
+    export TEST_DIR
+    ORIG_DIR="$(pwd)"
+    export ORIG_DIR
 
     # Create a mock tools directory structure that run.sh can find
     export MOCK_TOOLS="$TEST_DIR/tools"
@@ -165,7 +167,7 @@ ADAPT
 }
 
 teardown() {
-    cd "$ORIG_DIR"
+    cd "$ORIG_DIR" || exit 1
     rm -rf "$TEST_DIR"
 }
 

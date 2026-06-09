@@ -4,8 +4,10 @@
 # TDD: these tests define the contract before implementation.
 
 setup() {
-    export TEST_DIR="$(mktemp -d)"
-    export ORIG_DIR="$(pwd)"
+    TEST_DIR="$(mktemp -d)"
+    export TEST_DIR
+    ORIG_DIR="$(pwd)"
+    export ORIG_DIR
 
     # Source the library
     # shellcheck source=../../lib/download_verify.sh

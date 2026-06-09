@@ -80,8 +80,8 @@ teardown() {
 
 @test "run_verify: ampel args omit context and attestation when empty" {
     mapfile -t args < <(wrangle_ampel_verify_args)
-    ! printf '%s\n' "${args[@]}" | grep -qx -- "--context"
-    ! printf '%s\n' "${args[@]}" | grep -qx -- "--attestation"
+    if printf '%s\n' "${args[@]}" | grep -qx -- "--context"; then return 1; fi
+    if printf '%s\n' "${args[@]}" | grep -qx -- "--attestation"; then return 1; fi
 }
 
 @test "run_verify: ampel args include context and attestation when set" {
@@ -356,6 +356,6 @@ SHIM
     run "$SCRIPT" attach
     [[ "$status" -eq 0 ]]            # no release is not an error — VSA stays the artifact
     [[ "$output" == *"workflow artifact only"* ]]
-    ! grep -q "release create" "$GH_LOG"
-    ! grep -q "release upload" "$GH_LOG"
+    if grep -q "release create" "$GH_LOG"; then return 1; fi
+    if grep -q "release upload" "$GH_LOG"; then return 1; fi
 }

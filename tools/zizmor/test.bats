@@ -8,7 +8,8 @@
 # integration testing happens via dogfooding in CI.
 
 setup() {
-    export ORIG_DIR="$(pwd)"
+    ORIG_DIR="$(pwd)"
+    export ORIG_DIR
     export TOOL_DIR="$ORIG_DIR/tools/zizmor"
     TMP_DIR="$(mktemp -d "${TMPDIR:-/tmp}/zizmor-bats-XXXXXX")"
     export TMP_DIR

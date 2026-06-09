@@ -180,7 +180,7 @@ OCI_DIGEST="@sha256:000000000000000000000000000000000000000000000000000000000000
 # --- sourced form ---
 
 @test "validate_verify_inputs: function is sourceable and callable" {
-    # shellcheck source=../../lib/validate_verify_inputs.sh
+    # shellcheck source=validate_verify_inputs.sh
     source "$SCRIPT"
     run wrangle_validate_verify_inputs "app.tgz" "sha256:abc" "p.json" "jsonl:a" "true" "" "" ""
     [[ "$status" -eq 0 ]]

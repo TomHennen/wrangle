@@ -622,7 +622,7 @@ write_pkg_json() {
     grep -qE '^npm test$' <<<"$output"
     grep -qE '^npm pack --pack-destination dist$' <<<"$output"
     # No pnpm invocations should leak into the npm path.
-    ! grep -qE '^pnpm ' <<<"$output"
+    if grep -qE '^pnpm ' <<<"$output"; then return 1; fi
     grep -q '^tarball=x-1.0.0.tgz$' "$GITHUB_OUTPUT"
 }
 
@@ -662,7 +662,7 @@ write_pkg_json() {
     # and the jq path-not-found error must not appear.
     grep -qE '^npm run build$' <<<"$output"
     grep -qE '^npm test$' <<<"$output"
-    ! grep -qE 'Could not open file' <<<"$output"
+    if grep -qE 'Could not open file' <<<"$output"; then return 1; fi
     [[ "$output" != *"No build script in package.json"* ]]
     [[ "$output" != *"No non-default test script"* ]]
     grep -q '^tarball=x-1.0.0.tgz$' "$GITHUB_OUTPUT"
@@ -679,8 +679,8 @@ write_pkg_json() {
     [[ "$status" -eq 0 ]]
     grep -qE '^npm ci --ignore-scripts$' <<<"$output"
     grep -qE '^npm pack --pack-destination dist --ignore-scripts$' <<<"$output"
-    ! grep -qE '^npm run build$' <<<"$output"
-    ! grep -qE '^npm test$' <<<"$output"
+    if grep -qE '^npm run build$' <<<"$output"; then return 1; fi
+    if grep -qE '^npm test$' <<<"$output"; then return 1; fi
     [[ "$output" == *"Skipping npm run build and npm test"* ]]
 }
 

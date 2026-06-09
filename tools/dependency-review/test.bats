@@ -7,7 +7,8 @@
 # orchestration script, using fixture JSON.
 
 setup() {
-    export ORIG_DIR="$(pwd)"
+    ORIG_DIR="$(pwd)"
+    export ORIG_DIR
     export TOOL_DIR="$ORIG_DIR/tools/dependency-review"
     TMP_DIR="$(mktemp -d "${TMPDIR:-/tmp}/depreview-bats-XXXXXX")"
     export TMP_DIR

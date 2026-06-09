@@ -740,7 +740,7 @@ init_go_module() {
     local dir="$1"
     mkdir -p "$dir"
     (
-        cd "$dir"
+        cd "$dir" || exit 1
         # `go 1.26` matches the test image's installed version so
         # setup-go-style version-file behavior stays consistent.
         printf 'module example.com/wrangle-test-go\n\ngo 1.26\n' > go.mod

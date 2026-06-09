@@ -3,7 +3,8 @@
 # Tests for lib/sarif_to_md.sh
 
 setup() {
-    export ORIG_DIR="$(pwd)"
+    ORIG_DIR="$(pwd)"
+    export ORIG_DIR
     export SCRIPT="$ORIG_DIR/lib/sarif_to_md.sh"
 }
 

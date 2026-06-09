@@ -10,7 +10,8 @@
 # tools/scorecard/action.yml against the wrangle repo itself (dogfooding).
 
 setup() {
-    export ORIG_DIR="$(pwd)"
+    ORIG_DIR="$(pwd)"
+    export ORIG_DIR
     TMP_DIR="$(mktemp -d "${TMPDIR:-/tmp}/scorecard-bats-XXXXXX")"
     export TMP_DIR
     SCRIPT="$ORIG_DIR/tools/scorecard/sarif_to_markdown.sh"

@@ -422,7 +422,7 @@ SARIF
     [ "$md_rows" -eq "$unique_rules" ]
 
     # And no file:// prefix leaked into the summary.
-    ! grep -q "file://" "$TMP_DIR/output/output.md"
+    if grep -q "file://" "$TMP_DIR/output/output.md"; then return 1; fi
 
     # Deterministic content check: the fixture pins gogo/protobuf v1.3.1
     # which has had CVE-2021-3121 published since 2021. If this stops
