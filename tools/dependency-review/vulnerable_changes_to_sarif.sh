@@ -83,7 +83,9 @@ fi
 #     not "removed", so it too is surfaced.
 # Empty advisory_url / advisory_summary are omitted (SARIF requires
 # helpUri to be a valid URI when present; empty strings fail strict
-# validators).
+# validators). helpUri lives on the rule ONLY: SARIF allows it solely on
+# reportingDescriptor, and GitHub's code-scanning upload rejects a result
+# carrying it ("not allowed to have the additional property helpUri").
 # shellcheck disable=SC2016 # $pairs is a jq variable, not bash — single quotes intentional
 SARIF_FILTER='
   def sarif_level(s):
@@ -137,30 +139,25 @@ SARIF_FILTER='
         },
         results: [
           $pairs[]
-          | (
-              {
-                ruleId: .vuln.advisory_ghsa_id,
-                level: sarif_level(.vuln.severity),
-                message: {
-                  text: ("\(.vuln.advisory_summary // "Vulnerability") in \(.change.ecosystem // "?"):\(.change.name)@\(.change.version) (severity: \(.vuln.severity // "unknown"))")
-                },
-                locations: [{
-                  physicalLocation: {
-                    artifactLocation: { uri: (.change.manifest // "") }
-                  }
-                }],
-                properties: {
-                  "security-severity": security_severity(.vuln.severity),
-                  ghsa_id: (.vuln.advisory_ghsa_id // ""),
-                  package: ("\(.change.ecosystem // "?"):\(.change.name)@\(.change.version)"),
-                  ecosystem: (.change.ecosystem // ""),
-                  change_type: (.change.change_type // "")
+          | {
+              ruleId: .vuln.advisory_ghsa_id,
+              level: sarif_level(.vuln.severity),
+              message: {
+                text: ("\(.vuln.advisory_summary // "Vulnerability") in \(.change.ecosystem // "?"):\(.change.name)@\(.change.version) (severity: \(.vuln.severity // "unknown"))")
+              },
+              locations: [{
+                physicalLocation: {
+                  artifactLocation: { uri: (.change.manifest // "") }
                 }
+              }],
+              properties: {
+                "security-severity": security_severity(.vuln.severity),
+                ghsa_id: (.vuln.advisory_ghsa_id // ""),
+                package: ("\(.change.ecosystem // "?"):\(.change.name)@\(.change.version)"),
+                ecosystem: (.change.ecosystem // ""),
+                change_type: (.change.change_type // "")
               }
-              + (if (.vuln.advisory_url // "") != ""
-                  then {helpUri: .vuln.advisory_url}
-                  else {} end)
-            )
+            }
         ]
       }]
     }

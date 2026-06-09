@@ -259,6 +259,25 @@ EOF
     printf '%s' "$output" | jq -e '[.runs[].tool.driver.rules[]] | length == 0' >/dev/null
 }
 
+@test "converter: advisory_url -> helpUri on the rule only, never on results" {
+    # SARIF allows helpUri solely on reportingDescriptor; GitHub's
+    # code-scanning upload rejects a result carrying it ("not allowed to
+    # have the additional property helpUri") and the whole scan job fails.
+    cat > "$TMP_DIR/in.json" <<'EOF'
+[
+  { "change_type": "added", "manifest": "go.mod", "ecosystem": "gomod", "name": "a", "version": "1",
+    "vulnerabilities": [
+      { "severity": "high", "advisory_ghsa_id": "GHSA-aaa", "advisory_summary": "a", "advisory_url": "https://example.com/a" }
+    ]
+  }
+]
+EOF
+    run "$TOOL_DIR/vulnerable_changes_to_sarif.sh" "$TMP_DIR/in.json"
+    [ "$status" -eq 0 ]
+    printf '%s' "$output" | jq -e '.runs[0].tool.driver.rules[0].helpUri == "https://example.com/a"' >/dev/null
+    printf '%s' "$output" | jq -e '[.runs[].results[] | has("helpUri")] | any | not' >/dev/null
+}
+
 @test "converter: missing advisory_url -> helpUri key omitted (SARIF spec)" {
     cat > "$TMP_DIR/in.json" <<'EOF'
 [
