@@ -20,6 +20,14 @@ inputs:
       files under scan-path.
     required: false
     default: ""
+  setup-script:
+    description: >
+      Workspace-relative path to a bash script that installs test
+      dependencies. Runs after shellcheck/bats are installed and before the
+      checks. If empty (default), no setup runs. The script is arbitrary
+      bash, so it executes under the same workflow-command guard as bats.
+    required: false
+    default: ""
 
 runs:
   using: "composite"
@@ -45,6 +53,18 @@ runs:
           sudo apt-get update -qq && sudo apt-get install -y -qq bats
         fi
         printf 'bats version: %s\n' "$(bats --version)"
+
+    # The setup-script is arbitrary adopter bash and its install hooks print
+    # tool-controlled output, so it runs under stop_commands_guard.sh (#225 /
+    # SLSA_L3_AUDIT.md Finding 3). Empty path is a no-op. Validation and guard
+    # wiring live in run_setup.sh.
+    - name: Run setup script
+      shell: bash
+      env:
+        SETUP_SCRIPT: ${{ inputs.setup-script }}
+      run: |
+        set -euo pipefail
+        "${{ github.action_path }}/run_setup.sh" "$SETUP_SCRIPT"
 
     # shellcheck echoes excerpts of caller-controlled source lines in its
     # diagnostics, so the invocation must run under stop_commands_guard.sh

@@ -26,6 +26,16 @@ setup() {
     [ "$status" -eq 0 ]
 }
 
+@test "shell: has Run setup script step" {
+    run grep 'Run setup script' "$ACTION_DIR/action.yml"
+    [ "$status" -eq 0 ]
+}
+
+@test "shell: accepts setup-script input" {
+    run grep 'setup-script:' "$ACTION_DIR/action.yml"
+    [ "$status" -eq 0 ]
+}
+
 # --- Reusable workflow scan job ---------------------------------------------
 # build_shell.yml's scan is independent: there is no artifact to gate
 # publishing of, so nothing downstream needs scan. A load-bearing finding
@@ -48,9 +58,10 @@ setup() {
 
 # --- Delegation to extracted scripts ----------------------------------------
 
-@test "shell: run_shellcheck.sh and run_bats.sh exist and are executable" {
+@test "shell: run_shellcheck.sh, run_bats.sh and run_setup.sh exist and are executable" {
     [[ -x "$ACTION_DIR/run_shellcheck.sh" ]]
     [[ -x "$ACTION_DIR/run_bats.sh" ]]
+    [[ -x "$ACTION_DIR/run_setup.sh" ]]
 }
 
 @test "shell: action.yml delegates the shellcheck step to run_shellcheck.sh" {
@@ -60,6 +71,11 @@ setup() {
 
 @test "shell: action.yml delegates the bats step to run_bats.sh" {
     run grep -F 'run_bats.sh' "$ACTION_DIR/action.yml"
+    [ "$status" -eq 0 ]
+}
+
+@test "shell: action.yml delegates the setup step to run_setup.sh" {
+    run grep -F 'run_setup.sh' "$ACTION_DIR/action.yml"
     [ "$status" -eq 0 ]
 }
 
@@ -84,6 +100,13 @@ setup() {
     [[ "$status" -ne 0 ]]
 }
 
+@test "shell: run_shellcheck.sh follows sourced libs (-x --source-path=SCRIPTDIR)" {
+    # Without -x, findings in `source`d helpers are masked by SC1091. This
+    # matches the depth the Makefile already holds wrangle's own scripts to.
+    run grep -F 'run shellcheck -x --source-path=SCRIPTDIR' "$ACTION_DIR/run_shellcheck.sh"
+    [[ "$status" -eq 0 ]]
+}
+
 @test "shell: run_bats.sh runs both invocation paths under the stop-commands guard" {
     # bats executes arbitrary user .bats files — a direct injection path
     # via printf '::add-mask::...'. BOTH branches (explicit bats-path
@@ -99,6 +122,18 @@ setup() {
     run grep -E '^[[:space:]]+bats[[:space:]]+"\$BATS_PATH"[[:space:]]*$' "$ACTION_DIR/run_bats.sh"
     [[ "$status" -ne 0 ]]
     run grep -E '^[[:space:]]+bats[[:space:]]+"\$\{bats_files\[@\]}"[[:space:]]*$' "$ACTION_DIR/run_bats.sh"
+    [[ "$status" -ne 0 ]]
+}
+
+@test "shell: run_setup.sh runs the setup-script under the stop-commands guard" {
+    # The setup-script is arbitrary adopter bash and its install hooks print
+    # tool-controlled output — a `printf '::add-mask::...'` injection path.
+    run grep -F 'GUARD="$SCRIPT_DIR/../../../lib/stop_commands_guard.sh"' "$ACTION_DIR/run_setup.sh"
+    [[ "$status" -eq 0 ]]
+    run grep -F '"$GUARD" run bash "$SETUP_SCRIPT"' "$ACTION_DIR/run_setup.sh"
+    [[ "$status" -eq 0 ]]
+    # Bare `bash "$SETUP_SCRIPT"` (no guard) must not creep back.
+    run grep -E '^[[:space:]]+bash[[:space:]]+"\$SETUP_SCRIPT"[[:space:]]*$' "$ACTION_DIR/run_setup.sh"
     [[ "$status" -ne 0 ]]
 }
 
@@ -148,4 +183,46 @@ setup() {
     run "$ACTION_DIR/run_bats.sh" "only-one"
     [ "$status" -eq 1 ]
     [[ "$output" == *"Usage:"* ]]
+}
+
+@test "shell: run_setup.sh is a no-op when setup-script is empty" {
+    run "$ACTION_DIR/run_setup.sh" ""
+    [ "$status" -eq 0 ]
+    [[ "$output" == *"no setup-script provided, skipping"* ]]
+}
+
+@test "shell: run_setup.sh rejects an absolute setup-script path" {
+    run "$ACTION_DIR/run_setup.sh" "/etc/passwd"
+    [ "$status" -eq 1 ]
+    [[ "$output" == *"path must be relative"* ]]
+}
+
+@test "shell: run_setup.sh rejects path traversal in setup-script" {
+    run "$ACTION_DIR/run_setup.sh" "../evil.sh"
+    [ "$status" -eq 1 ]
+    [[ "$output" == *"path traversal not allowed"* ]]
+}
+
+@test "shell: run_setup.sh rejects a setup-script that is not a file" {
+    run "$ACTION_DIR/run_setup.sh" "no_such_setup_xyz.sh"
+    [ "$status" -eq 1 ]
+    [[ "$output" == *"is not a file"* ]]
+}
+
+@test "shell: run_setup.sh usage error with no args" {
+    run "$ACTION_DIR/run_setup.sh"
+    [ "$status" -eq 1 ]
+    [[ "$output" == *"Usage:"* ]]
+}
+
+@test "shell: run_setup.sh runs a valid setup-script" {
+    # Real script (no shim): a setup-script that creates a marker, exercising
+    # the guarded `bash <path>` invocation end to end.
+    local marker="$BATS_TEST_TMPDIR/ran"
+    printf '#!/bin/bash\ntouch %q\n' "$marker" > "$BATS_TEST_TMPDIR/setup.sh"
+    cd "$BATS_TEST_TMPDIR"
+    run "$ACTION_DIR/run_setup.sh" "setup.sh"
+    [ "$status" -eq 0 ]
+    [[ -f "$marker" ]]
+    [[ "$output" == *"setup.sh completed"* ]]
 }

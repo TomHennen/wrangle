@@ -17,6 +17,13 @@ on:
         required: false
         type: string
         default: ""
+      setup-script:
+        description: >
+          Workspace-relative path to a bash script that installs test
+          dependencies, run before the checks. Empty disables setup.
+        required: false
+        type: string
+        default: ""
       scan-tools:
         description: |
           Space-separated source-scan tools (suffix :info for
@@ -76,3 +83,4 @@ jobs:
         with:
           scan-path: ${{ inputs.scan-path }}
           bats-path: ${{ inputs.bats-path }}
+          setup-script: ${{ inputs.setup-script }}

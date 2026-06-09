@@ -71,7 +71,7 @@ The `build/actions/` directory is the extensibility point for different project 
 
 | Build type | Directory | What it does | Status |
 |-----------|-----------|-------------|--------|
-| Shell | `build/actions/shell/` | Run shellcheck + tests (bats/shunit2), no publishable artifact | v0.1 (wrangle dogfoods this) |
+| Shell | `build/actions/shell/` | Optional setup-script (install test deps), run shellcheck + tests (bats/shunit2), no publishable artifact | v0.1 (wrangle dogfoods this) |
 | Container | `build/actions/container/` | Docker build, SBOM, sign, push | v0.1 (exists) |
 | Python | `build/actions/python/` | Build wheel/sdist, generate SBOM, publish to PyPI | Future |
 | npm | `build/actions/npm/` | Build, generate SBOM, publish to npm registry | Future |

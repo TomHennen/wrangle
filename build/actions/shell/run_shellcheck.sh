@@ -39,9 +39,11 @@ fi
 # find -print0 + xargs -0 for safe filename handling. shellcheck also
 # supports .bats files (bash syntax). Each xargs batch is one guarded
 # invocation; the guard preserves shellcheck's exit status so findings
-# still fail the step.
+# still fail the step. -x --source-path=SCRIPTDIR follows `source`d libs
+# relative to each script's own directory, so findings in sourced helpers
+# surface instead of being masked by SC1091 "not following".
 find "$SCAN_PATH" \( -name '*.sh' -o -name '*.bats' \) \
     -not -path '*/.git/*' \
     -not -path '*/node_modules/*' \
-    -print0 | xargs -0 -r "$GUARD" run shellcheck
+    -print0 | xargs -0 -r "$GUARD" run shellcheck -x --source-path=SCRIPTDIR
 printf 'shellcheck: all scripts under %s passed\n' "$SCAN_PATH"
