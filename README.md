@@ -27,6 +27,39 @@ uses one of wrangle's reusable workflows.  With that single job developers get:
 The promise is that if developers use wrangle, wrangle will take care of drudgery, safely,
 and let developers focus on the features they want to ship.
 
+## Quick Start
+
+Developers can copy & adapt one of the ecosystem specific examples from [./gh_workflow_examples](gh_workflow_examples),
+putting it in their .github/workflows directory.
+
+This is what it looks like for go (which also needs a `.goreleaser.yml` — see the table below).
+
+```yaml
+name: Go Build
+
+on:
+  push:
+    branches: ["main"]  # source scan + snapshot build on main (no publish); drop to skip per-merge builds
+    tags: ["v*"]       # publish on version tags
+  pull_request:
+    branches: ["**"]   # build + test on PRs (no provenance, no publish)
+  workflow_dispatch:
+
+jobs:
+  build:
+    permissions:
+      contents: write         # goreleaser creates the Release; verify job attaches the VSA
+      id-token: write         # OIDC for Sigstore signing
+      attestations: write     # GitHub-issued SLSA provenance
+      actions: read           # source scan: Scorecard reads the Actions API
+      security-events: write  # source-scan SARIF -> Security tab
+    uses: TomHennen/wrangle/.github/workflows/build_and_publish_go.yml@v0.2.0
+    with:
+      path: "."
+```
+
+Once they've done this they'll get tests run, scanning, attestations, etc.
+
 ## How Wrangle Works
 
 You add **one workflow file** to your repo that calls a wrangle reusable workflow. From there,
@@ -37,9 +70,8 @@ don't have to wire them up, configure them, or keep them current yourself.
 
 Depending on the ecosystem you pick, a run moves through these stages:
 
-1. **Scan the source** — checks your dependencies for known vulnerabilities (OSV), lints your
-   GitHub Actions workflows for unsafe patterns (Zizmor), and assesses your repo's overall
-   security posture (Scorecard).
+1. **Scan the source** — checks your dependencies for known vulnerabilities (OSV) and lints your
+   GitHub Actions workflows for unsafe patterns (Zizmor).
 2. **Run your tests** — wrangle runs your existing test suite; it orchestrates your tests, it
    doesn't replace them.
 3. **Build the artifact** — compiles/packages your project using safe defaults for your
@@ -78,39 +110,6 @@ Wrangle is a supply-chain security tool, so its defaults lean toward safety:
 
 You don't have to be a security expert to get these properties; adopting wrangle is how you get
 them.
-
-## Quick Start
-
-Developers can copy & adapt one of the ecosystem specific examples from [./gh_workflow_examples](gh_workflow_examples),
-putting it in their .github/workflows directory.
-
-This is what it looks like for go (which also needs a `.goreleaser.yml` — see the table below).
-
-```yaml
-name: Go Build
-
-on:
-  push:
-    branches: ["main"]  # source scan + snapshot build on main (no publish); drop to skip per-merge builds
-    tags: ["v*"]       # publish on version tags
-  pull_request:
-    branches: ["**"]   # build + test on PRs (no provenance, no publish)
-  workflow_dispatch:
-
-jobs:
-  build:
-    permissions:
-      contents: write         # goreleaser creates the Release; verify job attaches the VSA
-      id-token: write         # OIDC for Sigstore signing
-      attestations: write     # GitHub-issued SLSA provenance
-      actions: read           # source scan: Scorecard reads the Actions API
-      security-events: write  # source-scan SARIF -> Security tab
-    uses: TomHennen/wrangle/.github/workflows/build_and_publish_go.yml@v0.2.0
-    with:
-      path: "."
-```
-
-Once they've done this they'll get tests run, scanning, attestations, etc.
 
 ## Ecosystems
 
