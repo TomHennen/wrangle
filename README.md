@@ -62,9 +62,9 @@ Once they've done this they'll get tests run, scanning, attestations, etc.
 
 ## How Wrangle Works
 
-You add **one workflow file** to your repo that calls a wrangle reusable workflow. From there,
-wrangle runs your code through a pipeline of well-known security and supply-chain tools so you
-don't have to wire them up, configure them, or keep them current yourself.
+Behind that one workflow call, wrangle runs your code through a pipeline of well-known security
+and supply-chain tools so you don't have to wire them up, configure them, or keep them current
+yourself.
 
 ### The pipeline
 
@@ -76,17 +76,15 @@ Depending on the ecosystem you pick, a run moves through these stages:
    doesn't replace them.
 3. **Build the artifact** — compiles/packages your project using safe defaults for your
    ecosystem (Go, Python, npm, or a container image).
-4. **Describe what's inside** — generates an [SBOM](https://spdx.dev) (a bill of materials of
-   every dependency) and scans it for vulnerabilities.
-5. **Sign and attest** — signs the artifact and produces
-   [SLSA Build Level 3 provenance](https://slsa.dev/spec/v1.2/levels): tamper-evident proof of
-   exactly how and where it was built.
-6. **Verify before shipping** — checks that provenance against a policy and emits a
-   [VSA](https://slsa.dev/verification_summary/v1) so the people who consume your artifact can
-   verify it with a single command.
+4. **Describe what's inside** — generates an SBOM (a bill of materials of every dependency) and
+   scans it for vulnerabilities.
+5. **Sign and attest** — signs the artifact and produces SLSA Build Level 3 provenance:
+   tamper-evident proof of exactly how and where it was built.
+6. **Verify before shipping** — checks that provenance against a policy and emits a VSA so the
+   people who consume your artifact can verify it with a single command.
 
 Source-only and shell projects run the checks without producing a published artifact; the other
-ecosystems run the whole pipeline.
+ecosystems run the whole pipeline. (The intro bullets above link out to each of these terms.)
 
 ### Maintained for you
 
@@ -105,15 +103,19 @@ Wrangle is a supply-chain security tool, so its defaults lean toward safety:
   your GitHub Actions identity — there are no signing keys for you to manage or leak.
 - **Verifiable provenance.** The provenance ties each artifact back to the exact workflow that
   built it, and the VSA lets downstream users confirm that without trusting you blindly.
-- **Least privilege.** Workflows request only the permissions they actually need — never
-  blanket write access.
+- **Least privilege, job by job.** There is no workflow-wide permission grant. Each job inside a
+  reusable workflow declares its own minimal `permissions:` block, so the scan and test jobs run
+  read-only while only the publish, sign, and attest jobs hold write or token scopes
+  (`contents: write`, `packages: write`, `id-token: write`, `attestations: write`) — and only for
+  the length of that one job. GitHub enforces the ceiling too: a called job can narrow the
+  caller's grant but never widen it.
 
 You don't have to be a security expert to get these properties; adopting wrangle is how you get
 them.
 
 ## Ecosystems
 
-Go, Python, npm, and Container each produce a signed artifact — source scan, tests, SBOM, SLSA Build L3 provenance, and a VSA. Shell and source-only run checks without producing an artifact.
+Go, Python, npm, and Container each run the full pipeline and produce a signed, verifiable artifact; Shell and source-only run the checks only. Pick the row matching your project:
 
 | Ecosystem | README | Example |
 |-----------|--------|---------|
