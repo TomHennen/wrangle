@@ -86,11 +86,20 @@ Depending on the ecosystem you pick, a run moves through these stages:
 Source-only and shell projects run the checks without producing a published artifact; the other
 ecosystems run the whole pipeline. (The intro bullets above link out to each of these terms.)
 
-### Maintained for you
+### Staying up to date
 
 Because you reference wrangle's reusable workflows (rather than copying tool config into your
-repo), tool updates, new security checks, and fixes flow to you automatically. A security
-engineer can improve the defaults for everyone without every project having to change anything.
+repo), every new wrangle release ships freshly-pinned tool versions, new security checks, and
+fixes — and you adopt the whole bundle by bumping a single pin, not by re-plumbing anything. A
+security engineer can improve the defaults for everyone centrally.
+
+These updates do **not** apply themselves. You pin wrangle at a release tag (e.g.
+`@v0.2.0`), and you pick up new releases when that pin is bumped — so wrangle adoption is really
+**two files**: the workflow above, plus a [Dependabot config](gh_workflow_examples/dependabot.yml)
+(copy it to `.github/dependabot.yml`) that raises a PR whenever a newer wrangle tag is available.
+Without it your pin — and the security tooling behind it — silently goes stale. Review and merge
+those PRs yourself; **do not** enable auto-merge, so wrangle's ~7-day cooldown can let
+supply-chain attacks surface before you pull a new version in.
 
 ### Security is the point, not a feature
 
