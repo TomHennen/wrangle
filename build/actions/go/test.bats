@@ -455,6 +455,14 @@ func main() {}
     [[ "$status" -eq 0 ]]
 }
 
+@test "go.release: goreleaser is pinned to the triggering tag" {
+    # Several tags can point at one commit; without GORELEASER_CURRENT_TAG
+    # goreleaser picks an arbitrary one and re-targets that tag's existing
+    # Release (422 already_exists). Must be empty on non-tag builds.
+    run grep -E "GORELEASER_CURRENT_TAG: \\\$\\{\\{ startsWith\\(github\\.ref, 'refs/tags/'\\) && github\\.ref_name \\|\\| '' \\}\\}" "$RELEASE_ACTION"
+    [[ "$status" -eq 0 ]]
+}
+
 @test "go.checks: setup-go cache is gated by the cache input" {
     run grep -E "cache: \\\$\\{\\{ inputs\\.cache != 'disabled' \\}\\}" "$CHECKS_ACTION"
     [[ "$status" -eq 0 ]]

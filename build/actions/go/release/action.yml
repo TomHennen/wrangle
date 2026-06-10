@@ -175,6 +175,12 @@ runs:
         # grants contents: write at startup. Harmless when not
         # publishing.
         GITHUB_TOKEN: ${{ github.token }}
+        # Pin goreleaser to the tag that triggered this run. When several
+        # tags point at the same commit, goreleaser's own resolution picks
+        # an arbitrary one and re-targets that tag's existing Release,
+        # failing the upload with 422 already_exists. Empty on non-tag
+        # (snapshot) builds, which goreleaser treats as unset.
+        GORELEASER_CURRENT_TAG: ${{ startsWith(github.ref, 'refs/tags/') && github.ref_name || '' }}
 
     - name: Resume workflow commands (end)
       if: always()
