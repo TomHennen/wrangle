@@ -433,8 +433,9 @@ SARIF
 
 # --- install.sh: go-module install tests -----------------------------------
 # osv-scanner installs from tools/go.mod's tool directive (DEP_MGMT branch
-# 1); integrity is go.sum/sum.golang.org, freshness is Dependabot. These
-# tests are hermetic: `go list -m` reads go.mod locally, no network.
+# 1); integrity is go.sum/sum.golang.org, freshness is Dependabot. The
+# script's real behavior runs in ./test.sh integration and the dogfooded
+# shell build; these are hermetic structure guards.
 
 @test "osv install: parses" {
     run bash -n "$INSTALL"
@@ -446,52 +447,16 @@ SARIF
     grep -q 'export GOSUMDB="sum.golang.org"' "$INSTALL"
 }
 
-@test "osv install: builds from tools/go.mod, version single-sourced there" {
-    # No hardcoded version: the pin lives in go.mod (Dependabot bumps it),
-    # and the install resolves it with `go list -m`.
-    grep -q 'go -C "$TOOLS_DIR" install "${TOOL_MODULE}/cmd/osv-scanner"' "$INSTALL"
-    grep -q "go -C \"\$TOOLS_DIR\" list -m" "$INSTALL"
-    run grep -E 'VERSION="[0-9]' "$INSTALL"
+@test "osv install: builds from tools/go.mod with no version literal of its own" {
+    # The pin lives in go.mod (Dependabot bumps it); install.sh must not
+    # carry a second copy that can drift.
+    grep -q 'go -C "$TOOLS_DIR" install github.com/google/osv-scanner/v2/cmd/osv-scanner' "$INSTALL"
+    run grep -E 'VERSION=' "$INSTALL"
     [ "$status" -ne 0 ]
 }
 
 @test "osv install: go.mod pins the osv-scanner tool directive" {
     grep -q 'github.com/google/osv-scanner/v2/cmd/osv-scanner' "$ORIG_DIR/tools/go.mod"
-}
-
-@test "osv install: skips if correct version already installed" {
-    # The mock's version is derived from go.mod so a Dependabot bump can't
-    # silently turn this hermetic test into a real network `go install`.
-    local ver
-    ver="$(go -C "$ORIG_DIR/tools" list -m -f '{{.Version}}' github.com/google/osv-scanner/v2)"
-    mkdir -p "$TMP_DIR/install_bin"
-    printf '#!/bin/bash\nprintf "osv-scanner version: %s\\n"\n' "${ver#v}" \
-        > "$TMP_DIR/install_bin/osv-scanner"
-    chmod +x "$TMP_DIR/install_bin/osv-scanner"
-    WRANGLE_BIN_DIR="$TMP_DIR/install_bin" run "$INSTALL"
-    [ "$status" -eq 0 ]
-    [[ "$output" == *"already installed"* ]]
-}
-
-@test "osv install: a different installed version is not mistaken for the pin" {
-    # Anchored compare: 2.3.50 must NOT satisfy a 2.3.5 pin. The install
-    # then proceeds — and is cut off by the PATH-stripped go shim below,
-    # keeping the test hermetic.
-    mkdir -p "$TMP_DIR/wrong_bin"
-    printf '#!/bin/bash\nprintf "osv-scanner version: 99.99.99\\n"\n' \
-        > "$TMP_DIR/wrong_bin/osv-scanner"
-    chmod +x "$TMP_DIR/wrong_bin/osv-scanner"
-    cat > "$TMP_DIR/wrong_bin/go" <<'SHIM'
-#!/bin/bash
-# go shim: answer `list -m` from the real go, refuse `install` so the
-# test never reaches the network.
-if [[ "$*" == *" list "* ]]; then exec /usr/local/go/bin/go "$@"; fi
-exit 1
-SHIM
-    chmod +x "$TMP_DIR/wrong_bin/go"
-    WRANGLE_BIN_DIR="$TMP_DIR/wrong_bin" PATH="$TMP_DIR/wrong_bin:$PATH" run "$INSTALL"
-    [ "$status" -ne 0 ]
-    [[ "$output" != *"already installed"* ]]
 }
 
 # --- osv suppressions: stale-entry detector --------------------------------

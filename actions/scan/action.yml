@@ -68,10 +68,10 @@ runs:
     # github.event.pull_request.base.sha / head.sha to compute the diff.
     # See tools/dependency-review/SPEC.md.
     # TODO: replace with $/tools/dependency-review when $/ syntax ships (#136, #137)
-    # Per-tool configuration (fail-on-severity, comment-summary-in-pr) is
-    # intentionally NOT plumbed through actions/scan — see #221 for the
-    # planned native per-tool config-file approach. The wrapper's defaults
-    # (fail-on-severity: high, comment-summary-in-pr: never) apply.
+    # Per-tool options are not plumbed through actions/scan inputs (#221):
+    # each tool reads its native config file — dependency-review picks up
+    # .github/dependency-review-config.yml when the scanned repo has one.
+    # The wrapper's inline defaults (fail-on-severity: high) still apply.
     - name: Dependency Review
       if: always() && contains(inputs.tools, 'dependency-review') && github.event_name == 'pull_request'
       # Bootstrap pin (docs/e2e_testing.md): the wrapper gained native

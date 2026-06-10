@@ -448,11 +448,14 @@ INTEGRITY VERIFICATION (mandatory):
     the purpose of the stronger one.
 
     The methods, in order of preference:
-    1. SLSA provenance verification — retired along with slsa-verifier
-       (no install-script tool currently uses it; the last consumer,
-       osv-scanner, moved to the go-module path). If a binary-only tool
-       with SLSA attestations is adopted, reinstate this tier with ampel
-       as the verifier (#322).
+    1. SLSA provenance verification — the preferred method whenever a
+       binary download's publisher ships SLSA attestations. It proves the
+       binary was built from specific source by a specific builder, and is
+       sufficient on its own (no additional checksum required). No
+       install-script tool currently needs it — the Go tools build from
+       source via tools/go.mod — so wrangle ships no verifier today;
+       tooling for the next binary tool that does need it is tracked in
+       #322.
     2. Sigstore signature verification — if the tool signs releases with
        Cosign/Sigstore but does not publish full SLSA attestations, the
        install script verifies the signature. If signature verification
@@ -905,7 +908,7 @@ All downloaded binaries are verified before execution:
 |-------|-----------|--------|
 | Transport | HTTPS only | Always required |
 | Content | SHA-256 checksum (pinned in install script) | Required for tools without provenance or signatures |
-| Provenance | SLSA attestation (retired with slsa-verifier; reinstate via ampel, #322) | No current install-script tool uses it |
+| Provenance | SLSA attestation | Preferred for tools that publish it; sufficient on its own; failure = hard stop (verifier tooling: #322) |
 | Signature | Sigstore/Cosign signature verification | Required for tools that publish it; sufficient on its own; failure = hard stop |
 | sum.golang.org tlog (`go install`) | Built-in Go toolchain verification against the transparency log | The default for canonical Go modules (DEP_MGMT branch 1 — Dependabot freshness is part of the security posture); failure (go.sum mismatch) = hard stop |
 

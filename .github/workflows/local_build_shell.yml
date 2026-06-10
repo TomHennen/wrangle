@@ -8,6 +8,7 @@ name: Build Shell
 on:
   push:
     branches: ["main"]
+    tags: ["v*"]
   pull_request:
     branches: ["**"]
   workflow_dispatch:
@@ -26,6 +27,3 @@ jobs:
       # Same list as the Makefile's INTEGRATION_BATS (drift-checked by
       # test/test_setup_integration.bats).
       bats-path: "tools/osv/test.bats policies/test.bats actions/verify/test_run_verify.bats actions/verify/test_validate_verify_inputs.bats test/consumer/verify_consumer_vsa.bats"
-      # Explicit rather than relying on build_shell.yml's default, so a
-      # default drift can't silently change wrangle's own scan coverage.
-      scan-tools: "osv zizmor scorecard:info dependency-review"

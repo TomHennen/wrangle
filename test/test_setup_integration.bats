@@ -40,7 +40,3 @@ setup() {
     [[ "$mk" == "$wf" ]]
 }
 
-@test "setup_integration: workflow passes scan-tools explicitly" {
-    run grep -E 'scan-tools: *"osv ' "$REPO_ROOT/.github/workflows/local_build_shell.yml"
-    [ "$status" -eq 0 ]
-}
