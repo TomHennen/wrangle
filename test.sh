@@ -3,7 +3,7 @@ set -euo pipefail
 set -f
 
 # Run all tests in a container — no local tool installation required.
-# Usage: ./test.sh [all|ci|quick|test|bats|lint|shellcheck|shellstyle|workflowstyle|zizmor]
+# Usage: ./test.sh [all|ci|quick|test|bats|lint|shellcheck|shellstyle|workflowstyle|docstyle|zizmor]
 #
 # Builds a test container with actionlint, shellcheck, ast-grep, PyYAML,
 # bats-core, and zizmor, then runs the specified test suite (default: all).
@@ -16,6 +16,7 @@ set -f
 #   `shellcheck`          ShellCheck against all *.sh
 #   `shellstyle`          wrangle-shell-lint (ast-grep WSL rules)
 #   `workflowstyle`       wrangle-workflow-lint (python3 + PyYAML WWL rules)
+#   `docstyle`            wrangle-doc-lint (spec `→ enforced by:` pointer validation)
 #   `zizmor`              Zizmor workflow security linter only
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -25,8 +26,8 @@ TEST_TARGET="${1:-all}"
 # Validate test target. `ci` is an alias for `all` so CI configs and humans
 # can use the same name. `quick` runs the inner-loop subset (no zizmor).
 case "$TEST_TARGET" in
-    all|test|ci|quick|bats|lint|shellcheck|shellstyle|workflowstyle|zizmor) ;;
-    *) printf 'Usage: %s [all|ci|quick|test|bats|lint|shellcheck|shellstyle|workflowstyle|zizmor]\n' "$0" >&2; exit 1 ;;
+    all|test|ci|quick|bats|lint|shellcheck|shellstyle|workflowstyle|docstyle|zizmor) ;;
+    *) printf 'Usage: %s [all|ci|quick|test|bats|lint|shellcheck|shellstyle|workflowstyle|docstyle|zizmor]\n' "$0" >&2; exit 1 ;;
 esac
 
 # Check Docker is available
@@ -44,7 +45,7 @@ docker build -t "$IMAGE_NAME" -f "$SCRIPT_DIR/test/Dockerfile" "$SCRIPT_DIR"
 # leaning on word-splitting (and the SC2086 disable that used to require).
 case "$TEST_TARGET" in
     ci)    MAKE_TARGETS=(all) ;;
-    quick) MAKE_TARGETS=(lint shellcheck shellstyle workflowstyle bats) ;;
+    quick) MAKE_TARGETS=(lint shellcheck shellstyle workflowstyle docstyle bats) ;;
     *)     MAKE_TARGETS=("$TEST_TARGET") ;;
 esac
 
