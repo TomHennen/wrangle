@@ -29,14 +29,11 @@ setup() {
     [ "$status" -eq 0 ]
 }
 
-@test "setup_integration: workflow bats-path matches Makefile INTEGRATION_BATS" {
-    # The integration bats list lives in two artifact types that can't share
-    # a definition: the Makefile (make integration) and the reusable-workflow
-    # input in local_build_shell.yml. Fail on divergence.
-    local mk wf
-    mk="$(grep '^INTEGRATION_BATS :=' "$REPO_ROOT/Makefile" | sed 's/^INTEGRATION_BATS := //')"
-    wf="$(grep 'bats-path:' "$REPO_ROOT/.github/workflows/local_build_shell.yml" | sed 's/.*bats-path: *"//; s/" *$//')"
-    [[ -n "$mk" && -n "$wf" ]]
-    [[ "$mk" == "$wf" ]]
+@test "setup_integration: the dogfood workflow auto-detects bats (no explicit list)" {
+    # CI coverage must not depend on a hand-maintained file list: with
+    # bats-path unset, build_shell auto-detects every .bats in the tree.
+    # (Makefile INTEGRATION_BATS remains a local-only convenience subset.)
+    run grep 'bats-path:' "$REPO_ROOT/.github/workflows/local_build_shell.yml"
+    [ "$status" -ne 0 ]
 }
 

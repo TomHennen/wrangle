@@ -7,6 +7,7 @@ tool (
 	github.com/carabiner-dev/bnd
 	github.com/google/osv-scanner/v2/cmd/osv-scanner
 	github.com/sigstore/cosign/v3/cmd/cosign
+	golang.org/x/vuln/cmd/govulncheck
 )
 
 require (

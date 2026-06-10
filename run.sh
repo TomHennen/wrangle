@@ -55,7 +55,8 @@ for spec in "$@"; do
         printf 'wrangle: unknown tool: %s (no directory at %s/%s/)\n' "$tool" "$TOOLS_DIR" "$tool" >&2
         exit 2
     fi
-    if [[ -f "${TOOLS_DIR}/${tool}/adapter.sh" ]] && [[ -f "${TOOLS_DIR}/${tool}/install.sh" ]]; then
+    if [[ -f "${TOOLS_DIR}/${tool}/adapter.sh" ]] && \
+       { [[ -f "${TOOLS_DIR}/${tool}/install.sh" ]] || [[ -f "${TOOLS_DIR}/${tool}/go-tool" ]]; }; then
         adapter_tools+=("$tool")
     fi
 done
@@ -84,10 +85,17 @@ for tool in "${adapter_tools[@]}"; do
 
     tool_status="pass"
 
-    # Step 1: Install
+    # Step 1: Install — a bespoke install.sh when the tool has one, else
+    # the generic go.mod-tool path via the one-line go-tool marker file
+    # (lib/install_go_tool.sh validates the package against tools/go.mod).
     printf 'wrangle: installing %s...\n' "$tool"
     install_exit=0
-    timeout "$INSTALL_TIMEOUT" "${TOOLS_DIR}/${tool}/install.sh" || install_exit=$?
+    if [[ -f "${TOOLS_DIR}/${tool}/install.sh" ]]; then
+        timeout "$INSTALL_TIMEOUT" "${TOOLS_DIR}/${tool}/install.sh" || install_exit=$?
+    else
+        go_pkg="$(head -1 "${TOOLS_DIR}/${tool}/go-tool")"
+        timeout "$INSTALL_TIMEOUT" "${SCRIPT_DIR}/lib/install_go_tool.sh" "$go_pkg" || install_exit=$?
+    fi
 
     if [[ "$install_exit" -eq 124 ]]; then
         printf 'wrangle: %s install timed out after %ds\n' "$tool" "$INSTALL_TIMEOUT" >&2

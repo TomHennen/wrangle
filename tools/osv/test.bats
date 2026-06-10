@@ -33,9 +33,8 @@ setup() {
 
     ADAPTER="$ORIG_DIR/tools/osv/adapter.sh"
     RENDER="$ORIG_DIR/tools/osv/render_md.sh"
-    INSTALL="$ORIG_DIR/tools/osv/install.sh"
     REAL_FIXTURE="$ORIG_DIR/tools/osv/testdata/real_osv_findings.sarif"
-    export ADAPTER RENDER INSTALL REAL_FIXTURE
+    export ADAPTER RENDER REAL_FIXTURE
 
     mkdir -p "$MOCK_BIN" "$TMP_DIR/src" "$TMP_DIR/output"
 
@@ -431,32 +430,24 @@ SARIF
     grep -q "CVE-2021-3121" "$TMP_DIR/output/output.md"
 }
 
-# --- install.sh: go-module install tests -----------------------------------
-# osv-scanner installs from tools/go.mod's tool directive (DEP_MGMT branch
-# 1); integrity is go.sum/sum.golang.org, freshness is Dependabot. The
-# script's real behavior runs in ./test.sh integration and the dogfooded
-# shell build; these are hermetic structure guards.
+# --- install: go-tool marker -------------------------------------------------
+# osv-scanner has no install.sh: the one-line go-tool marker points run.sh
+# at lib/install_go_tool.sh, and tools/go.mod is the single source for
+# version and integrity (DEP_MGMT branch 1). Real installs run in
+# ./test.sh integration and the dogfooded shell build.
 
-@test "osv install: parses" {
-    run bash -n "$INSTALL"
+@test "osv install: go-tool marker names the osv-scanner package" {
+    run cat "$ORIG_DIR/tools/osv/go-tool"
     [ "$status" -eq 0 ]
+    [ "$output" = "github.com/google/osv-scanner/v2/cmd/osv-scanner" ]
 }
 
-@test "osv install: pins GOPROXY and GOSUMDB at the install site" {
-    grep -q 'export GOPROXY="https://proxy.golang.org,direct"' "$INSTALL"
-    grep -q 'export GOSUMDB="sum.golang.org"' "$INSTALL"
-}
-
-@test "osv install: builds from tools/go.mod with no version literal of its own" {
-    # The pin lives in go.mod (Dependabot bumps it); install.sh must not
-    # carry a second copy that can drift.
-    grep -q 'go -C "$TOOLS_DIR" install github.com/google/osv-scanner/v2/cmd/osv-scanner' "$INSTALL"
-    run grep -E 'VERSION=' "$INSTALL"
-    [ "$status" -ne 0 ]
-}
-
-@test "osv install: go.mod pins the osv-scanner tool directive" {
+@test "osv install: the marker's package is a tools/go.mod tool directive" {
     grep -q 'github.com/google/osv-scanner/v2/cmd/osv-scanner' "$ORIG_DIR/tools/go.mod"
+}
+
+@test "osv install: no bespoke install.sh (go-tool path is canonical)" {
+    [ ! -f "$ORIG_DIR/tools/osv/install.sh" ]
 }
 
 # --- osv suppressions: stale-entry detector --------------------------------

@@ -287,7 +287,7 @@ Two conditions narrow every Build L3 claim:
                    │ calls
 ┌──────────────────▼───────────────────────────────┐
 │  Orchestrator + Tools                            │
-│  run.sh → tools/<name>/install.sh                │
+│  run.sh → tools/<name>/{go-tool,install.sh}      │
 │         → tools/<name>/adapter.sh                │
 │  (download binaries, run tools, normalize output)│
 └──────────────────────────────────────────────────┘
@@ -301,12 +301,11 @@ This diagram traces the standalone scan path. Each `build_and_publish_*.yml` reu
 wrangle/
 ├── tools/                  # One directory per tool — everything in one place
 │   ├── osv/
-│   │   ├── install.sh      # Downloads + verifies OSV-Scanner binary
+│   │   ├── go-tool         # Package to install from tools/go.mod
 │   │   ├── adapter.sh      # Runs OSV-Scanner, produces SARIF
 │   │   └── test.bats       # Tests for this tool
 │   └── zizmor/
-│       ├── install.sh
-│       ├── adapter.sh
+│       ├── action.yml      # Action-pattern: wraps the official action
 │       └── test.bats
 ├── lib/                    # Shared helpers
 │   ├── download_verify.sh  # wrangle_download_verify(), wrangle_verify_signature()
@@ -403,7 +402,12 @@ SECURITY:
 
 ### Install Script Interface
 
-Each tool directory contains an `install.sh` that downloads and verifies the tool binary. Install scripts are called by the orchestrator (`run.sh`), not by users directly.
+An adapter tool is installed one of two ways, chosen per tool:
+
+- **`tools/<name>/go-tool`** (the default for Go tools): a one-line file naming the package; the orchestrator installs it via the shared `lib/install_go_tool.sh`, which requires the package to be a `tool` directive in `tools/go.mod` (go.sum integrity, Dependabot freshness — DEP_MGMT branch 1).
+- **`tools/<name>/install.sh`** (the escape hatch): a bespoke script for tools no package manager ships, downloading and verifying a binary per the integrity tiers below.
+
+Install scripts are called by the orchestrator (`run.sh`), not by users directly.
 
 **Contract:**
 
@@ -553,9 +557,11 @@ BEHAVIOR:
        that is handled by lib/check_results.sh in the scan action)
     2. Validate tool name matches ^[a-z][a-z0-9_-]*$ (reject otherwise)
     3. Verify tools/<tool>/ directory exists (reject if not — unknown tool)
-    4. Skip if tools/<tool>/adapter.sh or tools/<tool>/install.sh missing
-       (the tool is action-pattern, handled by uses: steps in the scan action)
-    5. Run tools/<tool>/install.sh (timeout: 5 minutes)
+    4. Skip if tools/<tool>/adapter.sh is missing, or neither install.sh
+       nor go-tool exists (the tool is action-pattern, handled by uses:
+       steps in the scan action)
+    5. Run tools/<tool>/install.sh, or for a go-tool marker
+       lib/install_go_tool.sh <package> (timeout: 5 minutes)
     6. Create <output_dir>/<tool>/
     7. Run tools/<tool>/adapter.sh <src_dir> <output_dir>/<tool>/ (timeout: 10 minutes)
     8. Record pass/fail status

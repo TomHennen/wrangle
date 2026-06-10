@@ -5,8 +5,8 @@
 SHELL := /bin/bash
 
 # The bats suites that need real binaries and network (skip_or_fail-gated).
-# local_build_shell.yml passes the same list as build_shell.yml's bats-path;
-# test/test_setup_integration.bats fails if the two drift.
+# Local-only convenience subset for `./test.sh integration`; CI runs every
+# .bats via the dogfooded shell build's auto-detect (local_build_shell.yml).
 INTEGRATION_BATS := tools/osv/test.bats policies/test.bats actions/verify/test_run_verify.bats actions/verify/test_validate_verify_inputs.bats test/consumer/verify_consumer_vsa.bats
 
 # Default target
