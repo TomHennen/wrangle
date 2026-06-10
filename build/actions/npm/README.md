@@ -81,7 +81,7 @@ See [`docs/SPEC.md`](../../../docs/SPEC.md) "Release-events gating" for the full
 
 ## SLSA provenance verification (the `verify` job)
 
-The `verify` job verifies the L3 provenance — ampel (via `actions/verify`) checks the provenance's Sigstore signature against the wrangle PolicySet's `common.identities` (fail-closed: only wrangle's reusable-workflow signer passes) and the SLSA tenets, then emits the signed VSA. It's gated on `should-release`, so it runs on every release; it is not opt-out-able. If verification fails the workflow fails and your publish job is blocked via `needs:`. This closes the wrangle→caller-publish handoff (the caller→registry segment is bound by Trusted Publishing's `workflow_ref` claim, which npm validates at upload time).
+The `verify` job verifies the L3 provenance — ampel (via `actions/verify`) checks the provenance's Sigstore signature against the wrangle PolicySet's `common.identities` (fail-closed: only wrangle's reusable-workflow signer passes) and the SLSA tenets, then emits the signed VSA. It's gated on `should-release`, so it runs on every release; it is not opt-out-able. If verification fails the workflow fails and your publish job is blocked via `needs:`. That gate alone doesn't bind the publish job's *bytes* — it downloads its own copy of the dist — so the example's publish job also runs [`actions/verify-artifact`](../../../actions/verify-artifact/README.md) against its download before `npm publish`, closing the wrangle→caller-publish handoff (the caller→registry segment is bound by Trusted Publishing's `workflow_ref` claim, which npm validates at upload time).
 
 ## Verifying after install (downstream consumers)
 

@@ -1,0 +1,46 @@
+name: Wrangle Verify Artifact
+description: >
+  Verify local artifact bytes against their GitHub-stored SLSA provenance
+  before publishing. Runs `gh attestation verify` on each file, binding the
+  source repository and wrangle's reusable workflow as the provenance signer.
+  Fails closed: a file with no passing attestation fails the run. Drops into
+  an adopter's publish job between `download-artifact` and the publish step,
+  so the bytes that leave the runner are the bytes wrangle attested.
+
+inputs:
+  path:
+    description: >
+      Artifact file to verify, or a directory — every regular file under it
+      (recursively) is verified.
+    required: true
+  signer-workflow:
+    description: >
+      Reusable workflow that signed the provenance, as
+      <owner>/<repo>/<path-to-workflow>.yml (e.g.
+      TomHennen/wrangle/.github/workflows/build_and_publish_npm.yml).
+      Empty accepts any wrangle build_and_publish_* workflow; set it for
+      the tightest binding.
+    required: false
+    default: ""
+  repo:
+    description: >
+      Repository whose attestation store is queried, <owner>/<repo>.
+      Defaults to the repository running the workflow.
+    required: false
+    default: ${{ github.repository }}
+  github-token:
+    description: "Token gh uses to fetch attestations from the GitHub API."
+    required: false
+    default: ${{ github.token }}
+
+runs:
+  using: composite
+  steps:
+    - name: Verify artifact against provenance
+      shell: bash
+      env:
+        ARTIFACT_PATH: ${{ inputs.path }}
+        SIGNER_WORKFLOW: ${{ inputs.signer-workflow }}
+        REPO: ${{ inputs.repo }}
+        GH_TOKEN: ${{ inputs.github-token }}
+      run: "${{ github.action_path }}/verify_artifact.sh"
