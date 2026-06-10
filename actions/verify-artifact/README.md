@@ -1,10 +1,12 @@
 # Wrangle Verify Artifact
 
-Verify that the artifact bytes sitting on *this* runner match the SLSA provenance wrangle produced, before you publish them.
+Verify that the artifact bytes sitting on *this* runner carry a signed, PASSED wrangle VSA, before you publish them.
 
 ## Why
 
-Wrangle's reusable workflow verifies provenance in its own `verify` job — but that job runs on a different runner against its own download of the dist. Your publish job downloads an independent copy via `actions/download-artifact`, so without a check of its own it has no machine-verified guarantee that the bytes it is about to `npm publish` / `twine upload` are the bytes wrangle built and attested. This action closes that gap: it runs `gh attestation verify` against your local files, on the runner that publishes them.
+Wrangle's reusable workflow evaluates policy in its own `verify` job — but that job runs on a different runner against its own download of the dist. Your publish job downloads an independent copy via `actions/download-artifact`, so without a check of its own it has no machine-verified guarantee that the bytes it is about to `npm publish` / `twine upload` are the bytes that passed policy. This action closes that gap on the runner that publishes.
+
+It verifies the **VSA**, not the raw provenance, on purpose: the VSA is the artifact's full policy verdict — provenance *plus every other tenet the wrangle PolicySet checks* (as the policy grows to cover scanner results, SBOM presence, etc., this gate inherits those checks automatically). It is also the same statement wrangle tells downstream consumers to trust, so the publish job runs the exact check the integration suite regression-tests (`test/consumer/`).
 
 ## Usage
 
@@ -24,21 +26,21 @@ Drop it into your publish job between `download-artifact` and the publish step:
 - run: npm publish ...
 ```
 
-If verification fails, the job fails before any bytes leave the runner.
+If any file lacks a VSA, the signature or identity doesn't check out, or the verdict isn't PASSED, the job fails before any bytes leave the runner.
 
 ## Inputs
 
 | Input | Default | Meaning |
 |-------|---------|---------|
 | `path` | (required) | A file, or a directory — every file under it (recursive) is verified. |
-| `signer-workflow` | any wrangle `build_and_publish_*` workflow | The reusable workflow bound as the provenance signer (`<owner>/<repo>/<path>.yml`). Set it to your build type's workflow for the tightest binding. |
-| `repo` | `${{ github.repository }}` | Repository whose attestation store `gh` queries. |
-| `github-token` | `${{ github.token }}` | Token for the attestation API. |
+| `signer-workflow` | any wrangle `build_and_publish_*` workflow | The reusable workflow bound as the VSA's keyless signer (`<owner>/<repo>/<path>.yml`). Set it to your build type's workflow for the tightest binding. |
+| `repo` | `${{ github.repository }}` | Origin repository the signing certificate must name (`--certificate-github-workflow-repository`). |
+| `vsa-path` | (auto-download) | Directory already holding the `<artifact-basename>.intoto.jsonl` files, if you downloaded them yourself. |
 
-The job needs no extra permissions beyond `contents: read` (the default token fetches attestations with it).
+No extra permissions are needed: VSAs are fetched as same-run workflow artifacts, and cosign's keyless verification talks to Sigstore, not the GitHub API.
 
 ## What it verifies — and what it doesn't
 
-`gh attestation verify` fetches the provenance from GitHub's attestation store by the file's digest and checks, fail-closed: the digest matches a provenance subject, the Sigstore signature is valid, the source repository is `repo`, and the signing workflow is `signer-workflow`. Because wrangle's attest step runs inside its reusable workflow, that workflow is the Sigstore signer — which is why the binding names wrangle, not your caller workflow.
+Per file, `cosign verify-blob-attestation` checks fail-closed: the file's hash matches the VSA subject, the Sigstore signature is valid, the signer is wrangle's reusable workflow, and the signing certificate's origin repository is `repo`. cosign doesn't read predicate fields, so the action then decodes the DSSE payload and requires `verificationResult == "PASSED"`.
 
-This action checks build provenance, not policy: the policy decision (ampel against the wrangle PolicySet, emitting the signed VSA) already gated your publish job via `needs:` inside the reusable workflow. Downstream consumers verify the published artifact themselves — see "Verifying after install" in your build type's README under [`build/actions/`](../../build/).
+It does not re-run policy — ampel already did that in wrangle's `verify` job; the VSA is that decision, signed. Downstream consumers (people who install your published package) verify the same VSA themselves — see "Verifying after install" in your build type's README under [`build/actions/`](../../build/).
