@@ -1,0 +1,43 @@
+# osv-scanner native config for manifests in this directory (tools/go.mod).
+# Discovered by the scanner itself — wrangle's scan adapter adds nothing.
+#
+# All three advisories are in github.com/docker/docker, pulled in by
+# osv-scanner's own module graph (`go mod why -m`: cmd/osv-scanner).
+# They are unfixable by version bump: the docker/docker module line was
+# re-namespaced and every version of the old path is flagged — the fix
+# exists only as github.com/moby/moby/v2 2.0.0-beta.14, which osv-scanner
+# upstream (main, as of 2026-06-09) has not migrated to. Remove these
+# entries when an osv-scanner release imports moby/moby/v2.
+
+[[IgnoredVulns]]
+id = "GHSA-rg2x-37c3-w2rh"
+reason = "docker/docker path has no patched version; fix is the moby/moby/v2 rename — waiting on osv-scanner upstream migration"
+
+[[IgnoredVulns]]
+id = "GHSA-vp62-88p7-qqf5"
+reason = "docker/docker path has no patched version; fix is the moby/moby/v2 rename — waiting on osv-scanner upstream migration"
+
+[[IgnoredVulns]]
+id = "GHSA-x86f-5xw2-fm2r"
+reason = "docker/docker path has no patched version; fix is the moby/moby/v2 rename — waiting on osv-scanner upstream migration"
+
+# github.com/moby/buildkit, same chain: fixed only in 0.28.1, which
+# requires opencontainers/runtime-spec 1.3.0 — and that breaks
+# containerd 1.7.x compilation inside osv-scanner's own graph. Remove
+# when osv-scanner upstream coordinates the buildkit/containerd bump.
+
+[[IgnoredVulns]]
+id = "GHSA-4c29-8rgm-jvjj"
+reason = "fix (buildkit 0.28.1) forces runtime-spec 1.3.0, incompatible with containerd 1.7.x in osv-scanner's graph — waiting on upstream"
+
+[[IgnoredVulns]]
+id = "GHSA-4vrq-3vrq-g6gg"
+reason = "fix (buildkit 0.28.1) forces runtime-spec 1.3.0, incompatible with containerd 1.7.x in osv-scanner's graph — waiting on upstream"
+
+[[IgnoredVulns]]
+id = "GHSA-pxq6-2prw-chj9"
+reason = "docker/docker path has no patched version; fix is the moby/moby/v2 rename — waiting on osv-scanner upstream migration"
+
+[[IgnoredVulns]]
+id = "GHSA-x744-4wpc-v9h2"
+reason = "advisory lists docker/docker 29.3.1 but no such Go module version exists (module line ends at 28.x); importable fix is moby/moby/v2 only — waiting on osv-scanner upstream migration"

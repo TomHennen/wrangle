@@ -7,7 +7,8 @@
 # orchestration script, using fixture JSON.
 
 setup() {
-    export ORIG_DIR="$(pwd)"
+    ORIG_DIR="$(pwd)"
+    export ORIG_DIR
     export TOOL_DIR="$ORIG_DIR/tools/dependency-review"
     TMP_DIR="$(mktemp -d "${TMPDIR:-/tmp}/depreview-bats-XXXXXX")"
     export TMP_DIR
@@ -38,6 +39,42 @@ teardown() {
     run awk '/^  comment-summary-in-pr:/{flag=1} flag{print} /^[^ ]/{flag=0}' "$TOOL_DIR/action.yml"
     [ "$status" -eq 0 ]
     [[ "$output" == *'default: "never"'* ]]
+}
+
+@test "dependency-review: action.yml threads the native config file when present" {
+    # #221: tools honor their native config files. detect_config.sh emits
+    # an empty path when .github/dependency-review-config.yml is absent,
+    # which upstream treats as "no config-file provided".
+    grep -q 'detect_config.sh' "$TOOL_DIR/action.yml"
+    grep -q 'config-file: ${{ steps.cfg.outputs.path }}' "$TOOL_DIR/action.yml"
+}
+
+@test "detect_config: emits the config path when the file exists" {
+    mkdir -p "$TMP_DIR/ws/.github"
+    : > "$TMP_DIR/ws/.github/dependency-review-config.yml"
+    cd "$TMP_DIR/ws"
+    GITHUB_OUTPUT="$TMP_DIR/out" run "$TOOL_DIR/detect_config.sh"
+    [ "$status" -eq 0 ]
+    grep -qx 'path=./.github/dependency-review-config.yml' "$TMP_DIR/out"
+    [[ "$output" == *"using native config"* ]]
+}
+
+@test "detect_config: accepts the .yaml extension too" {
+    mkdir -p "$TMP_DIR/ws-yaml/.github"
+    : > "$TMP_DIR/ws-yaml/.github/dependency-review-config.yaml"
+    cd "$TMP_DIR/ws-yaml"
+    GITHUB_OUTPUT="$TMP_DIR/out-yaml" run "$TOOL_DIR/detect_config.sh"
+    [ "$status" -eq 0 ]
+    grep -qx 'path=./.github/dependency-review-config.yaml' "$TMP_DIR/out-yaml"
+}
+
+@test "detect_config: emits an empty path and says so when the file is absent" {
+    mkdir -p "$TMP_DIR/ws-empty"
+    cd "$TMP_DIR/ws-empty"
+    GITHUB_OUTPUT="$TMP_DIR/out-empty" run "$TOOL_DIR/detect_config.sh"
+    [ "$status" -eq 0 ]
+    grep -qx 'path=' "$TMP_DIR/out-empty"
+    [[ "$output" == *"no native config file found"* ]]
 }
 
 @test "dependency-review: action.yml writes to wrangle metadata directory" {
@@ -256,6 +293,25 @@ EOF
     [ "$status" -eq 0 ]
     printf '%s' "$output" | jq -e '[.runs[].results[]] | length == 0' >/dev/null
     printf '%s' "$output" | jq -e '[.runs[].tool.driver.rules[]] | length == 0' >/dev/null
+}
+
+@test "converter: advisory_url -> helpUri on the rule only, never on results" {
+    # SARIF allows helpUri solely on reportingDescriptor; GitHub's
+    # code-scanning upload rejects a result carrying it ("not allowed to
+    # have the additional property helpUri") and the whole scan job fails.
+    cat > "$TMP_DIR/in.json" <<'EOF'
+[
+  { "change_type": "added", "manifest": "go.mod", "ecosystem": "gomod", "name": "a", "version": "1",
+    "vulnerabilities": [
+      { "severity": "high", "advisory_ghsa_id": "GHSA-aaa", "advisory_summary": "a", "advisory_url": "https://example.com/a" }
+    ]
+  }
+]
+EOF
+    run "$TOOL_DIR/vulnerable_changes_to_sarif.sh" "$TMP_DIR/in.json"
+    [ "$status" -eq 0 ]
+    printf '%s' "$output" | jq -e '.runs[0].tool.driver.rules[0].helpUri == "https://example.com/a"' >/dev/null
+    printf '%s' "$output" | jq -e '[.runs[].results[] | has("helpUri")] | any | not' >/dev/null
 }
 
 @test "converter: missing advisory_url -> helpUri key omitted (SARIF spec)" {

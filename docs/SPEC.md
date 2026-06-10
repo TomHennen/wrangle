@@ -71,7 +71,7 @@ The `build/actions/` directory is the extensibility point for different project 
 
 | Build type | Directory | What it does | Status |
 |-----------|-----------|-------------|--------|
-| Shell | `build/actions/shell/` | Run shellcheck + tests (bats/shunit2), no publishable artifact | v0.1 (wrangle dogfoods this) |
+| Shell | `build/actions/shell/` | Optional setup-script (install test deps), run shellcheck + tests (bats/shunit2), no publishable artifact | v0.1 (wrangle dogfoods this) |
 | Container | `build/actions/container/` | Docker build, SBOM, sign, push | v0.1 (exists) |
 | Python | `build/actions/python/` | Build wheel/sdist, generate SBOM, publish to PyPI | Future |
 | npm | `build/actions/npm/` | Build, generate SBOM, publish to npm registry | Future |
@@ -287,7 +287,7 @@ Two conditions narrow every Build L3 claim:
                    │ calls
 ┌──────────────────▼───────────────────────────────┐
 │  Orchestrator + Tools                            │
-│  run.sh → tools/<name>/install.sh                │
+│  run.sh → go install tool (tools/go.mod)         │
 │         → tools/<name>/adapter.sh                │
 │  (download binaries, run tools, normalize output)│
 └──────────────────────────────────────────────────┘
@@ -301,15 +301,13 @@ This diagram traces the standalone scan path. Each `build_and_publish_*.yml` reu
 wrangle/
 ├── tools/                  # One directory per tool — everything in one place
 │   ├── osv/
-│   │   ├── install.sh      # Downloads + verifies OSV-Scanner binary
 │   │   ├── adapter.sh      # Runs OSV-Scanner, produces SARIF
-│   │   └── test.bats       # Tests for this tool
+│   │   └── test.bats       # Tests for this tool (binary via tools/go.mod)
 │   └── zizmor/
-│       ├── install.sh
-│       ├── adapter.sh
+│       ├── action.yml      # Action-pattern: wraps the official action
 │       └── test.bats
 ├── lib/                    # Shared helpers
-│   ├── download_verify.sh  # wrangle_download_verify(), wrangle_verify_provenance()
+│   ├── download_verify.sh  # wrangle_download_verify(), wrangle_verify_signature()
 │   ├── format_sarif_summary.sh  # SARIF → markdown summary (with sarif_to_md.sh fallback)
 │   ├── log_findings.sh     # Per-finding CI log lines (issue #158)
 │   ├── sanitize.sh         # wrangle_sanitize_output() — shared HTML stripping + truncation
@@ -403,7 +401,9 @@ SECURITY:
 
 ### Install Script Interface
 
-Each tool directory contains an `install.sh` that downloads and verifies the tool binary. Install scripts are called by the orchestrator (`run.sh`), not by users directly.
+Adapter tools are Go tools by default: a `tool` directive in `tools/go.mod`, which the orchestrator installs in one upfront `go install tool` (go.sum integrity, Dependabot freshness — DEP_MGMT branch 1). A tool that no package manager ships may instead carry a bespoke `tools/<name>/install.sh` (the escape hatch), downloading and verifying a binary per the integrity tiers below.
+
+Install scripts are called by the orchestrator (`run.sh`), not by users directly.
 
 **Contract:**
 
@@ -430,15 +430,13 @@ EXIT CODES:
 
 INTEGRITY VERIFICATION (mandatory):
   Every install script MUST verify the downloaded binary before placing it
-  on PATH. The three methods below (SLSA / Sigstore / SHA-256) apply to
+  on PATH. The methods below (Sigstore / SHA-256) apply to
   install-script-pattern tools — those that download a standalone binary
-  artifact via lib/download_verify.sh. Go-module tools fetched via
-  `go install <module>@<version>` are covered by the separate fourth tier
-  ("GO MODULES" below), which routes integrity through sum.golang.org
-  instead of lib/download_verify.sh; see CLAUDE.md §"Supply Chain
-  Discipline" for the gating conditions. The scan action installs
-  slsa-verifier via the official
-  slsa-framework/slsa-verifier/actions/installer action.
+  artifact via lib/download_verify.sh. Go-module tools (a `tool` directive
+  in tools/go.mod, installed via `go install`) route integrity through
+  go.sum/sum.golang.org instead of lib/download_verify.sh — the default
+  path per DEP_MGMT's decision tree (canonical module, Dependabot
+  freshness).
 
   Verification method (chosen per tool at development time, not at runtime):
 
@@ -450,13 +448,14 @@ INTEGRITY VERIFICATION (mandatory):
     the purpose of the stronger one.
 
     The methods, in order of preference:
-    1. SLSA provenance verification — if the tool publishes SLSA
-       attestations, the install script verifies them via slsa-verifier.
-       This proves the binary was built from specific source by a specific
-       builder. Provenance verification is sufficient on its own — the
-       provenance attestation covers the artifact's identity and integrity,
-       so an additional checksum is not required. This simplifies wrangle
-       integration for tools with SLSA support.
+    1. SLSA provenance verification — the preferred method whenever a
+       binary download's publisher ships SLSA attestations. It proves the
+       binary was built from specific source by a specific builder, and is
+       sufficient on its own (no additional checksum required). No
+       install-script tool currently needs it — the Go tools build from
+       source via tools/go.mod — so wrangle ships no verifier today;
+       tooling for the next binary tool that does need it is tracked in
+       #322.
     2. Sigstore signature verification — if the tool signs releases with
        Cosign/Sigstore but does not publish full SLSA attestations, the
        install script verifies the signature. If signature verification
@@ -554,9 +553,10 @@ BEHAVIOR:
        that is handled by lib/check_results.sh in the scan action)
     2. Validate tool name matches ^[a-z][a-z0-9_-]*$ (reject otherwise)
     3. Verify tools/<tool>/ directory exists (reject if not — unknown tool)
-    4. Skip if tools/<tool>/adapter.sh or tools/<tool>/install.sh missing
-       (the tool is action-pattern, handled by uses: steps in the scan action)
-    5. Run tools/<tool>/install.sh (timeout: 5 minutes)
+    4. Skip if tools/<tool>/adapter.sh is missing (the tool is
+       action-pattern, handled by uses: steps in the scan action)
+    5. Run tools/<tool>/install.sh if present — go.mod tools were all
+       installed upfront (timeout: 5 minutes)
     6. Create <output_dir>/<tool>/
     7. Run tools/<tool>/adapter.sh <src_dir> <output_dir>/<tool>/ (timeout: 10 minutes)
     8. Record pass/fail status
@@ -909,13 +909,13 @@ All downloaded binaries are verified before execution:
 |-------|-----------|--------|
 | Transport | HTTPS only | Always required |
 | Content | SHA-256 checksum (pinned in install script) | Required for tools without provenance or signatures |
-| Provenance | SLSA attestation via slsa-verifier | Required for tools that publish it; sufficient on its own; failure = hard stop |
+| Provenance | SLSA attestation | Preferred for tools that publish it; sufficient on its own; failure = hard stop (verifier tooling: #322) |
 | Signature | Sigstore/Cosign signature verification | Required for tools that publish it; sufficient on its own; failure = hard stop |
-| sum.golang.org tlog (`go install`) | Built-in Go toolchain verification against the transparency log | Narrow fourth tier for Go modules with no upstream binary release; gating conditions in CLAUDE.md §"Supply Chain Discipline"; failure (go.sum mismatch) = hard stop |
+| sum.golang.org tlog (`go install`) | Built-in Go toolchain verification against the transparency log | The default for canonical Go modules (DEP_MGMT branch 1 — Dependabot freshness is part of the security posture); failure (go.sum mismatch) = hard stop |
 
 For tools verified via SLSA provenance or Sigstore signatures, hardcoded checksums are not required — the cryptographic verification already covers artifact integrity. Checksums are only needed for tools that lack both provenance and signatures, in which case they are hardcoded in each install script (not downloaded alongside the binary) and updated in the same commit as a version bump.
 
-The sum.golang.org tier is accepted only for Go modules installed via `go install` and only when no upstream binary release exists. The tlog provides transparency-log immutability, not publisher authentication — a compromised maintainer's bad release would still install. See CLAUDE.md §"Supply Chain Discipline" for the full acceptance gate (pinned semver, trusted Go toolchain, documented rationale, `GOPROXY`/`GOSUMDB` not disabled).
+The sum.golang.org tier applies to Go modules installed via `go install` from their canonical module path — per DEP_MGMT this is the default, not a fallback, even when an upstream binary release exists. The tlog provides transparency-log immutability, not publisher authentication — a compromised maintainer's bad release would still install. See CLAUDE.md §"Supply Chain Discipline" for the full acceptance gate (pinned semver, trusted Go toolchain, documented rationale, `GOPROXY`/`GOSUMDB` not disabled).
 
 **No fallback between verification methods.** Each tool's verification method is chosen at development time. If provenance verification fails for a tool configured to use it, the install MUST fail — even if the checksum passed. A verification failure may indicate a supply chain attack; silently downgrading to a weaker method would mask the attack.
 
@@ -932,13 +932,6 @@ The sum.golang.org tier is accepted only for Go modules installed via `go instal
 # download failures (CDN blips, rate limits, DNS hiccups).
 # Exits 1 on checksum mismatch or exhausted retries (temp file is deleted).
 wrangle_download_verify() { ... }
-
-# Verify SLSA provenance for a downloaded artifact
-# Usage: wrangle_verify_provenance <artifact_path> <source_repo> <expected_tag>
-# Exits 0 on success, 1 on failure (including tool not available)
-# IMPORTANT: Returns 1 if slsa-verifier is not installed. Callers
-# MUST NOT fall back to weaker verification on failure.
-wrangle_verify_provenance() { ... }
 
 # Verify Sigstore signature for a downloaded artifact
 # Usage: wrangle_verify_signature <artifact_path> <expected_identity> <expected_issuer>
@@ -1078,13 +1071,13 @@ Layers:
 4. **SARIF schema validation** — validates fixture/output SARIF against the 2.1.0 JSON schema
 5. **zizmor** — workflow security linter run against `.github/workflows/`, `actions/`, `tools/`, `build/`. Findings fail `make test`; the only suppression surface is `.zizmor.yml`.
 
-`./test.sh` (the canonical preflight) runs all of the above. Use `./test.sh quick` for an inner-loop iteration that skips zizmor when you're only touching shell or bats fixtures — but the full suite must pass before pushing. `./test.sh ci` is an explicit alias for the full suite.
+`./test.sh` (the canonical preflight) runs all of the above. Use `./test.sh quick` for an inner-loop iteration that skips zizmor when you're only touching shell or bats fixtures — but the full suite must pass before pushing. `./test.sh ci` is an explicit alias for the full suite. `./test.sh integration` is the non-hermetic layer: it installs the real integration toolchain (test/setup_integration.sh) inside the same container and runs the Makefile's INTEGRATION_BATS suites — the local equivalent of the dogfooded shell build.
 
 **Adapter testing pattern:** Per-tool `test.bats` files (in `tools/<name>/`) test the adapter and install scripts in isolation using mock tool binaries that produce fixture SARIF. This keeps local tests fast and deterministic. The `test/` directory contains integration tests that exercise the orchestrator and composite action end-to-end, plus shared fixtures (sample SARIF files, SARIF JSON schema) and CI-specific tests that download real tools and run them against the wrangle repo itself (dogfooding).
 
 ### CI (integration)
 
-`.github/workflows/test.yml` runs `make test` plus integration tests that exercise the composite action via `uses: ./actions/scan`.
+`.github/workflows/test.yml` runs `make test` (the containerized unit suite) plus the pin-ancestry check. The integration bats suites run through wrangle's dogfooded shell build: `local_build_shell.yml` calls `build_shell.yml` with `test/setup_integration.sh` as the setup-script, which also embeds the source scan (`uses: ./actions/scan` equivalent coverage).
 
 ### End-to-end (cross-repo)
 

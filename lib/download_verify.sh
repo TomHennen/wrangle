@@ -4,7 +4,6 @@
 #
 # Provides:
 #   wrangle_download_verify  — download a file and verify its SHA-256 checksum
-#   wrangle_verify_provenance — verify SLSA provenance via slsa-verifier
 #   wrangle_verify_signature  — verify Sigstore signature via cosign
 
 set -euo pipefail
@@ -70,43 +69,6 @@ wrangle_download_verify() {
     # Atomic move to final location
     mv "$tmp_file" "$output_path"
     return 0
-}
-
-# Verify SLSA provenance for a downloaded artifact via slsa-verifier.
-#
-# Prerequisite: slsa-verifier must be on PATH. The scan action installs
-# it via the official slsa-framework/slsa-verifier/actions/installer.
-#
-# Usage: wrangle_verify_provenance <artifact_path> <source_repo> <expected_tag>
-# Returns: 0 on success, 1 on verification failure or tool not available
-#
-# IMPORTANT: Callers MUST NOT fall back to a weaker verification method
-# on failure — a failed provenance check may indicate a supply chain attack.
-wrangle_verify_provenance() {
-    if [[ $# -ne 3 ]]; then
-        printf 'Usage: wrangle_verify_provenance <artifact_path> <source_repo> <expected_tag>\n' >&2
-        return 1
-    fi
-
-    local artifact_path="$1"
-    local source_repo="$2"
-    local expected_tag="$3"
-
-    if ! command -v slsa-verifier >/dev/null 2>&1; then
-        printf 'wrangle: slsa-verifier not found on PATH\n' >&2
-        printf 'wrangle: the scan action installs it via slsa-framework/slsa-verifier/actions/installer\n' >&2
-        return 1
-    fi
-
-    if slsa-verifier verify-artifact "$artifact_path" \
-        --provenance-path "${artifact_path}.intoto.jsonl" \
-        --source-uri "github.com/${source_repo}" \
-        --source-tag "$expected_tag"; then
-        return 0
-    else
-        printf 'wrangle: SLSA provenance verification FAILED for %s\n' "$artifact_path" >&2
-        return 1
-    fi
 }
 
 # Verify Sigstore signature for a downloaded artifact via cosign.

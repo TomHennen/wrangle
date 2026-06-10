@@ -4,8 +4,10 @@
 # TDD: these tests define the contract before implementation.
 
 setup() {
-    export TEST_DIR="$(mktemp -d)"
-    export ORIG_DIR="$(pwd)"
+    TEST_DIR="$(mktemp -d)"
+    export TEST_DIR
+    ORIG_DIR="$(pwd)"
+    export ORIG_DIR
 
     # Source the library
     # shellcheck source=../../lib/download_verify.sh
@@ -131,23 +133,6 @@ teardown() {
     # File should exist at output path and be readable
     [ -f "$output_path" ]
     [ -r "$output_path" ]
-}
-
-# --- wrangle_verify_provenance tests ---
-
-@test "verify_provenance: fails when slsa-verifier not on PATH" {
-    # Restricted PATH with no slsa-verifier
-    PATH="/usr/bin:/bin" run wrangle_verify_provenance "$TEST_DIR/test_artifact" "test/repo" "v1.0.0"
-
-    [ "$status" -eq 1 ]
-    [[ "$output" == *"slsa-verifier not found"* ]]
-}
-
-@test "verify_provenance: requires 3 arguments" {
-    run wrangle_verify_provenance "$TEST_DIR/test_artifact" "test/repo"
-
-    [ "$status" -eq 1 ]
-    [[ "$output" == *"Usage"* ]]
 }
 
 # --- wrangle_verify_signature tests ---

@@ -43,7 +43,7 @@ What are you adding?
 2. Not package-manager-installable, but the publisher ships SLSA provenance or a
    sigstore signature?
      → download the binary and verify it through lib/download_verify.sh
-       (slsa-verifier or cosign today).
+       (cosign today).
        Freshness is then MANUAL — flag it against the #264 automation.
 
 3. Neither?

@@ -20,11 +20,6 @@ runs:
         WRANGLE_ROOT: ${{ github.action_path }}/../..
       run: "$WRANGLE_ROOT/lib/setup.sh"
 
-    # Install slsa-verifier for tools that use SLSA provenance verification
-    # (e.g., OSV-Scanner). Required before running adapter-pattern tools.
-    - name: Install slsa-verifier
-      uses: slsa-framework/slsa-verifier/actions/installer@ea584f4502babc6f60d9bc799dbbb13c1caa9ee6 # v2.7.1
-
     # Run adapter-pattern tools via the orchestrator (run.sh).
     # run.sh strips :policy suffixes and skips action-pattern tools.
     - name: Run adapter-pattern tools
@@ -36,6 +31,10 @@ runs:
       env:
         WRANGLE_TOOLS: ${{ inputs.tools }}
         WRANGLE_ROOT: ${{ github.action_path }}/../..
+        # osv-scanner builds from source via `go install` (tools/osv/
+        # install.sh); a cold runner's module download + compile can
+        # exceed run.sh's 300s default install timeout.
+        WRANGLE_INSTALL_TIMEOUT: "900"
       run: |
         # shellcheck source=../../lib/env.sh
         source "$WRANGLE_ROOT/lib/env.sh"
@@ -69,13 +68,16 @@ runs:
     # github.event.pull_request.base.sha / head.sha to compute the diff.
     # See tools/dependency-review/SPEC.md.
     # TODO: replace with $/tools/dependency-review when $/ syntax ships (#136, #137)
-    # Per-tool configuration (fail-on-severity, comment-summary-in-pr) is
-    # intentionally NOT plumbed through actions/scan — see #221 for the
-    # planned native per-tool config-file approach. The wrapper's defaults
-    # (fail-on-severity: high, comment-summary-in-pr: never) apply.
+    # Per-tool options are not plumbed through actions/scan inputs (#221):
+    # each tool reads its native config file — dependency-review picks up
+    # .github/dependency-review-config.yml when the scanned repo has one.
+    # The wrapper's inline defaults (fail-on-severity: high) still apply.
     - name: Dependency Review
       if: always() && contains(inputs.tools, 'dependency-review') && github.event_name == 'pull_request'
-      uses: TomHennen/wrangle/tools/dependency-review@68b1caea47c1dc2c3210d4313d6871eb5a631b12 # main 2026-05-17
+      # Bootstrap pin (docs/e2e_testing.md): the wrapper gained native
+      # config-file threading this PR; main's pin predates it. Bump to
+      # main post-merge via tools/bump_action_pins.sh.
+      uses: TomHennen/wrangle/tools/dependency-review@b89692aa71d1dfd42eef4a8f7f1e7fb6add2583d # claude/wrangle-build-shell-workflow-72lpca 2026-06-09
 
     - name: Generate step summary
       if: always()

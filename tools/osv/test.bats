@@ -14,8 +14,8 @@
 #      validation, output-directory handling, and the wiring between
 #      adapter → render_md.sh.
 #
-#   3. install.sh — verification chain tests (curl + slsa-verifier
-#      shims). No real downloads.
+#   3. install.sh — go-module install tests (structural + idempotency;
+#      `go list -m` reads go.mod locally). No real builds.
 #
 # Plus one opt-in e2e (`@test "osv e2e: ..."`) that runs the real
 # osv-scanner against a deliberately-vulnerable manifest. Skips if
@@ -33,9 +33,8 @@ setup() {
 
     ADAPTER="$ORIG_DIR/tools/osv/adapter.sh"
     RENDER="$ORIG_DIR/tools/osv/render_md.sh"
-    INSTALL="$ORIG_DIR/tools/osv/install.sh"
     REAL_FIXTURE="$ORIG_DIR/tools/osv/testdata/real_osv_findings.sarif"
-    export ADAPTER RENDER INSTALL REAL_FIXTURE
+    export ADAPTER RENDER REAL_FIXTURE
 
     mkdir -p "$MOCK_BIN" "$TMP_DIR/src" "$TMP_DIR/output"
 
@@ -422,7 +421,7 @@ SARIF
     [ "$md_rows" -eq "$unique_rules" ]
 
     # And no file:// prefix leaked into the summary.
-    ! grep -q "file://" "$TMP_DIR/output/output.md"
+    if grep -q "file://" "$TMP_DIR/output/output.md"; then return 1; fi
 
     # Deterministic content check: the fixture pins gogo/protobuf v1.3.1
     # which has had CVE-2021-3121 published since 2021. If this stops
@@ -431,95 +430,50 @@ SARIF
     grep -q "CVE-2021-3121" "$TMP_DIR/output/output.md"
 }
 
-# --- install.sh: verification-chain tests ---------------------------------
+# --- install: tools/go.mod ---------------------------------------------------
+# osv-scanner has no install script: run.sh installs every tools/go.mod
+# tool directive upfront (go.sum integrity, Dependabot freshness). Real
+# installs run in ./test.sh integration and the dogfooded shell build.
 
-@test "osv install: sources download_verify library" {
-    run bash -n "$INSTALL"
-    [ "$status" -eq 0 ]
+@test "osv install: osv-scanner is a tools/go.mod tool directive" {
+    grep -q 'github.com/google/osv-scanner/v2/cmd/osv-scanner' "$ORIG_DIR/tools/go.mod"
 }
 
-@test "osv install: skips if correct version already installed" {
-    export WRANGLE_BIN_DIR="$MOCK_BIN"
-    run "$INSTALL" "2.3.5"
-    [ "$status" -eq 0 ]
-    [[ "$output" == *"already installed"* ]]
+@test "osv install: no bespoke install.sh (the go.mod path is canonical)" {
+    [ ! -f "$ORIG_DIR/tools/osv/install.sh" ]
 }
 
-@test "osv install: fails if binary download fails" {
-    export WRANGLE_BIN_DIR="$TMP_DIR/install_bin"
-    mkdir -p "$WRANGLE_BIN_DIR"
+# --- osv suppressions: stale-entry detector --------------------------------
 
-    cat > "$TMP_DIR/mock_curl" << 'MOCK'
-#!/bin/bash
-exit 1
-MOCK
-    chmod +x "$TMP_DIR/mock_curl"
-    PATH="$TMP_DIR:$PATH"
-    ln -sf "$TMP_DIR/mock_curl" "$TMP_DIR/curl"
+@test "osv e2e: every osv-scanner.toml suppression still matches a live finding" {
+    # Each IgnoredVulns entry exists only because no fix is currently
+    # importable (see tools/osv-scanner.toml). The moment an upstream fix
+    # arrives (Dependabot bumps the graph and the advisory stops matching),
+    # the entry is STALE and this test fails until it is removed — a
+    # suppression cannot quietly outlive its justification.
+    if ! command -v osv-scanner >/dev/null 2>&1 || \
+       [[ "$(osv-scanner --version 2>&1 | head -n1)" == *"-mock"* ]]; then
+        export PATH="${PATH#"$MOCK_BIN":}"
+    fi
+    if ! command -v osv-scanner >/dev/null 2>&1; then
+        skip_or_fail "osv-scanner not on PATH; install via tools/osv/install.sh first"
+    fi
 
-    run "$INSTALL" "2.3.5"
-    [ "$status" -eq 1 ]
-    [[ "$output" == *"FATAL"* ]]
-    [ ! -f "$WRANGLE_BIN_DIR/osv-scanner" ]
-}
+    : > "$TMP_DIR/empty.toml"
+    # stdout only: the scanner logs to stderr, which would corrupt the JSON.
+    local scan_json
+    scan_json="$(osv-scanner scan source --config "$TMP_DIR/empty.toml" \
+        --format json -r "$ORIG_DIR/tools" 2>/dev/null || true)"
+    if [[ -z "$scan_json" ]] || ! jq -e '.results' <<<"$scan_json" >/dev/null 2>&1; then
+        skip_or_fail "osv-scanner produced no results (likely network-restricted)"
+    fi
 
-@test "osv install: fails if provenance download fails" {
-    export WRANGLE_BIN_DIR="$TMP_DIR/install_bin"
-    mkdir -p "$WRANGLE_BIN_DIR"
-
-    printf '0\n' > "$TMP_DIR/curl_call_count"
-    cat > "$TMP_DIR/curl" << 'MOCK'
-#!/bin/bash
-count=$(cat "$TMP_DIR/curl_call_count")
-count=$((count + 1))
-printf '%d\n' "$count" > "$TMP_DIR/curl_call_count"
-if [ "$count" -eq 1 ]; then
-    while [ $# -gt 0 ]; do
-        case "$1" in
-            -o) printf 'fake binary\n' > "$2"; exit 0 ;;
-            *) shift ;;
-        esac
-    done
-fi
-exit 1
-MOCK
-    chmod +x "$TMP_DIR/curl"
-    PATH="$TMP_DIR:$PATH"
-
-    run "$INSTALL" "2.3.5"
-    [ "$status" -eq 1 ]
-    [[ "$output" == *"FATAL"* ]]
-    [[ "$output" == *"provenance"* ]]
-    leftover=$(find "$WRANGLE_BIN_DIR" -name 'wrangle-dl-*' -o -name '*.intoto.jsonl' 2>/dev/null | wc -l)
-    [ "$leftover" -eq 0 ]
-}
-
-@test "osv install: fails if provenance verification fails" {
-    export WRANGLE_BIN_DIR="$TMP_DIR/install_bin"
-    mkdir -p "$WRANGLE_BIN_DIR"
-
-    cat > "$TMP_DIR/curl" << 'MOCK'
-#!/bin/bash
-while [ $# -gt 0 ]; do
-    case "$1" in
-        -o) printf 'fake content\n' > "$2"; exit 0 ;;
-        *) shift ;;
-    esac
-done
-exit 0
-MOCK
-    chmod +x "$TMP_DIR/curl"
-
-    cat > "$TMP_DIR/slsa-verifier" << 'MOCK'
-#!/bin/bash
-exit 1
-MOCK
-    chmod +x "$TMP_DIR/slsa-verifier"
-    PATH="$TMP_DIR:$PATH"
-
-    run "$INSTALL" "2.3.5"
-    [ "$status" -eq 1 ]
-    [[ "$output" == *"FATAL"* ]]
-    [[ "$output" == *"supply chain attack"* ]]
-    [ ! -f "$WRANGLE_BIN_DIR/osv-scanner" ]
+    local live_ids
+    live_ids="$(jq -r '[.results[].packages[].vulnerabilities[] | .id, (.aliases[]? // empty)] | .[]' <<<"$scan_json")"
+    while IFS= read -r suppressed; do
+        if ! grep -qx "$suppressed" <<<"$live_ids"; then
+            echo "STALE suppression: $suppressed no longer matches any finding — remove it from tools/osv-scanner.toml" >&2
+            return 1
+        fi
+    done < <(grep -E '^id = "' "$ORIG_DIR/tools/osv-scanner.toml" | cut -d'"' -f2)
 }

@@ -3,7 +3,8 @@
 # Tests for lib/sanitize.sh (wrangle_sanitize_output)
 
 setup() {
-    export ORIG_DIR="$(pwd)"
+    ORIG_DIR="$(pwd)"
+    export ORIG_DIR
     source "$ORIG_DIR/lib/sanitize.sh"
 }
 

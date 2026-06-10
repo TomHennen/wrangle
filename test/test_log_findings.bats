@@ -3,15 +3,17 @@
 # Tests for lib/log_findings.sh
 
 setup() {
-    export TEST_DIR="$(mktemp -d)"
-    export ORIG_DIR="$(pwd)"
+    TEST_DIR="$(mktemp -d)"
+    export TEST_DIR
+    ORIG_DIR="$(pwd)"
+    export ORIG_DIR
     export SCRIPT="$ORIG_DIR/lib/log_findings.sh"
     export METADATA="$TEST_DIR/metadata"
     mkdir -p "$METADATA"
 }
 
 teardown() {
-    cd "$ORIG_DIR"
+    cd "$ORIG_DIR" || exit 1
     rm -rf "$TEST_DIR"
 }
 

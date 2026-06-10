@@ -3,7 +3,7 @@ set -euo pipefail
 set -f
 
 # Run all tests in a container — no local tool installation required.
-# Usage: ./test.sh [all|ci|quick|test|bats|lint|shellcheck|shellstyle|workflowstyle|zizmor]
+# Usage: ./test.sh [all|ci|quick|test|bats|lint|shellcheck|shellstyle|workflowstyle|zizmor|integration]
 #
 # Builds a test container with actionlint, shellcheck, ast-grep, PyYAML,
 # bats-core, and zizmor, then runs the specified test suite (default: all).
@@ -17,6 +17,9 @@ set -f
 #   `shellstyle`          wrangle-shell-lint (ast-grep WSL rules)
 #   `workflowstyle`       wrangle-workflow-lint (python3 + PyYAML WWL rules)
 #   `zizmor`              Zizmor workflow security linter only
+#   `integration`         Non-hermetic: install real tools (network, Sigstore,
+#                         osv.dev) via test/setup_integration.sh, then run the
+#                         integration bats suites. Not part of `all`.
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 IMAGE_NAME="wrangle-test"
@@ -25,8 +28,8 @@ TEST_TARGET="${1:-all}"
 # Validate test target. `ci` is an alias for `all` so CI configs and humans
 # can use the same name. `quick` runs the inner-loop subset (no zizmor).
 case "$TEST_TARGET" in
-    all|test|ci|quick|bats|lint|shellcheck|shellstyle|workflowstyle|zizmor) ;;
-    *) printf 'Usage: %s [all|ci|quick|test|bats|lint|shellcheck|shellstyle|workflowstyle|zizmor]\n' "$0" >&2; exit 1 ;;
+    all|test|ci|quick|bats|lint|shellcheck|shellstyle|workflowstyle|zizmor|integration) ;;
+    *) printf 'Usage: %s [all|ci|quick|test|bats|lint|shellcheck|shellstyle|workflowstyle|zizmor|integration]\n' "$0" >&2; exit 1 ;;
 esac
 
 # Check Docker is available
@@ -48,11 +51,29 @@ case "$TEST_TARGET" in
     *)     MAKE_TARGETS=("$TEST_TARGET") ;;
 esac
 
+# The repo mount is read-only, so the integration installs need a writable
+# bin/metadata home. Set only for integration: unit bats exercise lib/env.sh's
+# own defaults and must not see an override. ${arr[@]+...} keeps the empty
+# array safe under set -u on bash 3.2 (macOS).
+#
+# The named volume holds the Go module/build caches: the integration target
+# compiles large tool graphs (cosign, osv-scanner), and an ephemeral
+# container would re-download and re-build everything per run — slow, and
+# big enough to exhaust the container layer. setup_integration.sh creates
+# $GOTMPDIR (go refuses a nonexistent one).
+DOCKER_ENV=()
+if [[ "$TEST_TARGET" == "integration" ]]; then
+    DOCKER_ENV+=(-e WRANGLE_BIN_DIR=/tmp/wrangle/bin -e WRANGLE_METADATA_DIR=/tmp/wrangle/metadata)
+    DOCKER_ENV+=(-v wrangle-test-gocache:/godata)
+    DOCKER_ENV+=(-e GOPATH=/godata/gopath -e GOCACHE=/godata/gocache -e GOTMPDIR=/godata/tmp)
+fi
+
 # Run the requested test suite
 printf '=== Running: %s ===\n' "$TEST_TARGET"
 
 docker run --rm \
     -v "$SCRIPT_DIR":/wrangle:ro \
     -w /wrangle \
+    ${DOCKER_ENV[@]+"${DOCKER_ENV[@]}"} \
     "$IMAGE_NAME" \
     make "${MAKE_TARGETS[@]}"

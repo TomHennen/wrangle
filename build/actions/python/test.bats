@@ -180,9 +180,9 @@ setup() {
     # python-version-file pointing at pyproject.toml, so a setup.py-only
     # project would otherwise fail later with a confusing error. Catch it
     # here instead.
-    local proj="$TMP_DIR/proj"
+    local proj="$BATS_TEST_TMPDIR/proj"
     mkdir -p "$proj"
-    cd "$TMP_DIR"
+    cd "$BATS_TEST_TMPDIR"
     run "$ACTION_DIR/validate_inputs.sh" "proj" "enabled"
     [[ "$status" -ne 0 ]]
     [[ "$output" == *"no pyproject.toml"* ]]
@@ -302,8 +302,8 @@ write_pyproject() {
     write_pyproject "$proj"
     PATH="$SHIM_DIR:$PATH" run "$ACTION_DIR/run_tests.sh" "$proj" "false"
     [[ "$status" -eq 0 ]]
-    ! grep -qE '^pytest' <<<"$output"
-    ! grep -qE '^python -m pytest$' <<<"$output"
+    if grep -qE '^pytest' <<<"$output"; then return 1; fi
+    if grep -qE '^python -m pytest$' <<<"$output"; then return 1; fi
     [[ "$output" == *"skipping pytest"* ]]
 }
 

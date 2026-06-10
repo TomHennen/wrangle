@@ -1,0 +1,48 @@
+name: Build Shell
+
+# Wrangle dogfooding its own shell build type: source scan + shellcheck over
+# the whole tree + every bats suite (unit and integration; real binaries +
+# network, installed by the setup-script). Subsumes the standalone scan
+# trigger — build_shell.yml embeds the same scan job.
+
+on:
+  push:
+    branches: ["main"]
+    tags: ["v*"]
+  pull_request:
+    branches: ["**"]
+  workflow_dispatch:
+
+jobs:
+  build-shell:
+    permissions:
+      actions: read
+      contents: read
+      security-events: write
+    # ./ resolves to this repo at the PR branch ref, so PR CI tests
+    # the actual code in the PR (not main).
+    uses: ./.github/workflows/build_shell.yml
+    with:
+      # bats-path is left empty on purpose: auto-detect runs EVERY .bats in
+      # the tree — unit and integration suites alike — with their tool
+      # dependencies installed by the setup script.
+      setup-script: test/setup_integration.sh
+
+  # Wrangle-internal (self-ref pins are not an adopter concern, so this
+  # lives in the dogfood caller, not the reusable build_shell.yml). Fails
+  # if any wrangle self-ref pin is unreachable from HEAD — catches a
+  # bootstrap pin (test/integration/SPEC.md §Known limitations) orphaned
+  # by a squash merge before the auto-showcase tries to resolve it.
+  pin-ancestry:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+          # check_pin_ancestry needs full history to test reachability of pinned shas.
+          fetch-depth: 0
+
+      - name: Check action pin ancestry
+        run: ./tools/check_pin_ancestry.sh

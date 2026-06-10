@@ -4,13 +4,15 @@
 # Replaces tests for the old tools/format_sarif_summary.sh
 
 setup() {
-    export TEST_DIR="$(mktemp -d)"
-    export ORIG_DIR="$(pwd)"
+    TEST_DIR="$(mktemp -d)"
+    export TEST_DIR
+    ORIG_DIR="$(pwd)"
+    export ORIG_DIR
     export FORMATTER="$ORIG_DIR/lib/format_sarif_summary.sh"
 }
 
 teardown() {
-    cd "$ORIG_DIR"
+    cd "$ORIG_DIR" || exit 1
     rm -rf "$TEST_DIR"
 }
 

@@ -1,4 +1,13 @@
-.PHONY: all test lint shellcheck shellstyle workflowstyle bats zizmor bump-action-pins
+.PHONY: all test lint shellcheck shellstyle workflowstyle bats zizmor integration bump-action-pins
+
+# bash, not the default sh: the integration recipe sources lib/env.sh,
+# whose `set -o pipefail` dash doesn't reliably support.
+SHELL := /bin/bash
+
+# The bats suites that need real binaries and network (skip_or_fail-gated).
+# Local-only convenience subset for `./test.sh integration`; CI runs every
+# .bats via the dogfooded shell build's auto-detect (local_build_shell.yml).
+INTEGRATION_BATS := tools/osv/test.bats policies/test.bats actions/verify/test_run_verify.bats actions/verify/test_validate_verify_inputs.bats test/consumer/verify_consumer_vsa.bats
 
 # Default target
 all: test
@@ -37,6 +46,16 @@ bats:
 	@echo "=== bats ==="
 	@bats test/ test/lib/ test/consumer/ test/integration/ tools/*/test.bats actions/*/*.bats build/actions/*/test.bats
 
+# Non-hermetic: installs real tools (network, registries, Sigstore) via
+# test/setup_integration.sh, then runs the integration bats suites. NOT in
+# `test` — the default suite stays deterministic. Run via ./test.sh integration,
+# which sets GOTMPDIR onto its cache volume; go refuses a nonexistent one,
+# and creating it belongs to the harness that defines it, not the setup script.
+integration:
+	@echo "=== integration ==="
+	@if [[ -n "$$GOTMPDIR" ]]; then mkdir -p "$$GOTMPDIR"; fi
+	@source lib/env.sh && ./test/setup_integration.sh && bats $(INTEGRATION_BATS)
+
 # Workflow security linting (matches tools/zizmor/action.yml's CI invocation).
 # --no-online-audits keeps the test container offline-friendly; the
 # online audits (e.g. unpinned-uses against the live registry) are
@@ -52,8 +71,10 @@ zizmor:
 bump-action-pins:
 	@./tools/bump_action_pins.sh $(SHA)
 
-# Update a tool version and its checksum
-# Usage: make update-tool TOOL=osv VERSION=1.2.3
+# Update a binary-download tool's version and hardcoded checksum. Go-module
+# tools (osv-scanner, cosign, ampel, bnd) are pinned in tools/go.mod and
+# bumped by Dependabot instead.
+# Usage: make update-tool TOOL=syft VERSION=1.2.3
 update-tool:
 	@echo "Tool version update helper — not yet implemented"
 	@echo "Will download $(TOOL) $(VERSION), compute SHA-256, and patch tools/$(TOOL)/install.sh"

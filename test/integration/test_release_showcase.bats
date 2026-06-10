@@ -157,7 +157,7 @@ _setup_workspace() {
     # `git diff PRIOR HEAD` is non-empty (exercises the "prior tag,
     # tree moved" path).
     (
-        cd "$WORKSPACE"
+        cd "$WORKSPACE" || exit 1
         git init -q -b main
         git -c user.email=t@t -c user.name=t -c commit.gpgsign=false \
             commit -q --allow-empty -m prior
