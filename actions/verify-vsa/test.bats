@@ -1,8 +1,8 @@
 #!/usr/bin/env bats
 
-# Tests for the verify-artifact composite action. Three flavors:
+# Tests for the verify-vsa composite action. Three flavors:
 #
-#   - Behavioral: run verify_artifact.sh with a `cosign` shim on PATH that
+#   - Behavioral: run verify_vsa.sh with a `cosign` shim on PATH that
 #     records its argv. A shim is required for the signature step: a real
 #     `cosign verify-blob-attestation` needs Sigstore (Fulcio/Rekor) plus a
 #     real keyless VSA for the exact file digest — that lives in
@@ -20,7 +20,7 @@
 setup() {
     ACTION_DIR="$(cd "$(dirname "$BATS_TEST_FILENAME")" && pwd)"
     ACTION="$ACTION_DIR/action.yml"
-    SCRIPT="$ACTION_DIR/verify_artifact.sh"
+    SCRIPT="$ACTION_DIR/verify_vsa.sh"
     TMP="$(mktemp -d)"
     COSIGN_LOG="$TMP/cosign_calls.log"
     VSAS="$TMP/vsas"
@@ -228,6 +228,11 @@ EOF
     grep -q 'pattern: "\*.intoto.jsonl"' "$ACTION"
 }
 
-@test "structure: action.yml delegates to verify_artifact.sh" {
-    grep -q 'verify_artifact.sh' "$ACTION"
+@test "structure: action.yml delegates to verify_vsa.sh" {
+    grep -q 'verify_vsa.sh' "$ACTION"
+}
+
+@test "structure: action.yml validates inputs before installing anything" {
+    first_run="$(grep -o 'run: .*\.sh"' "$ACTION" | head -1)"
+    [[ "$first_run" == *validate_inputs.sh* ]]
 }

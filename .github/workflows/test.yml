@@ -19,6 +19,73 @@ jobs:
       - name: Run tests
         run: ./test.sh
 
+  # End-to-end exercise of the verify-vsa composite action itself (the
+  # script's logic is bats-covered; this covers the composite wiring: the
+  # cosign install, the VSA artifact download by pattern, and the verify
+  # step) against the real consumer fixtures — including the fail-closed
+  # paths: tampered bytes and a wrong origin repo must fail the action.
+  verify-vsa-action:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+
+      # The action reads VSAs from the run's workflow artifacts, so stage
+      # the real fixture VSA under the name wrangle's verify job would use.
+      - name: Stage the consumer fixtures
+        run: |
+          mkdir -p dist vsa-upload
+          cp test/consumer/fixtures/npm-package.tgz dist/
+          cp test/consumer/fixtures/npm-vsa.intoto.jsonl vsa-upload/npm-package.tgz.intoto.jsonl
+
+      - uses: actions/upload-artifact@bbbca2ddaa5d8feaa63e36b76fdaad77386f024f # v7.0.0
+        with:
+          name: npm-package.tgz.intoto.jsonl
+          path: vsa-upload/npm-package.tgz.intoto.jsonl
+
+      - name: Verify the fixture (expect pass)
+        uses: ./actions/verify-vsa
+        with:
+          path: dist/
+          repo: TomHennen/wrangle-test
+          signer-workflow: TomHennen/wrangle/.github/workflows/build_and_publish_npm.yml
+
+      - name: Tamper with the dist
+        run: printf 'x' >> dist/npm-package.tgz
+
+      - name: Verify the tampered dist (expect failure)
+        id: tampered
+        continue-on-error: true  # negative test: the assert step below requires outcome == failure
+        uses: ./actions/verify-vsa
+        with:
+          path: dist/
+          repo: TomHennen/wrangle-test
+
+      - name: Assert the tampered verify failed
+        env:
+          OUTCOME: ${{ steps.tampered.outcome }}
+        run: test "$OUTCOME" = "failure"
+
+      - name: Restore the dist
+        run: cp test/consumer/fixtures/npm-package.tgz dist/
+
+      # The fixture was built in wrangle-test; binding any other repo must fail.
+      - name: Verify with a wrong origin repo (expect failure)
+        id: wrongrepo
+        continue-on-error: true  # negative test: the assert step below requires outcome == failure
+        uses: ./actions/verify-vsa
+        with:
+          path: dist/
+          repo: TomHennen/wrangle
+
+      - name: Assert the wrong-repo verify failed
+        env:
+          OUTCOME: ${{ steps.wrongrepo.outcome }}
+        run: test "$OUTCOME" = "failure"
+
   # One job for everything that needs a real binary or network: osv-scanner
   # (e2e) and ampel/bnd (policy harness + run_verify). The Docker unit suite
   # above is hermetic; these need the real tools, so they share one checkout +

@@ -23,7 +23,7 @@
 # the wrangle PolicySet) and emits the signed VSA before declaring
 # success. If verification fails, the workflow fails and `needs: [build]`
 # blocks publish. The publish job below additionally re-verifies its own
-# download against the signed VSA (wrangle/actions/verify-artifact) so the
+# download against the signed VSA (wrangle/actions/verify-vsa) so the
 # exact bytes sent to npm are the bytes that passed wrangle's policy.
 #
 # Trigger note: this workflow publishes when `should-release` is true.
@@ -62,7 +62,7 @@ jobs:
     # Gate on the should-release output. should-release is "true" only when
     # the wrangle workflow succeeded (which includes the verify job's
     # provenance verification). That job verified its own download on its
-    # own runner; the verify-artifact step below re-checks THIS job's bytes.
+    # own runner; the verify-vsa step below re-checks THIS job's bytes.
     if: ${{ needs.build.outputs.should-release == 'true' }}
     needs: [build]
     runs-on: ubuntu-latest
@@ -94,7 +94,7 @@ jobs:
 
       # Verify the downloaded tarball against wrangle's signed VSA — the
       # full policy verdict — before any bytes leave this runner.
-      - uses: TomHennen/wrangle/actions/verify-artifact@v0.2.0
+      - uses: TomHennen/wrangle/actions/verify-vsa@v0.2.0
         with:
           path: dist/
           signer-workflow: TomHennen/wrangle/.github/workflows/build_and_publish_npm.yml

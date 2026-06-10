@@ -1,13 +1,13 @@
-name: Wrangle Verify Artifact
+name: Wrangle Verify VSA
 description: >
-  Verify local artifact bytes against wrangle's signed VSA before publishing.
-  The VSA is the artifact's full policy verdict — provenance plus every other
-  tenet the wrangle PolicySet checks — so this gates on "passed policy", not
-  merely "wrangle built it". For each file, cosign checks the VSA's Sigstore
-  signature, wrangle's reusable workflow as signer, the origin repository,
-  and the subject digest; a jq decode then requires verificationResult ==
-  PASSED. Fails closed: a file with no VSA fails the run. Drops into an
-  adopter's publish job between `download-artifact` and the publish step.
+  Verify that local artifact bytes carry wrangle's signed, PASSED VSA — the
+  artifact's full policy verdict, not just its provenance — before
+  publishing them. Drops into an adopter's publish job between
+  `download-artifact` and the publish step, and fails closed: a file with
+  no VSA, an untrusted signer, a mismatched digest or origin repository,
+  or a verdict other than PASSED fails the run. Expects the VSAs where
+  wrangle's verify job puts them: same-run workflow artifacts named
+  <artifact-basename>.intoto.jsonl.
 
 inputs:
   path:
@@ -34,6 +34,15 @@ inputs:
 runs:
   using: composite
   steps:
+    # Fail bad inputs before the cosign install and VSA download.
+    - name: Validate inputs
+      shell: bash
+      env:
+        ARTIFACT_PATH: ${{ inputs.path }}
+        SIGNER_WORKFLOW: ${{ inputs.signer-workflow }}
+        REPO: ${{ inputs.repo }}
+      run: "${{ github.action_path }}/validate_inputs.sh"
+
     - name: Install Cosign
       uses: sigstore/cosign-installer@6f9f17788090df1f26f669e9d70d6ae9567deba6 # v4.1.2
 
@@ -53,4 +62,4 @@ runs:
         SIGNER_WORKFLOW: ${{ inputs.signer-workflow }}
         REPO: ${{ inputs.repo }}
         VSA_DIR: ${{ runner.temp }}/wrangle-vsas
-      run: "${{ github.action_path }}/verify_artifact.sh"
+      run: "${{ github.action_path }}/verify_vsa.sh"
