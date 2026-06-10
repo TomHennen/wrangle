@@ -493,3 +493,38 @@ SHIM
     [ "$status" -ne 0 ]
     [[ "$output" != *"already installed"* ]]
 }
+
+# --- osv suppressions: stale-entry detector --------------------------------
+
+@test "osv e2e: every osv-scanner.toml suppression still matches a live finding" {
+    # Each IgnoredVulns entry exists only because no fix is currently
+    # importable (see tools/osv-scanner.toml). The moment an upstream fix
+    # arrives (Dependabot bumps the graph and the advisory stops matching),
+    # the entry is STALE and this test fails until it is removed — a
+    # suppression cannot quietly outlive its justification.
+    if ! command -v osv-scanner >/dev/null 2>&1 || \
+       [[ "$(osv-scanner --version 2>&1 | head -n1)" == *"-mock"* ]]; then
+        export PATH="${PATH#"$MOCK_BIN":}"
+    fi
+    if ! command -v osv-scanner >/dev/null 2>&1; then
+        skip_or_fail "osv-scanner not on PATH; install via tools/osv/install.sh first"
+    fi
+
+    : > "$TMP_DIR/empty.toml"
+    # stdout only: the scanner logs to stderr, which would corrupt the JSON.
+    local scan_json
+    scan_json="$(osv-scanner scan source --config "$TMP_DIR/empty.toml" \
+        --format json -r "$ORIG_DIR/tools" 2>/dev/null || true)"
+    if [[ -z "$scan_json" ]] || ! jq -e '.results' <<<"$scan_json" >/dev/null 2>&1; then
+        skip_or_fail "osv-scanner produced no results (likely network-restricted)"
+    fi
+
+    local live_ids
+    live_ids="$(jq -r '[.results[].packages[].vulnerabilities[] | .id, (.aliases[]? // empty)] | .[]' <<<"$scan_json")"
+    while IFS= read -r suppressed; do
+        if ! grep -qx "$suppressed" <<<"$live_ids"; then
+            echo "STALE suppression: $suppressed no longer matches any finding — remove it from tools/osv-scanner.toml" >&2
+            return 1
+        fi
+    done < <(grep -E '^id = "' "$ORIG_DIR/tools/osv-scanner.toml" | cut -d'"' -f2)
+}
