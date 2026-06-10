@@ -1,0 +1,27 @@
+# Native config for actions/dependency-review-action, threaded through by
+# tools/dependency-review/action.yml (#221: tools honor their native
+# config files). Inline inputs passed by the wrangle wrapper
+# (fail-on-severity, license-check, comment-summary-in-pr,
+# show-openssf-scorecard) take precedence over keys set here.
+#
+# github.com/docker/docker advisories pulled in by osv-scanner's own
+# module graph (tools/go.mod). Unfixable by version bump: the module was
+# re-namespaced and every version of the old path is flagged — the fix
+# exists only as github.com/moby/moby/v2 2.0.0-beta.14, which osv-scanner
+# upstream has not migrated to. Same justification, same removal trigger,
+# as tools/osv-scanner.toml: drop these when an osv-scanner release
+# imports moby/moby/v2.
+#
+# github.com/moby/buildkit: fixed only in 0.28.1, which forces
+# runtime-spec 1.3.0 and breaks containerd 1.7.x compilation in the same
+# graph. Remove when osv-scanner upstream coordinates the bump.
+allow-ghsas:
+  - GHSA-rg2x-37c3-w2rh
+  - GHSA-vp62-88p7-qqf5
+  - GHSA-x86f-5xw2-fm2r
+  - GHSA-4c29-8rgm-jvjj
+  - GHSA-4vrq-3vrq-g6gg
+  - GHSA-pxq6-2prw-chj9
+  # GHSA-x744-4wpc-v9h2 lists docker/docker 29.3.1 as fixed, but no such
+  # Go module version exists (the module line ends at 28.x).
+  - GHSA-x744-4wpc-v9h2
