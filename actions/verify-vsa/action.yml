@@ -1,0 +1,65 @@
+name: Wrangle Verify VSA
+description: >
+  Verify that local artifact bytes carry wrangle's signed, PASSED VSA — the
+  artifact's full policy verdict, not just its provenance — before
+  publishing them. Drops into an adopter's publish job between
+  `download-artifact` and the publish step, and fails closed: a file with
+  no VSA, an untrusted signer, a mismatched digest or origin repository,
+  or a verdict other than PASSED fails the run. Expects the VSAs where
+  wrangle's verify job puts them: same-run workflow artifacts named
+  <artifact-basename>.intoto.jsonl.
+
+inputs:
+  path:
+    description: >
+      Artifact file to verify, or a directory — every regular file under it
+      (recursively) is verified.
+    required: true
+  signer-workflow:
+    description: >
+      Reusable workflow that signed the VSA, as
+      <owner>/<repo>/<path-to-workflow>.yml (e.g.
+      TomHennen/wrangle/.github/workflows/build_and_publish_npm.yml).
+      Empty accepts any wrangle build_and_publish_* workflow; set it for
+      the tightest binding.
+    required: false
+    default: ""
+  repo:
+    description: >
+      Origin repository the VSA's signing certificate must name
+      (<owner>/<repo>). Defaults to the repository running the workflow.
+    required: false
+    default: ${{ github.repository }}
+
+runs:
+  using: composite
+  steps:
+    # Fail bad inputs before the cosign install and VSA download.
+    - name: Validate inputs
+      shell: bash
+      env:
+        ARTIFACT_PATH: ${{ inputs.path }}
+        SIGNER_WORKFLOW: ${{ inputs.signer-workflow }}
+        REPO: ${{ inputs.repo }}
+      run: "${{ github.action_path }}/validate_inputs.sh"
+
+    - name: Install Cosign
+      uses: sigstore/cosign-installer@6f9f17788090df1f26f669e9d70d6ae9567deba6 # v4.1.2
+
+    # wrangle's verify job uploads one VSA artifact per dist file, named
+    # <artifact-basename>.intoto.jsonl; merge them into one directory.
+    - name: Download VSA artifacts
+      uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+      with:
+        pattern: "*.intoto.jsonl"
+        merge-multiple: true
+        path: ${{ runner.temp }}/wrangle-vsas
+
+    - name: Verify artifact against VSA
+      shell: bash
+      env:
+        ARTIFACT_PATH: ${{ inputs.path }}
+        SIGNER_WORKFLOW: ${{ inputs.signer-workflow }}
+        REPO: ${{ inputs.repo }}
+        VSA_DIR: ${{ runner.temp }}/wrangle-vsas
+      run: "${{ github.action_path }}/verify_vsa.sh"

@@ -1,8 +1,8 @@
 name: Docker image builder
 description: |
   Build and push a Docker image with BuildKit SBOM and provenance.
-  Cosign signing, SLSA L3 provenance, and SBOM vulnerability scanning
-  are planned but not yet implemented (see implementation plan PR 9).
+  SLSA L3 provenance and the signed VSA come from the
+  build_and_publish_container.yml reusable workflow, not this action.
 
 inputs:
   path:

@@ -58,11 +58,58 @@ jobs:
       path: "."
 ```
 
-Once they've done this they'll get tests run, scanning, attestations, etc.
+Once they've done this they'll get tests executed, vuln scanning, attestations, etc.
+
+Developers should also enable Dependabot.  Wrangle can't do that for you unfortunately,
+but we can make it easier.  Copy
+[`gh_workflow_examples/dependabot.yml`](gh_workflow_examples/dependabot.yml) to
+`.github/dependabot.yml` (and customize as needed for your ecosystem).
+
+Once in place it will create a PR whenever a dependency (including Wrangle!) needs to
+be updated.
+
+## How Wrangle Works
+
+Behind that one workflow call, wrangle runs your code through a pipeline of well-known security
+and supply-chain tools so you don't have to wire them up, configure them, or keep them current
+yourself.
+
+### The pipeline
+
+A run typically moves through these stages:
+
+1. **Scan the source** - checks your dependencies for known vulnerabilities (OSV) and lints your
+   GitHub Actions workflows for unsafe patterns (Zizmor).
+2. **Run your tests** — runs your existing test suite.
+3. **Build the artifact** — compiles/packages your project using safe defaults for your
+   ecosystem
+4. **Describe what's inside** — generates an SBOM for the artifact.
+5. **Attest** — produces Sigstore-signed SLSA provenance tying the artifact to the
+   workflow that built it.
+6. **Verify before shipping** — checks that provenance against a policy and emits a VSA so the
+   people who consume your artifact can verify it with a single command.
+
+Source-only and shell projects run the checks without producing a published artifact; the other
+ecosystems run the whole pipeline. 
+
+### Security
+
+Wrangle is a supply-chain security tool, so its defaults lean toward safety:
+
+- **Fail-closed on security guarantees.** If a security problem is found (e.g. vulnerability found,
+  attestation generation failure) releases will be blocked by default.
+- **Keyless signing.** Attestations are signed with [Sigstore](https://www.sigstore.dev/) using
+  Wrangle's identity combined with your repo's identity.
+- **Verifiable provenance.** The provenance ties each artifact back to the exact workflow that
+  built it, and the SLSA VSA lets downstream users confirm that without trusting you blindly.
+- **Least privilege, job by job.** Each job inside a reusable workflow declares its own minimal
+  `permissions:` block, so the scan and test jobs run read-only while only the publish, sign,
+  and attest jobs hold write or token scopes (`contents: write`, `packages: write`,
+  `id-token: write`, `attestations: write`) — and only for the length of that one job.
 
 ## Ecosystems
 
-Go, Python, npm, and Container each produce a signed artifact — source scan, tests, SBOM, SLSA Build L3 provenance, and a VSA. Shell and source-only run checks without producing an artifact.
+Go, Python, npm, and Container each run the full pipeline and produce an attested, verifiable artifact; Shell and source-only run the checks only. Pick the row matching your project:
 
 | Ecosystem | README | Example |
 |-----------|--------|---------|

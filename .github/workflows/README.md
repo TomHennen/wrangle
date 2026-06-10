@@ -15,7 +15,7 @@ Wrangle's own workflows all have filenames that start with `local_`.
 
 ## build_and_publish_*.yml
 
-`build_and_publish_container.yml`, `build_and_publish_python.yml`, `build_and_publish_npm.yml`, `build_and_publish_go.yml`, and `build_shell.yml` let callers build and publish with a minimum of fuss, following best practices: SLSA provenance, SBOMs, signing, and a source scan up front.
+`build_and_publish_container.yml`, `build_and_publish_python.yml`, `build_and_publish_npm.yml`, and `build_and_publish_go.yml` let callers build and publish with a minimum of fuss, following best practices: signed SLSA provenance, SBOMs, a signed VSA, and a source scan up front. `build_shell.yml` runs the same scan/build/test flow for shell projects but produces no artifact.
 
 `build_shell.yml` also takes a `setup-script` input — a repo-relative script that installs test dependencies before the checks run — and a space-separated `bats-path`. Wrangle itself uses both: `local_build_shell.yml` is the dogfooding caller, with `test/setup_integration.sh` installing the integration toolchain.
 
