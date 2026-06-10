@@ -430,23 +430,16 @@ SARIF
     grep -q "CVE-2021-3121" "$TMP_DIR/output/output.md"
 }
 
-# --- install: go-tool marker -------------------------------------------------
-# osv-scanner has no install.sh: the one-line go-tool marker points run.sh
-# at lib/install_go_tool.sh, and tools/go.mod is the single source for
-# version and integrity (DEP_MGMT branch 1). Real installs run in
-# ./test.sh integration and the dogfooded shell build.
+# --- install: tools/go.mod ---------------------------------------------------
+# osv-scanner has no install script: run.sh installs every tools/go.mod
+# tool directive upfront (go.sum integrity, Dependabot freshness). Real
+# installs run in ./test.sh integration and the dogfooded shell build.
 
-@test "osv install: go-tool marker names the osv-scanner package" {
-    run cat "$ORIG_DIR/tools/osv/go-tool"
-    [ "$status" -eq 0 ]
-    [ "$output" = "github.com/google/osv-scanner/v2/cmd/osv-scanner" ]
-}
-
-@test "osv install: the marker's package is a tools/go.mod tool directive" {
+@test "osv install: osv-scanner is a tools/go.mod tool directive" {
     grep -q 'github.com/google/osv-scanner/v2/cmd/osv-scanner' "$ORIG_DIR/tools/go.mod"
 }
 
-@test "osv install: no bespoke install.sh (go-tool path is canonical)" {
+@test "osv install: no bespoke install.sh (the go.mod path is canonical)" {
     [ ! -f "$ORIG_DIR/tools/osv/install.sh" ]
 }
 

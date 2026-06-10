@@ -64,7 +64,7 @@ Adapters take `<src_dir>` (read-only) and `<output_dir>` (writable), write `outp
 
 ## Per-tool directory layout
 
-Tools live in `tools/<name>/`. Three patterns: **adapter** (`adapter.sh` + `test.bats` + either a one-line `go-tool` marker for tools/go.mod tools or a bespoke `install.sh`, wired into `actions/scan/action.yml`) for scan tools; **action** (`action.yml` + `test.bats`) for tools with official GitHub Actions; **developer tooling** (whatever the tool needs + `test.bats`) for things used only during development, not by adopters (e.g., `bump_action_pins`, `wrangle-shell-lint`).
+Tools live in `tools/<name>/`. Three patterns: **adapter** (`adapter.sh` + `test.bats`, binary from a tools/go.mod `tool` directive or a bespoke `install.sh` for tools no package manager ships; wired into `actions/scan/action.yml`) for scan tools; **action** (`action.yml` + `test.bats`) for tools with official GitHub Actions; **developer tooling** (whatever the tool needs + `test.bats`) for things used only during development, not by adopters (e.g., `bump_action_pins`, `wrangle-shell-lint`).
 
 An action's own helper scripts live in its `actions/<name>/` directory alongside `action.yml`, **with their bats next to them** (`actions/<name>/*.bats`) so a test sits beside the thing it tests (e.g. `preflight_guard`, `verify`). `lib/` is only for helpers shared across multiple actions/tools (`env.sh`, `sanitize.sh`, `download_verify.sh`), and `test/` holds those shared-lib tests + cross-cutting ones.
 

@@ -55,8 +55,7 @@ for spec in "$@"; do
         printf 'wrangle: unknown tool: %s (no directory at %s/%s/)\n' "$tool" "$TOOLS_DIR" "$tool" >&2
         exit 2
     fi
-    if [[ -f "${TOOLS_DIR}/${tool}/adapter.sh" ]] && \
-       { [[ -f "${TOOLS_DIR}/${tool}/install.sh" ]] || [[ -f "${TOOLS_DIR}/${tool}/go-tool" ]]; }; then
+    if [[ -f "${TOOLS_DIR}/${tool}/adapter.sh" ]]; then
         adapter_tools+=("$tool")
     fi
 done
@@ -75,6 +74,39 @@ overall_status=0
 INSTALL_TIMEOUT="${WRANGLE_INSTALL_TIMEOUT:-300}"
 ADAPTER_TIMEOUT="${WRANGLE_ADAPTER_TIMEOUT:-600}"
 
+# Install every Go tool declared in tools/go.mod in one shot — versions and
+# integrity come from go.mod/go.sum (env.sh pins GOPROXY/GOSUMDB), and
+# Dependabot keeps them fresh. Deliberately simple over selective: cold
+# runners rebuild the lot (#348 tracks caching). Skipped when the manifest
+# has no tool directives (hermetic orchestrator tests point WRANGLE_TOOLS_DIR
+# at stub dirs). Retried: the go command does not retry transient proxy
+# failures itself (#190).
+if [[ -f "${TOOLS_DIR}/go.mod" ]] && grep -qE '^tool' "${TOOLS_DIR}/go.mod"; then
+    if ! command -v go >/dev/null 2>&1; then
+        printf 'wrangle: go not on PATH (required for tools/go.mod tools)\n' >&2
+        exit 2
+    fi
+    mkdir -p "$WRANGLE_BIN_DIR"
+    printf 'wrangle: installing Go tools from tools/go.mod...\n'
+    go_tools_exit=1
+    backoff=1
+    for attempt in 1 2 3; do
+        go_tools_exit=0
+        timeout "$INSTALL_TIMEOUT" env GOBIN="$(cd "$WRANGLE_BIN_DIR" && pwd)" \
+            go -C "$TOOLS_DIR" install tool || go_tools_exit=$?
+        [[ "$go_tools_exit" -eq 0 ]] && break
+        if [[ "$attempt" -lt 3 ]]; then
+            printf 'wrangle: go install attempt %d/3 failed, retrying in %ds...\n' "$attempt" "$backoff" >&2
+            sleep "$backoff"
+            backoff=$((backoff * 2))
+        fi
+    done
+    if [[ "$go_tools_exit" -ne 0 ]]; then
+        printf 'wrangle: FATAL: installing tools/go.mod tools failed\n' >&2
+        exit 2
+    fi
+fi
+
 # Summary tracking
 declare -a summary_tools=()
 declare -a summary_statuses=()
@@ -85,16 +117,13 @@ for tool in "${adapter_tools[@]}"; do
 
     tool_status="pass"
 
-    # Step 1: Install — a bespoke install.sh when the tool has one, else
-    # the generic go.mod-tool path via the one-line go-tool marker file
-    # (lib/install_go_tool.sh validates the package against tools/go.mod).
-    printf 'wrangle: installing %s...\n' "$tool"
+    # Step 1: Install — only tools with a bespoke install.sh (the escape
+    # hatch for tools no package manager ships); go.mod tools were all
+    # installed upfront.
     install_exit=0
     if [[ -f "${TOOLS_DIR}/${tool}/install.sh" ]]; then
+        printf 'wrangle: installing %s...\n' "$tool"
         timeout "$INSTALL_TIMEOUT" "${TOOLS_DIR}/${tool}/install.sh" || install_exit=$?
-    else
-        go_pkg="$(head -1 "${TOOLS_DIR}/${tool}/go-tool")"
-        timeout "$INSTALL_TIMEOUT" "${SCRIPT_DIR}/lib/install_go_tool.sh" "$go_pkg" || install_exit=$?
     fi
 
     if [[ "$install_exit" -eq 124 ]]; then

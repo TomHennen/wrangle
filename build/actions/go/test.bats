@@ -741,9 +741,13 @@ init_go_module() {
     mkdir -p "$dir"
     (
         cd "$dir" || exit 1
-        # `go 1.26` matches the test image's installed version so
-        # setup-go-style version-file behavior stays consistent.
-        printf 'module example.com/wrangle-test-go\n\ngo 1.26\n' > go.mod
+        # The fixture declares the AMBIENT go version: run_checks builds
+        # govulncheck with the ambient toolchain, and a govulncheck built
+        # by an older Go cannot load packages whose go.mod demands a
+        # newer one ("package requires newer Go version"). Matching the
+        # environment keeps vet/test/govulncheck coherent everywhere —
+        # container, runner, and local — with no hardcoded version.
+        printf 'module example.com/wrangle-test-go\n\ngo %s\n' "$(go env GOVERSION | sed 's/^go//')" > go.mod
     )
     write_gofile "$dir/main.go" 'package main
 
