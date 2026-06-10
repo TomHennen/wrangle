@@ -145,3 +145,26 @@ MOCK
     run grep 'WRANGLE_BIN_DIR' "$ORIG_DIR/tools/syft/install.sh"
     [ "$status" -eq 0 ]
 }
+
+@test "install: cosign verification retries once and surfaces cosign stderr on final failure" {
+    # A cosign shim is required: real verify-blob needs network and the real
+    # syft release blobs; the retry/diagnostic contract is what's under test.
+    cat > "$TEST_DIR/bin/curl" << 'MOCK'
+#!/usr/bin/env bash
+exit 0
+MOCK
+    chmod +x "$TEST_DIR/bin/curl"
+    cat > "$TEST_DIR/bin/cosign" << 'MOCK'
+#!/usr/bin/env bash
+printf 'x\n' >> "$TEST_DIR/cosign.calls"
+printf 'tuf: timeout fetching trusted root\n' >&2
+exit 1
+MOCK
+    chmod +x "$TEST_DIR/bin/cosign"
+    PATH="$TEST_DIR/bin:$PATH" run "$ORIG_DIR/tools/syft/install.sh" "1.42.4"
+    [[ "$status" -ne 0 ]]
+    [[ "$(wc -l < "$TEST_DIR/cosign.calls")" -eq 2 ]]
+    [[ "$output" == *"retrying once"* ]]
+    [[ "$output" == *"tuf: timeout fetching trusted root"* ]]
+    [[ "$output" == *"FATAL"* ]]
+}
