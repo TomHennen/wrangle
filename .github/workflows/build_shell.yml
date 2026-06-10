@@ -62,7 +62,10 @@ jobs:
           persist-credentials: false
 
       # TODO: replace with $/actions/scan when GitHub ships $/ syntax (#136)
-      - uses: TomHennen/wrangle/actions/scan@5b79a1ca848b761ae5bd5524e80af70bb42207c9 # main 2026-06-07
+      # Bootstrap pin (docs/e2e_testing.md): scan must resolve the branch
+      # version so its dependency-review wrapper honors the repo's native
+      # config file. Bump to main post-merge via tools/bump_action_pins.sh.
+      - uses: TomHennen/wrangle/actions/scan@249d190a5aa66a965ec551b2f1a0e301dfed0925 # claude/wrangle-build-shell-workflow-72lpca 2026-06-09
         if: ${{ inputs.scan-tools != '' }}
         with:
           tools: ${{ inputs.scan-tools }}
