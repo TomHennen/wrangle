@@ -98,7 +98,7 @@ jobs:
     permissions: {}    # reads env only — no workspace, no API, no secrets
     steps:
       # TODO: replace with $/actions/preflight_guard when GitHub ships $/ syntax (#136)
-      - uses: TomHennen/wrangle/actions/preflight_guard@0ed04fbdbd47aa3b85b9cf726c1589dafee6aba1 # main 2026-06-10
+      - uses: TomHennen/wrangle/actions/preflight_guard@15b64ecbe38ca59cd24964eb9403d428075ffa37 # main 2026-06-10
 
   # Decide whether release-time actions (provenance, publish) should run
   # for this event. Cheap separate job so the result is available to
@@ -113,7 +113,7 @@ jobs:
     steps:
       # No checkout: release_gate resolves via ${{ github.action_path }}.
       # TODO: replace with $/actions/release_gate when GitHub ships $/ syntax (#136)
-      - uses: TomHennen/wrangle/actions/release_gate@0ed04fbdbd47aa3b85b9cf726c1589dafee6aba1 # main 2026-06-10
+      - uses: TomHennen/wrangle/actions/release_gate@15b64ecbe38ca59cd24964eb9403d428075ffa37 # main 2026-06-10
         id: gate
         with:
           events: ${{ inputs.release-events }}
@@ -136,7 +136,7 @@ jobs:
           ref: ${{ inputs.ref || '' }}
 
       # TODO: replace with $/actions/scan when GitHub ships $/ syntax (#136)
-      - uses: TomHennen/wrangle/actions/scan@0ed04fbdbd47aa3b85b9cf726c1589dafee6aba1 # main 2026-06-10
+      - uses: TomHennen/wrangle/actions/scan@15b64ecbe38ca59cd24964eb9403d428075ffa37 # main 2026-06-10
         if: ${{ inputs.scan-tools != '' }}
         with:
           tools: ${{ inputs.scan-tools }}
@@ -165,7 +165,7 @@ jobs:
           ref: ${{ inputs.ref || '' }}
 
       # TODO: replace with $/build/actions/python when GitHub ships $/ syntax (#136)
-      - uses: TomHennen/wrangle/build/actions/python@0ed04fbdbd47aa3b85b9cf726c1589dafee6aba1 # main 2026-06-10
+      - uses: TomHennen/wrangle/build/actions/python@15b64ecbe38ca59cd24964eb9403d428075ffa37 # main 2026-06-10
         id: build
         with:
           path: ${{ inputs.path }}
@@ -295,7 +295,7 @@ jobs:
           path: provenance/
 
       # TODO: replace with $/actions/verify when GitHub ships $/ syntax (#136)
-      - uses: TomHennen/wrangle/actions/verify@0ed04fbdbd47aa3b85b9cf726c1589dafee6aba1 # main 2026-06-10
+      - uses: TomHennen/wrangle/actions/verify@15b64ecbe38ca59cd24964eb9403d428075ffa37 # main 2026-06-10
         with:
           subject: dist/${{ matrix.artifact }}
           policy: policies/wrangle-provenance-python-v1.hjson
