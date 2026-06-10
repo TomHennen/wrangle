@@ -84,8 +84,8 @@ A run typically moves through these stages:
 3. **Build the artifact** — compiles/packages your project using safe defaults for your
    ecosystem
 4. **Describe what's inside** — generates an SBOM for the artifact.
-5. **Attest** — produces Sigstore-signed SLSA provenance tying the artifact to the exact
-   workflow run that built it.
+5. **Attest** — produces Sigstore-signed SLSA provenance tying the artifact to the
+   workflow that built it.
 6. **Verify before shipping** — checks that provenance against a policy and emits a VSA so the
    people who consume your artifact can verify it with a single command.
 
