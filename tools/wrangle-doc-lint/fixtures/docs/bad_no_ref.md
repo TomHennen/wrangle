@@ -1,0 +1,1 @@
+- **Hand-waves at enforcement.** → enforced by: the CI pipeline, generally.

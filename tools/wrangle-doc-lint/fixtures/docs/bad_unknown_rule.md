@@ -1,0 +1,1 @@
+- **Cites a rule ID nobody defines.** → enforced by: `WSL999`

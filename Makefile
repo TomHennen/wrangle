@@ -1,10 +1,10 @@
-.PHONY: all test lint shellcheck shellstyle workflowstyle bats zizmor bump-action-pins
+.PHONY: all test lint shellcheck shellstyle workflowstyle docstyle bats zizmor bump-action-pins
 
 # Default target
 all: test
 
 # Run all local checks
-test: lint shellcheck shellstyle workflowstyle bats zizmor
+test: lint shellcheck shellstyle workflowstyle docstyle bats zizmor
 
 # Validate all workflow and action YAML files
 lint:
@@ -21,6 +21,12 @@ shellstyle:
 workflowstyle:
 	@echo "=== wrangle-workflow-lint ==="
 	@./tools/wrangle-workflow-lint/lint.sh
+
+# Validate `→ enforced by:` pointers in docs/SPEC.md (every cited bats
+# test, lint rule, or script must still exist)
+docstyle:
+	@echo "=== wrangle-doc-lint ==="
+	@./tools/wrangle-doc-lint/lint.sh
 
 # Lint all shell scripts
 shellcheck:
@@ -51,10 +57,3 @@ zizmor:
 #        make bump-action-pins SHA=<sha>   # bump to a specific SHA
 bump-action-pins:
 	@./tools/bump_action_pins.sh $(SHA)
-
-# Update a tool version and its checksum
-# Usage: make update-tool TOOL=osv VERSION=1.2.3
-update-tool:
-	@echo "Tool version update helper — not yet implemented"
-	@echo "Will download $(TOOL) $(VERSION), compute SHA-256, and patch tools/$(TOOL)/install.sh"
-	@exit 1

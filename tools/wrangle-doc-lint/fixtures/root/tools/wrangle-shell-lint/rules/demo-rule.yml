@@ -1,0 +1,3 @@
+# Fixture rule file — gives the WSL777 rule ID a definition site for
+# lint.py's rule lookup. Never loaded by ast-grep.
+id: WSL777
