@@ -28,12 +28,13 @@ for tool in go jq; do
     fi
 done
 
-# Go tools first: slsa-verifier is needed by tools/osv/install.sh for
-# provenance verification. It lives in its own module (tools/slsa-verifier/)
-# because its year-old sigstore graph can't share tools/go.mod with cosign.
-# env.sh pins GOPROXY/GOSUMDB so the sum database can't be disabled.
+# Go tools (ampel, bnd, cosign) from tools/go.mod; env.sh pins
+# GOPROXY/GOSUMDB so the sum database can't be disabled. slsa-verifier
+# installs as the official release binary (see tools/slsa-verifier/
+# install.sh for why not a tool directive) and must precede
+# tools/osv/install.sh, which uses it for provenance verification.
 GOBIN="$WRANGLE_BIN_DIR" go -C "$REPO_ROOT/tools" install tool
-GOBIN="$WRANGLE_BIN_DIR" go -C "$REPO_ROOT/tools/slsa-verifier" install tool
+"$REPO_ROOT/tools/slsa-verifier/install.sh"
 
 "$REPO_ROOT/tools/osv/install.sh"
 
