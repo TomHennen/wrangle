@@ -83,9 +83,9 @@ A run typically moves through these stages:
 2. **Run your tests** — runs your existing test suite.
 3. **Build the artifact** — compiles/packages your project using safe defaults for your
    ecosystem
-4. **Describe what's inside** — generates an SBOM and
-   scans it for vulnerabilities.
-5. **Sign and attest** — signs the artifact and produces provenance signed by Wrangle.
+4. **Describe what's inside** — generates an SBOM for the artifact.
+5. **Attest** — produces Sigstore-signed SLSA provenance tying the artifact to the
+   workflow that built it.
 6. **Verify before shipping** — checks that provenance against a policy and emits a VSA so the
    people who consume your artifact can verify it with a single command.
 
@@ -109,7 +109,7 @@ Wrangle is a supply-chain security tool, so its defaults lean toward safety:
 
 ## Ecosystems
 
-Go, Python, npm, and Container each run the full pipeline and produce a signed, verifiable artifact; Shell and source-only run the checks only. Pick the row matching your project:
+Go, Python, npm, and Container each run the full pipeline and produce an attested, verifiable artifact; Shell and source-only run the checks only. Pick the row matching your project:
 
 | Ecosystem | README | Example |
 |-----------|--------|---------|

@@ -15,7 +15,7 @@ Wrangle's own workflows all have filenames that start with `local_`.
 
 ## build_and_publish_*.yml
 
-`build_and_publish_container.yml`, `build_and_publish_python.yml`, `build_and_publish_npm.yml`, `build_and_publish_go.yml`, and `build_shell.yml` let callers build and publish with a minimum of fuss, following best practices: SLSA provenance, SBOMs, signing, and a source scan up front.
+`build_and_publish_container.yml`, `build_and_publish_python.yml`, `build_and_publish_npm.yml`, and `build_and_publish_go.yml` let callers build and publish with a minimum of fuss, following best practices: signed SLSA provenance, SBOMs, a signed VSA, and a source scan up front. `build_shell.yml` runs the same scan/build/test flow for shell projects but produces no artifact.
 
 **Embedded source scan.** Each of these workflows runs a `scan` job (the `actions/scan` composite) before building, so adopters get scanning *and* build/publish from one workflow — no separate `check_source_change.yml` needed.
 

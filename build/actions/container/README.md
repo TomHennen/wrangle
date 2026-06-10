@@ -1,6 +1,6 @@
 # Wrangle Build Container
 
-Build and publish a container image to ghcr.io with an SBOM, Cosign signature, and SLSA L3 provenance.
+Build and publish a container image to ghcr.io with an SBOM, SLSA L3 provenance, and a signed VSA.
 
 ## Quick-start
 
