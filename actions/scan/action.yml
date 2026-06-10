@@ -75,7 +75,10 @@ runs:
     # (fail-on-severity: high, comment-summary-in-pr: never) apply.
     - name: Dependency Review
       if: always() && contains(inputs.tools, 'dependency-review') && github.event_name == 'pull_request'
-      uses: TomHennen/wrangle/tools/dependency-review@68b1caea47c1dc2c3210d4313d6871eb5a631b12 # main 2026-05-17
+      # Bootstrap pin (docs/e2e_testing.md): the wrapper gained native
+      # config-file threading this PR; main's pin predates it. Bump to
+      # main post-merge via tools/bump_action_pins.sh.
+      uses: TomHennen/wrangle/tools/dependency-review@b89692aa71d1dfd42eef4a8f7f1e7fb6add2583d # claude/wrangle-build-shell-workflow-72lpca 2026-06-09
 
     - name: Generate step summary
       if: always()
