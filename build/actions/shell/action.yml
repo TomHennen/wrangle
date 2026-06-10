@@ -1,8 +1,8 @@
 name: Wrangle Shell Build
 description: |
   Build action for shell projects. Optionally runs a setup script to
-  install test dependencies, then shellcheck (.sh at full severity,
-  .bats at warning+) and bats tests (if present).
+  install test dependencies, then shellcheck (.bats files exclude the
+  codes that misfire on bats idioms) and bats tests (if present).
   This is the build type wrangle uses on itself (dogfooding).
 
 inputs:

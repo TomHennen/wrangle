@@ -181,6 +181,23 @@ setup() {
     [[ "$output" == *"path traversal not allowed"* ]]
 }
 
+@test "shell: run_bats.sh sees entries after a newline in bats-path" {
+    # A YAML block-scalar input arrives newline-separated; entries past the
+    # first line must be split out (and here, rejected), not silently
+    # dropped by a first-line-only read.
+    run "$ACTION_DIR/run_bats.sh" $'test/a.bats\n../evil.bats' "."
+    [ "$status" -eq 1 ]
+    [[ "$output" == *"path traversal not allowed"* ]]
+}
+
+@test "shell: run_bats.sh treats whitespace-only bats-path as auto-detect" {
+    local empty="$BATS_TEST_TMPDIR/empty-ws"
+    mkdir -p "$empty"
+    run "$ACTION_DIR/run_bats.sh" "   " "$empty"
+    [ "$status" -eq 0 ]
+    [[ "$output" == *"no .bats files found"* ]]
+}
+
 @test "shell: run_bats.sh skips cleanly when no .bats files are found" {
     local empty="$BATS_TEST_TMPDIR/empty"
     mkdir -p "$empty"

@@ -14,8 +14,8 @@
 #      validation, output-directory handling, and the wiring between
 #      adapter → render_md.sh.
 #
-#   3. install.sh — verification chain tests (curl + slsa-verifier
-#      shims). No real downloads.
+#   3. install.sh — go-module install tests (structural + idempotency;
+#      `go list -m` reads go.mod locally). No real builds.
 #
 # Plus one opt-in e2e (`@test "osv e2e: ..."`) that runs the real
 # osv-scanner against a deliberately-vulnerable manifest. Skips if
@@ -431,95 +431,65 @@ SARIF
     grep -q "CVE-2021-3121" "$TMP_DIR/output/output.md"
 }
 
-# --- install.sh: verification-chain tests ---------------------------------
+# --- install.sh: go-module install tests -----------------------------------
+# osv-scanner installs from tools/go.mod's tool directive (DEP_MGMT branch
+# 1); integrity is go.sum/sum.golang.org, freshness is Dependabot. These
+# tests are hermetic: `go list -m` reads go.mod locally, no network.
 
-@test "osv install: sources download_verify library" {
+@test "osv install: parses" {
     run bash -n "$INSTALL"
     [ "$status" -eq 0 ]
 }
 
+@test "osv install: pins GOPROXY and GOSUMDB at the install site" {
+    grep -q 'export GOPROXY="https://proxy.golang.org,direct"' "$INSTALL"
+    grep -q 'export GOSUMDB="sum.golang.org"' "$INSTALL"
+}
+
+@test "osv install: builds from tools/go.mod, version single-sourced there" {
+    # No hardcoded version: the pin lives in go.mod (Dependabot bumps it),
+    # and the install resolves it with `go list -m`.
+    grep -q 'go -C "$TOOLS_DIR" install "${TOOL_MODULE}/cmd/osv-scanner"' "$INSTALL"
+    grep -q "go -C \"\$TOOLS_DIR\" list -m" "$INSTALL"
+    run grep -E 'VERSION="[0-9]' "$INSTALL"
+    [ "$status" -ne 0 ]
+}
+
+@test "osv install: go.mod pins the osv-scanner tool directive" {
+    grep -q 'github.com/google/osv-scanner/v2/cmd/osv-scanner' "$ORIG_DIR/tools/go.mod"
+}
+
 @test "osv install: skips if correct version already installed" {
-    export WRANGLE_BIN_DIR="$MOCK_BIN"
-    run "$INSTALL" "2.3.5"
+    # The mock's version is derived from go.mod so a Dependabot bump can't
+    # silently turn this hermetic test into a real network `go install`.
+    local ver
+    ver="$(go -C "$ORIG_DIR/tools" list -m -f '{{.Version}}' github.com/google/osv-scanner/v2)"
+    mkdir -p "$TMP_DIR/install_bin"
+    printf '#!/bin/bash\nprintf "osv-scanner version: %s\\n"\n' "${ver#v}" \
+        > "$TMP_DIR/install_bin/osv-scanner"
+    chmod +x "$TMP_DIR/install_bin/osv-scanner"
+    WRANGLE_BIN_DIR="$TMP_DIR/install_bin" run "$INSTALL"
     [ "$status" -eq 0 ]
     [[ "$output" == *"already installed"* ]]
 }
 
-@test "osv install: fails if binary download fails" {
-    export WRANGLE_BIN_DIR="$TMP_DIR/install_bin"
-    mkdir -p "$WRANGLE_BIN_DIR"
-
-    cat > "$TMP_DIR/mock_curl" << 'MOCK'
+@test "osv install: a different installed version is not mistaken for the pin" {
+    # Anchored compare: 2.3.50 must NOT satisfy a 2.3.5 pin. The install
+    # then proceeds — and is cut off by the PATH-stripped go shim below,
+    # keeping the test hermetic.
+    mkdir -p "$TMP_DIR/wrong_bin"
+    printf '#!/bin/bash\nprintf "osv-scanner version: 99.99.99\\n"\n' \
+        > "$TMP_DIR/wrong_bin/osv-scanner"
+    chmod +x "$TMP_DIR/wrong_bin/osv-scanner"
+    cat > "$TMP_DIR/wrong_bin/go" <<'SHIM'
 #!/bin/bash
+# go shim: answer `list -m` from the real go, refuse `install` so the
+# test never reaches the network.
+if [[ "$*" == *" list "* ]]; then exec /usr/local/go/bin/go "$@"; fi
 exit 1
-MOCK
-    chmod +x "$TMP_DIR/mock_curl"
-    PATH="$TMP_DIR:$PATH"
-    ln -sf "$TMP_DIR/mock_curl" "$TMP_DIR/curl"
-
-    run "$INSTALL" "2.3.5"
-    [ "$status" -eq 1 ]
-    [[ "$output" == *"FATAL"* ]]
-    [ ! -f "$WRANGLE_BIN_DIR/osv-scanner" ]
-}
-
-@test "osv install: fails if provenance download fails" {
-    export WRANGLE_BIN_DIR="$TMP_DIR/install_bin"
-    mkdir -p "$WRANGLE_BIN_DIR"
-
-    printf '0\n' > "$TMP_DIR/curl_call_count"
-    cat > "$TMP_DIR/curl" << 'MOCK'
-#!/bin/bash
-count=$(cat "$TMP_DIR/curl_call_count")
-count=$((count + 1))
-printf '%d\n' "$count" > "$TMP_DIR/curl_call_count"
-if [ "$count" -eq 1 ]; then
-    while [ $# -gt 0 ]; do
-        case "$1" in
-            -o) printf 'fake binary\n' > "$2"; exit 0 ;;
-            *) shift ;;
-        esac
-    done
-fi
-exit 1
-MOCK
-    chmod +x "$TMP_DIR/curl"
-    PATH="$TMP_DIR:$PATH"
-
-    run "$INSTALL" "2.3.5"
-    [ "$status" -eq 1 ]
-    [[ "$output" == *"FATAL"* ]]
-    [[ "$output" == *"provenance"* ]]
-    leftover=$(find "$WRANGLE_BIN_DIR" -name 'wrangle-dl-*' -o -name '*.intoto.jsonl' 2>/dev/null | wc -l)
-    [ "$leftover" -eq 0 ]
-}
-
-@test "osv install: fails if provenance verification fails" {
-    export WRANGLE_BIN_DIR="$TMP_DIR/install_bin"
-    mkdir -p "$WRANGLE_BIN_DIR"
-
-    cat > "$TMP_DIR/curl" << 'MOCK'
-#!/bin/bash
-while [ $# -gt 0 ]; do
-    case "$1" in
-        -o) printf 'fake content\n' > "$2"; exit 0 ;;
-        *) shift ;;
-    esac
-done
-exit 0
-MOCK
-    chmod +x "$TMP_DIR/curl"
-
-    cat > "$TMP_DIR/slsa-verifier" << 'MOCK'
-#!/bin/bash
-exit 1
-MOCK
-    chmod +x "$TMP_DIR/slsa-verifier"
-    PATH="$TMP_DIR:$PATH"
-
-    run "$INSTALL" "2.3.5"
-    [ "$status" -eq 1 ]
-    [[ "$output" == *"FATAL"* ]]
-    [[ "$output" == *"supply chain attack"* ]]
-    [ ! -f "$WRANGLE_BIN_DIR/osv-scanner" ]
+SHIM
+    chmod +x "$TMP_DIR/wrong_bin/go"
+    WRANGLE_BIN_DIR="$TMP_DIR/wrong_bin" PATH="$TMP_DIR/wrong_bin:$PATH" run "$INSTALL"
+    [ "$status" -ne 0 ]
+    [[ "$output" != *"already installed"* ]]
 }

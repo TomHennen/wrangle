@@ -32,10 +32,13 @@ printf '=== bats ===\n'
 # Validate every bats-path entry via the shared allowlist (relative, no
 # traversal, safe charset); lib/validate_path.sh exits non-zero and set -e
 # aborts here. scan-path is validated by run_shellcheck.sh, which runs first.
-# The split is safe under set -f (no glob expansion), and the allowlist
-# charset has no whitespace, so entries can't contain hidden separators.
-if [[ -n "$BATS_PATH" ]]; then
-    read -r -a bats_paths <<< "$BATS_PATH"
+# Newlines/tabs are normalized to spaces first — a YAML block-scalar input
+# arrives newline-separated, and `read -a` would otherwise silently drop
+# everything after the first line. The split is safe under set -f (no glob
+# expansion), and the allowlist charset has no whitespace, so entries
+# can't contain hidden separators.
+if [[ -n "${BATS_PATH//[[:space:]]/}" ]]; then
+    read -r -a bats_paths <<< "${BATS_PATH//[[:space:]]/ }"
     for p in "${bats_paths[@]}"; do
         "$VALIDATE_PATH" "$p"
     done

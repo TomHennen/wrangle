@@ -56,14 +56,25 @@ teardown() {
     GITHUB_OUTPUT="$TMP_DIR/out" run "$TOOL_DIR/detect_config.sh"
     [ "$status" -eq 0 ]
     grep -qx 'path=./.github/dependency-review-config.yml' "$TMP_DIR/out"
+    [[ "$output" == *"using native config"* ]]
 }
 
-@test "detect_config: emits an empty path when the file is absent" {
+@test "detect_config: accepts the .yaml extension too" {
+    mkdir -p "$TMP_DIR/ws-yaml/.github"
+    : > "$TMP_DIR/ws-yaml/.github/dependency-review-config.yaml"
+    cd "$TMP_DIR/ws-yaml"
+    GITHUB_OUTPUT="$TMP_DIR/out-yaml" run "$TOOL_DIR/detect_config.sh"
+    [ "$status" -eq 0 ]
+    grep -qx 'path=./.github/dependency-review-config.yaml' "$TMP_DIR/out-yaml"
+}
+
+@test "detect_config: emits an empty path and says so when the file is absent" {
     mkdir -p "$TMP_DIR/ws-empty"
     cd "$TMP_DIR/ws-empty"
     GITHUB_OUTPUT="$TMP_DIR/out-empty" run "$TOOL_DIR/detect_config.sh"
     [ "$status" -eq 0 ]
     grep -qx 'path=' "$TMP_DIR/out-empty"
+    [[ "$output" == *"no native config file found"* ]]
 }
 
 @test "dependency-review: action.yml writes to wrangle metadata directory" {

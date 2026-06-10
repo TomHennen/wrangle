@@ -46,12 +46,16 @@ find "$SCAN_PATH" -name '*.sh' \
     -not -path '*/node_modules/*' \
     -print0 | xargs -0 -r "$GUARD" run shellcheck -x --source-path=SCRIPTDIR
 
-# .bats files (bash syntax) are linted at warning+ only: shellcheck's
-# info/style classes misfire on core bats idioms — every @test runs in its
-# own subshell (SC2030/SC2031) and fixture strings carry literal `$`
-# (SC2016) — which would bury the real findings for any bats suite.
+# .bats files (bash syntax) exclude the codes that misfire on core bats
+# idioms, keeping everything else (notably info-level SC2086) enforced:
+#   SC2030/SC2031 — every @test runs in its own subshell, so "modified in
+#                   a subshell" fires on standard bats state handling.
+#   SC2016        — fixture strings carry literal `$` by design.
+#   SC2314        — `! cmd` advice; the remaining last-command instances
+#                   are tracked for conversion in #341, then this exclude
+#                   can be dropped.
 find "$SCAN_PATH" -name '*.bats' \
     -not -path '*/.git/*' \
     -not -path '*/node_modules/*' \
-    -print0 | xargs -0 -r "$GUARD" run shellcheck -x --source-path=SCRIPTDIR --severity=warning
+    -print0 | xargs -0 -r "$GUARD" run shellcheck -x --source-path=SCRIPTDIR --exclude=SC2030,SC2031,SC2016,SC2314
 printf 'shellcheck: all scripts under %s passed\n' "$SCAN_PATH"

@@ -48,9 +48,12 @@ bats:
 
 # Non-hermetic: installs real tools (network, registries, Sigstore) via
 # test/setup_integration.sh, then runs the integration bats suites. NOT in
-# `test` — the default suite stays deterministic. Run via ./test.sh integration.
+# `test` — the default suite stays deterministic. Run via ./test.sh integration,
+# which sets GOTMPDIR onto its cache volume; go refuses a nonexistent one,
+# and creating it belongs to the harness that defines it, not the setup script.
 integration:
 	@echo "=== integration ==="
+	@if [[ -n "$$GOTMPDIR" ]]; then mkdir -p "$$GOTMPDIR"; fi
 	@source lib/env.sh && ./test/setup_integration.sh && bats $(INTEGRATION_BATS)
 
 # Workflow security linting (matches tools/zizmor/action.yml's CI invocation).
@@ -68,8 +71,10 @@ zizmor:
 bump-action-pins:
 	@./tools/bump_action_pins.sh $(SHA)
 
-# Update a tool version and its checksum
-# Usage: make update-tool TOOL=osv VERSION=1.2.3
+# Update a binary-download tool's version and hardcoded checksum. Go-module
+# tools (osv-scanner, cosign, ampel, bnd) are pinned in tools/go.mod and
+# bumped by Dependabot instead.
+# Usage: make update-tool TOOL=syft VERSION=1.2.3
 update-tool:
 	@echo "Tool version update helper — not yet implemented"
 	@echo "Will download $(TOOL) $(VERSION), compute SHA-256, and patch tools/$(TOOL)/install.sh"

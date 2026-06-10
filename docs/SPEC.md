@@ -309,7 +309,7 @@ wrangle/
 │       ├── adapter.sh
 │       └── test.bats
 ├── lib/                    # Shared helpers
-│   ├── download_verify.sh  # wrangle_download_verify(), wrangle_verify_provenance()
+│   ├── download_verify.sh  # wrangle_download_verify(), wrangle_verify_signature()
 │   ├── format_sarif_summary.sh  # SARIF → markdown summary (with sarif_to_md.sh fallback)
 │   ├── log_findings.sh     # Per-finding CI log lines (issue #158)
 │   ├── sanitize.sh         # wrangle_sanitize_output() — shared HTML stripping + truncation
@@ -430,15 +430,13 @@ EXIT CODES:
 
 INTEGRITY VERIFICATION (mandatory):
   Every install script MUST verify the downloaded binary before placing it
-  on PATH. The three methods below (SLSA / Sigstore / SHA-256) apply to
+  on PATH. The methods below (Sigstore / SHA-256) apply to
   install-script-pattern tools — those that download a standalone binary
-  artifact via lib/download_verify.sh. Go-module tools fetched via
-  `go install <module>@<version>` are covered by the separate fourth tier
-  ("GO MODULES" below), which routes integrity through sum.golang.org
-  instead of lib/download_verify.sh; see CLAUDE.md §"Supply Chain
-  Discipline" for the gating conditions. The scan action installs
-  slsa-verifier via the official
-  slsa-framework/slsa-verifier/actions/installer action.
+  artifact via lib/download_verify.sh. Go-module tools (a `tool` directive
+  in tools/go.mod, installed via `go install`) route integrity through
+  go.sum/sum.golang.org instead of lib/download_verify.sh — the default
+  path per DEP_MGMT's decision tree (canonical module, Dependabot
+  freshness).
 
   Verification method (chosen per tool at development time, not at runtime):
 
@@ -450,13 +448,11 @@ INTEGRITY VERIFICATION (mandatory):
     the purpose of the stronger one.
 
     The methods, in order of preference:
-    1. SLSA provenance verification — if the tool publishes SLSA
-       attestations, the install script verifies them via slsa-verifier.
-       This proves the binary was built from specific source by a specific
-       builder. Provenance verification is sufficient on its own — the
-       provenance attestation covers the artifact's identity and integrity,
-       so an additional checksum is not required. This simplifies wrangle
-       integration for tools with SLSA support.
+    1. SLSA provenance verification — retired along with slsa-verifier
+       (no install-script tool currently uses it; the last consumer,
+       osv-scanner, moved to the go-module path). If a binary-only tool
+       with SLSA attestations is adopted, reinstate this tier with ampel
+       as the verifier (#322).
     2. Sigstore signature verification — if the tool signs releases with
        Cosign/Sigstore but does not publish full SLSA attestations, the
        install script verifies the signature. If signature verification
@@ -909,13 +905,13 @@ All downloaded binaries are verified before execution:
 |-------|-----------|--------|
 | Transport | HTTPS only | Always required |
 | Content | SHA-256 checksum (pinned in install script) | Required for tools without provenance or signatures |
-| Provenance | SLSA attestation via slsa-verifier | Required for tools that publish it; sufficient on its own; failure = hard stop |
+| Provenance | SLSA attestation (retired with slsa-verifier; reinstate via ampel, #322) | No current install-script tool uses it |
 | Signature | Sigstore/Cosign signature verification | Required for tools that publish it; sufficient on its own; failure = hard stop |
-| sum.golang.org tlog (`go install`) | Built-in Go toolchain verification against the transparency log | Narrow fourth tier for Go modules with no upstream binary release; gating conditions in CLAUDE.md §"Supply Chain Discipline"; failure (go.sum mismatch) = hard stop |
+| sum.golang.org tlog (`go install`) | Built-in Go toolchain verification against the transparency log | The default for canonical Go modules (DEP_MGMT branch 1 — Dependabot freshness is part of the security posture); failure (go.sum mismatch) = hard stop |
 
 For tools verified via SLSA provenance or Sigstore signatures, hardcoded checksums are not required — the cryptographic verification already covers artifact integrity. Checksums are only needed for tools that lack both provenance and signatures, in which case they are hardcoded in each install script (not downloaded alongside the binary) and updated in the same commit as a version bump.
 
-The sum.golang.org tier is accepted only for Go modules installed via `go install` and only when no upstream binary release exists. The tlog provides transparency-log immutability, not publisher authentication — a compromised maintainer's bad release would still install. See CLAUDE.md §"Supply Chain Discipline" for the full acceptance gate (pinned semver, trusted Go toolchain, documented rationale, `GOPROXY`/`GOSUMDB` not disabled).
+The sum.golang.org tier applies to Go modules installed via `go install` from their canonical module path — per DEP_MGMT this is the default, not a fallback, even when an upstream binary release exists. The tlog provides transparency-log immutability, not publisher authentication — a compromised maintainer's bad release would still install. See CLAUDE.md §"Supply Chain Discipline" for the full acceptance gate (pinned semver, trusted Go toolchain, documented rationale, `GOPROXY`/`GOSUMDB` not disabled).
 
 **No fallback between verification methods.** Each tool's verification method is chosen at development time. If provenance verification fails for a tool configured to use it, the install MUST fail — even if the checksum passed. A verification failure may indicate a supply chain attack; silently downgrading to a weaker method would mask the attack.
 
@@ -932,13 +928,6 @@ The sum.golang.org tier is accepted only for Go modules installed via `go instal
 # download failures (CDN blips, rate limits, DNS hiccups).
 # Exits 1 on checksum mismatch or exhausted retries (temp file is deleted).
 wrangle_download_verify() { ... }
-
-# Verify SLSA provenance for a downloaded artifact
-# Usage: wrangle_verify_provenance <artifact_path> <source_repo> <expected_tag>
-# Exits 0 on success, 1 on failure (including tool not available)
-# IMPORTANT: Returns 1 if slsa-verifier is not installed. Callers
-# MUST NOT fall back to weaker verification on failure.
-wrangle_verify_provenance() { ... }
 
 # Verify Sigstore signature for a downloaded artifact
 # Usage: wrangle_verify_signature <artifact_path> <expected_identity> <expected_issuer>

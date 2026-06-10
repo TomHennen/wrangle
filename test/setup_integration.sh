@@ -4,10 +4,9 @@ set -f
 
 # Install the tools wrangle's integration bats suites need on top of the
 # shell build type's own installs (shellcheck, bats): the Go tools from
-# tools/go.mod (ampel, bnd, slsa-verifier, cosign — go.sum integrity) and
-# osv-scanner (SLSA provenance, verified by the just-installed
-# slsa-verifier). Single source of truth for those deps: consumed as the
-# setup-script input of wrangle's own build_shell.yml call AND by
+# tools/go.mod (ampel, bnd, cosign, osv-scanner — go.sum integrity,
+# Dependabot freshness). Single source of truth for those deps: consumed
+# as the setup-script input of wrangle's own build_shell.yml call AND by
 # `make integration` inside the test container (`./test.sh integration`).
 #
 # Requires go and jq on PATH (GitHub runner images and test/Dockerfile
@@ -28,15 +27,11 @@ for tool in go jq; do
     fi
 done
 
-# Go tools (ampel, bnd, cosign) from tools/go.mod; env.sh pins
-# GOPROXY/GOSUMDB so the sum database can't be disabled. slsa-verifier
-# installs as the official release binary (see tools/slsa-verifier/
-# install.sh for why not a tool directive) and must precede
-# tools/osv/install.sh, which uses it for provenance verification.
-GOBIN="$WRANGLE_BIN_DIR" go -C "$REPO_ROOT/tools" install tool
-"$REPO_ROOT/tools/slsa-verifier/install.sh"
-
-"$REPO_ROOT/tools/osv/install.sh"
+# All Go tools (ampel, bnd, cosign, osv-scanner) come from tools/go.mod's
+# tool directives; env.sh pins GOPROXY/GOSUMDB so the sum database can't
+# be disabled. go requires an absolute GOBIN, and env.sh's local default
+# for WRANGLE_BIN_DIR is CWD-relative.
+GOBIN="$(cd "$WRANGLE_BIN_DIR" && pwd)" go -C "$REPO_ROOT/tools" install tool
 
 # Later workflow steps (the shell build's bats step) run in fresh shells;
 # the env.sh PATH export above only covers this process.
@@ -47,5 +42,4 @@ fi
 printf 'setup_integration: installed tool versions:\n'
 osv-scanner --version | head -1
 ampel version | head -1
-slsa-verifier version 2>&1 | head -2 | tail -1
 cosign version 2>&1 | grep GitVersion

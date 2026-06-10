@@ -22,14 +22,11 @@ setup() {
     [ "$status" -eq 0 ]
 }
 
-@test "setup_integration: installs slsa-verifier before osv-scanner" {
-    # osv install.sh needs slsa-verifier on PATH for provenance
-    # verification, so its install must appear before the osv line.
-    local sv_line osv_line
-    sv_line="$(grep -nF '"$REPO_ROOT/tools/slsa-verifier/install.sh"' "$SETUP" | head -1 | cut -d: -f1)"
-    osv_line="$(grep -nF '"$REPO_ROOT/tools/osv/install.sh"' "$SETUP" | head -1 | cut -d: -f1)"
-    [[ -n "$sv_line" && -n "$osv_line" ]]
-    [[ "$sv_line" -lt "$osv_line" ]]
+@test "setup_integration: installs all Go tools from tools/go.mod" {
+    # One `go install tool` covers ampel, bnd, cosign, and osv-scanner —
+    # the tool directives in tools/go.mod are the single version source.
+    run grep -F 'go -C "$REPO_ROOT/tools" install tool' "$SETUP"
+    [ "$status" -eq 0 ]
 }
 
 @test "setup_integration: workflow bats-path matches Makefile INTEGRATION_BATS" {

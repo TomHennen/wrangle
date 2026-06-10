@@ -3,7 +3,7 @@
 | Property | Value |
 |----------|-------|
 | Pattern | Adapter (`tools/osv/install.sh` + `tools/osv/adapter.sh`) |
-| Integrity verification | SLSA provenance via `slsa-verifier` |
+| Integrity verification | go.sum / sum.golang.org — built from tools/go.mod via `go install` (DEP_MGMT branch 1; Dependabot bumps the pin) |
 | SARIF output | `$WRANGLE_METADATA_DIR/osv/output.sarif` (written by adapter) |
 | SARIF upload | Wrangle uploads with category `wrangle/osv` |
 | Default policy | `:fail` — dependency vulnerabilities block the check |

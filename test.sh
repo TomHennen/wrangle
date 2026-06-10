@@ -55,9 +55,17 @@ esac
 # bin/metadata home. Set only for integration: unit bats exercise lib/env.sh's
 # own defaults and must not see an override. ${arr[@]+...} keeps the empty
 # array safe under set -u on bash 3.2 (macOS).
+#
+# The named volume holds the Go module/build caches: the integration target
+# compiles large tool graphs (cosign, osv-scanner), and an ephemeral
+# container would re-download and re-build everything per run — slow, and
+# big enough to exhaust the container layer. setup_integration.sh creates
+# $GOTMPDIR (go refuses a nonexistent one).
 DOCKER_ENV=()
 if [[ "$TEST_TARGET" == "integration" ]]; then
     DOCKER_ENV+=(-e WRANGLE_BIN_DIR=/tmp/wrangle/bin -e WRANGLE_METADATA_DIR=/tmp/wrangle/metadata)
+    DOCKER_ENV+=(-v wrangle-test-gocache:/godata)
+    DOCKER_ENV+=(-e GOPATH=/godata/gopath -e GOCACHE=/godata/gocache -e GOTMPDIR=/godata/tmp)
 fi
 
 # Run the requested test suite

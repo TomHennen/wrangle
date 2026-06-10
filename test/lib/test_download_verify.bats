@@ -135,23 +135,6 @@ teardown() {
     [ -r "$output_path" ]
 }
 
-# --- wrangle_verify_provenance tests ---
-
-@test "verify_provenance: fails when slsa-verifier not on PATH" {
-    # Restricted PATH with no slsa-verifier
-    PATH="/usr/bin:/bin" run wrangle_verify_provenance "$TEST_DIR/test_artifact" "test/repo" "v1.0.0"
-
-    [ "$status" -eq 1 ]
-    [[ "$output" == *"slsa-verifier not found"* ]]
-}
-
-@test "verify_provenance: requires 3 arguments" {
-    run wrangle_verify_provenance "$TEST_DIR/test_artifact" "test/repo"
-
-    [ "$status" -eq 1 ]
-    [[ "$output" == *"Usage"* ]]
-}
-
 # --- wrangle_verify_signature tests ---
 
 @test "verify_signature: fails when cosign not available" {

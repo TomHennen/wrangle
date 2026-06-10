@@ -20,7 +20,9 @@ on:
       setup-script:
         description: >
           Workspace-relative path to a bash script that installs test
-          dependencies, run before the checks. Empty disables setup.
+          dependencies. Runs after shellcheck/bats are installed and
+          before the checks; PATH additions via GITHUB_PATH reach the
+          check steps. Empty disables setup.
         required: false
         type: string
         default: ""
