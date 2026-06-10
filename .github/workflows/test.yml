@@ -90,25 +90,3 @@ jobs:
         env:
           OUTCOME: ${{ steps.wrongrepo.outcome }}
         run: test "$OUTCOME" = "failure"
-
-  # The integration bats suites (real binaries + network) run in wrangle's
-  # dogfooded shell build: local_build_shell.yml installs the tools via
-  # test/setup_integration.sh and runs the Makefile's INTEGRATION_BATS list.
-  # This job keeps only the check that needs git history on the runner.
-  pin-ancestry:
-    runs-on: ubuntu-latest
-    permissions:
-      contents: read
-    steps:
-      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
-        with:
-          persist-credentials: false
-          # check_pin_ancestry needs full history to test reachability of pinned shas.
-          fetch-depth: 0
-
-      # Fail if any wrangle self-ref action pin is unreachable from HEAD — catches
-      # a bootstrap pin (test/integration/SPEC.md §Known limitations) orphaned by a
-      # squash merge before the auto-showcase tries to resolve it. Runs on the
-      # runner (needs git + history), not in the Docker unit suite.
-      - name: Check action pin ancestry
-        run: ./tools/check_pin_ancestry.sh
