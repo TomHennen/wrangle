@@ -46,7 +46,7 @@ jobs:
     permissions: {}    # reads env only — no workspace, no API, no secrets
     steps:
       # TODO: replace with $/actions/preflight_guard when GitHub ships $/ syntax (#136)
-      - uses: TomHennen/wrangle/actions/preflight_guard@5b79a1ca848b761ae5bd5524e80af70bb42207c9 # main 2026-06-07
+      - uses: TomHennen/wrangle/actions/preflight_guard@0ed04fbdbd47aa3b85b9cf726c1589dafee6aba1 # main 2026-06-10
 
   # Source scan. A load-bearing (:fail) finding fails the run alongside
   # the shell build/test (there is no artifact to gate publishing of).
@@ -67,7 +67,7 @@ jobs:
       # Bootstrap pin (docs/e2e_testing.md): scan must resolve the branch
       # version so its dependency-review wrapper honors the repo's native
       # config file. Bump to main post-merge via tools/bump_action_pins.sh.
-      - uses: TomHennen/wrangle/actions/scan@cd35332ff407e3bb99ff854747f9a2be79cd2541 # claude/wrangle-build-shell-workflow-72lpca 2026-06-10
+      - uses: TomHennen/wrangle/actions/scan@0ed04fbdbd47aa3b85b9cf726c1589dafee6aba1 # main 2026-06-10
         if: ${{ inputs.scan-tools != '' }}
         with:
           tools: ${{ inputs.scan-tools }}
@@ -88,7 +88,7 @@ jobs:
         # setup-script input and multi-path bats — the main-pinned version
         # would ignore setup-script and fail the dogfooded integration bats.
         # Bump to main post-merge via tools/bump_action_pins.sh.
-        uses: TomHennen/wrangle/build/actions/shell@7a4521ac2a1a6351b12b89bb5e3250d5e611bb16 # claude/wrangle-build-shell-workflow-72lpca 2026-06-09
+        uses: TomHennen/wrangle/build/actions/shell@0ed04fbdbd47aa3b85b9cf726c1589dafee6aba1 # main 2026-06-10
         with:
           scan-path: ${{ inputs.scan-path }}
           bats-path: ${{ inputs.bats-path }}
