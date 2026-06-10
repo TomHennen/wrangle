@@ -1,0 +1,16 @@
+# Native config for actions/dependency-review-action, picked up by
+# tools/dependency-review/action.yml (#221: tools honor their native
+# config files). Inline inputs passed by the wrangle wrapper
+# (fail-on-severity, license-check, comment-summary-in-pr,
+# show-openssf-scorecard) take precedence over keys set here.
+
+# GHSA-4qg8-fj49-pxjh — sigstore/timestamp-authority v1: memory DoS in the
+# TSA *server's* request parsing. tools/slsa-verifier/go.mod requires the
+# v1 module but the build imports no package from it (`go -C
+# tools/slsa-verifier mod why github.com/sigstore/timestamp-authority` →
+# "main module does not need package"): graph residue, not shipped code.
+# No fixed v1 exists (the fix is the /v2 module path) and upstream
+# slsa-verifier main still requires v1. Remove this entry when
+# slsa-verifier migrates to timestamp-authority/v2.
+allow-ghsas:
+  - GHSA-4qg8-fj49-pxjh

@@ -41,6 +41,31 @@ teardown() {
     [[ "$output" == *'default: "never"'* ]]
 }
 
+@test "dependency-review: action.yml threads the native config file when present" {
+    # #221: tools honor their native config files. detect_config.sh emits
+    # an empty path when .github/dependency-review-config.yml is absent,
+    # which upstream treats as "no config-file provided".
+    grep -q 'detect_config.sh' "$TOOL_DIR/action.yml"
+    grep -q 'config-file: ${{ steps.cfg.outputs.path }}' "$TOOL_DIR/action.yml"
+}
+
+@test "detect_config: emits the config path when the file exists" {
+    mkdir -p "$TMP_DIR/ws/.github"
+    : > "$TMP_DIR/ws/.github/dependency-review-config.yml"
+    cd "$TMP_DIR/ws"
+    GITHUB_OUTPUT="$TMP_DIR/out" run "$TOOL_DIR/detect_config.sh"
+    [ "$status" -eq 0 ]
+    grep -qx 'path=./.github/dependency-review-config.yml' "$TMP_DIR/out"
+}
+
+@test "detect_config: emits an empty path when the file is absent" {
+    mkdir -p "$TMP_DIR/ws-empty"
+    cd "$TMP_DIR/ws-empty"
+    GITHUB_OUTPUT="$TMP_DIR/out-empty" run "$TOOL_DIR/detect_config.sh"
+    [ "$status" -eq 0 ]
+    grep -qx 'path=' "$TMP_DIR/out-empty"
+}
+
 @test "dependency-review: action.yml writes to wrangle metadata directory" {
     grep -q '\.wrangle/metadata/dependency-review' "$TOOL_DIR/action.yml"
 }

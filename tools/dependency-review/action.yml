@@ -35,6 +35,17 @@ runs:
       run: |
         "$WRANGLE_ROOT/lib/tool_banner.sh" dependency-review
 
+    # The upstream action's native config file (#221: tools honor their
+    # native configs rather than plumbing options through actions/scan).
+    - name: Detect native config file
+      id: cfg
+      shell: bash
+      env:
+        TOOL_DIR: ${{ github.action_path }}
+      run: |
+        set -euo pipefail
+        "$TOOL_DIR/detect_config.sh"
+
     - name: Run Dependency Review
       id: depreview
       # continue-on-error so SARIF collection runs even when the upstream
@@ -44,6 +55,11 @@ runs:
       uses: actions/dependency-review-action@2031cfc080254a8a887f58cffee85186f0e49e48 # v4.9.0
       continue-on-error: true
       with:
+        # Inline inputs take precedence over config-file keys (upstream
+        # spreads inline over external), so the two below stay
+        # authoritative; the config file supplies everything else
+        # (e.g. allow-ghsas).
+        config-file: ${{ steps.cfg.outputs.path }}
         fail-on-severity: ${{ inputs.fail-on-severity }}
         comment-summary-in-pr: ${{ inputs.comment-summary-in-pr }}
         # wrangle gates only on vulnerabilities (the SARIF below), not licenses,
