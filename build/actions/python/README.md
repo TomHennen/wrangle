@@ -79,7 +79,7 @@ with:
 
 ## SLSA provenance verification (the `verify` job)
 
-The `verify` job verifies the SLSA L3 provenance — ampel (via `actions/verify`) checks the provenance's Sigstore signature against the wrangle PolicySet's `common.identities` (fail-closed: only wrangle's reusable-workflow signer passes) and the SLSA tenets, then emits the signed VSA. It's gated on `should-release`, so it runs on every release; it is not opt-out-able. If verification fails the workflow fails and your publish job is blocked via `needs:`. This catches tampering between wrangle's build and your publish, so your publish job stays as simple as `download-artifact` + `pypa/gh-action-pypi-publish`.
+The `verify` job verifies the SLSA L3 provenance — ampel (via `actions/verify`) checks the provenance's Sigstore signature against the wrangle PolicySet's `common.identities` (fail-closed: only wrangle's reusable-workflow signer passes) and the SLSA tenets, then emits the signed VSA. It's gated on `should-release`, so it runs on every release; it is not opt-out-able. If verification fails the workflow fails and your publish job is blocked via `needs:`. That gate alone doesn't bind the publish job's *bytes* — it downloads its own copy of the dist — so the example's publish job also runs [`actions/verify-vsa`](../../../actions/verify-vsa/README.md) against its download before `pypa/gh-action-pypi-publish` uploads it.
 
 ## Verifying after install (downstream consumers)
 
