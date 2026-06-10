@@ -67,7 +67,7 @@ jobs:
       # Bootstrap pin (docs/e2e_testing.md): scan must resolve the branch
       # version so its dependency-review wrapper honors the repo's native
       # config file. Bump to main post-merge via tools/bump_action_pins.sh.
-      - uses: TomHennen/wrangle/actions/scan@7a4521ac2a1a6351b12b89bb5e3250d5e611bb16 # claude/wrangle-build-shell-workflow-72lpca 2026-06-09
+      - uses: TomHennen/wrangle/actions/scan@5d1c47df35a6dc6e38f98a47f3bf1857bd840576 # claude/wrangle-build-shell-workflow-72lpca 2026-06-10
         if: ${{ inputs.scan-tools != '' }}
         with:
           tools: ${{ inputs.scan-tools }}
