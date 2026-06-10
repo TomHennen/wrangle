@@ -88,7 +88,18 @@ Beyond the registry-bytes check above, on release the workflow emits a single si
 
 Unlike the npm/Go/Python build types, the container VSA is **stored in the registry** as an OCI referrer on the image digest (containers produce no GitHub release). It is keyless-signed by **wrangle's** reusable workflow (`build_and_publish_container.yml`), not your own.
 
-**Verify the VSA — `cosign verify-attestation` (cosign v3).** `cosign verify-blob-attestation` (the npm/Go/Python path) can't apply — a digest subject has no file blob. The container path is `cosign verify-attestation` against the image: it checks the signature, the signer identity (wrangle's reusable workflow), and — via `--certificate-github-workflow-repository` — **your origin repository**. It also prints the verified VSA envelope to stdout, so capture that and `jq`-decode the predicate fields:
+**Recommended — `ampel verify` (one command, no download).** The complete check in a single command: ampel fetches the VSA from the registry itself via the `oci:` collector, then confirms the signature, the keyless signer identity (wrangle's reusable workflow), **your origin repository** — the policy's `sourceRepositoryUriMatch` binds the signing cert's source-repository extension to the `sourceRepo` you pass, proving *which repo* built the image — and the predicate fields, against a wrangle-hosted consumer policy fetched by locator (you author no policy). Requires [ampel](https://github.com/carabiner-dev/ampel) ≥ v1.3.0 (one Go binary); both context values are required, so omitting one is a hard error, never a weaker check:
+
+```bash
+ampel verify \
+  --subject sha256:<digest> \
+  --policy git+https://github.com/TomHennen/wrangle@<version>#policies/wrangle-vsa-consumer-v1.hjson \
+  --collector oci:<imagename>@sha256:<digest> \
+  --context expectedResourceUri:<imagename>@sha256:<digest> \
+  --context sourceRepo:https://github.com/<your-org>/<your-repo>
+```
+
+**Without ampel — `cosign verify-attestation` (cosign v3).** `cosign verify-blob-attestation` (the npm/Go/Python path) can't apply — a digest subject has no file blob. The cosign container path is `cosign verify-attestation` against the image: it checks the signature, the signer identity (wrangle's reusable workflow), and — via `--certificate-github-workflow-repository` — your origin repository. It also prints the verified VSA envelope to stdout, so capture that and `jq`-decode the predicate fields:
 
 ```bash
 cosign verify-attestation \

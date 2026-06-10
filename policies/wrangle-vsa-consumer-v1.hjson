@@ -1,9 +1,11 @@
 {
     // Consumer-side check: a wrangle-signed VSA that PASSED for the resource
-    // the consumer expects, at SLSA Build L3. Run with:
+    // the consumer expects, built in the repo the consumer expects, at SLSA
+    // Build L3. Requires ampel >= v1.3.0 (sourceRepositoryUriMatch). Run with:
     //   ampel verify --subject <artifact-digest> \
     //     --policy <this> --attestation <vsa>.intoto.jsonl \
-    //     --context expectedResourceUri:<purl-or-oci-ref>
+    //     --context expectedResourceUri:<purl-or-oci-ref> \
+    //     --context sourceRepo:https://github.com/<org>/<repo>
     id: "wrangle-vsa-consumer-v1"
     meta: {
         description: "Consumer check: a wrangle-signed VSA PASSED for the expected resource at SLSA Build L3"
@@ -12,6 +14,11 @@
         context: {
             // The consumer supplies the resourceUri (purl / OCI ref) they expect.
             expectedResourceUri: { type: "string", required: true }
+            // The repo the consumer expects the artifact was built in
+            // (https://github.com/<org>/<repo>), matched against the signing
+            // cert's source-repository extension. Required: omitting it is a
+            // hard error, never a silent skip.
+            sourceRepo: { type: "string", required: true }
         }
         // The VSA MUST be keyless-signed by wrangle's reusable build+verify
         // workflow (fail-closed: ampel admits the attestation only if it matches).
@@ -22,6 +29,11 @@
                     mode: "regexp"
                     issuer: "^https://token\\.actions\\.githubusercontent\\.com$"
                     identity: "^https://github\\.com/TomHennen/wrangle/\\.github/workflows/build_and_publish_[a-z]+\\.yml@.+$"
+                    // Binds the cert's source-repository extension (the repo
+                    // wrangle's reusable workflow was invoked from) to the
+                    // consumer-supplied sourceRepo — whole-value exact match,
+                    // AND-ed with the issuer + identity above.
+                    sourceRepositoryUriMatch: { fromContext: "sourceRepo" }
                 }
             }
         ]
