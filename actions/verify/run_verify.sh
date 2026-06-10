@@ -32,6 +32,21 @@ wrangle_resolve_policy() {
     esac
 }
 
+# Run a command and, on failure, run it once more. Sigstore I/O inside ampel
+# and bnd fails intermittently (an identity check on one tenet, the DSSE
+# signing stream) on runs that pass identically seconds later; re-evaluating
+# the same attestations against the same policy is deterministic, so a retry
+# can only flip a transient failure, never a real verdict. $1 is the stdout
+# capture file, truncated per attempt so a retry can't append to a partial
+# report.
+wrangle_retry_once() {
+    local out="$1"; shift
+    if "$@" > "$out"; then return 0; fi
+    local rc=$?
+    printf 'wrangle: %s failed (exit %s); retrying once for transient Sigstore I/O\n' "$1" "$rc" >&2
+    "$@" > "$out"
+}
+
 # Build the ampel verify argument vector from the environment. One argument per
 # line so callers (and tests) read it into an array with mapfile.
 wrangle_ampel_verify_args() {
@@ -85,7 +100,7 @@ wrangle_verify_emit_vsa() {
     # straight into the truncating sanitizer would let a >MAX_SUMMARY report
     # SIGPIPE the pipeline and flip a PASS into a blocked release.
     report="$(mktemp)"
-    ampel "${args[@]}" > "$report" || rc=$?
+    wrangle_retry_once "$report" ampel "${args[@]}" || rc=$?
     wrangle_sanitize_output < "$report" >> "$GITHUB_STEP_SUMMARY"
     # On a FAILED verdict the report (which tenet failed, missing attestation,
     # etc.) is the operator's only signal for why the release was blocked, and
@@ -105,7 +120,7 @@ wrangle_sign_vsa() {
     local args
     mapfile -t args < <(wrangle_bnd_sign_args "$VSA.unsigned")
     mv "$VSA" "$VSA.unsigned"
-    bnd "${args[@]}" > "$VSA"
+    wrangle_retry_once "$VSA" bnd "${args[@]}"
     rm -f "$VSA.unsigned"
 }
 
