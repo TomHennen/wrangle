@@ -15,6 +15,8 @@ set -f
 
 # bnd signs the VSA keyless inside wrangle's reusable workflow, so that
 # workflow (not the caller) is the cert SAN the identity check must match.
+# Must stay equivalent to the identity in policies/wrangle-vsa-consumer-v1.hjson
+# (divergence-fail test in test.bats).
 WRANGLE_SIGNER_REGEX='^https://github\.com/TomHennen/wrangle/\.github/workflows/build_and_publish_[a-z]+\.yml@'
 OIDC_ISSUER='https://token.actions.githubusercontent.com'
 VSA_PREDICATE='https://slsa.dev/verification_summary/v1'
@@ -27,17 +29,6 @@ die_input() {
 die_verify() {
     printf 'wrangle/verify-artifact: VERIFICATION FAILED: %s\n' "$1" >&2
     exit 1
-}
-
-collect_files() {
-    local path="$1"
-    if [[ -f "$path" ]]; then
-        printf '%s\0' "$path"
-    elif [[ -d "$path" ]]; then
-        find "$path" -type f -print0 | sort -z
-    else
-        return 1
-    fi
 }
 
 # cosign checks signature, signer identity, origin repository, and that the
@@ -53,15 +44,16 @@ verify_one() {
         "$file" \
         || die_verify "cosign rejected $file against $vsa"
 
-    local payload
-    payload="$(jq -r '.dsseEnvelope.payload' "$vsa" | base64 -d)" \
+    local verdict
+    verdict="$(jq -r '.dsseEnvelope.payload | @base64d | fromjson | .predicate.verificationResult' "$vsa")" \
         || die_verify "could not decode VSA payload in $vsa"
-    jq -e '.predicate.verificationResult == "PASSED"' <<<"$payload" >/dev/null \
-        || die_verify "VSA for $file does not say PASSED"
+    [[ "$verdict" == "PASSED" ]] \
+        || die_verify "VSA for $file does not say PASSED (got: ${verdict})"
 }
 
 main() {
     [[ -n "${ARTIFACT_PATH:-}" ]] || die_input "ARTIFACT_PATH is required"
+    [[ -e "$ARTIFACT_PATH" ]] || die_input "no such file or directory: $ARTIFACT_PATH"
     [[ "${REPO:-}" =~ ^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$ ]] \
         || die_input "REPO must be <owner>/<repo>, got: ${REPO:-<empty>}"
     [[ -d "${VSA_DIR:-}" ]] \
@@ -73,12 +65,31 @@ main() {
 
     local -a files=()
     local f
-    while IFS= read -r -d '' f; do files+=("$f"); done \
-        < <(collect_files "$ARTIFACT_PATH" || true)
-    [[ -e "$ARTIFACT_PATH" ]] || die_input "no such file or directory: $ARTIFACT_PATH"
+    if [[ -f "$ARTIFACT_PATH" ]]; then
+        files=("$ARTIFACT_PATH")
+    elif [[ -d "$ARTIFACT_PATH" ]]; then
+        # Enumerate via a temp file, not a process substitution: bash never
+        # observes a process substitution's exit status, so a find that fails
+        # mid-traversal (unreadable subdir) would silently verify only the
+        # readable subset and pass — fail-open for this gate's contract.
+        local listing
+        listing="$(mktemp)"
+        if ! find "$ARTIFACT_PATH" -type f -print0 | sort -z > "$listing"; then
+            rm -f "$listing"
+            die_input "failed to enumerate files under $ARTIFACT_PATH"
+        fi
+        while IFS= read -r -d '' f; do files+=("$f"); done < "$listing"
+        rm -f "$listing"
+    else
+        die_input "not a regular file or directory: $ARTIFACT_PATH"
+    fi
     (( ${#files[@]} > 0 )) \
         || die_input "no files to verify under $ARTIFACT_PATH — refusing to pass an empty set"
 
+    # Anchored through '@' but deliberately not to a ref: the VSA comes from
+    # this same run's artifacts, signed at whatever wrangle ref the caller
+    # pinned — a tag anchor (like the README consumer commands use) would
+    # break SHA- and branch-pinned callers.
     local identity_regex="$WRANGLE_SIGNER_REGEX"
     if [[ -n "${SIGNER_WORKFLOW:-}" ]]; then
         identity_regex="^https://github\\.com/${SIGNER_WORKFLOW//./\\.}@"

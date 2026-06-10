@@ -35,7 +35,6 @@ If any file lacks a VSA, the signature or identity doesn't check out, or the ver
 | `path` | (required) | A file, or a directory — every file under it (recursive) is verified. |
 | `signer-workflow` | any wrangle `build_and_publish_*` workflow | The reusable workflow bound as the VSA's keyless signer (`<owner>/<repo>/<path>.yml`). Set it to your build type's workflow for the tightest binding. |
 | `repo` | `${{ github.repository }}` | Origin repository the signing certificate must name (`--certificate-github-workflow-repository`). |
-| `vsa-path` | (auto-download) | Directory already holding the `<artifact-basename>.intoto.jsonl` files, if you downloaded them yourself. |
 
 No extra permissions are needed: VSAs are fetched as same-run workflow artifacts, and cosign's keyless verification talks to Sigstore, not the GitHub API.
 
@@ -43,4 +42,6 @@ No extra permissions are needed: VSAs are fetched as same-run workflow artifacts
 
 Per file, `cosign verify-blob-attestation` checks fail-closed: the file's hash matches the VSA subject, the Sigstore signature is valid, the signer is wrangle's reusable workflow, and the signing certificate's origin repository is `repo`. cosign doesn't read predicate fields, so the action then decodes the DSSE payload and requires `verificationResult == "PASSED"`.
 
-It does not re-run policy — ampel already did that in wrangle's `verify` job; the VSA is that decision, signed. Downstream consumers (people who install your published package) verify the same VSA themselves — see "Verifying after install" in your build type's README under [`build/actions/`](../../build/).
+It does not re-run policy — ampel already did that in wrangle's `verify` job; the VSA is that decision, signed. It also verifies **file blobs only**: container images have digest VSA subjects with no file blob, so pointing this action at a saved image tarball will always fail — the container path's VSA is verified with `cosign verify-attestation` against the image instead (see the [container README](../../build/actions/container/README.md)).
+
+Downstream consumers (people who install your published package) verify the same VSA themselves — see "Verifying after install" in your build type's README under [`build/actions/`](../../build/).

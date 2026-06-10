@@ -30,13 +30,6 @@ inputs:
       (<owner>/<repo>). Defaults to the repository running the workflow.
     required: false
     default: ${{ github.repository }}
-  vsa-path:
-    description: >
-      Directory already containing the <artifact-basename>.intoto.jsonl VSA
-      files. Empty (default) downloads the run's VSA workflow artifacts
-      automatically.
-    required: false
-    default: ""
 
 runs:
   using: composite
@@ -47,7 +40,6 @@ runs:
     # wrangle's verify job uploads one VSA artifact per dist file, named
     # <artifact-basename>.intoto.jsonl; merge them into one directory.
     - name: Download VSA artifacts
-      if: ${{ inputs.vsa-path == '' }}
       uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
       with:
         pattern: "*.intoto.jsonl"
@@ -60,5 +52,5 @@ runs:
         ARTIFACT_PATH: ${{ inputs.path }}
         SIGNER_WORKFLOW: ${{ inputs.signer-workflow }}
         REPO: ${{ inputs.repo }}
-        VSA_DIR: ${{ inputs.vsa-path != '' && inputs.vsa-path || format('{0}/wrangle-vsas', runner.temp) }}
+        VSA_DIR: ${{ runner.temp }}/wrangle-vsas
       run: "${{ github.action_path }}/verify_artifact.sh"
