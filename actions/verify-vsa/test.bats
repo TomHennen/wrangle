@@ -14,14 +14,14 @@
 #     silently drop the env passthrough, the pinned installer/download
 #     steps, or the script delegation.
 #   - Contract: divergence-fail guards tying this consumer to its
-#     producers (the VSA artifact-name convention in actions/verify, the
-#     consumer PolicySet's identity, and the ampel version in tools/go.mod).
+#     producers (the VSA artifact-name convention in actions/verify and the
+#     consumer PolicySet's identity). The ampel version needs no guard: the
+#     action builds from tools/go.mod, the single source actions/verify uses.
 
 setup() {
     ACTION_DIR="$(cd "$(dirname "$BATS_TEST_FILENAME")" && pwd)"
     ACTION="$ACTION_DIR/action.yml"
     SCRIPT="$ACTION_DIR/verify_vsa.sh"
-    INSTALL="$ACTION_DIR/install_ampel.sh"
     GATE_POLICY="$ACTION_DIR/../../policies/wrangle-vsa-gate-v1.hjson"
     TMP="$(mktemp -d)"
     AMPEL_LOG="$TMP/ampel_calls.log"
@@ -230,16 +230,6 @@ EOF
     done
 }
 
-@test "contract: install_ampel.sh pins the same ampel version as tools/go.mod" {
-    # Two install paths, one version: the gate's release binary and the
-    # verify action's go-built ampel must move together (Dependabot bumps
-    # go.mod; this fails until the binary pin follows).
-    script_ver="$(grep -o 'VERSION="\${1:-v[^}]*}"' "$INSTALL" | grep -o 'v[0-9][^}]*')"
-    gomod_ver="$(grep -o 'github.com/carabiner-dev/ampel v[0-9][^ ]*' "$ACTION_DIR/../../tools/go.mod" | grep -o 'v[0-9].*')"
-    [[ -n "$script_ver" ]] && [[ -n "$gomod_ver" ]]
-    [[ "$script_ver" == "$gomod_ver" ]]
-}
-
 # --- structural ---
 
 @test "structure: action.yml threads inputs through env, not interpolation" {
@@ -248,9 +238,10 @@ EOF
     grep -q 'REPO: ${{ inputs.repo }}' "$ACTION"
 }
 
-@test "structure: action.yml installs cosign, ampel, and downloads VSAs via pinned steps" {
-    grep -Eq 'uses: sigstore/cosign-installer@[0-9a-f]{40}' "$ACTION"
-    grep -q 'install_ampel.sh' "$ACTION"
+@test "structure: action.yml provisions Go, builds ampel from the tool manifest, and downloads VSAs via pinned steps" {
+    grep -Eq 'uses: actions/setup-go@[0-9a-f]{40}' "$ACTION"
+    grep -q 'go-version-file: ${{ github.action_path }}/../../tools/go.mod' "$ACTION"
+    grep -q 'install github.com/carabiner-dev/ampel/cmd/ampel' "$ACTION"
     grep -Eq 'uses: actions/download-artifact@[0-9a-f]{40}' "$ACTION"
     grep -q 'pattern: "\*.intoto.jsonl"' "$ACTION"
 }

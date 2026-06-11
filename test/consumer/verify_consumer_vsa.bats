@@ -259,16 +259,3 @@ require_sigstore() {
     [[ "$status" -eq 1 ]]
     [[ "$output" == *"ampel rejected"* ]]
 }
-
-# The documented install path for the gate's ampel: provenance-verified
-# release binary. Needs real cosign + the GitHub release CDN.
-@test "verify-vsa: install_ampel.sh installs a provenance-verified ampel" {
-    [[ -x "$COSIGN_BIN" ]] || skip_or_fail "real cosign not available"
-    require_sigstore
-    PATH="$(dirname "$COSIGN_BIN"):$PATH" WRANGLE_BIN_DIR="$TMP/bin" \
-        run "$REPO_ROOT/actions/verify-vsa/install_ampel.sh"
-    [[ "$status" -eq 0 ]]
-    [[ "$output" == *"provenance verified"* ]]
-    run "$TMP/bin/ampel" version
-    [[ "$output" == *"GitVersion"* ]]
-}

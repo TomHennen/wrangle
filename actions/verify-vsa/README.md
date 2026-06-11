@@ -10,7 +10,7 @@ It verifies the **VSA**, not the raw provenance, on purpose: the VSA is the arti
 
 ## How
 
-Each file is checked with [`ampel verify`](https://github.com/carabiner-dev/ampel) against the [`wrangle-vsa-gate-v1`](../../policies/wrangle-vsa-gate-v1.hjson) PolicySet — the same engine and signer identity wrangle recommends to downstream consumers ([`wrangle-vsa-consumer-v1`](../../policies/wrangle-vsa-consumer-v1.hjson)), minus the `resourceUri` pin a pre-publish gate cannot know (the artifact has no published name yet). The policy ships with the action, so its content is pinned by the action ref you chose — never fetched at verify time. ampel itself is installed as a release binary whose SLSA provenance is verified with cosign before first use; nothing is compiled on your runner and no Go toolchain is required.
+Each file is checked with [`ampel verify`](https://github.com/carabiner-dev/ampel) against the [`wrangle-vsa-gate-v1`](../../policies/wrangle-vsa-gate-v1.hjson) PolicySet — the same engine and signer identity wrangle recommends to downstream consumers ([`wrangle-vsa-consumer-v1`](../../policies/wrangle-vsa-consumer-v1.hjson)), minus the `resourceUri` pin a pre-publish gate cannot know (the artifact has no published name yet). The policy ships with the action, so its content is pinned by the action ref you chose — never fetched at verify time. ampel is built from the action's pinned tool manifest (`tools/go.mod`, go.sum-verified — the same manifest wrangle's own verify job builds from), and the action provisions its own Go toolchain, so nothing extra is required on your runner.
 
 ## Usage
 

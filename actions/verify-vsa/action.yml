@@ -43,18 +43,30 @@ runs:
         REPO: ${{ inputs.repo }}
       run: "${{ github.action_path }}/validate_inputs.sh"
 
-    # cosign bootstraps trust for the ampel install below: it verifies the
-    # ampel release binary's SLSA provenance. The VSA itself is verified by
-    # ampel, not cosign.
-    - name: Install Cosign
-      uses: sigstore/cosign-installer@6f9f17788090df1f26f669e9d70d6ae9567deba6 # v4.1.2
+    # Go for the ampel build below. The runner image's PATH Go is not
+    # contractually guaranteed (the ubuntu-24.04 image lists Go under cached
+    # tools only), so the action provisions its own, at the version the tool
+    # manifest pins.
+    - name: Setup Go
+      uses: actions/setup-go@4a3601121dd01d1626a1e23e37211e3254c1c06c # v6.4.0
+      with:
+        go-version-file: ${{ github.action_path }}/../../tools/go.mod
+        # No module/build cache: this runs in release publish jobs, where
+        # wrangle's cache-isolation posture is cache-free builds.
+        cache: false
 
-    # Provenance-verified release binary into WRANGLE_BIN_DIR; verify_vsa.sh
-    # re-sources lib/env.sh to find it on PATH, so there is no write to
-    # $GITHUB_PATH.
+    # Build ampel from the pinned tool manifest into WRANGLE_BIN_DIR — go.sum
+    # pins the bytes, and it is the same manifest actions/verify builds from,
+    # so the version is single-sourced. verify_vsa.sh re-sources lib/env.sh
+    # to find it on PATH, so there is no write to $GITHUB_PATH.
     - name: Install ampel
       shell: bash
-      run: "${{ github.action_path }}/install_ampel.sh"
+      env:
+        WRANGLE_ROOT: ${{ github.action_path }}/../..
+      run: |
+        # shellcheck source=../../lib/env.sh
+        source "$WRANGLE_ROOT/lib/env.sh"
+        GOBIN="$WRANGLE_BIN_DIR" go -C "$WRANGLE_ROOT/tools" install github.com/carabiner-dev/ampel/cmd/ampel
 
     # wrangle's verify job uploads one VSA artifact per dist file, named
     # <artifact-basename>.intoto.jsonl; merge them into one directory.

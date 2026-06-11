@@ -21,8 +21,8 @@ jobs:
 
   # End-to-end exercise of the verify-vsa composite action itself (the
   # script's logic is bats-covered; this covers the composite wiring: the
-  # provenance-verified ampel install, the VSA artifact download by pattern,
-  # and the verify step) against the real consumer fixtures — including the
+  # Go-built ampel install, the VSA artifact download by pattern, and the
+  # verify step) against the real consumer fixtures — including the
   # fail-closed paths: tampered bytes and a wrong origin repo must fail the
   # action.
   verify-vsa-action:

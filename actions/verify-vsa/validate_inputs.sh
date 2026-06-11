@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Input-format validation for the verify-vsa action, run as the action's
-# first step so a bad input fails before the cosign install and the VSA
+# first step so a bad input fails before the tool install and the VSA
 # artifact download. verify_vsa.sh sources this and re-runs the same checks
 # as its own boundary guard, so the rules live in one place.
 #
