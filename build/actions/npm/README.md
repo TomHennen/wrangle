@@ -36,7 +36,7 @@ Complete in order; step 1 only applies to brand-new packages.
 
 ## What you get
 
-- **npm or pnpm, auto-detected** from the lockfile; for pnpm, Corepack honors `package.json`'s `packageManager` field — set it for deterministic builds. (Yarn isn't supported yet.)
+- **npm or pnpm, auto-detected** from the lockfile; for pnpm, Corepack honors `package.json`'s `packageManager` field — set it for deterministic builds.
 - **Your scripts run as usual** — `scripts.build` if present, `scripts.test` unless it's npm's default placeholder, then `npm pack` / `pnpm pack`.
 - **Source scan** built in — vulnerable dependencies (OSV), unsafe workflow patterns (Zizmor), and more ([details](../../../actions/scan/README.md)); a load-bearing finding blocks publish.
 - **An SPDX SBOM**, uploaded as a workflow artifact.
@@ -70,7 +70,7 @@ Skip the gate and you publish on every non-PR event; skip verify-vsa and you may
 
 - **Node version resolution**: `node-version` input → `.nvmrc` → `package.json` `engines.node` → a wrangle-default LTS. Set one of the first three if you care about a specific version.
 - **Lifecycle hooks fire normally** (`prepare`, `prepack`, `postpack`, dependency `install` hooks) — a malicious script there is the same threat surface as malicious code in `src/`, governed by source review. Two exceptions: `prepublishOnly` does NOT fire (your publish job runs `npm publish` against the pre-built tarball, so the attested bytes are exactly what ships — move type-checking into `scripts.build`), and `ignore-scripts: true` opts into "source bytes only, no script execution".
-- **Single-package only for now** — workspaces are rejected ([#208](https://github.com/TomHennen/wrangle/issues/208)); Yarn is a follow-on.
+- **Single-package npm/pnpm only** — workspaces are rejected ([#208](https://github.com/TomHennen/wrangle/issues/208)), and so are Yarn lockfiles.
 - **SBOM scope is the source tree, not the tarball** — if `package.json`'s `files` field restricts what ships, the SBOM may list more than the `.tgz` contains. The L3 attestation covers the exact `.tgz` bytes regardless.
 - **`release-events`** (default: `non-pull-request`; the example sets `tag-only`) controls when release-time actions run and what `should-release` reports — see [`docs/SPEC.md`](../../../docs/SPEC.md) "Release-events gating".
 - **Workflow outputs** (`dist-artifact-name`, `tarball`, `provenance-artifact-name`, `metadata-artifact-name`, `hashes`, `version`, `should-release`) are documented in [`build_and_publish_npm.yml`](../../../.github/workflows/build_and_publish_npm.yml) itself.
@@ -87,11 +87,11 @@ ampel verify --subject <tarball> \
   --context sourceRepo:https://github.com/<your-org>/<your-repo>
 ```
 
-That single command checks — fail-closed — the signature, wrangle's signer identity, that the build ran in *your* repo, and that policy passed at SLSA Build L3. Scoped names go in the purl verbatim (`pkg:npm/@scope/pkg@1.2.3`); the policy locator can pin any wrangle `v*` tag. Installed consumers can additionally run `npm audit signatures` for npm's registry-side L2 check. No ampel? An equivalent cosign recipe — and the full trust model — is in the [artifact verification guide](../../../docs/verifying_artifacts.md).
+That single command checks — fail-closed — the signature, wrangle's signer identity, that the build ran in *your* repo, and that policy passed at SLSA Build L3. Scoped names go in the purl verbatim (`pkg:npm/@scope/pkg@1.2.3`). No ampel? See the [artifact verification guide](../../../docs/verifying_artifacts.md) for an equivalent cosign recipe, npm's registry-side check, and the full trust model.
 
 ## Further reading
 
-- [`SPEC.md`](./SPEC.md) — design rationale: attestation model (L2 vs L3), tool choices; workspaces design in [`WORKSPACES_PHASE_1.md`](./WORKSPACES_PHASE_1.md).
+- [`SPEC.md`](./SPEC.md) — design rationale: attestation model (L2 vs L3), tool choices.
 - [`docs/verifying_artifacts.md`](../../../docs/verifying_artifacts.md) — consumer verification: ampel, cosign, `gh attestation verify`, `npm audit signatures`.
 - [`docs/SLSA_L3_AUDIT.md`](../../../docs/SLSA_L3_AUDIT.md) — the conditions behind the Build L3 claim, including the npm-vs-pnpm cache analysis.
 - [npm Trusted Publishing](https://docs.npmjs.com/trusted-publishers/) — the underlying publish mechanism.

@@ -7,7 +7,7 @@ Wrangle produces two attestations for every released artifact:
   inside wrangle's isolated reusable workflow and stored in GitHub's
   attestation store for the adopter's repo.
 - **A SLSA Verification Summary Attestation (VSA)** — *the policy verdict*:
-  a signed record that the provenance passed wrangle's PolicySet at SLSA
+  a signed record that the artifact passed wrangle's policy at SLSA
   Build L3. Keyless-signed by **wrangle's** reusable workflow (not the
   adopter's). For Go, Python, and npm builds the VSA is attached to the
   GitHub release as `<artifact>.intoto.jsonl`; for container images it is
@@ -165,7 +165,9 @@ These complement the VSA with a registry-side root of trust — they prove
 
 For both, the upload-time `workflow_ref` validation only holds when legacy
 token publishing is disabled on the registry — see each build type's
-"Before first use".
+"Before first use". And either way, run the VSA check above too: these
+checks prove who published, but only the VSA carries the SLSA Build L3
+verdict.
 
 ## For adopters: gate your publish on the VSA
 
@@ -173,4 +175,6 @@ If your publish job lives in your own workflow (Python / npm), run
 [`actions/verify-vsa`](../actions/verify-vsa/README.md) between
 `download-artifact` and the publish step. It re-checks the bytes on *that*
 runner against the signed VSA, fail-closed, so what you upload is exactly
-what passed wrangle's policy.
+what passed wrangle's policy. The publish jobs in
+[`gh_workflow_examples/build_python.yml`](../gh_workflow_examples/build_python.yml)
+and [`build_npm.yml`](../gh_workflow_examples/build_npm.yml) show it wired.

@@ -71,7 +71,7 @@ ampel verify --subject <archive> \
   --context sourceRepo:https://github.com/<your-org>/<your-repo>
 ```
 
-That single command checks — fail-closed — the signature, wrangle's signer identity, that the build ran in *your* repo, and that policy passed at SLSA Build L3. The module path is the `module` directive in your `go.mod`; the policy locator can pin any wrangle `v*` tag. No ampel? An equivalent cosign recipe — and the full trust model — is in the [artifact verification guide](../../../docs/verifying_artifacts.md).
+That single command checks — fail-closed — the signature, wrangle's signer identity, that the build ran in *your* repo, and that policy passed at SLSA Build L3. The module path is the `module` directive in your `go.mod`. No ampel? See the [artifact verification guide](../../../docs/verifying_artifacts.md) for an equivalent cosign recipe and the full trust model.
 
 ## Further reading
 

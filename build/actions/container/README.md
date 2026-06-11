@@ -14,18 +14,16 @@ Copy [`build_and_publish_containers.yml`](../../../gh_workflow_examples/build_an
 
 ## What you get
 
-- **Build + push to ghcr.io** (other registries are out of scope for now — see [`SPEC.md`](./SPEC.md#current-scope-ghcrio-only)).
+- **Build + push to ghcr.io** (other registries are out of scope — see [`SPEC.md`](./SPEC.md#current-scope-ghcrio-only)).
 - **Source scan** built in — vulnerable dependencies (OSV), unsafe workflow patterns (Zizmor), and more ([details](../../../actions/scan/README.md)); a load-bearing finding blocks the build and push.
 - **A BuildKit-native SBOM**, attached to the image as an OCI attestation and uploaded as a workflow artifact (SPDX JSON).
 - **SLSA Build L3 provenance** for the image digest (consumed through the reusable workflow on GitHub-hosted runners — conditions in [`docs/SLSA_L3_AUDIT.md`](../../../docs/SLSA_L3_AUDIT.md)).
 - **A signed VSA** stored in the registry as an OCI referrer on the image digest, so consumers can verify the image with one command.
 
-Two designed pieces are **not yet shipped**: Cosign keyless signing of the image digest itself, and OSV-Scanner over the produced SBOM. Designs in [`SPEC.md`](./SPEC.md); file an issue if you need either prioritized.
-
 ## Good to know
 
 - **`release-events`** (default: `non-pull-request`) gates provenance generation and verification — see [`docs/SPEC.md`](../../../docs/SPEC.md) "Release-events gating". The docker push itself happens earlier and is gated by your workflow's own `on:` triggers.
-- **Release builds never use a cache** — BuildKit's shared cache isn't re-verified on hits, so a poisoned entry could reach the attested image. Not configurable. **PR builds** cache safely per PR by default, which closes PR-to-PR cache poisoning (one PR planting cache entries a later PR builds from) while keeping rebuilds within a PR fast. The `pr-cache` input tunes this: `isolated` (default, safest), `enabled` (shared cache, fastest, trusted-contributor repos only), `read-only`, or `disabled` — details on the input in [`build_and_publish_container.yml`](../../../.github/workflows/build_and_publish_container.yml).
+- **Release builds never use a cache** — BuildKit's shared cache isn't re-verified on hits, so a poisoned entry could reach the attested image. PR builds get a per-PR isolated cache by default, which closes PR-to-PR cache poisoning; tune that with the `pr-cache` input, documented in [`build_and_publish_container.yml`](../../../.github/workflows/build_and_publish_container.yml).
 - **Never invoke this workflow from `pull_request_target`** — that trigger runs fork PRs in the base-repo context with cache write access.
 - **Private repos**: the `verify` job pulls the provenance referrer without registry auth, so auth-gated pulls are a known gap ([#182](https://github.com/TomHennen/wrangle/issues/182)).
 - **Workflow outputs** (`imagename`, `metadata-artifact-name`, `should-release`, …) are documented in [`build_and_publish_container.yml`](../../../.github/workflows/build_and_publish_container.yml) itself.
@@ -42,12 +40,12 @@ ampel verify --subject sha256:<digest> \
   --context sourceRepo:https://github.com/<your-org>/<your-repo>
 ```
 
-That single command checks — fail-closed — the signature, wrangle's signer identity, that the build ran in *your* repo, and that policy passed at SLSA Build L3. The policy locator can pin any wrangle `v*` tag. No ampel? An equivalent cosign recipe — and the full trust model — is in the [artifact verification guide](../../../docs/verifying_artifacts.md).
+That single command checks — fail-closed — the signature, wrangle's signer identity, that the build ran in *your* repo, and that policy passed at SLSA Build L3. No ampel? See the [artifact verification guide](../../../docs/verifying_artifacts.md) for an equivalent cosign recipe and the full trust model.
 
 The SBOM is also inspectable straight off the image: `docker buildx imagetools inspect --format '{{ json .SBOM.SPDX }}' <image>@<digest>`.
 
 ## Further reading
 
-- [`SPEC.md`](./SPEC.md) — this action's full specification: failure contract, trust model, trigger restriction, planned signing.
+- [`SPEC.md`](./SPEC.md) — this action's full specification: failure contract, trust model, trigger restriction.
 - [`docs/verifying_artifacts.md`](../../../docs/verifying_artifacts.md) — consumer verification: ampel, cosign, and the publish/attest timing model.
 - [`docs/SLSA_L3_AUDIT.md`](../../../docs/SLSA_L3_AUDIT.md) — the conditions behind the Build L3 claim, including the BuildKit cache analysis.
