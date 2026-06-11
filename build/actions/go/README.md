@@ -190,7 +190,18 @@ curl -LO "https://github.com/<owner>/<repo>/releases/download/<tag>/<archive>"
 curl -LO "https://github.com/<owner>/<repo>/releases/download/<tag>/<archive>.intoto.jsonl"
 ```
 
-**Recommended — `cosign verify-blob-attestation` + `jq`.** This is the complete check: cosign confirms the signature, the signer identity (wrangle's reusable workflow), **your origin repository** — `--certificate-github-workflow-repository`, the binding that proves *which repo* built the artifact — and that the archive's hash matches the VSA subject. cosign doesn't read predicate fields, so a `jq` decode covers `verificationResult` / `resourceUri` / `verifiedLevels`:
+**Recommended — `ampel verify` (one command).** The complete check in a single command: ampel confirms the signature, the keyless signer identity (wrangle's reusable workflow), **your origin repository** — the policy's `sourceRepositoryUriMatch` binds the signing cert's source-repository extension to the `sourceRepo` you pass, proving *which repo* built the artifact — and the predicate fields (`verificationResult` / `resourceUri` / `verifiedLevels`), against a wrangle-hosted consumer policy fetched by locator (you author no policy). Requires [ampel](https://github.com/carabiner-dev/ampel) ≥ v1.3.0 (one Go binary); both context values are required, so omitting one is a hard error, never a weaker check:
+
+```bash
+ampel verify \
+  --subject <archive> \
+  --policy git+https://github.com/TomHennen/wrangle@<version>#policies/wrangle-vsa-consumer-v1.hjson \
+  --attestation <archive>.intoto.jsonl \
+  --context expectedResourceUri:pkg:golang/<module-path>@<version> \
+  --context sourceRepo:https://github.com/<your-org>/<your-repo>
+```
+
+**Without ampel — `cosign verify-blob-attestation` + `jq`.** The same complete check from cosign: it confirms the signature, the signer identity, your origin repository (`--certificate-github-workflow-repository`), and that the archive's hash matches the VSA subject. cosign doesn't read predicate fields, so a `jq` decode covers `verificationResult` / `resourceUri` / `verifiedLevels`:
 
 ```bash
 cosign verify-blob-attestation --bundle <archive>.intoto.jsonl --new-bundle-format \
@@ -207,8 +218,6 @@ jq -e '.predicate.verifiedLevels | index("SLSA_BUILD_LEVEL_3")' <<<"$payload"
 ```
 
 `--type` must be the full URI `https://slsa.dev/verification_summary/v1` — cosign rejects the `slsaverificationsummary` alias.
-
-**One command, but no repo binding — `ampel verify` (not recommended yet).** ampel can check the VSA against a wrangle-hosted consumer policy in a single command, but ampel (v1.2.1) matches only the signing cert's issuer + SAN — **not** its source-repository extension — so it cannot bind the origin repo and would accept a wrangle-signed VSA built in a *different* repo. That gap is too big to recommend it as your check today; use the cosign command above. ampel may return as a one-command option once the binding is fixed — [#321](https://github.com/TomHennen/wrangle/issues/321).
 
 > **`slsa-verifier verify-vsa` is not usable here.** It only verifies *key-signed* VSAs (it requires `--public-key-path`); wrangle's VSAs are keyless (Fulcio/Sigstore), so there is no identity flag to pass. Tracked under the [Attestation trust gaps](../../../README.md) section / [#317](https://github.com/TomHennen/wrangle/issues/317).
 

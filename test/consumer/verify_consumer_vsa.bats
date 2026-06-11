@@ -128,13 +128,17 @@ require_sigstore() {
 }
 
 # --- Path B: ampel verify against the wrangle-hosted consumer policy ---
+# Needs ampel >= v1.3.0: the policy's sourceRepositoryUriMatch binds the
+# signing cert's source-repository extension (the origin repo) to the
+# consumer-supplied sourceRepo context; older ampel can't parse the policy.
 
-@test "consumer B: ampel verify PASSES (signature + identity + fields, one command)" {
+@test "consumer B: ampel verify PASSES (signature + identity + origin repo + fields, one command)" {
     [[ -x "$AMPEL_BIN" ]] || skip_or_fail "real ampel not available"
     require_sigstore
     run "$AMPEL_BIN" verify --subject "$BLOB" \
         --policy "$POLICY" --attestation "$VSA" \
-        --context "expectedResourceUri:$RESOURCE_URI"
+        --context "expectedResourceUri:$RESOURCE_URI" \
+        --context "sourceRepo:https://github.com/$SIGNER_REPO"
     [[ "$status" -eq 0 ]]
     [[ "$output" == *"PASS"* ]]
 }
@@ -144,9 +148,31 @@ require_sigstore() {
     require_sigstore
     run "$AMPEL_BIN" verify --subject "$BLOB" \
         --policy "$POLICY" --attestation "$VSA" \
-        --context "expectedResourceUri:pkg:npm/@attacker/evil@9.9.9"
+        --context "expectedResourceUri:pkg:npm/@attacker/evil@9.9.9" \
+        --context "sourceRepo:https://github.com/$SIGNER_REPO"
     [[ "$status" -ne 0 ]]
     [[ "$output" == *"FAIL"* ]]
+}
+
+@test "consumer B: ampel verify FAILS on a wrong origin repo (fail-closed repo binding)" {
+    [[ -x "$AMPEL_BIN" ]] || skip_or_fail "real ampel not available"
+    require_sigstore
+    # A wrangle-signed VSA built in a different repo must be rejected even
+    # though the signer identity (wrangle's reusable workflow) matches.
+    run "$AMPEL_BIN" verify --subject "$BLOB" \
+        --policy "$POLICY" --attestation "$VSA" \
+        --context "expectedResourceUri:$RESOURCE_URI" \
+        --context "sourceRepo:https://github.com/attacker/evil-repo"
+    [[ "$status" -ne 0 ]]
+}
+
+@test "consumer B: ampel verify ERRORS when sourceRepo is not supplied (no silent skip)" {
+    [[ -x "$AMPEL_BIN" ]] || skip_or_fail "real ampel not available"
+    require_sigstore
+    run "$AMPEL_BIN" verify --subject "$BLOB" \
+        --policy "$POLICY" --attestation "$VSA" \
+        --context "expectedResourceUri:$RESOURCE_URI"
+    [[ "$status" -ne 0 ]]
 }
 
 @test "consumer B (container): ampel verify a real container VSA by digest subject" {
@@ -154,7 +180,8 @@ require_sigstore() {
     require_sigstore
     run "$AMPEL_BIN" verify --subject "$CONTAINER_DIGEST" \
         --policy "$POLICY" --attestation "$FIX/container-vsa.intoto.jsonl" \
-        --context "expectedResourceUri:$CONTAINER_URI"
+        --context "expectedResourceUri:$CONTAINER_URI" \
+        --context "sourceRepo:https://github.com/$SIGNER_REPO"
     [[ "$status" -eq 0 ]]
     [[ "$output" == *"PASS"* ]]
 }
@@ -166,7 +193,8 @@ require_sigstore() {
     sed 's#build_and_publish_\[a-z\]+#NOT_a_wrangle_workflow#' "$POLICY" > "$TMP/bad-identity.hjson"
     run "$AMPEL_BIN" verify --subject "$BLOB" \
         --policy "$TMP/bad-identity.hjson" --attestation "$VSA" \
-        --context "expectedResourceUri:$RESOURCE_URI"
+        --context "expectedResourceUri:$RESOURCE_URI" \
+        --context "sourceRepo:https://github.com/$SIGNER_REPO"
     [[ "$status" -ne 0 ]]
 }
 
