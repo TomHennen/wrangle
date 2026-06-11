@@ -67,7 +67,7 @@ Skip the gate and you publish on every non-PR event; skip verify-vsa and you may
 ## Good to know
 
 - **`release-events`** (default: `non-pull-request`; the example sets `tag-only`) controls when release-time actions run and what `should-release` reports — see [`docs/SPEC.md`](../../../docs/SPEC.md) "Release-events gating". Treat `should-release` as the source of truth rather than re-evaluating events yourself.
-- **Composite-only path**: use `TomHennen/wrangle/build/actions/python@v0.2.0` as a step if you want build + test + SBOM and will wire provenance and publish yourself (this forfeits the Build L3 claim).
+- **Using wrangle as a single step instead of the reusable workflow** (`uses: TomHennen/wrangle/build/actions/python@v0.2.0`) gets you build + test + SBOM, but you wire provenance and publish yourself and the result no longer qualifies for Build L3 — lower assurance, only worth it when the reusable workflow can't fit your pipeline.
 - **Workflow outputs** (`dist-artifact-name`, `provenance-artifact-name`, `metadata-artifact-name`, `hashes`, `version`, `should-release`) are documented in [`build_and_publish_python.yml`](../../../.github/workflows/build_and_publish_python.yml) itself.
 
 ## Verifying what you shipped

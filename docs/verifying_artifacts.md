@@ -29,14 +29,17 @@ you trust one signature instead of re-running the policy engine.
 ## Recommended: `ampel verify` (one command)
 
 [ampel](https://github.com/carabiner-dev/ampel) ≥ v1.3.0 (one Go binary)
-checks everything in a single command: the signature, the keyless signer
-identity (wrangle's reusable workflow), **your origin repository** — the
-policy's `sourceRepositoryUriMatch` binds the signing cert's
-source-repository extension to the `sourceRepo` you pass, proving *which
-repo* built the artifact — and the predicate fields (`verificationResult` /
-`resourceUri` / `verifiedLevels`). The policy is wrangle-hosted and fetched
-by locator, so you author nothing. Both context values are required;
+checks everything that matters in a single command: these exact bytes are
+what passed policy, wrangle signed the verdict, **your repo built the
+artifact** (not a fork, not someone else's wrangle build), and the verdict
+is PASSED at SLSA Build L3. The policy is wrangle-hosted and fetched by
+locator, so you author nothing. Both `--context` values are required;
 omitting one is a hard error, never a weaker check.
+
+Under the hood: the policy's `sourceRepositoryUriMatch` binds the signing
+cert's source-repository extension to the `sourceRepo` you pass, and the
+policy tenets check the predicate fields (`verificationResult` /
+`resourceUri` / `verifiedLevels`).
 
 For file artifacts (Go / Python / npm), download the artifact and its VSA
 from the release, then:
