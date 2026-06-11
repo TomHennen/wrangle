@@ -1,8 +1,9 @@
 #!/usr/bin/env bats
 
-# Real consumer-side VSA verification — runs the EXACT commands the build-type
-# READMEs document, against REAL checked-in artifacts (a real keyless VSA +
-# its provenance + the package blob, captured from a green integration run).
+# Real consumer-side VSA verification — runs the EXACT commands the consumer
+# docs document (build-type READMEs + docs/verifying_artifacts.md), against
+# REAL checked-in artifacts (a real keyless VSA + its provenance + the package
+# blob, captured from a green integration run).
 # This is the regression backstop: if a documented consumer command drifts to
 # something that doesn't actually verify our keyless VSAs (as `slsa-verifier
 # verify-vsa` silently did), this fails.

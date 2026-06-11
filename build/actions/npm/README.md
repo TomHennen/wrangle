@@ -1,175 +1,97 @@
 # Wrangle Build npm
 
-Build an npm or pnpm package (`npm pack` / `pnpm pack`), run tests, generate an SBOM, and produce SLSA L3 provenance. Publish goes to npmjs.org via Trusted Publishing.
+Build an npm or pnpm package, run your tests, generate an SBOM, produce SLSA Build L3 provenance, and publish to npmjs.org via Trusted Publishing — no `NPM_TOKEN` in your repo, and a signed VSA your users can verify with one command. The package manager is detected from your lockfile: `package-lock.json` / `npm-shrinkwrap.json` selects npm, `pnpm-lock.yaml` selects pnpm.
 
-Package manager is detected from the lockfile: `package-lock.json` or `npm-shrinkwrap.json` selects npm; `pnpm-lock.yaml` selects pnpm.
+One wrinkle is npm's, not wrangle's: the publish step must live in *your* workflow, because npm's OIDC token must come from the caller's workflow filename ([npm/documentation#1755](https://github.com/npm/documentation/issues/1755)). The example wires it — see [Your publish job](#your-publish-job).
 
-The publish job lives in your own workflow — not in a wrangle reusable workflow — because npm's OIDC token must come from the caller's workflow filename ([npm/documentation#1755](https://github.com/npm/documentation/issues/1755)).
+## Quick start
 
-## Quick-start
+Copy [`build_npm.yml`](../../../gh_workflow_examples/build_npm.yml) into `.github/workflows/`. It wires the permissions, the build call, and the publish job — most adopters only need to set `path`:
 
-Wrangle publishes via [npm Trusted Publishing](https://docs.npmjs.com/trusted-publishers/) — no `NPM_TOKEN` lives in your repo. You'll do a one-time setup on npmjs.com first; see [Before first use](#before-first-use). Then:
+```yaml
+jobs:
+  build:
+    permissions:
+      contents: write         # verify attaches the VSA to the release on tags
+      id-token: write         # Sigstore keyless signing
+      attestations: write     # GitHub-issued SLSA provenance
+      actions: read           # source scan
+      security-events: write  # scan findings -> Security tab
+    uses: TomHennen/wrangle/.github/workflows/build_and_publish_npm.yml@v0.2.0
+    with:
+      path: "."
+      release-events: tag-only   # only tag pushes publish
 
-Copy [`gh_workflow_examples/build_npm.yml`](../../../gh_workflow_examples/build_npm.yml) into your repo at `.github/workflows/`. The example wires the required permissions (`attestations: write` so wrangle's attest job can write the GitHub-issued provenance, `id-token: write` for Sigstore keyless signing, `contents: write` so the verify job can attach the VSA to the release on tag pushes) and includes the publish job. Most adopters only need to set the `path` input.
-
-The `build_and_publish_npm.yml` workflow embeds [source scan](../../../actions/scan/README.md) via its `scan-tools` input — build hardens *how* your artifact is produced, source scan covers *what was checked into the repo you're building from*, and a load-bearing finding fails the run (blocking publish). The caller MUST grant `actions: read` and `security-events: write` for the scan (the example wires them; omitting either fails the run at startup). No separate `check_source_change.yml` needed.
-
-For the composite-only path (build + test + SBOM; you wire your own provenance and publish), use `TomHennen/wrangle/build/actions/npm@v0.2.0` as a step.
-
-This README documents shipped behavior. For the full design (attestation model, step sequence), see [`SPEC.md`](./SPEC.md); workspaces support is designed in [`WORKSPACES_PHASE_1.md`](./WORKSPACES_PHASE_1.md) but not yet implemented.
+  publish:
+    # ... see the example: gates on should-release, verifies, then publishes
+```
 
 ## Before first use
 
-Complete in order. Step 1 only applies to brand-new packages; migrating an existing package skips straight to step 2.
+Complete in order; step 1 only applies to brand-new packages.
 
-1. **Brand-new package — bootstrap the first version manually.** npm Trusted Publishing can't publish a package's *first* version ([npm/cli#8544](https://github.com/npm/cli/issues/8544)) — unlike PyPI, npm has no "pending publisher" flow. Run `npm publish` once from a maintainer's terminal with an `NPM_TOKEN` to mint v0.0.1 (or whatever your initial version is). Skip this and the first workflow run fails with a non-obvious "package not found". (If you're migrating an already-published package, skip this step.)
-2. **Configure the trusted publisher.** npmjs.com → your package → Settings → Trusted publishing. Pin: GitHub repo, workflow filename (`build_npm.yml`), optionally an environment.
-3. **Enable "Require two-factor authentication and disallow tokens"** on the package (Settings → Publishing access). This blocks all classic / granular publish tokens, leaving Trusted Publishing's OIDC flow as the only publish path. **Without this, a stolen token bypasses your CI entirely** — the attack vector behind the May 2026 mistralai / guardrails-ai and December 2024 ultralytics compromises, where attackers shipped malware by pushing directly to the registry, never triggering the legitimate workflow. After enabling, revoke any token you used for step 1 (or any token migrating from your pre-Trusted-Publishing setup).
+1. **Brand-new package: bootstrap the first version manually.** npm Trusted Publishing can't publish a package's *first* version ([npm/cli#8544](https://github.com/npm/cli/issues/8544)) — there is no PyPI-style "pending publisher" flow. Run `npm publish` once from a maintainer's terminal to mint the initial version; skipping this makes the first workflow run fail with a non-obvious "package not found".
+2. **Configure the trusted publisher** — npmjs.com → your package → Settings → Trusted publishing. Pin your repo and the workflow filename (`build_npm.yml`).
+3. **Enable "Require two-factor authentication and disallow tokens"** (Settings → Publishing access), leaving Trusted Publishing as the only publish path. Without it, a stolen token can push to the registry without ever touching your CI. Then revoke any token used in step 1.
 
-## Build Track level
+## What you get
 
-Consumed through `build_and_publish_npm.yml`, the build meets **SLSA v1.2 Build L3** for both the npm and pnpm sub-paths if both of these conditions hold:
+- **npm or pnpm, auto-detected** from the lockfile; for pnpm, Corepack honors `package.json`'s `packageManager` field — set it for deterministic builds. (Yarn isn't supported yet.)
+- **Your scripts run as usual** — `scripts.build` if present, `scripts.test` unless it's npm's default placeholder, then `npm pack` / `pnpm pack`.
+- **Source scan** built in — vulnerable dependencies (OSV), unsafe workflow patterns (Zizmor), and more ([details](../../../actions/scan/README.md)); a load-bearing finding blocks publish.
+- **An SPDX SBOM**, uploaded as a workflow artifact.
+- **SLSA Build L3 provenance** (consumed through the reusable workflow on GitHub-hosted runners — conditions in [`docs/SLSA_L3_AUDIT.md`](../../../docs/SLSA_L3_AUDIT.md)), in addition to the L2 attestation `npm publish --provenance` writes to the registry.
+- **A signed VSA** attached to the release on tag pushes, so downstream users can verify the tarball with one command.
 
-- **Reusable consumption only.** Calling the composite directly forfeits the build-vs-sign job separation — **not** a supported L3 path.
-- **GitHub-hosted runners only.** Self-hosted runners invalidate the build-environment isolation L3 assumes.
+## Your publish job
 
-The npm sub-path keeps dependency caching on: `npm ci` re-verifies every cached tarball's `integrity` against `package-lock.json`, so the cache cannot poison the attested output. The pnpm sub-path uses no cross-build cache — pnpm-store doesn't re-verify content-addressed paths at install time (the May 2026 Mini Shai-Hulud / TanStack cache-poisoning vector; see [#205](https://github.com/TomHennen/wrangle/issues/205)). Full analysis: [`docs/SLSA_L3_AUDIT.md`](../../../docs/SLSA_L3_AUDIT.md).
+Publishing happens in your workflow, so two things there are load-bearing — both already wired in the example:
 
-The build-platform L3 claim is distinct from — and additional to — the SLSA L2 in-CLI attestation that `npm publish --provenance` writes into the npm registry slot. Both attestations share the Sigstore Public Good Instance; the L2-vs-L3 distinction is that npm's in-CLI publish path lacks builder isolation, wrangle's reusable workflow does not.
+1. **Gate on `should-release`**, so you publish only on release events (wrangle can't enforce this from inside the reusable workflow):
 
-## What this action does
+   ```yaml
+   publish:
+     if: ${{ needs.build.outputs.should-release == 'true' }}
+     needs: [build]
+   ```
 
-- Validates `package.json` + a supported lockfile (`package-lock.json`, `npm-shrinkwrap.json`, or `pnpm-lock.yaml`). Yarn is rejected — support is a follow-on. Both an npm-style lockfile AND `pnpm-lock.yaml` together is rejected as ambiguous.
-- Installs Node.js via `actions/setup-node`. Version resolution: `node-version` input → `.nvmrc` → `package.json` `engines.node` → wrangle-default LTS (Node 22). Set one of the first three explicitly if you care about a specific version.
-- For pnpm: enables [Corepack](https://nodejs.org/api/corepack.html) and uses `package.json`'s `packageManager` field if set. **Set `packageManager` for deterministic builds.**
-- Installs (`npm ci` or `pnpm install --frozen-lockfile`).
-- Runs `scripts.build` if present (skipped if absent).
-- Runs tests if `scripts.test` is non-default (the npm-default `"echo \"Error: no test specified\" && exit 1"` is detected and skipped).
-- Packs to `dist/` via `npm pack` or `pnpm pack`.
-- Generates an SPDX SBOM via [`syft`](https://github.com/anchore/syft) (Cosign-keyless-verified install) over the source tree.
-- Computes SHA-256 hashes of the built artifacts, which the reusable workflow's `attest` job feeds to `actions/attest-build-provenance` as the provenance subjects.
+2. **Verify before you publish** — run wrangle's [`verify-vsa`](../../../actions/verify-vsa/README.md) action between `download-artifact` and `npm publish`, so the exact bytes leaving the runner are the bytes that passed wrangle's policy:
 
-## Outputs from the reusable workflow
+   ```yaml
+   - uses: TomHennen/wrangle/actions/verify-vsa@v0.2.0
+     with:
+       path: dist/
+       signer-workflow: TomHennen/wrangle/.github/workflows/build_and_publish_npm.yml
+   ```
 
-- `dist-artifact-name` — workflow-artifact name for the tarball.
-- `tarball` — `.tgz` filename relative to the dist artifact root. Scoped packages produce `scope-name-version.tgz`.
-- `provenance-artifact-name` — workflow-artifact name for the SLSA provenance bundle (`npm-provenance-bundle-<shortname>`, a Sigstore bundle covering all dist subjects; empty when `should-release` is false).
-- `metadata-artifact-name` — workflow-artifact name for the SBOM (`npm-metadata-<shortname>`).
-- `should-release` — `"true"` if the package should be released. Today that means the event matched `release-events`; future versions may apply additional checks, so treat the output as the source of truth rather than re-evaluating `release-events` yourself. Your publish job MUST gate on this (see below).
-- `hashes`, `version`.
+Skip the gate and you publish on every non-PR event; skip verify-vsa and you may publish bytes wrangle's policy never blessed.
 
-## Controlling when releases happen
+## Good to know
 
-`release-events` controls which events trigger release-time actions: SLSA provenance generation, verification, and — via the `should-release` output — your downstream publish job. Accepted values:
+- **Node version resolution**: `node-version` input → `.nvmrc` → `package.json` `engines.node` → a wrangle-default LTS. Set one of the first three if you care about a specific version.
+- **Lifecycle hooks fire normally** (`prepare`, `prepack`, `postpack`, dependency `install` hooks) — a malicious script there is the same threat surface as malicious code in `src/`, governed by source review. Two exceptions: `prepublishOnly` does NOT fire (your publish job runs `npm publish` against the pre-built tarball, so the attested bytes are exactly what ships — move type-checking into `scripts.build`), and `ignore-scripts: true` opts into "source bytes only, no script execution".
+- **Single-package only for now** — workspaces are rejected ([#208](https://github.com/TomHennen/wrangle/issues/208)); Yarn is a follow-on.
+- **SBOM scope is the source tree, not the tarball** — if `package.json`'s `files` field restricts what ships, the SBOM may list more than the `.tgz` contains. The L3 attestation covers the exact `.tgz` bytes regardless.
+- **`release-events`** (default: `non-pull-request`; the example sets `tag-only`) controls when release-time actions run and what `should-release` reports — see [`docs/SPEC.md`](../../../docs/SPEC.md) "Release-events gating".
+- **Workflow outputs** (`dist-artifact-name`, `tarball`, `provenance-artifact-name`, `metadata-artifact-name`, `hashes`, `version`, `should-release`) are documented in [`build_and_publish_npm.yml`](../../../.github/workflows/build_and_publish_npm.yml) itself.
 
-- `non-pull-request` (default) — every event except `pull_request`.
-- `tag-only` — only `push` events to `refs/tags/*`.
-- `main-and-tags` — `push` to `refs/heads/main` or `refs/tags/*`.
-- A comma-separated `github.event_name` list (e.g., `push,workflow_dispatch`).
+## Verifying what you shipped
 
-See [`docs/SPEC.md`](../../../docs/SPEC.md) "Release-events gating" for the full vocabulary.
-
-> **Required wiring.** Your publish job MUST also gate on `should-release` — wrangle can't enforce this because publish lives in your workflow (npm's OIDC constraint). The canonical shape:
->
-> ```yaml
-> publish:
->   if: ${{ needs.build.outputs.should-release == 'true' }}
->   needs: [build]
-> ```
->
-> Without the gate, publish runs on every non-PR event regardless of `release-events`.
-
-## SLSA provenance verification (the `verify` job)
-
-The `verify` job verifies the L3 provenance — ampel (via `actions/verify`) checks the provenance's Sigstore signature against the wrangle PolicySet's `common.identities` (fail-closed: only wrangle's reusable-workflow signer passes) and the SLSA tenets, then emits the signed VSA. It's gated on `should-release`, so it runs on every release; it is not opt-out-able. If verification fails the workflow fails and your publish job is blocked via `needs:`. That gate alone doesn't bind the publish job's *bytes* — it downloads its own copy of the dist — so the example's publish job also runs [`actions/verify-vsa`](../../../actions/verify-vsa/README.md) against its download before `npm publish`, closing the wrangle→caller-publish handoff (the caller→registry segment is bound by Trusted Publishing's `workflow_ref` claim, which npm validates at upload time).
-
-## Verifying after install (downstream consumers)
-
-Two complementary verification paths, different roots of trust:
-
-**npm's L2 in-CLI attestation (against the registry).** Default consumer flow:
+Downstream users verify the released tarball with one command. Download the tarball and its VSA (`<tarball>.intoto.jsonl`) from the release, then ([ampel](https://github.com/carabiner-dev/ampel) ≥ v1.3.0):
 
 ```bash
-npm install <pkg>@<version>
-npm audit signatures
-# Expected: "<pkg>@<version> ... has a verified attestation"
-```
-
-Proves the bundle was published from the expected GitHub repo + workflow.
-
-> **Known limitation.** `npm install` doesn't run `npm audit signatures` by default; consumers must opt in. Until verification is the default, the load-bearing check is npm's upload-time `workflow_ref` validation — but that only holds when "Require two-factor authentication and disallow tokens" is enabled on the package (see "Before first use"), since a stolen token bypasses it entirely.
-
-**Wrangle's L3 SLSA provenance (against GitHub's attestation store).** Non-falsifiable because the attest step runs inside wrangle's isolated reusable workflow, which is named as the provenance's `builder.id` and as the Sigstore signing identity. The provenance is stored in GitHub's attestation store for your repo (not attached to the release), so a consumer verifies the downloaded tarball against it with `gh attestation verify`:
-
-```bash
-curl -LO https://github.com/<owner>/<repo>/releases/download/<tag>/<scope>-<name>-<version>.tgz
-
-gh attestation verify <scope>-<name>-<version>.tgz \
-  --repo <owner>/<repo> \
-  --signer-workflow TomHennen/wrangle/.github/workflows/build_and_publish_npm.yml
-```
-
-`--signer-workflow` is the binding: it fails closed unless wrangle's reusable workflow signed the provenance. `gh` fetches the attestation from GitHub's store by the tarball's digest, so no separate provenance file download is needed.
-
-### Verifying the VSA
-
-On tag pushes wrangle attaches a signed SLSA Verification Summary Attestation (VSA) per tarball — `<tarball>.intoto.jsonl` — to the GitHub release, recording that the build provenance passed the `wrangle-provenance-npm-v1` PolicySet. A consumer trusts that single signed VSA instead of re-running the policy engine. It is keyless-signed by **wrangle's** reusable workflow (`build_and_publish_npm.yml`), not your own. Its `resourceUri` is the npm purl `pkg:npm/<name>@<version>` (scoped names verbatim, e.g. `pkg:npm/@scope/pkg@1.2.3`) — pin that exact string.
-
-Grab the tarball and its VSA from the release:
-
-```bash
-curl -LO https://github.com/<owner>/<repo>/releases/download/<tag>/<tarball>
-curl -LO https://github.com/<owner>/<repo>/releases/download/<tag>/<tarball>.intoto.jsonl
-```
-
-**Recommended — `ampel verify` (one command).** The complete check in a single command: ampel confirms the signature, the keyless signer identity (wrangle's reusable workflow), **your origin repository** — the policy's `sourceRepositoryUriMatch` binds the signing cert's source-repository extension to the `sourceRepo` you pass, proving *which repo* built the artifact — and the predicate fields (`verificationResult` / `resourceUri` / `verifiedLevels`), against a wrangle-hosted consumer policy fetched by locator (you author no policy). Requires [ampel](https://github.com/carabiner-dev/ampel) ≥ v1.3.0 (one Go binary); both context values are required, so omitting one is a hard error, never a weaker check:
-
-```bash
-ampel verify \
-  --subject <tarball> \
-  --policy git+https://github.com/TomHennen/wrangle@<version>#policies/wrangle-vsa-consumer-v1.hjson \
+ampel verify --subject <tarball> \
+  --policy git+https://github.com/TomHennen/wrangle@v0.2.0#policies/wrangle-vsa-consumer-v1.hjson \
   --attestation <tarball>.intoto.jsonl \
   --context expectedResourceUri:pkg:npm/<name>@<version> \
   --context sourceRepo:https://github.com/<your-org>/<your-repo>
 ```
 
-**Without ampel — `cosign verify-blob-attestation` + `jq`.** The same complete check from cosign: it confirms the signature, the signer identity, your origin repository (`--certificate-github-workflow-repository`), and that the tarball's hash matches the VSA subject. cosign doesn't read predicate fields, so a `jq` decode covers `verificationResult` / `resourceUri` / `verifiedLevels`:
+That single command checks — fail-closed — the signature, wrangle's signer identity, that the build ran in *your* repo, and that policy passed at SLSA Build L3. Scoped names go in the purl verbatim (`pkg:npm/@scope/pkg@1.2.3`); the policy locator can pin any wrangle `v*` tag. Installed consumers can additionally run `npm audit signatures` for npm's registry-side L2 check. No ampel? An equivalent cosign recipe — and the full trust model — is in the [artifact verification guide](../../../docs/verifying_artifacts.md).
 
-```bash
-cosign verify-blob-attestation --bundle <tarball>.intoto.jsonl --new-bundle-format \
-  --certificate-oidc-issuer https://token.actions.githubusercontent.com \
-  --certificate-identity-regexp '^https://github\.com/TomHennen/wrangle/\.github/workflows/build_and_publish_npm\.yml@refs/tags/v' \
-  --certificate-github-workflow-repository <your-org>/<your-repo> \
-  --type https://slsa.dev/verification_summary/v1 \
-  <tarball>
+## Further reading
 
-payload="$(jq -r '.dsseEnvelope.payload' <tarball>.intoto.jsonl | base64 -d)"
-jq -e '.predicate.verificationResult == "PASSED"' <<<"$payload"
-jq -e '.predicate.resourceUri == "pkg:npm/<name>@<version>"' <<<"$payload"
-jq -e '.predicate.verifiedLevels | index("SLSA_BUILD_LEVEL_3")' <<<"$payload"
-```
-
-`--type` must be the full URI `https://slsa.dev/verification_summary/v1` — cosign rejects the `slsaverificationsummary` alias.
-
-> **`slsa-verifier verify-vsa` is not usable here.** It only verifies *key-signed* VSAs (it requires `--public-key-path`); wrangle's VSAs are keyless (Fulcio/Sigstore), so there is no identity flag to pass. Tracked under the [Attestation trust gaps](../../../README.md) section / [#317](https://github.com/TomHennen/wrangle/issues/317).
-
-## Lifecycle hooks
-
-By default, hooks fire normally — `prepare`, `prepack`, `postpack`, and dependency `install` hooks run just as they would locally. The L3 attestation binds to "what wrangle built from this commit's source + lockfile," which is what source-control review already governs (a malicious `package.json` script is the same threat surface as malicious code in `src/`).
-
-- **`prepack` / `prepare` run** during wrangle's pipeline; whatever they produce is what wrangle hashes and attests.
-- **`prepublishOnly` does NOT fire** — it only runs when `npm publish` is invoked against a directory, not against a pre-built tarball. Move type-checking work into `scripts.build`.
-- **Tarball-direct publish is intentional.** Your publish job runs `npm publish <packed.tgz>`, so the bytes wrangle hashes are exactly the bytes consumers download.
-
-**Opt-in hardening.** Set `ignore-scripts: true` for "source bytes only, no script execution": `--ignore-scripts` on install + pack, and `npm run build` / `npm test` are skipped outright. Default off because common ecosystem tools (husky, prebuild-install) rely on these hooks.
-
-## Caching
-
-- **npm path** enables [`setup-node`'s `cache: 'npm'`](https://github.com/actions/setup-node#caching-global-packages-data), keyed on the lockfile. Safe because `npm ci` re-validates each cached tarball's `integrity` field on install.
-- **pnpm path** does NOT enable caching. pnpm-store doesn't re-verify content-addressed paths at install — see Build Track level above and [#205](https://github.com/TomHennen/wrangle/issues/205).
-
-## v0.2 status
-
-- **Supported:** npm and pnpm. Yarn is a follow-on.
-- **Single-package only.** Workspaces (`package.json` with a `workspaces` field, or pack producing >1 `.tgz`) is rejected. Tracked in [#208](https://github.com/TomHennen/wrangle/issues/208).
-- **SBOM scope is the source tree, not the tarball.** Wrangle runs `syft dir:<path>`. If `package.json`'s `files` field restricts what ships, the SBOM may list components not in the `.tgz`; conversely, native binaries `prebuild-install` fetches at consumer install time aren't in source and aren't in the SBOM. Layer binary scanners (Trivy, Grype) against installed `node_modules/` if you need that coverage. The L3 attestation covers the exact `.tgz` bytes regardless.
+- [`SPEC.md`](./SPEC.md) — design rationale: attestation model (L2 vs L3), tool choices; workspaces design in [`WORKSPACES_PHASE_1.md`](./WORKSPACES_PHASE_1.md).
+- [`docs/verifying_artifacts.md`](../../../docs/verifying_artifacts.md) — consumer verification: ampel, cosign, `gh attestation verify`, `npm audit signatures`.
+- [`docs/SLSA_L3_AUDIT.md`](../../../docs/SLSA_L3_AUDIT.md) — the conditions behind the Build L3 claim, including the npm-vs-pnpm cache analysis.
+- [npm Trusted Publishing](https://docs.npmjs.com/trusted-publishers/) — the underlying publish mechanism.

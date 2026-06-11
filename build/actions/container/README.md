@@ -1,136 +1,53 @@
 # Wrangle Build Container
 
-Build and publish a container image to ghcr.io with an SBOM, SLSA L3 provenance, and a signed VSA.
+Build a container image from your Dockerfile and publish it to ghcr.io with an SBOM, SLSA Build L3 provenance, and a signed VSA your users can verify with one command — all from a single job in your workflow.
 
-## Quick-start
+## Quick start
 
-Copy [`gh_workflow_examples/build_and_publish_containers.yml`](../../../gh_workflow_examples/build_and_publish_containers.yml) into your repo at `.github/workflows/` and fill in:
+Copy [`build_and_publish_containers.yml`](../../../gh_workflow_examples/build_and_publish_containers.yml) into `.github/workflows/` and fill in three inputs (the example wires the permissions and `gh_token` secret):
 
 | Input | Value |
 |-------|-------|
-| `path` | path to the folder containing your `Dockerfile` |
+| `path` | folder containing your `Dockerfile` |
 | `imagename` | `ghcr.io/<owner>/<repo>/<image>` |
 | `registry` | `ghcr.io` |
 
-The example wires in the required permissions and `gh_token` secret. The `build_and_publish_container.yml` workflow embeds [source scan](../../../actions/scan/README.md) via its `scan-tools` input — build hardens *how*, source scan covers *what was committed*, and a load-bearing finding blocks the build (and push). The caller MUST grant `actions: read` and `security-events: write` for the scan (the example wires them; omitting either fails the run at startup). No separate `check_source_change.yml` needed.
+## What you get
 
-For the full design (failure contract, trust model, planned signing/provenance steps in the composite), see [`SPEC.md`](./SPEC.md). This README only describes shipped behavior.
+- **Build + push to ghcr.io** (other registries are out of scope for now — see [`SPEC.md`](./SPEC.md#current-scope-ghcrio-only)).
+- **Source scan** built in — vulnerable dependencies (OSV), unsafe workflow patterns (Zizmor), and more ([details](../../../actions/scan/README.md)); a load-bearing finding blocks the build and push.
+- **A BuildKit-native SBOM**, attached to the image as an OCI attestation and uploaded as a workflow artifact (SPDX JSON).
+- **SLSA Build L3 provenance** for the image digest (consumed through the reusable workflow on GitHub-hosted runners — conditions in [`docs/SLSA_L3_AUDIT.md`](../../../docs/SLSA_L3_AUDIT.md)).
+- **A signed VSA** stored in the registry as an OCI referrer on the image digest, so consumers can verify the image with one command.
 
-## Build Track level
+Two designed pieces are **not yet shipped**: Cosign keyless signing of the image digest itself, and OSV-Scanner over the produced SBOM. Designs in [`SPEC.md`](./SPEC.md); file an issue if you need either prioritized.
 
-Consumed through `build_and_publish_container.yml`, the container build meets **SLSA v1.2 Build L3** if both of these conditions hold:
+## Good to know
 
-- **Reusable consumption only.** Calling the composite from your own workflow forfeits the build-vs-sign job separation and is **not** a supported L3 path.
-- **GitHub-hosted runners only.** Self-hosted runners invalidate the build-environment isolation L3 assumes.
+- **`release-events`** (default: `non-pull-request`) gates provenance generation and verification — see [`docs/SPEC.md`](../../../docs/SPEC.md) "Release-events gating". The docker push itself happens earlier and is gated by your workflow's own `on:` triggers.
+- **Release builds never use a cache** — BuildKit's shared cache isn't re-verified on hits, so a poisoned entry could reach the attested image. Not configurable. **PR builds** cache safely per PR by default, which closes PR-to-PR cache poisoning (one PR planting cache entries a later PR builds from) while keeping rebuilds within a PR fast. The `pr-cache` input tunes this: `isolated` (default, safest), `enabled` (shared cache, fastest, trusted-contributor repos only), `read-only`, or `disabled` — details on the input in [`build_and_publish_container.yml`](../../../.github/workflows/build_and_publish_container.yml).
+- **Never invoke this workflow from `pull_request_target`** — that trigger runs fork PRs in the base-repo context with cache write access.
+- **Private repos**: the `verify` job pulls the provenance referrer without registry auth, so auth-gated pulls are a known gap ([#182](https://github.com/TomHennen/wrangle/issues/182)).
+- **Workflow outputs** (`imagename`, `metadata-artifact-name`, `should-release`, …) are documented in [`build_and_publish_container.yml`](../../../.github/workflows/build_and_publish_container.yml) itself.
 
-Release builds run with the BuildKit `type=gha` cache disabled (BuildKit doesn't re-verify cache hits, so a shared cache violates SLSA's "Isolated" requirement). PR builds default to a per-PR isolated cache. Full analysis: [`docs/SLSA_L3_AUDIT.md`](../../../docs/SLSA_L3_AUDIT.md) Finding 2.
+## Verifying what you shipped
 
-## What this action does
-
-- Builds a Docker image from a caller-provided Dockerfile path.
-- Pushes to ghcr.io (other registries out of scope — see [`SPEC.md`](./SPEC.md#current-scope-ghcrio-only)).
-- Generates a BuildKit-native SBOM, attaches it to the image as an OCI attestation, and uploads it as a workflow artifact in SPDX JSON.
-
-The reusable workflow `build_and_publish_container.yml` layers on top: `actions/attest-build-provenance` produces L3 provenance (run inside the isolated reusable workflow, which names itself as the provenance `builder.id`), the `verify` job verifies that provenance and emits the signed VSA, and the release-gate job enforces the order.
-
-Two pieces from the spec are not yet shipped — neither in the composite nor in the reusable workflow:
-
-- **Cosign keyless signing of the image digest itself.** The reusable workflow does not yet run `cosign sign` against the digest. No tracking issue today; please file one if you need it prioritized. Design: [`SPEC.md` §"Cosign image signing"](./SPEC.md#cosign-image-signing).
-- **OSV-Scanner against the produced SBOM (non-blocking).** The SBOM is generated and uploaded, but nothing in the container path scans it yet. No tracking issue today; same suggestion. Design: [`SPEC.md` §"Failure contract"](./SPEC.md#failure-contract).
-
-## Controlling when provenance is generated
-
-The reusable workflow's `release-events` input controls which events trigger release-time actions: SLSA provenance generation, verification, and — via the `should-release` output — any downstream release-time job in your own workflow that gates on it. Accepted values:
-
-- `non-pull-request` (default) — every event except `pull_request` (the common case: provenance on merges to main, tags, manual dispatches, etc.).
-- `tag-only` — only `push` events to `refs/tags/*`.
-- `main-and-tags` — `push` to `refs/heads/main` or `refs/tags/*`.
-- A comma-separated `github.event_name` list (e.g., `push,workflow_dispatch`).
-
-See [`docs/SPEC.md`](../../../docs/SPEC.md) "Release-events gating" for the full vocabulary.
-
-```yaml
-with:
-  path: .
-  imagename: ghcr.io/<owner>/<repo>
-  registry: ghcr.io
-  release-events: tag-only   # only tag pushes mint provenance
-```
-
-This input gates only the SLSA provenance and verify jobs. The docker push happens earlier in the composite and is gated by your workflow's own `on:` triggers (see [`SPEC.md` §"Trigger restriction"](./SPEC.md#trigger-restriction)).
-
-## Controlling the PR build cache
-
-Release builds always run cache-free — BuildKit's `type=gha` cache isn't re-verified on hits and is shared cross-build, which would violate SLSA's "Isolated" requirement ([`docs/SLSA_L3_AUDIT.md`](../../../docs/SLSA_L3_AUDIT.md) Finding 2). Not configurable.
-
-**PR builds** default to a per-PR isolated cache. PR builds produce no attested artifact, so cache poisoning isn't an L3 concern at that layer — but it's still a CI-hygiene concern: a malicious PR with code execution can poison cache entries a *later* PR reads (PR-to-PR cache poisoning), silently corrupting that build's "tests pass" and SBOM signals ([Cacheract](https://adnanthekhan.com/2024/12/21/cacheract-the-monster-in-your-build-cache/)). The `pr-cache` input tunes the trade-off:
-
-| `pr-cache` | PR build behavior | When to use |
-|------------|-------------------|-------------|
-| `isolated` (default) | Per-PR cache scope, keyed by PR number. PR A cannot write entries PR B reads; rebuilds within a PR still hit cache. | Safe default — closes PR-to-PR cache poisoning, keeps in-PR speedup. |
-| `enabled` | Shares the cross-branch cache. Fastest first build, but a malicious PR can poison later PR builds. | Trusted-contributor repos. |
-| `read-only` | PR builds read the shared cache but never write it. | Shared-cache reads, no PR write path. |
-| `disabled` | PR builds also run cache-free. | Strict-isolation contexts. |
-
-The scope is keyed by `github.event.pull_request.number` (a GitHub-assigned unique integer), not branch name — two PRs sharing a branch name from different forks get distinct scopes. On non-PR events the scope falls back to the ref name.
-
-> **Never invoke this workflow from `pull_request_target`.** That trigger runs in the base-repo context with cache write access, making a fork PR the highest-risk poisoning vector. Wrangle's reusable workflows will block any workflow that uses `pull_request_target` ([#202](https://github.com/TomHennen/wrangle/issues/202)).
-
-## SLSA attestation verification (the `verify` job)
-
-The `verify` job evaluates the image provenance against the [`wrangle-provenance-container-v1`](../../../policies/wrangle-provenance-container-v1.hjson) PolicySet (fail-closed) and emits the signed VSA. It's gated on `should-release`, so it runs on every release; it is not opt-out-able. If verification fails the workflow fails and any downstream `needs:` job is blocked.
-
-**Private-repo limitation.** The `verify` job pulls the provenance referrer from the registry but does no registry auth, so private-repo images whose pulls are auth-gated are a known gap — tracked in [#182](https://github.com/TomHennen/wrangle/issues/182). When `cosign sign` of the image digest lands, the job will additionally check the image signature against the caller's `workflow_ref`.
-
-### Verifying the VSA
-
-Beyond the registry-bytes check above, on release the workflow emits a single signed SLSA Verification Summary Attestation (VSA) recording that the image's SLSA provenance passed the `wrangle-provenance-container-v1` PolicySet. The VSA's `resourceUri` is the OCI image ref `<imagename>@sha256:<digest>` — what a consumer pulls — and its subject is that digest. A consumer trusts that single signed VSA instead of re-running the policy engine.
-
-Unlike the npm/Go/Python build types, the container VSA is **stored in the registry** as an OCI referrer on the image digest (containers produce no GitHub release). It is keyless-signed by **wrangle's** reusable workflow (`build_and_publish_container.yml`), not your own.
-
-**Recommended — `ampel verify` (one command, no download).** The complete check in a single command: ampel fetches the VSA from the registry itself via the `oci:` collector, then confirms the signature, the keyless signer identity (wrangle's reusable workflow), **your origin repository** — the policy's `sourceRepositoryUriMatch` binds the signing cert's source-repository extension to the `sourceRepo` you pass, proving *which repo* built the image — and the predicate fields, against a wrangle-hosted consumer policy fetched by locator (you author no policy). Requires [ampel](https://github.com/carabiner-dev/ampel) ≥ v1.3.0 (one Go binary); both context values are required, so omitting one is a hard error, never a weaker check:
+Consumers verify the image with one command — ampel fetches the VSA straight from the registry, so there's nothing to download first ([ampel](https://github.com/carabiner-dev/ampel) ≥ v1.3.0):
 
 ```bash
-ampel verify \
-  --subject sha256:<digest> \
-  --policy git+https://github.com/TomHennen/wrangle@<version>#policies/wrangle-vsa-consumer-v1.hjson \
+ampel verify --subject sha256:<digest> \
+  --policy git+https://github.com/TomHennen/wrangle@v0.2.0#policies/wrangle-vsa-consumer-v1.hjson \
   --collector oci:<imagename>@sha256:<digest> \
   --context expectedResourceUri:<imagename>@sha256:<digest> \
   --context sourceRepo:https://github.com/<your-org>/<your-repo>
 ```
 
-**Without ampel — `cosign verify-attestation` (cosign v3).** `cosign verify-blob-attestation` (the npm/Go/Python path) can't apply — a digest subject has no file blob. The cosign container path is `cosign verify-attestation` against the image: it checks the signature, the signer identity (wrangle's reusable workflow), and — via `--certificate-github-workflow-repository` — your origin repository. It also prints the verified VSA envelope to stdout, so capture that and `jq`-decode the predicate fields:
+That single command checks — fail-closed — the signature, wrangle's signer identity, that the build ran in *your* repo, and that policy passed at SLSA Build L3. The policy locator can pin any wrangle `v*` tag. No ampel? An equivalent cosign recipe — and the full trust model — is in the [artifact verification guide](../../../docs/verifying_artifacts.md).
 
-```bash
-cosign verify-attestation \
-  --type https://slsa.dev/verification_summary/v1 \
-  --certificate-oidc-issuer https://token.actions.githubusercontent.com \
-  --certificate-identity-regexp '^https://github\.com/TomHennen/wrangle/\.github/workflows/build_and_publish_container\.yml@refs/tags/v' \
-  --certificate-github-workflow-repository <your-org>/<your-repo> \
-  <imagename>@sha256:<digest> > vsa.json
-
-payload="$(jq -r '.payload' vsa.json | base64 -d)"
-jq -e '.subject[0].digest.sha256 == "<digest>"' <<<"$payload"
-jq -e '.predicate.verificationResult == "PASSED"' <<<"$payload"
-jq -e '.predicate.resourceUri == "<imagename>@sha256:<digest>"' <<<"$payload"
-jq -e '.predicate.verifiedLevels | index("SLSA_BUILD_LEVEL_3")' <<<"$payload"
-```
-
-> **`slsa-verifier verify-vsa` is not usable here.** It only verifies *key-signed* VSAs (it requires `--public-key-path`); wrangle's VSAs are keyless (Fulcio/Sigstore), so there is no identity flag to pass. Tracked under the [Attestation trust gaps](../../../README.md) section / [#317](https://github.com/TomHennen/wrangle/issues/317).
-
-## SBOM
-
-Generated for every build. Available two ways:
-
-- **Workflow artifact** `container-metadata-<shortname>` — exposed via the workflow's `metadata-artifact-name` output. Download with `actions/download-artifact`; the metadata files land at the top level of whatever `path:` you choose (the `metadata/container/<shortname>/` prefix is a workspace convention, not preserved in the zip).
-- **OCI image attestation** — `docker buildx imagetools inspect --format '{{ json .SBOM.SPDX }}' <image>@<digest>`.
-
-OSV-Scanner against the SBOM is planned (non-blocking — vulnerability triage is a policy decision adopters own); the failure contract in [`SPEC.md`](./SPEC.md#failure-contract) describes the eventual behavior.
-
-![Wrangle Build Container Summary showing vulns found by OSV](/assets/images/osv_sbom_summary.png)
+The SBOM is also inspectable straight off the image: `docker buildx imagetools inspect --format '{{ json .SBOM.SPDX }}' <image>@<digest>`.
 
 ## Further reading
 
-- [`SPEC.md`](./SPEC.md) — this action's full specification.
-- [`../../../docs/SPEC.md`](../../../docs/SPEC.md) — wrangle's architecture.
-- [`../../../actions/scan/README.md`](../../../actions/scan/README.md) — the embedded source scan (`scan-tools` input).
+- [`SPEC.md`](./SPEC.md) — this action's full specification: failure contract, trust model, trigger restriction, planned signing.
+- [`docs/verifying_artifacts.md`](../../../docs/verifying_artifacts.md) — consumer verification: ampel, cosign, and the publish/attest timing model.
+- [`docs/SLSA_L3_AUDIT.md`](../../../docs/SLSA_L3_AUDIT.md) — the conditions behind the Build L3 claim, including the BuildKit cache analysis.
