@@ -34,7 +34,7 @@ inputs:
 runs:
   using: composite
   steps:
-    # Fail bad inputs before the cosign install and VSA download.
+    # Fail bad inputs before the tool installs and VSA download.
     - name: Validate inputs
       shell: bash
       env:
@@ -43,8 +43,18 @@ runs:
         REPO: ${{ inputs.repo }}
       run: "${{ github.action_path }}/validate_inputs.sh"
 
+    # cosign bootstraps trust for the ampel install below: it verifies the
+    # ampel release binary's SLSA provenance. The VSA itself is verified by
+    # ampel, not cosign.
     - name: Install Cosign
       uses: sigstore/cosign-installer@6f9f17788090df1f26f669e9d70d6ae9567deba6 # v4.1.2
+
+    # Provenance-verified release binary into WRANGLE_BIN_DIR; verify_vsa.sh
+    # re-sources lib/env.sh to find it on PATH, so there is no write to
+    # $GITHUB_PATH.
+    - name: Install ampel
+      shell: bash
+      run: "${{ github.action_path }}/install_ampel.sh"
 
     # wrangle's verify job uploads one VSA artifact per dist file, named
     # <artifact-basename>.intoto.jsonl; merge them into one directory.

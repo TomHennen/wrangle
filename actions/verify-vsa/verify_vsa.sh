@@ -3,7 +3,15 @@
 # publishes those bytes. The VSA is the full policy verdict (provenance plus
 # any other tenets the PolicySet checks), so this gates on "passed policy",
 # not merely "wrangle built it". Fail-closed: a file with no VSA, a bad
-# signature/identity, or a non-PASSED verdict fails the run.
+# signature/identity, a wrong origin repo, or a non-PASSED verdict fails the
+# run.
+#
+# Each file is checked with `ampel verify` against the wrangle-vsa-gate-v1
+# PolicySet shipped alongside this action — the same engine and identity
+# wrangle recommends to downstream consumers, minus the resourceUri pin the
+# pre-publish gate cannot know. ampel binds the file's hash to the VSA
+# subject, the keyless signer identity, the origin repository (the policy's
+# sourceRepositoryUriMatch against REPO), and the PASSED verdict in one call.
 #
 # Env: ARTIFACT_PATH (file, or directory verified recursively), REPO
 # (<owner>/<repo> the VSA's signing cert must name as origin), VSA_DIR
@@ -16,44 +24,73 @@ set -f
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 # shellcheck source=validate_inputs.sh
 source "$SCRIPT_DIR/validate_inputs.sh"
+# shellcheck source=../../lib/env.sh
+source "$SCRIPT_DIR/../../lib/env.sh"
 
-# bnd signs the VSA keyless inside wrangle's reusable workflow, so that
-# workflow (not the caller) is the cert SAN the identity check must match.
-# Must stay equivalent to the identity in policies/wrangle-vsa-consumer-v1.hjson
-# (divergence-fail test in test.bats).
-WRANGLE_SIGNER_REGEX='^https://github\.com/TomHennen/wrangle/\.github/workflows/build_and_publish_[a-z]+\.yml@'
-OIDC_ISSUER='https://token.actions.githubusercontent.com'
-VSA_PREDICATE='https://slsa.dev/verification_summary/v1'
+# The PolicySet ships with this action, so its content is pinned by the
+# action ref the caller chose — never fetched at verify time.
+GATE_POLICY="$SCRIPT_DIR/../../policies/wrangle-vsa-gate-v1.hjson"
 
 die_verify() {
     printf 'wrangle/verify-vsa: VERIFICATION FAILED: %s\n' "$1" >&2
     exit 1
 }
 
-# cosign checks signature, signer identity, origin repository, and that the
-# blob's hash matches the VSA subject — but it does not read predicate
-# fields, so the PASSED verdict needs a separate decode.
-verify_one() {
-    local file="$1" vsa="$2" identity_regex="$3"
-    cosign verify-blob-attestation --bundle "$vsa" --new-bundle-format \
-        --certificate-oidc-issuer "$OIDC_ISSUER" \
-        --certificate-identity-regexp "$identity_regex" \
-        --certificate-github-workflow-repository "$REPO" \
-        --type "$VSA_PREDICATE" \
-        "$file" \
-        || die_verify "cosign rejected $file against $vsa"
+# Resolve the policy to evaluate: the shipped gate policy as-is, or — when
+# SIGNER_WORKFLOW narrows the signer — a derived copy with the identity
+# regexp replaced. ampel has no CLI override for a policy-defined identity
+# (--signer is ignored when the policy declares identities), so narrowing
+# must rewrite the policy. The replacement is fail-closed: if the derived
+# file doesn't contain exactly the narrowed identity, or still matches the
+# broad one, we abort rather than verify against the wrong signer set.
+wrangle_gate_policy() {
+    local out_dir="$1"
+    if [[ -z "${SIGNER_WORKFLOW:-}" ]]; then
+        printf '%s\n' "$GATE_POLICY"
+        return 0
+    fi
+    # Anchored through '@' but deliberately not to a ref: the VSA comes from
+    # this same run's artifacts, signed at whatever wrangle ref the caller
+    # pinned — a tag anchor (like the README consumer commands use) would
+    # break SHA- and branch-pinned callers.
+    local escaped="${SIGNER_WORKFLOW//./"\\\\."}"
+    local derived="$out_dir/wrangle-vsa-gate-derived.hjson"
+    NEW_IDENTITY_LINE="                    identity: \"^https://github\\\\.com/${escaped}@.+\$\"" \
+        awk '/^[[:space:]]*identity: "/ { print ENVIRON["NEW_IDENTITY_LINE"]; next } { print }' \
+        "$GATE_POLICY" > "$derived"
+    if [[ "$(grep -c 'identity: "\^https://github' "$derived")" -ne 1 ]] \
+        || grep -q 'build_and_publish_\[a-z\]' "$derived"; then
+        die_verify "could not narrow the gate policy identity to $SIGNER_WORKFLOW"
+    fi
+    printf '%s\n' "$derived"
+}
 
-    local verdict
-    verdict="$(jq -r '.dsseEnvelope.payload | @base64d | fromjson | .predicate.verificationResult' "$vsa")" \
-        || die_verify "could not decode VSA payload in $vsa"
-    [[ "$verdict" == "PASSED" ]] \
-        || die_verify "VSA for $file does not say PASSED (got: ${verdict})"
+# One ampel call binds subject hash, signature, signer identity, origin
+# repository, and the PASSED verdict. Output is buffered and only shown on
+# failure so a multi-file run stays readable.
+verify_one() {
+    local file="$1" vsa="$2" policy="$3"
+    local report rc=0
+    report="$(mktemp)"
+    ampel verify --subject "$file" \
+        --policy "$policy" \
+        --attestation "$vsa" \
+        --context "sourceRepo:https://github.com/${REPO}" \
+        > "$report" 2>&1 || rc=$?
+    if [[ "$rc" -ne 0 ]]; then
+        cat "$report" >&2
+        rm -f "$report"
+        die_verify "ampel rejected $file against $vsa (exit $rc)"
+    fi
+    rm -f "$report"
 }
 
 main() {
     validate_inputs
     [[ -d "${VSA_DIR:-}" ]] \
         || die_input "VSA_DIR is not a directory: ${VSA_DIR:-<empty>} (did the VSA artifact download fail?)"
+    command -v ampel >/dev/null 2>&1 \
+        || die_input "ampel not found on PATH (did the install step run?)"
 
     local -a files=()
     local f
@@ -78,14 +115,11 @@ main() {
     (( ${#files[@]} > 0 )) \
         || die_input "no files to verify under $ARTIFACT_PATH — refusing to pass an empty set"
 
-    # Anchored through '@' but deliberately not to a ref: the VSA comes from
-    # this same run's artifacts, signed at whatever wrangle ref the caller
-    # pinned — a tag anchor (like the README consumer commands use) would
-    # break SHA- and branch-pinned callers.
-    local identity_regex="$WRANGLE_SIGNER_REGEX"
-    if [[ -n "${SIGNER_WORKFLOW:-}" ]]; then
-        identity_regex="^https://github\\.com/${SIGNER_WORKFLOW//./\\.}@"
-    fi
+    local policy
+    # Not local: the EXIT trap runs in global scope after main's locals are gone.
+    tmp_dir="$(mktemp -d)"
+    trap 'rm -rf "$tmp_dir"' EXIT
+    policy="$(wrangle_gate_policy "$tmp_dir")"
 
     local vsa
     for f in "${files[@]}"; do
@@ -93,7 +127,7 @@ main() {
         [[ -f "$vsa" ]] \
             || die_verify "no VSA found for $f (expected $vsa) — refusing to publish unverified bytes"
         printf 'wrangle/verify-vsa: verifying %s against %s\n' "$f" "$vsa"
-        verify_one "$f" "$vsa" "$identity_regex"
+        verify_one "$f" "$vsa" "$policy"
     done
     printf 'wrangle/verify-vsa: %d file(s) verified against PASSED VSAs signed for %s\n' \
         "${#files[@]}" "$REPO"
