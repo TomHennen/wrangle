@@ -7,8 +7,7 @@
 #     needs Sigstore (Fulcio/Rekor) plus a real keyless VSA for the exact
 #     file digest — that lives in test/consumer/verify_consumer_vsa.bats
 #     (real fixtures, real ampel) and the verify-vsa-action e2e job in
-#     .github/workflows/test.yml. The resourceUri decode (jq over the DSSE
-#     payload) runs for real against synthesized VSAs here.
+#     .github/workflows/test.yml.
 #   - Structural: fingerprints on action.yml so a drive-by edit can't
 #     silently drop the env passthrough, the pinned installer/download
 #     steps, or the script delegation.
@@ -19,7 +18,6 @@ setup() {
     ACTION_DIR="$(cd "$(dirname "$BATS_TEST_FILENAME")" && pwd)"
     ACTION="$ACTION_DIR/action.yml"
     SCRIPT="$ACTION_DIR/verify_vsa.sh"
-    POLICY="$ACTION_DIR/../../policies/wrangle-vsa-consumer-v1.hjson"
     TMP="$(mktemp -d)"
     AMPEL_LOG="$TMP/ampel_calls.log"
     VSAS="$TMP/vsas"
@@ -37,53 +35,55 @@ EOF
 
 teardown() { rm -rf "$TMP"; }
 
-# Synthesize a DSSE bundle whose payload carries the given resourceUri — the
-# script reads it for real with jq; verdict/identity logic runs against real
-# VSAs in the e2e suites.
+# A VSA file only has to exist for the dispatch tests — the shim never reads
+# it; verdict/identity/resourceUri logic runs against real VSAs in the e2e
+# suites.
 make_vsa() {
-    local file_basename="$1" resource_uri="$2"
-    local payload
-    payload="$(jq -nc --arg r "$resource_uri" \
-        '{predicate: {verificationResult: "PASSED", resourceUri: ($r == "" | if . then null else $r end)}}' | base64 -w0)"
-    jq -nc --arg p "$payload" '{dsseEnvelope: {payload: $p}}' \
-        > "$VSAS/$file_basename.intoto.jsonl"
+    printf '{"dsseEnvelope":{"payload":""}}\n' > "$VSAS/$1.intoto.jsonl"
 }
 
 # --- input validation ---
 
 @test "behavior: fails without ARTIFACT_PATH" {
-    ARTIFACT_PATH="" REPO="owner/repo" VSA_DIR="$VSAS" run "$SCRIPT"
+    ARTIFACT_PATH="" RESOURCE_URI="pkg:npm/a@1" REPO="owner/repo" VSA_DIR="$VSAS" run "$SCRIPT"
     [[ "$status" -eq 2 ]]
     [[ "$output" == *"ARTIFACT_PATH is required"* ]]
 }
 
 @test "behavior: fails on nonexistent path" {
-    ARTIFACT_PATH="$TMP/missing" REPO="owner/repo" VSA_DIR="$VSAS" run "$SCRIPT"
+    ARTIFACT_PATH="$TMP/missing" RESOURCE_URI="pkg:npm/a@1" REPO="owner/repo" VSA_DIR="$VSAS" run "$SCRIPT"
     [[ "$status" -eq 2 ]]
     [[ "$output" == *"no such file or directory"* ]]
 }
 
+@test "behavior: fails without RESOURCE_URI" {
+    touch "$TMP/a.tgz"
+    ARTIFACT_PATH="$TMP/a.tgz" RESOURCE_URI="" REPO="owner/repo" VSA_DIR="$VSAS" run "$SCRIPT"
+    [[ "$status" -eq 2 ]]
+    [[ "$output" == *"RESOURCE_URI is required"* ]]
+}
+
 @test "behavior: rejects malformed REPO" {
     touch "$TMP/a.tgz"
-    ARTIFACT_PATH="$TMP/a.tgz" REPO="not-a-repo" VSA_DIR="$VSAS" run "$SCRIPT"
+    ARTIFACT_PATH="$TMP/a.tgz" RESOURCE_URI="pkg:npm/a@1" REPO="not-a-repo" VSA_DIR="$VSAS" run "$SCRIPT"
     [[ "$status" -eq 2 ]]
     [[ "$output" == *"REPO must be <owner>/<repo>"* ]]
 }
 
 @test "behavior: rejects missing VSA_DIR" {
     touch "$TMP/a.tgz"
-    ARTIFACT_PATH="$TMP/a.tgz" REPO="owner/repo" VSA_DIR="$TMP/nope" run "$SCRIPT"
+    ARTIFACT_PATH="$TMP/a.tgz" RESOURCE_URI="pkg:npm/a@1" REPO="owner/repo" VSA_DIR="$TMP/nope" run "$SCRIPT"
     [[ "$status" -eq 2 ]]
     [[ "$output" == *"VSA_DIR is not a directory"* ]]
 }
 
 @test "behavior: fails when ampel is not on PATH" {
     touch "$TMP/a.tgz"
-    make_vsa "a.tgz" "pkg:npm/a@1.0.0"
+    make_vsa "a.tgz"
     # PATH pinned to system dirs only: the dev machine may carry a real ampel
     # somewhere on PATH, and env.sh re-adds only WRANGLE_BIN_DIR (empty here).
     PATH="/usr/bin:/bin" WRANGLE_BIN_DIR="$TMP/nobin" \
-        ARTIFACT_PATH="$TMP/a.tgz" REPO="owner/repo" VSA_DIR="$VSAS" \
+        ARTIFACT_PATH="$TMP/a.tgz" RESOURCE_URI="pkg:npm/a@1" REPO="owner/repo" VSA_DIR="$VSAS" \
         run "$SCRIPT"
     [[ "$status" -eq 2 ]]
     [[ "$output" == *"ampel not found"* ]]
@@ -91,7 +91,7 @@ make_vsa() {
 
 @test "behavior: refuses an empty directory" {
     mkdir "$TMP/empty"
-    ARTIFACT_PATH="$TMP/empty" REPO="owner/repo" VSA_DIR="$VSAS" run "$SCRIPT"
+    ARTIFACT_PATH="$TMP/empty" RESOURCE_URI="pkg:npm/a@1" REPO="owner/repo" VSA_DIR="$VSAS" run "$SCRIPT"
     [[ "$status" -eq 2 ]]
     [[ "$output" == *"refusing to pass an empty set"* ]]
 }
@@ -99,7 +99,7 @@ make_vsa() {
 @test "behavior: enumeration failure fails closed, not silent-subset" {
     mkdir "$TMP/dist"
     touch "$TMP/dist/a.tgz"
-    make_vsa "a.tgz" "pkg:npm/a@1.0.0"
+    make_vsa "a.tgz"
     # A find that emits some entries and then dies (unreadable subdir,
     # I/O error) must fail the run, not verify the readable subset.
     cat > "$TMP/bin/find" <<EOF
@@ -108,7 +108,7 @@ printf 'partial\0'
 exit 1
 EOF
     chmod +x "$TMP/bin/find"
-    ARTIFACT_PATH="$TMP/dist" REPO="owner/repo" VSA_DIR="$VSAS" run "$SCRIPT"
+    ARTIFACT_PATH="$TMP/dist" RESOURCE_URI="pkg:npm/a@1" REPO="owner/repo" VSA_DIR="$VSAS" run "$SCRIPT"
     [[ "$status" -eq 2 ]]
     [[ "$output" == *"failed to enumerate"* ]]
     [[ ! -f "$AMPEL_LOG" ]]
@@ -118,16 +118,16 @@ EOF
 
 @test "behavior: file with no VSA fails closed before any ampel call" {
     touch "$TMP/a.tgz"
-    ARTIFACT_PATH="$TMP/a.tgz" REPO="owner/repo" VSA_DIR="$VSAS" run "$SCRIPT"
+    ARTIFACT_PATH="$TMP/a.tgz" RESOURCE_URI="pkg:npm/a@1" REPO="owner/repo" VSA_DIR="$VSAS" run "$SCRIPT"
     [[ "$status" -eq 1 ]]
     [[ "$output" == *"no VSA found for"* ]]
     [[ ! -f "$AMPEL_LOG" ]]
 }
 
-@test "behavior: verifies via the consumer policy, binding subject, repo, and the VSA's resourceUri" {
+@test "behavior: verifies via the consumer policy, binding subject, repo, and resource URI" {
     touch "$TMP/a.tgz"
-    make_vsa "a.tgz" "pkg:npm/a@1.0.0"
-    ARTIFACT_PATH="$TMP/a.tgz" REPO="owner/repo" VSA_DIR="$VSAS" run "$SCRIPT"
+    make_vsa "a.tgz"
+    ARTIFACT_PATH="$TMP/a.tgz" RESOURCE_URI="pkg:npm/a@1.0.0" REPO="owner/repo" VSA_DIR="$VSAS" run "$SCRIPT"
     [[ "$status" -eq 0 ]]
     [[ "$(wc -l < "$AMPEL_LOG")" -eq 1 ]]
     grep -q -- "verify --subject $TMP/a.tgz" "$AMPEL_LOG"
@@ -138,28 +138,10 @@ EOF
     [[ "$output" == *"1 file(s) verified against PASSED VSAs"* ]]
 }
 
-@test "behavior: a bundle without a decodable payload fails with the decode error" {
-    touch "$TMP/a.tgz"
-    printf '{"notDsse":true}\n' > "$VSAS/a.tgz.intoto.jsonl"
-    ARTIFACT_PATH="$TMP/a.tgz" REPO="owner/repo" VSA_DIR="$VSAS" run "$SCRIPT"
-    [[ "$status" -eq 1 ]]
-    [[ "$output" == *"could not decode VSA payload"* ]]
-    [[ ! -f "$AMPEL_LOG" ]]
-}
-
-@test "behavior: a VSA without a resourceUri fails before any ampel call" {
-    touch "$TMP/a.tgz"
-    make_vsa "a.tgz" ""
-    ARTIFACT_PATH="$TMP/a.tgz" REPO="owner/repo" VSA_DIR="$VSAS" run "$SCRIPT"
-    [[ "$status" -eq 1 ]]
-    [[ "$output" == *"carries no resourceUri"* ]]
-    [[ ! -f "$AMPEL_LOG" ]]
-}
-
 @test "behavior: fails closed when ampel rejects the VSA" {
     touch "$TMP/a.tgz"
-    make_vsa "a.tgz" "pkg:npm/a@1.0.0"
-    AMPEL_SHIM_EXIT=1 ARTIFACT_PATH="$TMP/a.tgz" REPO="owner/repo" VSA_DIR="$VSAS" \
+    make_vsa "a.tgz"
+    AMPEL_SHIM_EXIT=1 ARTIFACT_PATH="$TMP/a.tgz" RESOURCE_URI="pkg:npm/a@1" REPO="owner/repo" VSA_DIR="$VSAS" \
         run "$SCRIPT"
     [[ "$status" -eq 1 ]]
     [[ "$output" == *"ampel rejected"* ]]
@@ -168,9 +150,8 @@ EOF
 @test "behavior: verifies every file under a directory recursively, spaces included" {
     mkdir -p "$TMP/dist/nested"
     touch "$TMP/dist/a.whl" "$TMP/dist/b file.tar.gz" "$TMP/dist/nested/c.txt"
-    make_vsa "a.whl" "pkg:generic/a@1"; make_vsa "b file.tar.gz" "pkg:generic/b@1"
-    make_vsa "c.txt" "pkg:generic/c@1"
-    ARTIFACT_PATH="$TMP/dist" REPO="owner/repo" VSA_DIR="$VSAS" run "$SCRIPT"
+    make_vsa "a.whl"; make_vsa "b file.tar.gz"; make_vsa "c.txt"
+    ARTIFACT_PATH="$TMP/dist" RESOURCE_URI="pkg:generic/a@1" REPO="owner/repo" VSA_DIR="$VSAS" run "$SCRIPT"
     [[ "$status" -eq 0 ]]
     [[ "$(wc -l < "$AMPEL_LOG")" -eq 3 ]]
     grep -q "b file.tar.gz" "$AMPEL_LOG"
@@ -180,8 +161,8 @@ EOF
 @test "behavior: stops at the first failing file" {
     mkdir "$TMP/dist"
     touch "$TMP/dist/a.tgz" "$TMP/dist/b.tgz"
-    make_vsa "a.tgz" "pkg:npm/a@1"; make_vsa "b.tgz" "pkg:npm/b@1"
-    AMPEL_SHIM_EXIT=1 ARTIFACT_PATH="$TMP/dist" REPO="owner/repo" VSA_DIR="$VSAS" \
+    make_vsa "a.tgz"; make_vsa "b.tgz"
+    AMPEL_SHIM_EXIT=1 ARTIFACT_PATH="$TMP/dist" RESOURCE_URI="pkg:npm/a@1" REPO="owner/repo" VSA_DIR="$VSAS" \
         run "$SCRIPT"
     [[ "$status" -eq 1 ]]
     [[ "$(wc -l < "$AMPEL_LOG")" -eq 1 ]]
@@ -204,10 +185,20 @@ EOF
     grep -q 'artifact-name: ${{ matrix.artifact }}' "$WF_DIR/build_and_publish_python.yml"
 }
 
+@test "contract: the build workflows export the resource-uri this action expects" {
+    # The README and examples pipe the workflow's resource-uri output into
+    # this action's resource-uri input; a renamed or dropped output strands
+    # every adopter publish job.
+    WF_DIR="$ACTION_DIR/../../.github/workflows"
+    grep -q '^      resource-uri:' "$WF_DIR/build_and_publish_npm.yml"
+    grep -q '^      resource-uri:' "$WF_DIR/build_and_publish_python.yml"
+}
+
 # --- structural ---
 
 @test "structure: action.yml threads inputs through env, not interpolation" {
     grep -q 'ARTIFACT_PATH: ${{ inputs.path }}' "$ACTION"
+    grep -q 'RESOURCE_URI: ${{ inputs.resource-uri }}' "$ACTION"
     grep -q 'REPO: ${{ inputs.repo }}' "$ACTION"
 }
 

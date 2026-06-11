@@ -4,7 +4,7 @@
 # artifact download. verify_vsa.sh sources this and re-runs the same checks
 # as its own boundary guard, so the rules live in one place.
 #
-# Env: ARTIFACT_PATH, REPO (see verify_vsa.sh).
+# Env: ARTIFACT_PATH, RESOURCE_URI, REPO (see verify_vsa.sh).
 set -euo pipefail
 set -f
 
@@ -16,6 +16,7 @@ die_input() {
 validate_inputs() {
     [[ -n "${ARTIFACT_PATH:-}" ]] || die_input "ARTIFACT_PATH is required"
     [[ -e "$ARTIFACT_PATH" ]] || die_input "no such file or directory: $ARTIFACT_PATH"
+    [[ -n "${RESOURCE_URI:-}" ]] || die_input "RESOURCE_URI is required"
     [[ "${REPO:-}" =~ ^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$ ]] \
         || die_input "REPO must be <owner>/<repo>, got: ${REPO:-<empty>}"
 }

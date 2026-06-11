@@ -211,7 +211,7 @@ require_sigstore() {
     cp "$BLOB" "$TMP/dist/npm-package.tgz"
     cp "$VSA" "$TMP/vsas/npm-package.tgz.intoto.jsonl"
     PATH="$(dirname "$AMPEL_BIN"):$PATH" \
-        ARTIFACT_PATH="$TMP/dist" REPO="$SIGNER_REPO" VSA_DIR="$TMP/vsas" \
+        ARTIFACT_PATH="$TMP/dist" RESOURCE_URI="$RESOURCE_URI" REPO="$SIGNER_REPO" VSA_DIR="$TMP/vsas" \
         run "$REPO_ROOT/actions/verify-vsa/verify_vsa.sh"
     [[ "$status" -eq 0 ]]
     [[ "$output" == *"1 file(s) verified against PASSED VSAs"* ]]
@@ -224,7 +224,7 @@ require_sigstore() {
     cp "$BLOB" "$TMP/dist/npm-package.tgz"
     cp "$VSA" "$TMP/vsas/npm-package.tgz.intoto.jsonl"
     PATH="$(dirname "$AMPEL_BIN"):$PATH" \
-        ARTIFACT_PATH="$TMP/dist" REPO="attacker/repo" VSA_DIR="$TMP/vsas" \
+        ARTIFACT_PATH="$TMP/dist" RESOURCE_URI="$RESOURCE_URI" REPO="attacker/repo" VSA_DIR="$TMP/vsas" \
         run "$REPO_ROOT/actions/verify-vsa/verify_vsa.sh"
     [[ "$status" -eq 1 ]]
     [[ "$output" == *"ampel rejected"* ]]

@@ -70,6 +70,9 @@ on:
       version:
         description: "The package version that was built"
         value: ${{ jobs.build.outputs.version }}
+      resource-uri:
+        description: "The purl the VSA's resourceUri names (pkg:generic/<name>@<version>). Pipe into actions/verify-vsa's resource-uri input."
+        value: pkg:generic/${{ jobs.build.outputs.name }}@${{ jobs.build.outputs.version }}
       dist-artifact-name:
         description: "Name of the uploaded dist/ artifact (download with this name to publish)"
         value: ${{ jobs.build.outputs.dist-artifact-name }}

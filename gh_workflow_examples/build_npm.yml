@@ -97,6 +97,7 @@ jobs:
       - uses: TomHennen/wrangle/actions/verify-vsa@v0.2.0
         with:
           path: dist/
+          resource-uri: ${{ needs.build.outputs.resource-uri }}
 
       # `npm publish <tgz> --provenance --access public` populates the
       # registry's per-version attestation slot with a Sigstore-signed

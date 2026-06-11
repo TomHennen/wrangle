@@ -51,6 +51,7 @@ jobs:
         uses: ./actions/verify-vsa
         with:
           path: dist/
+          resource-uri: pkg:npm/@tomhennen/wrangle-integration-fixture@0.0.2-integration.26922828083
           repo: TomHennen/wrangle-test
 
       - name: Tamper with the dist
@@ -64,6 +65,7 @@ jobs:
         uses: ./actions/verify-vsa
         with:
           path: dist/
+          resource-uri: pkg:npm/@tomhennen/wrangle-integration-fixture@0.0.2-integration.26922828083
           repo: TomHennen/wrangle-test
 
       - name: Assert the tampered verify failed
@@ -82,9 +84,26 @@ jobs:
         uses: ./actions/verify-vsa
         with:
           path: dist/
+          resource-uri: pkg:npm/@tomhennen/wrangle-integration-fixture@0.0.2-integration.26922828083
           repo: attacker/evil
 
       - name: Assert the wrong-repo verify failed
         env:
           OUTCOME: ${{ steps.wrongrepo.outcome }}
+        run: test "$OUTCOME" = "failure"
+
+      # Identical to the passing step except for the resource URI: the VSA
+      # names the fixture's purl, so a different package must fail.
+      - name: Verify with a wrong resource URI (expect failure)
+        id: wronguri
+        continue-on-error: true  # negative test: the assert step below requires outcome == failure
+        uses: ./actions/verify-vsa
+        with:
+          path: dist/
+          resource-uri: pkg:npm/@attacker/evil@9.9.9
+          repo: TomHennen/wrangle-test
+
+      - name: Assert the wrong-resource-URI verify failed
+        env:
+          OUTCOME: ${{ steps.wronguri.outcome }}
         run: test "$OUTCOME" = "failure"

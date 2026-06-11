@@ -75,6 +75,7 @@ jobs:
       - uses: TomHennen/wrangle/actions/verify-vsa@v0.2.0
         with:
           path: dist/
+          resource-uri: ${{ needs.build.outputs.resource-uri }}
 
       - uses: pypa/gh-action-pypi-publish@cef221092ed1bacb1cc03d23a2d87d1d172e277b # v1.14.0
         with:

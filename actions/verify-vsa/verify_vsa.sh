@@ -7,15 +7,13 @@
 # run.
 #
 # Each file gets one `ampel verify` against wrangle-vsa-consumer-v1 — the
-# same check downstream consumers run. The policy's required
-# expectedResourceUri is read from the VSA itself: pre-publish there is no
-# published name to pin independently, so that one tenet is self-consistent;
-# the load-bearing checks (subject hash, signer identity, origin repository,
-# PASSED, SLSA level) are all independently enforced.
+# same check downstream consumers run.
 #
-# Env: ARTIFACT_PATH (file, or directory verified recursively), REPO
-# (<owner>/<repo> the VSA's signing cert must name as origin), VSA_DIR
-# (directory holding <artifact-basename>.intoto.jsonl files).
+# Env: ARTIFACT_PATH (file, or directory verified recursively), RESOURCE_URI
+# (the purl/OCI ref the VSA's resourceUri must equal — pipe the build
+# workflow's resource-uri output), REPO (<owner>/<repo> the VSA's signing
+# cert must name as origin), VSA_DIR (directory holding
+# <artifact-basename>.intoto.jsonl files).
 set -euo pipefail
 set -f
 
@@ -36,16 +34,11 @@ die_verify() {
 
 verify_one() {
     local file="$1" vsa="$2"
-    local resource_uri
-    resource_uri="$(jq -r '.dsseEnvelope.payload | @base64d | fromjson | .predicate.resourceUri' "$vsa")" \
-        || die_verify "could not decode VSA payload in $vsa"
-    [[ -n "$resource_uri" && "$resource_uri" != "null" ]] \
-        || die_verify "VSA for $file carries no resourceUri"
     ampel verify --subject "$file" \
         --policy "$POLICY" \
         --attestation "$vsa" \
         --context "sourceRepo:https://github.com/${REPO}" \
-        --context "expectedResourceUri:${resource_uri}" \
+        --context "expectedResourceUri:${RESOURCE_URI}" \
         || die_verify "ampel rejected $file against $vsa"
 }
 

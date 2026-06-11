@@ -90,6 +90,9 @@ on:
       version:
         description: "The package version that was built"
         value: ${{ jobs.build.outputs.version }}
+      resource-uri:
+        description: "The purl the VSA's resourceUri names (pkg:npm/<name>@<version>). Pipe into actions/verify-vsa's resource-uri input."
+        value: pkg:npm/${{ jobs.build.outputs.name }}@${{ jobs.build.outputs.version }}
       tarball:
         description: "Filename of the produced .tgz (relative to the dist/ artifact root)"
         value: ${{ jobs.build.outputs.tarball }}

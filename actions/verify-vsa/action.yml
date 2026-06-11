@@ -15,6 +15,11 @@ inputs:
       Artifact file to verify, or a directory — every regular file under it
       (recursively) is verified.
     required: true
+  resource-uri:
+    description: >
+      The resource the VSA must name (its resourceUri — a purl or OCI ref).
+      Pipe the build workflow's resource-uri output.
+    required: true
   repo:
     description: >
       Origin repository the VSA's signing certificate must name
@@ -30,6 +35,7 @@ runs:
       shell: bash
       env:
         ARTIFACT_PATH: ${{ inputs.path }}
+        RESOURCE_URI: ${{ inputs.resource-uri }}
         REPO: ${{ inputs.repo }}
       run: "${{ github.action_path }}/validate_inputs.sh"
 
@@ -64,6 +70,7 @@ runs:
       shell: bash
       env:
         ARTIFACT_PATH: ${{ inputs.path }}
+        RESOURCE_URI: ${{ inputs.resource-uri }}
         REPO: ${{ inputs.repo }}
         VSA_DIR: ${{ runner.temp }}/wrangle-vsas
       run: "${{ github.action_path }}/verify_vsa.sh"
