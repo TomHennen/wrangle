@@ -69,8 +69,6 @@ setup() {
     PROVENANCE_GO="$POLICIES_DIR/wrangle-provenance-go-v1.hjson"
     PROVENANCE_PYTHON="$POLICIES_DIR/wrangle-provenance-python-v1.hjson"
     PROVENANCE_CONTAINER="$POLICIES_DIR/wrangle-provenance-container-v1.hjson"
-    # The publish-gate PolicySet actions/verify-vsa evaluates per dist file.
-    GATE="$POLICIES_DIR/wrangle-vsa-gate-v1.hjson"
 
     # Logic-only variants for the tenet tests (see the file header).
     DEFAULT_LOGIC="$BATS_TEST_TMPDIR/default-logic.hjson"
@@ -79,14 +77,12 @@ setup() {
     PROVENANCE_GO_LOGIC="$BATS_TEST_TMPDIR/provenance-go-logic.hjson"
     PROVENANCE_PYTHON_LOGIC="$BATS_TEST_TMPDIR/provenance-python-logic.hjson"
     PROVENANCE_CONTAINER_LOGIC="$BATS_TEST_TMPDIR/provenance-container-logic.hjson"
-    GATE_LOGIC="$BATS_TEST_TMPDIR/gate-logic.hjson"
     strip_identities "$DEFAULT" > "$DEFAULT_LOGIC"
     strip_identities "$STRICT"  > "$STRICT_LOGIC"
     strip_identities "$PROVENANCE_NPM" > "$PROVENANCE_NPM_LOGIC"
     strip_identities "$PROVENANCE_GO" > "$PROVENANCE_GO_LOGIC"
     strip_identities "$PROVENANCE_PYTHON" > "$PROVENANCE_PYTHON_LOGIC"
     strip_identities "$PROVENANCE_CONTAINER" > "$PROVENANCE_CONTAINER_LOGIC"
-    strip_identities "$GATE" > "$GATE_LOGIC"
     # Structural self-check, both halves:
     # (a) Production side — a policy that shipped WITHOUT an identity gate would
     #     strip to a no-op, pass (b) vacuously, and ship admitting unsigned
@@ -97,7 +93,7 @@ setup() {
     #     admission survived. (The PASS tests are the functional half of (b): if
     #     the gate were still present, the unsigned good fixtures could not pass.)
     for p in "$DEFAULT" "$STRICT" "$PROVENANCE_NPM" "$PROVENANCE_GO" \
-             "$PROVENANCE_PYTHON" "$PROVENANCE_CONTAINER" "$GATE"; do
+             "$PROVENANCE_PYTHON" "$PROVENANCE_CONTAINER"; do
         grep -qE '^[[:space:]]*identities:' "$p" || {
             printf 'production policy %s has no identities admission — gate missing\n' "$p" >&2
             return 1
@@ -105,7 +101,7 @@ setup() {
     done
     if grep -qE '^[[:space:]]*identities:' "$DEFAULT_LOGIC" "$STRICT_LOGIC" \
             "$PROVENANCE_NPM_LOGIC" "$PROVENANCE_GO_LOGIC" \
-            "$PROVENANCE_PYTHON_LOGIC" "$PROVENANCE_CONTAINER_LOGIC" "$GATE_LOGIC"; then
+            "$PROVENANCE_PYTHON_LOGIC" "$PROVENANCE_CONTAINER_LOGIC"; then
         printf 'strip_identities left an identities admission in the logic variant\n' >&2
         return 1
     fi
@@ -114,7 +110,6 @@ setup() {
     export PROVENANCE_NPM PROVENANCE_GO PROVENANCE_PYTHON PROVENANCE_CONTAINER
     export PROVENANCE_NPM_LOGIC PROVENANCE_GO_LOGIC PROVENANCE_PYTHON_LOGIC
     export DEFAULT_LOGIC STRICT_LOGIC PROVENANCE_CONTAINER_LOGIC
-    export GATE GATE_LOGIC
 }
 
 # verify <policy> <fixture-bundle> [extra ampel args...]
@@ -124,7 +119,7 @@ verify() {
         -x "$CTX" "$@"
 }
 
-# expect_fail <policy> <fixture-bundle> <expected-failing-policy-id> [extra ampel args...]
+# expect_fail <policy> <fixture-bundle> <expected-failing-policy-id>
 # Asserts the set FAILS *because of the named tenet* — not merely exit!=0.
 # Emits the machine-readable ampel resultset (written even on FAIL) and checks
 # the specific policy's status. An infrastructure error (bad SHA, github.com
@@ -132,9 +127,8 @@ verify() {
 # cannot satisfy this assertion vacuously.
 expect_fail() {
     local policy="$1" bundle="$2" want="$3"
-    shift 3
     local rs="$BATS_TEST_TMPDIR/resultset.json"
-    run verify "$policy" "$bundle" "$@" --attest-results --attest-format=ampel --results-path="$rs" -f tty
+    run verify "$policy" "$bundle" --attest-results --attest-format=ampel --results-path="$rs" -f tty
     [ "$status" -ne 0 ]
     [ -s "$rs" ]
     run jq -r '.predicate.status' "$rs"
@@ -143,17 +137,15 @@ expect_fail() {
     [ "$output" = "FAIL" ]
 }
 
-# expect_fail_closed <production-policy> <good-fixture> [policy-id] [extra ampel args...]
+# expect_fail_closed <production-policy> <good-fixture>
 # Asserts the PRODUCTION policy (identity gate intact) rejects the SAME good
 # fixture that PASSES its logic variant — so the only thing that can fail is the
 # signer-identity admission (the fixtures are unsigned jsonl statements). Proves
 # the binding is wired and fail-closed without a --signer flag to forget.
 expect_fail_closed() {
-    local policy="$1" fixture="$2" want="${3:-slsa-builder-id}"
-    shift 2
-    if [ "$#" -gt 0 ]; then shift; fi
+    local policy="$1" fixture="$2"
     local rs="$BATS_TEST_TMPDIR/enforce.json"
-    run verify "$policy" "$fixture" "$@" \
+    run verify "$policy" "$fixture" \
         --attest-results --attest-format=ampel --results-path="$rs" -f tty
     [ "$status" -ne 0 ]
     [ -s "$rs" ]
@@ -161,7 +153,7 @@ expect_fail_closed() {
     [ "$output" = "FAIL" ]
     # Fails specifically on identity validation — not tenet CEL (the logic
     # variant proves that CEL passes on this fixture).
-    run jq -r --arg id "$want" '.predicate.results[] | select(.policy.id == $id) | .status' "$rs"
+    run jq -r '.predicate.results[] | select(.policy.id == "slsa-builder-id") | .status' "$rs"
     [ "$output" = "FAIL" ]
     run jq -r '[.predicate.results[].eval_results[]?.error.message]
                | map(select(. == "attestation identity validation failed")) | length' "$rs"
@@ -277,25 +269,6 @@ expect_fail_closed() {
     expect_fail "$STRICT_LOGIC" "$TD/bad-low-scorecard.bundle.jsonl" "wrangle-scorecard-min-score"
 }
 
-@test "ampel policy: gate-v1 PASSES a PASSED VSA" {
-    run verify "$GATE_LOGIC" "$TD/good-vsa.bundle.jsonl" \
-        -x "sourceRepo:https://github.com/TomHennen/wrangle" -f tty
-    [ "$status" -eq 0 ]
-}
-
-@test "ampel policy: gate-v1 FAILS (vsa-passed) on a non-PASSED verdict" {
-    expect_fail "$GATE_LOGIC" "$TD/bad-vsa-failed.bundle.jsonl" "vsa-passed" \
-        -x "sourceRepo:https://github.com/TomHennen/wrangle"
-}
-
-@test "ampel policy: gate-v1 ERRORS when sourceRepo is not supplied (no silent skip)" {
-    # Required even in the logic variant: the context declaration survives the
-    # identity strip, so a caller that forgets sourceRepo hard-errors.
-    run verify "$GATE_LOGIC" "$TD/good-vsa.bundle.jsonl" -f tty
-    [ "$status" -ne 0 ]
-    [[ "$output" == *"sourceRepo is required"* ]]
-}
-
 # --- Identity enforcement (production policy: identity gate intact) --------
 
 @test "ampel policy: default-v1 (production) is FAIL-CLOSED — rejects an unsigned attestation on signer identity" {
@@ -337,13 +310,6 @@ expect_fail_closed() {
     # The container policy is what build_and_publish_container.yml verifies real
     # image provenance against, so its OWN identity gate must be proven fail-closed.
     expect_fail_closed "$PROVENANCE_CONTAINER" "$TD/good-container.bundle.jsonl"
-}
-
-@test "ampel policy: gate-v1 (production) is FAIL-CLOSED on signer identity" {
-    # The gate policy is what actions/verify-vsa blocks adopter publishes on,
-    # so its OWN identity gate must be proven fail-closed.
-    expect_fail_closed "$GATE" "$TD/good-vsa.bundle.jsonl" "vsa-passed" \
-        -x "sourceRepo:https://github.com/TomHennen/wrangle"
 }
 
 # --- Cross-file invariant --------------------------------------------------

@@ -199,10 +199,10 @@ require_sigstore() {
 }
 
 # --- adopter-side publish gate (actions/verify-vsa) ---
-# The gate script evaluates the wrangle-vsa-gate-v1 PolicySet with ampel;
-# running it against the same real fixture proves the script's ampel
-# invocation and policy wiring work on genuine bnd-emitted bundles, not just
-# the unit suite's shim.
+# The gate script evaluates the consumer PolicySet with ampel; running it
+# against the same real fixture proves the script's ampel invocation and
+# policy wiring work on genuine bnd-emitted bundles, not just the unit
+# suite's shim.
 
 @test "verify-vsa: gate script verifies the real npm fixture end-to-end" {
     [[ -x "$AMPEL_BIN" ]] || skip_or_fail "real ampel not available"
@@ -211,40 +211,10 @@ require_sigstore() {
     cp "$BLOB" "$TMP/dist/npm-package.tgz"
     cp "$VSA" "$TMP/vsas/npm-package.tgz.intoto.jsonl"
     PATH="$(dirname "$AMPEL_BIN"):$PATH" \
-        ARTIFACT_PATH="$TMP/dist" REPO="$SIGNER_REPO" VSA_DIR="$TMP/vsas" SIGNER_WORKFLOW="" \
+        ARTIFACT_PATH="$TMP/dist" REPO="$SIGNER_REPO" VSA_DIR="$TMP/vsas" \
         run "$REPO_ROOT/actions/verify-vsa/verify_vsa.sh"
     [[ "$status" -eq 0 ]]
     [[ "$output" == *"1 file(s) verified against PASSED VSAs"* ]]
-}
-
-@test "verify-vsa: gate script narrows to the npm signer workflow and still verifies" {
-    [[ -x "$AMPEL_BIN" ]] || skip_or_fail "real ampel not available"
-    require_sigstore
-    mkdir -p "$TMP/dist" "$TMP/vsas"
-    cp "$BLOB" "$TMP/dist/npm-package.tgz"
-    cp "$VSA" "$TMP/vsas/npm-package.tgz.intoto.jsonl"
-    PATH="$(dirname "$AMPEL_BIN"):$PATH" \
-        ARTIFACT_PATH="$TMP/dist" REPO="$SIGNER_REPO" VSA_DIR="$TMP/vsas" \
-        SIGNER_WORKFLOW="TomHennen/wrangle/.github/workflows/build_and_publish_npm.yml" \
-        run "$REPO_ROOT/actions/verify-vsa/verify_vsa.sh"
-    [[ "$status" -eq 0 ]]
-    [[ "$output" == *"1 file(s) verified against PASSED VSAs"* ]]
-}
-
-@test "verify-vsa: gate script rejects a mismatched signer workflow (fail-closed)" {
-    [[ -x "$AMPEL_BIN" ]] || skip_or_fail "real ampel not available"
-    require_sigstore
-    mkdir -p "$TMP/dist" "$TMP/vsas"
-    cp "$BLOB" "$TMP/dist/npm-package.tgz"
-    cp "$VSA" "$TMP/vsas/npm-package.tgz.intoto.jsonl"
-    # The npm fixture's VSA was signed by the npm workflow; narrowing the
-    # gate to the python workflow must reject it.
-    PATH="$(dirname "$AMPEL_BIN"):$PATH" \
-        ARTIFACT_PATH="$TMP/dist" REPO="$SIGNER_REPO" VSA_DIR="$TMP/vsas" \
-        SIGNER_WORKFLOW="TomHennen/wrangle/.github/workflows/build_and_publish_python.yml" \
-        run "$REPO_ROOT/actions/verify-vsa/verify_vsa.sh"
-    [[ "$status" -eq 1 ]]
-    [[ "$output" == *"ampel rejected"* ]]
 }
 
 @test "verify-vsa: gate script rejects the fixture under a wrong origin repo (fail-closed)" {
@@ -254,7 +224,7 @@ require_sigstore() {
     cp "$BLOB" "$TMP/dist/npm-package.tgz"
     cp "$VSA" "$TMP/vsas/npm-package.tgz.intoto.jsonl"
     PATH="$(dirname "$AMPEL_BIN"):$PATH" \
-        ARTIFACT_PATH="$TMP/dist" REPO="attacker/repo" VSA_DIR="$TMP/vsas" SIGNER_WORKFLOW="" \
+        ARTIFACT_PATH="$TMP/dist" REPO="attacker/repo" VSA_DIR="$TMP/vsas" \
         run "$REPO_ROOT/actions/verify-vsa/verify_vsa.sh"
     [[ "$status" -eq 1 ]]
     [[ "$output" == *"ampel rejected"* ]]

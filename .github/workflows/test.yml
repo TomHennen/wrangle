@@ -52,7 +52,6 @@ jobs:
         with:
           path: dist/
           repo: TomHennen/wrangle-test
-          signer-workflow: TomHennen/wrangle/.github/workflows/build_and_publish_npm.yml
 
       - name: Tamper with the dist
         run: printf 'x' >> dist/npm-package.tgz
@@ -66,7 +65,6 @@ jobs:
         with:
           path: dist/
           repo: TomHennen/wrangle-test
-          signer-workflow: TomHennen/wrangle/.github/workflows/build_and_publish_npm.yml
 
       - name: Assert the tampered verify failed
         env:
@@ -85,7 +83,6 @@ jobs:
         with:
           path: dist/
           repo: attacker/evil
-          signer-workflow: TomHennen/wrangle/.github/workflows/build_and_publish_npm.yml
 
       - name: Assert the wrong-repo verify failed
         env:

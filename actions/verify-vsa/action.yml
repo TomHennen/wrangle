@@ -15,15 +15,6 @@ inputs:
       Artifact file to verify, or a directory — every regular file under it
       (recursively) is verified.
     required: true
-  signer-workflow:
-    description: >
-      Reusable workflow that signed the VSA, as
-      <owner>/<repo>/<path-to-workflow>.yml (e.g.
-      TomHennen/wrangle/.github/workflows/build_and_publish_npm.yml).
-      Empty accepts any wrangle build_and_publish_* workflow; set it for
-      the tightest binding.
-    required: false
-    default: ""
   repo:
     description: >
       Origin repository the VSA's signing certificate must name
@@ -34,19 +25,14 @@ inputs:
 runs:
   using: composite
   steps:
-    # Fail bad inputs before the tool installs and VSA download.
+    # Fail bad inputs before the tool install and VSA download.
     - name: Validate inputs
       shell: bash
       env:
         ARTIFACT_PATH: ${{ inputs.path }}
-        SIGNER_WORKFLOW: ${{ inputs.signer-workflow }}
         REPO: ${{ inputs.repo }}
       run: "${{ github.action_path }}/validate_inputs.sh"
 
-    # Go for the ampel build below. The runner image's PATH Go is not
-    # contractually guaranteed (the ubuntu-24.04 image lists Go under cached
-    # tools only), so the action provisions its own, at the version the tool
-    # manifest pins.
     - name: Setup Go
       uses: actions/setup-go@4a3601121dd01d1626a1e23e37211e3254c1c06c # v6.4.0
       with:
@@ -55,10 +41,7 @@ runs:
         # wrangle's cache-isolation posture is cache-free builds.
         cache: false
 
-    # Build ampel from the pinned tool manifest into WRANGLE_BIN_DIR — go.sum
-    # pins the bytes, and it is the same manifest actions/verify builds from,
-    # so the version is single-sourced. verify_vsa.sh re-sources lib/env.sh
-    # to find it on PATH, so there is no write to $GITHUB_PATH.
+    # go.sum pins the bytes; same manifest actions/verify builds from.
     - name: Install ampel
       shell: bash
       env:
@@ -81,7 +64,6 @@ runs:
       shell: bash
       env:
         ARTIFACT_PATH: ${{ inputs.path }}
-        SIGNER_WORKFLOW: ${{ inputs.signer-workflow }}
         REPO: ${{ inputs.repo }}
         VSA_DIR: ${{ runner.temp }}/wrangle-vsas
       run: "${{ github.action_path }}/verify_vsa.sh"
