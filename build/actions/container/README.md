@@ -27,6 +27,7 @@ Copy [`build_and_publish_containers.yml`](../../../gh_workflow_examples/build_an
 - **`pull_request_target` can't trigger this workflow** — that trigger (and `workflow_run` chained from it) is a common exploit vector, so wrangle blocks both at startup.
 - **Private repos aren't supported** — the `verify` job can't pull auth-gated provenance referrers ([#182](https://github.com/TomHennen/wrangle/issues/182)).
 - **Workflow outputs** are documented in [`build_and_publish_container.yml`](../../../.github/workflows/build_and_publish_container.yml) itself.
+- **Enable Dependabot too** — copy [`dependabot.yml`](../../../gh_workflow_examples/dependabot.yml) to `.github/` and uncomment the `docker` entry (base-image updates). Its `github-actions` entry also keeps your `uses: TomHennen/wrangle/...` pin current.
 
 ## Verifying what you shipped
 
