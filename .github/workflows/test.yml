@@ -21,9 +21,10 @@ jobs:
 
   # End-to-end exercise of the verify-vsa composite action itself (the
   # script's logic is bats-covered; this covers the composite wiring: the
-  # cosign install, the VSA artifact download by pattern, and the verify
-  # step) against the real consumer fixtures — including the fail-closed
-  # paths: tampered bytes and a wrong origin repo must fail the action.
+  # Go-built ampel install, the VSA artifact download by pattern, and the
+  # verify step) against the real consumer fixtures — including the
+  # fail-closed paths: tampered bytes and a wrong origin repo must fail the
+  # action.
   verify-vsa-action:
     runs-on: ubuntu-latest
     permissions:
@@ -50,8 +51,8 @@ jobs:
         uses: ./actions/verify-vsa
         with:
           path: dist/
+          resource-uri: pkg:npm/@tomhennen/wrangle-integration-fixture@0.0.2-integration.26922828083
           repo: TomHennen/wrangle-test
-          signer-workflow: TomHennen/wrangle/.github/workflows/build_and_publish_npm.yml
 
       - name: Tamper with the dist
         run: printf 'x' >> dist/npm-package.tgz
@@ -64,8 +65,8 @@ jobs:
         uses: ./actions/verify-vsa
         with:
           path: dist/
+          resource-uri: pkg:npm/@tomhennen/wrangle-integration-fixture@0.0.2-integration.26922828083
           repo: TomHennen/wrangle-test
-          signer-workflow: TomHennen/wrangle/.github/workflows/build_and_publish_npm.yml
 
       - name: Assert the tampered verify failed
         env:
@@ -83,10 +84,26 @@ jobs:
         uses: ./actions/verify-vsa
         with:
           path: dist/
+          resource-uri: pkg:npm/@tomhennen/wrangle-integration-fixture@0.0.2-integration.26922828083
           repo: attacker/evil
-          signer-workflow: TomHennen/wrangle/.github/workflows/build_and_publish_npm.yml
 
       - name: Assert the wrong-repo verify failed
         env:
           OUTCOME: ${{ steps.wrongrepo.outcome }}
+        run: test "$OUTCOME" = "failure"
+
+      # Identical to the passing step except for the resource URI: the VSA
+      # names the fixture's purl, so a different package must fail.
+      - name: Verify with a wrong resource URI (expect failure)
+        id: wronguri
+        continue-on-error: true  # negative test: the assert step below requires outcome == failure
+        uses: ./actions/verify-vsa
+        with:
+          path: dist/
+          resource-uri: pkg:npm/@attacker/evil@9.9.9
+          repo: TomHennen/wrangle-test
+
+      - name: Assert the wrong-resource-URI verify failed
+        env:
+          OUTCOME: ${{ steps.wronguri.outcome }}
         run: test "$OUTCOME" = "failure"

@@ -170,7 +170,8 @@ verdict.
 If your publish job lives in your own workflow (Python / npm), run
 [`actions/verify-vsa`](../actions/verify-vsa/README.md) between
 `download-artifact` and the publish step. It re-checks the bytes on *that*
-runner against the signed VSA, fail-closed, so what you upload is exactly
-what passed wrangle's policy. The publish jobs in
+runner against the signed VSA — including that the VSA names the resource
+you're about to publish — fail-closed, so what you upload is exactly what
+passed wrangle's policy. The publish jobs in
 [`gh_workflow_examples/build_python.yml`](../gh_workflow_examples/build_python.yml)
 and [`build_npm.yml`](../gh_workflow_examples/build_npm.yml) show it wired.

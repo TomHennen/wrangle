@@ -200,32 +200,33 @@ require_sigstore() {
 }
 
 # --- adopter-side publish gate (actions/verify-vsa) ---
-# The gate script wraps the exact Path A check above; running it against the
-# same real fixture proves its cosign flags and DSSE decode work on genuine
-# bnd-emitted bundles, not just the unit suite's synthesized ones.
+# The gate script evaluates the consumer PolicySet with ampel; running it
+# against the same real fixture proves the script's ampel invocation and
+# policy wiring work on genuine bnd-emitted bundles, not just the unit
+# suite's shim.
 
 @test "verify-vsa: gate script verifies the real npm fixture end-to-end" {
-    [[ -x "$COSIGN_BIN" ]] || skip_or_fail "real cosign not available"
+    [[ -x "$AMPEL_BIN" ]] || skip_or_fail "real ampel not available"
     require_sigstore
     mkdir -p "$TMP/dist" "$TMP/vsas"
     cp "$BLOB" "$TMP/dist/npm-package.tgz"
     cp "$VSA" "$TMP/vsas/npm-package.tgz.intoto.jsonl"
-    PATH="$(dirname "$COSIGN_BIN"):$PATH" \
-        ARTIFACT_PATH="$TMP/dist" REPO="$SIGNER_REPO" VSA_DIR="$TMP/vsas" SIGNER_WORKFLOW="" \
+    PATH="$(dirname "$AMPEL_BIN"):$PATH" \
+        ARTIFACT_PATH="$TMP/dist" RESOURCE_URI="$RESOURCE_URI" REPO="$SIGNER_REPO" VSA_DIR="$TMP/vsas" \
         run "$REPO_ROOT/actions/verify-vsa/verify_vsa.sh"
     [[ "$status" -eq 0 ]]
     [[ "$output" == *"1 file(s) verified against PASSED VSAs"* ]]
 }
 
 @test "verify-vsa: gate script rejects the fixture under a wrong origin repo (fail-closed)" {
-    [[ -x "$COSIGN_BIN" ]] || skip_or_fail "real cosign not available"
+    [[ -x "$AMPEL_BIN" ]] || skip_or_fail "real ampel not available"
     require_sigstore
     mkdir -p "$TMP/dist" "$TMP/vsas"
     cp "$BLOB" "$TMP/dist/npm-package.tgz"
     cp "$VSA" "$TMP/vsas/npm-package.tgz.intoto.jsonl"
-    PATH="$(dirname "$COSIGN_BIN"):$PATH" \
-        ARTIFACT_PATH="$TMP/dist" REPO="attacker/repo" VSA_DIR="$TMP/vsas" SIGNER_WORKFLOW="" \
+    PATH="$(dirname "$AMPEL_BIN"):$PATH" \
+        ARTIFACT_PATH="$TMP/dist" RESOURCE_URI="$RESOURCE_URI" REPO="attacker/repo" VSA_DIR="$TMP/vsas" \
         run "$REPO_ROOT/actions/verify-vsa/verify_vsa.sh"
     [[ "$status" -eq 1 ]]
-    [[ "$output" == *"cosign rejected"* ]]
+    [[ "$output" == *"ampel rejected"* ]]
 }

@@ -55,13 +55,13 @@ Publishing happens in your workflow, so two things there are load-bearing — bo
      needs: [build]
    ```
 
-2. **Verify before you publish** — run wrangle's [`verify-vsa`](../../../actions/verify-vsa/README.md) action between `download-artifact` and the publish step, so the exact bytes leaving the runner are the bytes that passed wrangle's policy:
+2. **Verify before you publish** — run wrangle's [`verify-vsa`](../../../actions/verify-vsa/README.md) action between `download-artifact` and the publish step, piping the build's `resource-uri` output, so the exact bytes leaving the runner are the bytes that passed wrangle's policy:
 
    ```yaml
    - uses: TomHennen/wrangle/actions/verify-vsa@v0.2.0
      with:
        path: dist/
-       signer-workflow: TomHennen/wrangle/.github/workflows/build_and_publish_python.yml
+       resource-uri: ${{ needs.build.outputs.resource-uri }}
    ```
 
 Skip the gate and you publish on every non-PR event; skip verify-vsa and you may publish bytes wrangle's policy never blessed.
