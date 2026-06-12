@@ -118,11 +118,13 @@ setup() {
 }
 
 @test "scan: go-cache defaults off so adopters pay no surprise cache quota" {
-    run grep -A1 '^  go-cache:' "$ACTION_DIR/action.yml"
+    run grep -c '^  go-cache:' "$ACTION_DIR/action.yml"
+    [[ "$output" == "1" ]]
+    # The first default: after the go-cache: key is its own (go-cache is the
+    # last input). Empty string = caching off unless a caller opts in.
+    run bash -c "grep -A20 '^  go-cache:' '$ACTION_DIR/action.yml' | grep -m1 'default:'"
     [ "$status" -eq 0 ]
-    run yq '.inputs.go-cache.default' "$ACTION_DIR/action.yml"
-    [ "$status" -eq 0 ]
-    [[ "$output" == '""' || "$output" == "" ]]
+    [[ "$output" == *'default: ""'* ]]
 }
 
 @test "scan: Go cache steps are gated on go-cache (no staging/setup by default)" {
