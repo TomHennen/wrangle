@@ -4,8 +4,8 @@ description: >
   artifact's full policy verdict, not just its provenance — before
   publishing them. Drops into an adopter's publish job between
   `download-artifact` and the publish step, and fails closed: a file with
-  no VSA, an untrusted signer, a mismatched digest or origin repository,
-  or a verdict other than PASSED fails the run. Expects the VSAs where
+  no VSA, an untrusted signer, a mismatched digest, origin repository, or
+  resource URI, or a verdict other than PASSED fails the run. Expects the VSAs where
   wrangle's verify job puts them: same-run workflow artifacts named
   <artifact-basename>.intoto.jsonl.
 

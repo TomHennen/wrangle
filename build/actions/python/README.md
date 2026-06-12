@@ -46,6 +46,7 @@ On the uv sub-path, release builds disable `setup-uv`'s cache (uv doesn't re-ver
 - `provenance-artifact-name` — workflow-artifact name for the SLSA provenance bundle (empty when `should-release` is false). Format: `python-provenance-bundle-<shortname>` (a Sigstore bundle covering all dist subjects) so multiple python builds in one workflow don't collide on the same artifact name.
 - `metadata-artifact-name` — workflow-artifact name for the SBOM and any scan output (`python-metadata-<shortname>`). See [`docs/SPEC.md`](../../../docs/SPEC.md) "Unified metadata layout."
 - `should-release` — `"true"` if the package should be released. Today that means the event matched `release-events`; future versions may apply additional checks, so treat the output as the source of truth rather than re-evaluating `release-events` yourself. Your publish job MUST gate on this (see below).
+- `resource-uri` — the purl the VSA's `resourceUri` names (`pkg:generic/<name>@<version>`). Pipe into [`actions/verify-vsa`](../../../actions/verify-vsa/README.md)'s `resource-uri` input.
 - `hashes`, `version`.
 
 `<shortname>` is path-derived (`.` → `_`, `pkg/foo` → `pkg_foo`) so multiple python builds in one workflow don't collide on artifact names.

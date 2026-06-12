@@ -70,6 +70,18 @@ make_vsa() {
     [[ "$output" == *"REPO must be <owner>/<repo>"* ]]
 }
 
+@test "behavior: rejects a RESOURCE_URI carrying an injected context pair (fail-closed)" {
+    touch "$TMP/a.tgz"
+    make_vsa "a.tgz"
+    # A comma would let a second --context pair ride in and override the
+    # sourceRepo binding; reject before any ampel call.
+    ARTIFACT_PATH="$TMP/a.tgz" VSA_DIR="$VSAS" REPO="owner/repo" \
+        RESOURCE_URI="pkg:npm/a@1,sourceRepo:https://github.com/attacker/evil" run "$SCRIPT"
+    [[ "$status" -eq 2 ]]
+    [[ "$output" == *"RESOURCE_URI has disallowed characters"* ]]
+    [[ ! -f "$AMPEL_LOG" ]]
+}
+
 @test "behavior: rejects missing VSA_DIR" {
     touch "$TMP/a.tgz"
     ARTIFACT_PATH="$TMP/a.tgz" RESOURCE_URI="pkg:npm/a@1" REPO="owner/repo" VSA_DIR="$TMP/nope" run "$SCRIPT"
@@ -189,9 +201,12 @@ EOF
     # The README and examples pipe the workflow's resource-uri output into
     # this action's resource-uri input; a renamed or dropped output strands
     # every adopter publish job.
+    # Match the workflow_call output specifically (its value references the
+    # build job's output), not the job-level composition line that shares the
+    # `resource-uri:` key — deleting the adopter-facing export must fail here.
     WF_DIR="$ACTION_DIR/../../.github/workflows"
-    grep -q '^      resource-uri:' "$WF_DIR/build_and_publish_npm.yml"
-    grep -q '^      resource-uri:' "$WF_DIR/build_and_publish_python.yml"
+    grep -q 'value: ${{ jobs.build.outputs.resource-uri }}' "$WF_DIR/build_and_publish_npm.yml"
+    grep -q 'value: ${{ jobs.build.outputs.resource-uri }}' "$WF_DIR/build_and_publish_python.yml"
 }
 
 # --- structural ---
