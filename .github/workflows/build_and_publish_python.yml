@@ -70,6 +70,9 @@ on:
       version:
         description: "The package version that was built"
         value: ${{ jobs.build.outputs.version }}
+      resource-uri:
+        description: "The purl the VSA's resourceUri names (pkg:generic/<name>@<version>). Pipe into actions/verify-vsa's resource-uri input."
+        value: ${{ jobs.build.outputs.resource-uri }}
       dist-artifact-name:
         description: "Name of the uploaded dist/ artifact (download with this name to publish)"
         value: ${{ jobs.build.outputs.dist-artifact-name }}
@@ -153,6 +156,9 @@ jobs:
       hashes: ${{ steps.build.outputs.hashes }}
       name: ${{ steps.build.outputs.name }}
       version: ${{ steps.build.outputs.version }}
+      # Single composition site for the purl: the verify job bakes this into
+      # the VSA's resourceUri and the workflow re-exports it for publish gates.
+      resource-uri: pkg:generic/${{ steps.build.outputs.name }}@${{ steps.build.outputs.version }}
       shortname: ${{ steps.build.outputs.shortname }}
       dist-artifact-name: ${{ steps.names.outputs.dist }}
       metadata-artifact-name: ${{ steps.names.outputs.metadata }}
@@ -303,6 +309,6 @@ jobs:
           # resourceUri names the package the VSA covers (pkg:generic, matching
           # the policy harness — pypi purl normalization isn't load-bearing while
           # no consumer reads it). The subject digest is the cryptographic bind.
-          context: buildPoint:git+https://github.com/${{ github.repository }},vsa.resourceUri:pkg:generic/${{ needs.build.outputs.name }}@${{ needs.build.outputs.version }}
+          context: buildPoint:git+https://github.com/${{ github.repository }},vsa.resourceUri:${{ needs.build.outputs.resource-uri }}
           artifact-name: ${{ matrix.artifact }}
           fail: "true"

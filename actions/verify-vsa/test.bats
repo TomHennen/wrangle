@@ -2,90 +2,96 @@
 
 # Tests for the verify-vsa composite action. Three flavors:
 #
-#   - Behavioral: run verify_vsa.sh with a `cosign` shim on PATH that
-#     records its argv. A shim is required for the signature step: a real
-#     `cosign verify-blob-attestation` needs Sigstore (Fulcio/Rekor) plus a
-#     real keyless VSA for the exact file digest — that lives in
-#     test/consumer/verify_consumer_vsa.bats, which runs this script
-#     end-to-end against the real fixtures with real cosign. The
-#     predicate-decode gate (jq over the DSSE payload) runs for real
-#     against synthesized VSAs here.
+#   - Behavioral: run verify_vsa.sh with an `ampel` shim on PATH that
+#     records its argv. A shim is required because a real `ampel verify`
+#     needs Sigstore (Fulcio/Rekor) plus a real keyless VSA for the exact
+#     file digest — that lives in test/consumer/verify_consumer_vsa.bats
+#     (real fixtures, real ampel) and the verify-vsa-action e2e job in
+#     .github/workflows/test.yml.
 #   - Structural: fingerprints on action.yml so a drive-by edit can't
 #     silently drop the env passthrough, the pinned installer/download
 #     steps, or the script delegation.
-#   - Contract: divergence-fail guards tying this consumer to its
-#     producers (the VSA artifact-name convention in actions/verify and
-#     the signer identity in the consumer PolicySet).
+#   - Contract: divergence-fail guard tying this consumer to its producer
+#     (the VSA artifact-name convention in actions/verify).
 
 setup() {
     ACTION_DIR="$(cd "$(dirname "$BATS_TEST_FILENAME")" && pwd)"
     ACTION="$ACTION_DIR/action.yml"
     SCRIPT="$ACTION_DIR/verify_vsa.sh"
     TMP="$(mktemp -d)"
-    COSIGN_LOG="$TMP/cosign_calls.log"
+    AMPEL_LOG="$TMP/ampel_calls.log"
     VSAS="$TMP/vsas"
     mkdir -p "$VSAS"
 
     mkdir -p "$TMP/bin"
-    cat > "$TMP/bin/cosign" <<EOF
+    cat > "$TMP/bin/ampel" <<EOF
 #!/usr/bin/env bash
-printf '%s\n' "\$*" >> "$COSIGN_LOG"
-exit "\${COSIGN_SHIM_EXIT:-0}"
+printf '%s\n' "\$*" >> "$AMPEL_LOG"
+exit "\${AMPEL_SHIM_EXIT:-0}"
 EOF
-    chmod +x "$TMP/bin/cosign"
+    chmod +x "$TMP/bin/ampel"
     PATH="$TMP/bin:$PATH"
 }
 
 teardown() { rm -rf "$TMP"; }
 
-# Synthesize a DSSE bundle whose payload carries the given verificationResult.
+# A VSA file only has to exist for the dispatch tests — the shim never reads
+# it; verdict/identity/resourceUri logic runs against real VSAs in the e2e
+# suites.
 make_vsa() {
-    local file_basename="$1" result="$2"
-    local payload
-    payload="$(jq -nc --arg r "$result" '{predicate: {verificationResult: $r}}' | base64 -w0)"
-    jq -nc --arg p "$payload" '{dsseEnvelope: {payload: $p}}' \
-        > "$VSAS/$file_basename.intoto.jsonl"
+    printf '{"dsseEnvelope":{"payload":""}}\n' > "$VSAS/$1.intoto.jsonl"
 }
 
 # --- input validation ---
 
 @test "behavior: fails without ARTIFACT_PATH" {
-    ARTIFACT_PATH="" REPO="owner/repo" VSA_DIR="$VSAS" SIGNER_WORKFLOW="" run "$SCRIPT"
+    ARTIFACT_PATH="" RESOURCE_URI="pkg:npm/a@1" REPO="owner/repo" VSA_DIR="$VSAS" run "$SCRIPT"
     [[ "$status" -eq 2 ]]
     [[ "$output" == *"ARTIFACT_PATH is required"* ]]
 }
 
 @test "behavior: fails on nonexistent path" {
-    ARTIFACT_PATH="$TMP/missing" REPO="owner/repo" VSA_DIR="$VSAS" SIGNER_WORKFLOW="" run "$SCRIPT"
+    ARTIFACT_PATH="$TMP/missing" RESOURCE_URI="pkg:npm/a@1" REPO="owner/repo" VSA_DIR="$VSAS" run "$SCRIPT"
     [[ "$status" -eq 2 ]]
     [[ "$output" == *"no such file or directory"* ]]
 }
 
+@test "behavior: fails without RESOURCE_URI" {
+    touch "$TMP/a.tgz"
+    ARTIFACT_PATH="$TMP/a.tgz" RESOURCE_URI="" REPO="owner/repo" VSA_DIR="$VSAS" run "$SCRIPT"
+    [[ "$status" -eq 2 ]]
+    [[ "$output" == *"RESOURCE_URI is required"* ]]
+}
+
 @test "behavior: rejects malformed REPO" {
     touch "$TMP/a.tgz"
-    ARTIFACT_PATH="$TMP/a.tgz" REPO="not-a-repo" VSA_DIR="$VSAS" SIGNER_WORKFLOW="" run "$SCRIPT"
+    ARTIFACT_PATH="$TMP/a.tgz" RESOURCE_URI="pkg:npm/a@1" REPO="not-a-repo" VSA_DIR="$VSAS" run "$SCRIPT"
     [[ "$status" -eq 2 ]]
     [[ "$output" == *"REPO must be <owner>/<repo>"* ]]
 }
 
 @test "behavior: rejects missing VSA_DIR" {
     touch "$TMP/a.tgz"
-    ARTIFACT_PATH="$TMP/a.tgz" REPO="owner/repo" VSA_DIR="$TMP/nope" SIGNER_WORKFLOW="" run "$SCRIPT"
+    ARTIFACT_PATH="$TMP/a.tgz" RESOURCE_URI="pkg:npm/a@1" REPO="owner/repo" VSA_DIR="$TMP/nope" run "$SCRIPT"
     [[ "$status" -eq 2 ]]
     [[ "$output" == *"VSA_DIR is not a directory"* ]]
 }
 
-@test "behavior: rejects malformed SIGNER_WORKFLOW" {
+@test "behavior: fails when ampel is not on PATH" {
     touch "$TMP/a.tgz"
-    ARTIFACT_PATH="$TMP/a.tgz" REPO="owner/repo" VSA_DIR="$VSAS" \
-        SIGNER_WORKFLOW='owner/repo/wf.yml; rm -rf /' run "$SCRIPT"
+    make_vsa "a.tgz"
+    # PATH pinned to system dirs only: the dev machine may carry a real ampel
+    # somewhere on PATH, and env.sh re-adds only WRANGLE_BIN_DIR (empty here).
+    PATH="/usr/bin:/bin" WRANGLE_BIN_DIR="$TMP/nobin" \
+        ARTIFACT_PATH="$TMP/a.tgz" RESOURCE_URI="pkg:npm/a@1" REPO="owner/repo" VSA_DIR="$VSAS" \
+        run "$SCRIPT"
     [[ "$status" -eq 2 ]]
-    [[ "$output" == *"SIGNER_WORKFLOW must be"* ]]
+    [[ "$output" == *"ampel not found"* ]]
 }
 
 @test "behavior: refuses an empty directory" {
     mkdir "$TMP/empty"
-    ARTIFACT_PATH="$TMP/empty" REPO="owner/repo" VSA_DIR="$VSAS" SIGNER_WORKFLOW="" run "$SCRIPT"
+    ARTIFACT_PATH="$TMP/empty" RESOURCE_URI="pkg:npm/a@1" REPO="owner/repo" VSA_DIR="$VSAS" run "$SCRIPT"
     [[ "$status" -eq 2 ]]
     [[ "$output" == *"refusing to pass an empty set"* ]]
 }
@@ -93,7 +99,7 @@ make_vsa() {
 @test "behavior: enumeration failure fails closed, not silent-subset" {
     mkdir "$TMP/dist"
     touch "$TMP/dist/a.tgz"
-    make_vsa "a.tgz" "PASSED"
+    make_vsa "a.tgz"
     # A find that emits some entries and then dies (unreadable subdir,
     # I/O error) must fail the run, not verify the readable subset.
     cat > "$TMP/bin/find" <<EOF
@@ -102,89 +108,64 @@ printf 'partial\0'
 exit 1
 EOF
     chmod +x "$TMP/bin/find"
-    ARTIFACT_PATH="$TMP/dist" REPO="owner/repo" VSA_DIR="$VSAS" SIGNER_WORKFLOW="" run "$SCRIPT"
+    ARTIFACT_PATH="$TMP/dist" RESOURCE_URI="pkg:npm/a@1" REPO="owner/repo" VSA_DIR="$VSAS" run "$SCRIPT"
     [[ "$status" -eq 2 ]]
     [[ "$output" == *"failed to enumerate"* ]]
-    [[ ! -f "$COSIGN_LOG" ]]
+    [[ ! -f "$AMPEL_LOG" ]]
 }
 
 # --- verification dispatch ---
 
-@test "behavior: file with no VSA fails closed before any cosign call" {
+@test "behavior: file with no VSA fails closed before any ampel call" {
     touch "$TMP/a.tgz"
-    ARTIFACT_PATH="$TMP/a.tgz" REPO="owner/repo" VSA_DIR="$VSAS" SIGNER_WORKFLOW="" run "$SCRIPT"
+    ARTIFACT_PATH="$TMP/a.tgz" RESOURCE_URI="pkg:npm/a@1" REPO="owner/repo" VSA_DIR="$VSAS" run "$SCRIPT"
     [[ "$status" -eq 1 ]]
     [[ "$output" == *"no VSA found for"* ]]
-    [[ ! -f "$COSIGN_LOG" ]]
+    [[ ! -f "$AMPEL_LOG" ]]
 }
 
-@test "behavior: verifies a PASSED VSA, binding repo, type, and signer regex" {
+@test "behavior: verifies via the consumer policy, binding subject, repo, and resource URI" {
     touch "$TMP/a.tgz"
-    make_vsa "a.tgz" "PASSED"
-    ARTIFACT_PATH="$TMP/a.tgz" REPO="owner/repo" VSA_DIR="$VSAS" SIGNER_WORKFLOW="" run "$SCRIPT"
+    make_vsa "a.tgz"
+    ARTIFACT_PATH="$TMP/a.tgz" RESOURCE_URI="pkg:npm/a@1.0.0" REPO="owner/repo" VSA_DIR="$VSAS" run "$SCRIPT"
     [[ "$status" -eq 0 ]]
-    [[ "$(wc -l < "$COSIGN_LOG")" -eq 1 ]]
-    grep -q -- "verify-blob-attestation --bundle $VSAS/a.tgz.intoto.jsonl --new-bundle-format" "$COSIGN_LOG"
-    grep -q -- "--certificate-github-workflow-repository owner/repo" "$COSIGN_LOG"
-    grep -q -- "--type https://slsa.dev/verification_summary/v1" "$COSIGN_LOG"
-    grep -q -- "build_and_publish_" "$COSIGN_LOG"
+    [[ "$(wc -l < "$AMPEL_LOG")" -eq 1 ]]
+    grep -q -- "verify --subject $TMP/a.tgz" "$AMPEL_LOG"
+    grep -q -- "--attestation $VSAS/a.tgz.intoto.jsonl" "$AMPEL_LOG"
+    grep -q -- "--context sourceRepo:https://github.com/owner/repo" "$AMPEL_LOG"
+    grep -q -- "--context expectedResourceUri:pkg:npm/a@1.0.0" "$AMPEL_LOG"
+    grep -q -- "wrangle-vsa-consumer-v1.hjson" "$AMPEL_LOG"
     [[ "$output" == *"1 file(s) verified against PASSED VSAs"* ]]
 }
 
-@test "behavior: SIGNER_WORKFLOW becomes an anchored identity regex" {
+@test "behavior: fails closed when ampel rejects the VSA" {
     touch "$TMP/a.tgz"
-    make_vsa "a.tgz" "PASSED"
-    ARTIFACT_PATH="$TMP/a.tgz" REPO="owner/repo" VSA_DIR="$VSAS" \
-        SIGNER_WORKFLOW="TomHennen/wrangle/.github/workflows/build_and_publish_npm.yml" \
+    make_vsa "a.tgz"
+    AMPEL_SHIM_EXIT=1 ARTIFACT_PATH="$TMP/a.tgz" RESOURCE_URI="pkg:npm/a@1" REPO="owner/repo" VSA_DIR="$VSAS" \
         run "$SCRIPT"
-    [[ "$status" -eq 0 ]]
-    grep -q -- '--certificate-identity-regexp ^https://github\\.com/TomHennen/wrangle/\\.github/workflows/build_and_publish_npm\\.yml@' "$COSIGN_LOG"
-}
-
-@test "behavior: a non-PASSED verdict fails even when cosign accepts the signature" {
-    touch "$TMP/a.tgz"
-    make_vsa "a.tgz" "FAILED"
-    ARTIFACT_PATH="$TMP/a.tgz" REPO="owner/repo" VSA_DIR="$VSAS" SIGNER_WORKFLOW="" run "$SCRIPT"
     [[ "$status" -eq 1 ]]
-    [[ "$output" == *"does not say PASSED"* ]]
-}
-
-@test "behavior: a bundle without a decodable payload fails with the decode error" {
-    touch "$TMP/a.tgz"
-    printf '{"notDsse":true}\n' > "$VSAS/a.tgz.intoto.jsonl"
-    ARTIFACT_PATH="$TMP/a.tgz" REPO="owner/repo" VSA_DIR="$VSAS" SIGNER_WORKFLOW="" run "$SCRIPT"
-    [[ "$status" -eq 1 ]]
-    [[ "$output" == *"could not decode VSA payload"* ]]
-}
-
-@test "behavior: fails closed when cosign rejects the VSA" {
-    touch "$TMP/a.tgz"
-    make_vsa "a.tgz" "PASSED"
-    COSIGN_SHIM_EXIT=1 ARTIFACT_PATH="$TMP/a.tgz" REPO="owner/repo" VSA_DIR="$VSAS" \
-        SIGNER_WORKFLOW="" run "$SCRIPT"
-    [[ "$status" -eq 1 ]]
-    [[ "$output" == *"cosign rejected"* ]]
+    [[ "$output" == *"ampel rejected"* ]]
 }
 
 @test "behavior: verifies every file under a directory recursively, spaces included" {
     mkdir -p "$TMP/dist/nested"
     touch "$TMP/dist/a.whl" "$TMP/dist/b file.tar.gz" "$TMP/dist/nested/c.txt"
-    make_vsa "a.whl" "PASSED"; make_vsa "b file.tar.gz" "PASSED"; make_vsa "c.txt" "PASSED"
-    ARTIFACT_PATH="$TMP/dist" REPO="owner/repo" VSA_DIR="$VSAS" SIGNER_WORKFLOW="" run "$SCRIPT"
+    make_vsa "a.whl"; make_vsa "b file.tar.gz"; make_vsa "c.txt"
+    ARTIFACT_PATH="$TMP/dist" RESOURCE_URI="pkg:generic/a@1" REPO="owner/repo" VSA_DIR="$VSAS" run "$SCRIPT"
     [[ "$status" -eq 0 ]]
-    [[ "$(wc -l < "$COSIGN_LOG")" -eq 3 ]]
-    grep -q "b file.tar.gz" "$COSIGN_LOG"
+    [[ "$(wc -l < "$AMPEL_LOG")" -eq 3 ]]
+    grep -q "b file.tar.gz" "$AMPEL_LOG"
     [[ "$output" == *"3 file(s) verified"* ]]
 }
 
 @test "behavior: stops at the first failing file" {
     mkdir "$TMP/dist"
     touch "$TMP/dist/a.tgz" "$TMP/dist/b.tgz"
-    make_vsa "a.tgz" "PASSED"; make_vsa "b.tgz" "PASSED"
-    COSIGN_SHIM_EXIT=1 ARTIFACT_PATH="$TMP/dist" REPO="owner/repo" VSA_DIR="$VSAS" \
-        SIGNER_WORKFLOW="" run "$SCRIPT"
+    make_vsa "a.tgz"; make_vsa "b.tgz"
+    AMPEL_SHIM_EXIT=1 ARTIFACT_PATH="$TMP/dist" RESOURCE_URI="pkg:npm/a@1" REPO="owner/repo" VSA_DIR="$VSAS" \
+        run "$SCRIPT"
     [[ "$status" -eq 1 ]]
-    [[ "$(wc -l < "$COSIGN_LOG")" -eq 1 ]]
+    [[ "$(wc -l < "$AMPEL_LOG")" -eq 1 ]]
 }
 
 # --- contract (divergence-fail guards across producer/consumer files) ---
@@ -204,26 +185,27 @@ EOF
     grep -q 'artifact-name: ${{ matrix.artifact }}' "$WF_DIR/build_and_publish_python.yml"
 }
 
-@test "contract: default signer regex stays equivalent to the consumer policy identity" {
-    POLICY="$ACTION_DIR/../../policies/wrangle-vsa-consumer-v1.hjson"
-    policy_re="$(grep -o 'identity: "[^"]*"' "$POLICY" | sed -e 's/identity: "//' -e 's/"$//')"
-    policy_re="${policy_re//\\\\/\\}"      # hjson escaping: \\ -> \
-    policy_re="${policy_re%.+\$}"          # the script omits the trailing .+$
-    script_re="$(grep -o "WRANGLE_SIGNER_REGEX='[^']*'" "$SCRIPT" | sed -e "s/WRANGLE_SIGNER_REGEX='//" -e "s/'\$//")"
-    [[ -n "$policy_re" ]] && [[ -n "$script_re" ]]
-    [[ "$script_re" == "$policy_re" ]]
+@test "contract: the build workflows export the resource-uri this action expects" {
+    # The README and examples pipe the workflow's resource-uri output into
+    # this action's resource-uri input; a renamed or dropped output strands
+    # every adopter publish job.
+    WF_DIR="$ACTION_DIR/../../.github/workflows"
+    grep -q '^      resource-uri:' "$WF_DIR/build_and_publish_npm.yml"
+    grep -q '^      resource-uri:' "$WF_DIR/build_and_publish_python.yml"
 }
 
 # --- structural ---
 
 @test "structure: action.yml threads inputs through env, not interpolation" {
     grep -q 'ARTIFACT_PATH: ${{ inputs.path }}' "$ACTION"
-    grep -q 'SIGNER_WORKFLOW: ${{ inputs.signer-workflow }}' "$ACTION"
+    grep -q 'RESOURCE_URI: ${{ inputs.resource-uri }}' "$ACTION"
     grep -q 'REPO: ${{ inputs.repo }}' "$ACTION"
 }
 
-@test "structure: action.yml installs cosign and downloads VSAs via pinned actions" {
-    grep -Eq 'uses: sigstore/cosign-installer@[0-9a-f]{40}' "$ACTION"
+@test "structure: action.yml provisions Go, builds ampel from the tool manifest, and downloads VSAs via pinned steps" {
+    grep -Eq 'uses: actions/setup-go@[0-9a-f]{40}' "$ACTION"
+    grep -q 'go-version-file: ${{ github.action_path }}/../../tools/go.mod' "$ACTION"
+    grep -q 'install github.com/carabiner-dev/ampel/cmd/ampel' "$ACTION"
     grep -Eq 'uses: actions/download-artifact@[0-9a-f]{40}' "$ACTION"
     grep -q 'pattern: "\*.intoto.jsonl"' "$ACTION"
 }
