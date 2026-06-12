@@ -13,7 +13,7 @@ set -f
 #   `quick`               Inner-loop iteration: skip zizmor for fast feedback
 #   `bats`                Bats tests only
 #   `lint`                actionlint only
-#   `shellcheck`          ShellCheck against all *.sh
+#   `shellcheck`          ShellCheck against all *.sh and *.bats (same script CI runs)
 #   `shellstyle`          wrangle-shell-lint (ast-grep WSL rules)
 #   `workflowstyle`       wrangle-workflow-lint (python3 + PyYAML WWL rules)
 #   `zizmor`              Zizmor workflow security linter only

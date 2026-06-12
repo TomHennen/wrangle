@@ -31,15 +31,10 @@ workflowstyle:
 	@echo "=== wrangle-workflow-lint ==="
 	@./tools/wrangle-workflow-lint/lint.sh
 
-# Lint all shell scripts
+# Lint all shell scripts (.sh and .bats) via the same script CI's dogfooded
+# shell build runs, so the local and CI shellcheck surfaces can't drift (#368).
 shellcheck:
-	@echo "=== shellcheck ==="
-	@SCRIPTS=$$(find . -name '*.sh' -not -path './.git/*' -not -path './.beads/*' -not -path './.claude/*'); \
-	if [ -n "$$SCRIPTS" ]; then \
-		echo $$SCRIPTS | xargs shellcheck -x --source-path=SCRIPTDIR; \
-	else \
-		echo "No shell scripts to check"; \
-	fi
+	@./build/actions/shell/run_shellcheck.sh .
 
 # Run bats tests
 bats:

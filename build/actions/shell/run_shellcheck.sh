@@ -41,9 +41,15 @@ fi
 # findings still fail the step. -x --source-path=SCRIPTDIR follows
 # `source`d libs relative to each script's own directory, so findings in
 # sourced helpers surface instead of being masked by SC1091 "not following".
+# .claude and .beads hold local development state (worktrees with full repo
+# copies, tracker data) — git-ignored, so absent from CI checkouts, but
+# present when the Makefile runs this against a dev checkout mounted into
+# the test container.
 find "$SCAN_PATH" -name '*.sh' \
     -not -path '*/.git/*' \
     -not -path '*/node_modules/*' \
+    -not -path '*/.claude/*' \
+    -not -path '*/.beads/*' \
     -print0 | xargs -0 -r "$GUARD" run shellcheck -x --source-path=SCRIPTDIR
 
 # .bats files (bash syntax) exclude the codes that misfire on core bats
@@ -57,5 +63,7 @@ find "$SCAN_PATH" -name '*.sh' \
 find "$SCAN_PATH" -name '*.bats' \
     -not -path '*/.git/*' \
     -not -path '*/node_modules/*' \
+    -not -path '*/.claude/*' \
+    -not -path '*/.beads/*' \
     -print0 | xargs -0 -r "$GUARD" run shellcheck -x --source-path=SCRIPTDIR --exclude=SC2030,SC2031,SC2016,SC2314
 printf 'shellcheck: all scripts under %s passed\n' "$SCAN_PATH"
