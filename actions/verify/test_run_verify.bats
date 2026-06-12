@@ -34,6 +34,8 @@ setup() {
     export CONTEXT=""
     export ATTESTATION=""
     export OCI_TARGET=""
+    # No real Sigstore here, so the inter-attempt backoff is pure dead time.
+    export WRANGLE_RETRY_DELAY=0
 
     # shellcheck source=run_verify.sh
     source "$SCRIPT"
@@ -358,4 +360,58 @@ SHIM
     [[ "$output" == *"workflow artifact only"* ]]
     if grep -q "release create" "$GH_LOG"; then return 1; fi
     if grep -q "release upload" "$GH_LOG"; then return 1; fi
+}
+
+# --- wrangle_retry_once -----------------------------------------------------
+
+# Shim whose first invocation fails after partial output and whose second
+# succeeds — the transient-Sigstore shape the retry exists for.
+make_flaky() {
+    local mode="$1" shim="$TEST_DIR/flaky"
+    cat > "$shim" <<SHIM
+#!/usr/bin/env bash
+calls="\$0.calls"
+printf 'x\n' >> "\$calls"
+n="\$(wc -l < "\$calls")"
+case "$mode" in
+    pass)       printf 'good\n'; exit 0 ;;
+    fail-once)  if [[ "\$n" -eq 1 ]]; then printf 'partial\n'; exit 1; fi
+                printf 'good\n'; exit 0 ;;
+    fail-always) printf 'broken\n'; exit 1 ;;
+esac
+SHIM
+    chmod +x "$shim"
+    printf '%s\n' "$shim"
+}
+
+@test "retry: passing command runs exactly once" {
+    shim="$(make_flaky pass)"
+    run wrangle_retry_once "$TEST_DIR/out" "$shim"
+    [[ "$status" -eq 0 ]]
+    [[ "$(wc -l < "$shim.calls")" -eq 1 ]]
+    [[ "$(cat "$TEST_DIR/out")" == "good" ]]
+}
+
+@test "retry: transient failure retries once and the capture holds only the retry's output" {
+    shim="$(make_flaky fail-once)"
+    run wrangle_retry_once "$TEST_DIR/out" "$shim"
+    [[ "$status" -eq 0 ]]
+    [[ "$(wc -l < "$shim.calls")" -eq 2 ]]
+    [[ "$output" == *"retrying once"* ]]
+    # The notice carries the first attempt's real exit code, not a stale $?.
+    [[ "$output" == *"(exit 1)"* ]]
+    # Truncated per attempt: no 'partial' residue from the failed first try.
+    [[ "$(cat "$TEST_DIR/out")" == "good" ]]
+}
+
+@test "retry: deterministic failure still fails closed after the second attempt" {
+    shim="$(make_flaky fail-always)"
+    run wrangle_retry_once "$TEST_DIR/out" "$shim"
+    [[ "$status" -ne 0 ]]
+    [[ "$(wc -l < "$shim.calls")" -eq 2 ]]
+}
+
+@test "retry: ampel and bnd invocations both route through wrangle_retry_once" {
+    grep -q 'wrangle_retry_once "$report" ampel' "$SCRIPT"
+    grep -q 'wrangle_retry_once "$VSA" bnd' "$SCRIPT"
 }

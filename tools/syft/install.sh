@@ -88,15 +88,29 @@ fi
 # and publishes"), so the OIDC certificate's workflow_ref claim is
 # `@refs/heads/main`, not `@refs/tags/v...`. Locking to release.yaml on main
 # is the strongest claim available given how Anchore releases.
-if ! cosign verify-blob "$CHECKSUMS_PATH" \
-    --certificate "$PEM_PATH" \
-    --signature "$SIG_PATH" \
-    --certificate-identity 'https://github.com/anchore/syft/.github/workflows/release.yaml@refs/heads/main' \
-    --certificate-oidc-issuer 'https://token.actions.githubusercontent.com' \
-    >/dev/null 2>&1; then
-    printf 'wrangle: FATAL: Cosign signature verification failed for syft %s\n' "$VERSION" >&2
-    printf 'wrangle: this may indicate a supply chain attack — aborting\n' >&2
-    exit 1
+wrangle_cosign_verify_checksums() {
+    cosign verify-blob "$CHECKSUMS_PATH" \
+        --certificate "$PEM_PATH" \
+        --signature "$SIG_PATH" \
+        --certificate-identity 'https://github.com/anchore/syft/.github/workflows/release.yaml@refs/heads/main' \
+        --certificate-oidc-issuer 'https://token.actions.githubusercontent.com'
+}
+
+# Verification is deterministic over the downloaded files; only cosign's
+# Sigstore I/O (TUF root refresh) is flaky, so a retry can only flip a
+# transient failure — a forged signature fails both attempts. On the final
+# failure, surface cosign's own stderr so a real signature mismatch is
+# distinguishable from network trouble.
+if ! verify_err="$(wrangle_cosign_verify_checksums 2>&1)"; then
+    printf 'wrangle: cosign verify-blob failed; retrying once for transient Sigstore I/O\n' >&2
+    # Spaced so a brief Sigstore blip has time to clear; tests set 0.
+    sleep "${WRANGLE_RETRY_DELAY:-5}"
+    if ! verify_err="$(wrangle_cosign_verify_checksums 2>&1)"; then
+        printf '%s\n' "$verify_err" >&2
+        printf 'wrangle: FATAL: Cosign signature verification failed for syft %s\n' "$VERSION" >&2
+        printf 'wrangle: this may indicate a supply chain attack — aborting\n' >&2
+        exit 1
+    fi
 fi
 
 # Extract the tarball's SHA-256 from the now-trusted checksums file.
