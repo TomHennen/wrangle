@@ -75,6 +75,7 @@ Skip the gate and you publish on every non-PR event; skip verify-vsa and you may
 - **`release-events`** (default: `non-pull-request`; the example sets `tag-only`) controls when release-time actions run and what `should-release` reports — see [`docs/SPEC.md`](../../../docs/SPEC.md) "Release-events gating".
 - **`pull_request_target` can't trigger this workflow** — that trigger (and `workflow_run` chained from it) is a common exploit vector, so wrangle blocks both at startup.
 - **Workflow outputs** are documented in [`build_and_publish_npm.yml`](../../../.github/workflows/build_and_publish_npm.yml) itself.
+- **Enable Dependabot too** — copy [`dependabot.yml`](../../../gh_workflow_examples/dependabot.yml) to `.github/` and uncomment the `npm` entry. Its `github-actions` entry also keeps your `uses: TomHennen/wrangle/...` pin current.
 
 ## Verifying what you shipped
 

@@ -44,3 +44,12 @@ updates:
   #   open-pull-requests-limit: 5
   #   cooldown:
   #     default-days: 7
+
+  # - package-ecosystem: "docker"   # base-image updates (Dockerfile FROM lines)
+  #   directories:
+  #     - "/**"
+  #   schedule:
+  #     interval: "weekly"
+  #   open-pull-requests-limit: 5
+  #   cooldown:
+  #     default-days: 7
