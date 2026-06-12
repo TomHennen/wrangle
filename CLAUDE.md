@@ -32,6 +32,15 @@ Comments explain *why*, not *what*. Explain hidden constraints or non-obvious de
 
 **Describe what the code does now, not what it used to do.** When you change or remove something, rewrite the comment to stand on its own describing current behavior — never "replaces the old X", "previously the generator…", "this is the new path", or "X now does Y instead of Z". A reader who never saw the prior version is the audience. Migration rationale and "what changed and why" belong in the PR description or an inline PR comment to the reviewer — not in the committed code.
 
+## Adopter-facing docs
+
+The per-build-type READMEs, `docs/verifying_artifacts.md`, the top-level `README.md`, and the workflow examples are **quick-start docs, not specifications.** Keep them at the altitude of *what the adopter does*; mechanism, rationale, and exhaustive rules live in `SPEC.md` (or the relevant upstream spec) and get a *link*, not a reproduction. Match the top-level `README.md`'s voice: benefit-first, second person, no spec-annex walls.
+
+- **State the fact, link the spec — don't reproduce it.** "The name is PEP 503-normalized (link)" — not the normalization algorithm; "provenance covers `checksums.txt`" — not the subject-set derivation.
+- **Don't enumerate what a source of truth already lists.** Workflow inputs/outputs are documented in the workflow file — point to it, don't copy the list (copies drift).
+- **Cut anything the adopter doesn't act on** — internal job mechanics, threat-model derivations, "under the hood" asides.
+- **Unshipped work lives in issues, not docs.** Don't describe planned features or what hasn't been done yet.
+
 ## Shell scripts
 
 Every shell script MUST start with the exact preamble `set -euo pipefail` followed by `set -f` (disable globbing). Stricter supersets (`set -Eeuo pipefail`) and equivalent decompositions (`set -e -u -o pipefail`) are rejected — one canonical form. If you need ERR trap inheritance, add `set -E` on its own line after the preamble. Scripts that intentionally need globbing must wrap it in `set +f` / `set -f` with a comment, scoped as narrowly as possible. Sourced libs that toggle `set +f` MUST restore `set -f` before returning.
