@@ -8,6 +8,16 @@ on:
         required: false
         type: string
         default: "osv zizmor scorecard:info dependency-review"
+      go-cache:
+        description: >
+          Set to "enabled" to cache the Go module + build caches the
+          scan tools build from source (osv-scanner et al. — #343).
+          Default off: the cache is ~1.5–3 GB against this repo's
+          Actions cache quota. Source scanning produces no provenance,
+          so caching is L3-safe here regardless.
+        required: false
+        type: string
+        default: ""
 
 jobs:
   # Refuse trigger patterns known to expose this workflow to supply-chain
@@ -41,3 +51,4 @@ jobs:
         uses: TomHennen/wrangle/actions/scan@7ccdbc03228ef20c7942406689423451499d690a # main 2026-06-12
         with:
           tools: ${{ inputs.tools }}
+          go-cache: ${{ inputs.go-cache }}
