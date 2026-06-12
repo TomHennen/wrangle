@@ -2,7 +2,7 @@
 
 Wrangle wraps your existing `.goreleaser.yml` — it doesn't replace it. You keep your goreleaser config and everything it already does (Docker pushes, Homebrew taps, deb/rpm, announcements). Wrangle adds the security drudgery around it: gofmt/vet/test/govulncheck, an SPDX SBOM, SLSA Build L3 provenance, and a signed VSA your users can verify with one command.
 
-This build type is for Go projects that ship binaries: it builds them with goreleaser and publishes downloadable archives to a GitHub Release. Library-only modules (no binary to build) aren't supported. Consumers can still `go install` your module as usual — that builds from source and is independent of these release artifacts.
+This build type is for Go projects that ship binaries: it builds them with goreleaser and publishes downloadable archives to a GitHub Release. Ship a CLI people `go install` today? Adopting wrangle additionally gets your users attested, downloadable binaries — and `go install` keeps working unchanged. Library-only modules (no binary to build) aren't supported ([#239](https://github.com/TomHennen/wrangle/issues/239)).
 
 ## Quick start
 
