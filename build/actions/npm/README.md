@@ -56,6 +56,7 @@ The build-platform L3 claim is distinct from — and additional to — the SLSA 
 - `provenance-artifact-name` — workflow-artifact name for the SLSA provenance bundle (`npm-provenance-bundle-<shortname>`, a Sigstore bundle covering all dist subjects; empty when `should-release` is false).
 - `metadata-artifact-name` — workflow-artifact name for the SBOM (`npm-metadata-<shortname>`).
 - `should-release` — `"true"` if the package should be released. Today that means the event matched `release-events`; future versions may apply additional checks, so treat the output as the source of truth rather than re-evaluating `release-events` yourself. Your publish job MUST gate on this (see below).
+- `resource-uri` — the purl the VSA's `resourceUri` names (`pkg:npm/<name>@<version>`). Pipe into [`actions/verify-vsa`](../../../actions/verify-vsa/README.md)'s `resource-uri` input.
 - `hashes`, `version`.
 
 ## Controlling when releases happen
