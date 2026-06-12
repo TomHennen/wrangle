@@ -54,8 +54,11 @@ setup() {
 
 teardown() { rm -rf "$TMP"; }
 
-# Sigstore must be reachable for keyless verification; fail-not-skip under CI.
+# Sigstore reachability decides the local skip only. In CI the verification
+# command itself is the arbiter — a one-shot probe blip must not fail a job
+# the real tool (with its own retries and TUF cache) would pass.
 require_sigstore() {
+    if in_ci; then return 0; fi
     curl -fsS -m 10 -o /dev/null https://rekor.sigstore.dev/api/v1/log 2>/dev/null \
         || skip_or_fail "rekor.sigstore.dev unreachable"
 }
