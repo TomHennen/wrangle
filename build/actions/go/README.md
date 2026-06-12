@@ -1,232 +1,87 @@
 # Wrangle Build Go
 
-**Wrangle wraps your existing `.goreleaser.yml`; it does not replace it.** Bring your goreleaser config; wrangle adds gofmt/vet/test/govulncheck, an SPDX SBOM, SLSA L3 provenance, and post-publish verification around it. Goreleaser publishes natively on tag push, so your Docker pushes, Homebrew taps, deb/rpm/snap, and announcements all keep working — wrangle attaches SLSA provenance to the GitHub Release shortly after.
+Wrangle wraps your existing `.goreleaser.yml` — it doesn't replace it. You keep your goreleaser config and everything it already does (Docker pushes, Homebrew taps, deb/rpm, announcements). Wrangle adds the security drudgery around it: gofmt/vet/test/govulncheck, an SPDX SBOM, SLSA Build L3 provenance, and a signed VSA your users can verify with one command.
 
-> **Note:** This README documents *currently-shipped* behavior. For the full design — provenance model, cache isolation analysis, permissions architecture — see [`SPEC.md`](./SPEC.md).
+This build type is for Go projects that ship binaries: it builds them with goreleaser and publishes downloadable archives to a GitHub Release. Ship a CLI people `go install` today? Adopting wrangle additionally gets your users attested, downloadable binaries — and `go install` keeps working unchanged. Library-only modules (no binary to build) aren't supported ([#239](https://github.com/TomHennen/wrangle/issues/239)).
 
-## Quick-start
+## Quick start
+
+Copy [`build_go.yml`](../../../gh_workflow_examples/build_go.yml) into `.github/workflows/` and set `path`:
 
 ```yaml
-# .github/workflows/build_go.yml
-name: Go Build
-on:
-  push:
-    tags: ["v*"]
-  pull_request:
-    branches: ["**"]
-  workflow_dispatch:
-
 jobs:
   build:
     permissions:
-      contents: write   # goreleaser creates the Release; the verify job attaches the VSA to it
-      id-token: write   # OIDC for Sigstore keyless signing
-      attestations: write   # wrangle's attest job writes GitHub-issued SLSA provenance
+      contents: write         # goreleaser creates the Release; verify attaches the VSA
+      id-token: write         # Sigstore keyless signing
+      attestations: write     # GitHub-issued SLSA provenance
+      actions: read           # source scan
+      security-events: write  # scan findings -> Security tab
     uses: TomHennen/wrangle/.github/workflows/build_and_publish_go.yml@v0.2.0
     with:
       path: "."
-      release-events: tag-only
 ```
 
-Full template with all inputs: [`gh_workflow_examples/build_go.yml`](../../../gh_workflow_examples/build_go.yml).
-
-You also need a `.goreleaser.yml` at `<path>/.goreleaser.yml`. The wrangle-recommended minimum:
+You also need a `.goreleaser.yml` at `<path>/.goreleaser.yml` — the minimum wrangle recommends (complete version in the [example config](../../../gh_workflow_examples/build_go.goreleaser.yml)):
 
 ```yaml
-# .goreleaser.yml
 version: 2
-
 builds:
   - main: ./cmd/<your-binary>
-    flags: [-trimpath]         # strips local filesystem paths
+    # Both settings make builds reproducible, at zero runtime cost.
+    flags: [-trimpath]
     env:
-      - -buildvcs=false        # don't embed VCS info (timestamps, dirty flag)
-
-# checksums.txt is the canonical subject set wrangle hands to
-# attest-build-provenance — its filename is pinned by convention.
+      - GOFLAGS=-buildvcs=false
 checksum:
-  name_template: "checksums.txt"
+  name_template: "checksums.txt"   # keep this exact name — it's how wrangle knows what to attest
 ```
 
-Both `-trimpath` and `-buildvcs=false` are zero-cost reproducibility wins. `CGO_ENABLED=0` is **not** recommended as a default — cgo-backed `net`/`os/user` resolvers and many third-party crypto libraries link C — set it only if you specifically want pure-Go binaries. See [goreleaser customization docs](https://goreleaser.com/customization/) for the full schema.
+Push a `v`-prefixed semver tag (e.g. `v1.2.3`) and wrangle runs the full pipeline and publishes the release. PRs build and test without publishing.
 
-### Tag naming
+## What you get
 
-Release tags must be `v`-prefixed semver (e.g. `v1.2.3`) — wrangle's workflow triggers on `tags: ["v*"]` and goreleaser derives `.Version` from the nearest matching tag.
+- **Source scan** built in — vulnerable dependencies (OSV), unsafe workflow patterns (Zizmor), and more ([details](../../../actions/scan/README.md)); a load-bearing finding blocks the release. No separate scan workflow needed.
+- **Checks before bytes ship** — gofmt, `go vet`, `go test`, govulncheck run in a read-only job; a failure blocks the release job.
+- **An SPDX SBOM**, uploaded as a workflow artifact.
+- **SLSA Build L3 provenance** tying each artifact to the workflow that built it ([the conditions behind the claim](../../../docs/SLSA_L3_AUDIT.md)).
+- **A signed VSA** attached to the release, so downstream users can verify your artifacts with one command.
 
-### Snapshot template pitfall
+## Good to know
 
-Goreleaser derives `.Version` from the nearest git tag. If your repo has no semver tags yet (only non-semver tags like `phase-0-complete`, or no tags at all), any `snapshot.version_template` that calls `incpatch` / `incminor` / `incmajor` will fail until you push a `v*` tag. Use the recommended `snapshot.version_template: "{{ .ShortCommit }}-snapshot"` in the [example config](../../../gh_workflow_examples/build_go.goreleaser.yml) — it avoids `.Version` entirely and works regardless of tag history.
+- **Tags must be `v`-prefixed semver** (`v1.2.3`) — goreleaser derives the version from the nearest `v*` tag. No `v*` tags yet? Use the [example config](../../../gh_workflow_examples/build_go.goreleaser.yml)'s snapshot template, which doesn't depend on tag history.
+- **Provenance covers everything in `checksums.txt`.** Docker images and Homebrew taps goreleaser pushes are *not* covered — pair with wrangle's [container build type](../container/README.md) for images.
+- **`pull_request_target` can't trigger this workflow** — that trigger (and `workflow_run` chained from it) is a common exploit vector, so wrangle blocks both at startup.
+- **`release-events`** (default: `tag-only`) controls which events run the full pipeline — see [`docs/SPEC.md`](../../../docs/SPEC.md) "Release-events gating".
+- **Workflow outputs** are documented in [`build_and_publish_go.yml`](../../../.github/workflows/build_and_publish_go.yml) itself.
 
-See goreleaser's [snapshot docs](https://goreleaser.com/customization/snapshots/) and [template reference](https://goreleaser.com/customization/templates/).
+## Cross-compiling
 
-## Cross-compiling with cgo
+Want binaries for platforms beyond linux/amd64? Without cgo, Go cross-compiles everywhere for free — goreleaser's default matrix already builds linux, darwin, and windows on amd64 and arm64. With cgo enabled, the runner's C toolchain only targets linux/amd64, and anything else fails with opaque `# runtime/cgo` errors. In that case:
 
-The reusable workflow runs on `ubuntu-latest`, which ships an amd64-only C toolchain. If your `.goreleaser.yml` sets `CGO_ENABLED=1` (explicitly or via a cgo dependency) **and** targets anything other than `linux/amd64`, the per-cell `go build` fails with opaque `# runtime/cgo` assembler errors like `gcc_arm64.S: Error: no such instruction: 'stp x29,x30,[sp,'`.
-
-| Situation | What to do |
+| Situation | Fix |
 |---|---|
-| You don't actually use cgo (most projects) | Set `CGO_ENABLED=0` in `builds.env`. Go cross-compiles freely without cgo. |
-| You use cgo but only need linux/amd64 | Restrict `goos: [linux]` + `goarch: [amd64]`. The runner's native gcc handles it. |
-| You use cgo *and* need multi-arch / darwin binaries | Pass `install-zig: true` to the reusable workflow and set `CC=zig cc -target <triple>` (plus `CXX=zig c++ -target <triple>`) per cell in `builds.env`. Wrangle installs zig via [`mlugg/setup-zig`](https://github.com/mlugg/setup-zig) (minisign-verified against [ziglang.org's master key](https://ziglang.org/download/)). Working example: [`gh_workflow_examples/build_go_cgo.goreleaser.yml`](../../../gh_workflow_examples/build_go_cgo.goreleaser.yml). |
-| You use cgo + cross targets with another toolchain (musl-gcc, mingw, goreleaser-cross) | Install the toolchain yourself in `before.hooks` and set the corresponding `CC=` / `CXX=`. Leave `install-zig` unset. |
+| You don't actually need cgo (most projects) | Set `CGO_ENABLED=0` in `builds.env`. |
+| cgo, but only linux/amd64 | Restrict `goos: [linux]`, `goarch: [amd64]` — the runner's native gcc handles it. |
+| cgo + multi-arch / darwin | Pass `install-zig: true` and set `CC=zig cc -target <triple>` per build — working config in the [cgo example](../../../gh_workflow_examples/build_go_cgo.goreleaser.yml). |
+| cgo + another toolchain (musl-gcc, mingw) | Install it in `before.hooks` and set `CC=`/`CXX=` yourself; leave `install-zig` unset. |
 
-If your `.goreleaser.yml` sets `CGO_ENABLED=1` but you haven't passed `install-zig: true`, the release composite emits a `::warning::` naming the failure mode so adopters don't burn time decoding `# runtime/cgo` errors.
+## Verifying what you shipped
 
-## What the SLSA provenance covers (and what it doesn't)
-
-Wrangle hands goreleaser's `dist/checksums.txt` to `actions/attest-build-provenance` as the provenance subject set. Anything in `checksums.txt` is a provenance subject; anything outside it is NOT — including artifacts goreleaser pushes to OCI registries, Homebrew taps, or chat webhooks.
-
-| Goreleaser output | Covered by wrangle's SLSA provenance? |
-|---|---|
-| Archives in `dist/` (tar.gz, zip) | **Yes** — hashed via `checksums.txt` |
-| `dist/checksums.txt` itself | Yes (file-level integrity, distinct subject) |
-| deb / rpm / apk / snap packages in `dist/` | **Yes**, when goreleaser includes them in `checksums.txt` (its default) |
-| Docker images pushed by goreleaser | **No** — wrangle does not attest registry-side image artifacts; pair with wrangle's container build type for those |
-| Homebrew formula updates (tap-repo commits) | **No** — those are commits in a separate repo, outside `checksums.txt` |
-| GitHub Release notes / announcements | **No** — informational, not signed |
-
-If your release ships Docker images alongside binaries and you need provenance for both, plan to call wrangle's container build type for the image and `build_and_publish_go.yml` for the binaries in the same workflow.
-
-## "Publish first, attest second" — the timing model
-
-Goreleaser publishes the release inline (creates the GitHub Release, uploads archives, runs Docker pushes / Homebrew taps / announcements). Wrangle's `attest` job then writes the SLSA provenance to GitHub's attestation store shortly after — typically 30s-2min later. Same shape as wrangle's container build type (`docker push` first, attestation second).
-
-**This is fine — because the SLSA contract is "consumer runs the verifier," not "consumer trusts that a provenance file exists."** A security-aware consumer always runs `gh attestation verify` (or equivalent) against the bytes they downloaded. They don't trust the presence of an attestation; they trust the result of verifying it.
-
-Two consequences worth knowing:
-
-- A consumer downloading during the gap finds no attestation yet. If they run verify, they get "no attestation found" → they should treat the artifact as untrusted and retry later. If they download without running verify, they've already opted out of SLSA's guarantees.
-- A consumer downloading after the attestation lands runs verify and gets a confirmed chain.
-- A consumer downloading after a wrangle-side verify failure (e.g., a tooling regression that produced provenance whose subjects don't match the artifacts) runs verify and gets "verification failed" → they reject the artifact. The fact that the broken provenance is technically in the store does no harm; verify is what's load-bearing.
-
-## Source scan (built in)
-
-The build action hardens *how* your artifact is produced; the `build_and_publish_go.yml` workflow also runs wrangle's source scan ([`actions/scan/README.md`](../../../actions/scan/README.md)) via its `scan-tools` input, so a separate `check_source_change.yml` is redundant. The scan catches vulnerable deps, dangerous workflow triggers, and missing branch protection — issues wrangle would otherwise faithfully L3-attest as legitimately built — and a load-bearing finding blocks the release. The caller MUST grant `actions: read` and `security-events: write` for the scan (the example wires them; omitting either fails the run at startup).
-
-Source-stage `gofmt` / `golangci-lint` is tracked in [#194](https://github.com/TomHennen/wrangle/issues/194). Until that lands, the build action's `checks` composite runs `gofmt -l` (with generated-file auto-skip) and `go vet ./...` as cheap toolchain-bundled gates. When #194 ships, those gates move to source-scan and the duplicate inside the build action goes away.
-
-## Build Track level
-
-Consumed through wrangle's reusable workflow (`build_and_publish_go.yml`), the Go build meets **SLSA v1.2 Build L3**. Two conditions narrow it:
-
-- **Reusable consumption only.** Calling the `build/actions/go/*` composites directly from a workflow you author yourself forfeits the build-vs-sign job separation and is **not** a supported L3 path.
-- **GitHub-hosted runners only.** Self-hosted runners invalidate the build-environment isolation the L3 verdict assumes.
-
-Release builds run with `actions/setup-go`'s `cache: false` so the bytes wrangle attests derive without consulting any shared, cross-build Go module/build cache — Go's build cache trusts pre-derived compiled output keyed by source fingerprint, the same shape as the uv-cache gap [`docs/SLSA_L3_AUDIT.md`](../../../docs/SLSA_L3_AUDIT.md) Finding 1 already calls out. PR builds keep the cache for fast iteration; they produce no provenance.
-
-## Permissions architecture
-
-The build is split into two jobs in the reusable workflow:
-
-- `checks` (`contents: read`) — runs `gofmt`, `go vet`, `go test`, `govulncheck`. `go test` executes arbitrary adopter test code; denying it `contents: write` is real defense-in-depth.
-- `release` (`contents: write`) — runs `goreleaser` (which publishes inline on tag pushes), syft, and hash computation.
-
-A failed `checks` job blocks `release` via `needs:` propagation — quality gates always run before any bytes ship.
-
-Cost: ~30s extra latency for the second checkout + setup-go. Benefit: a compromised dependency or hostile test cannot use `$GITHUB_TOKEN` to push to the repo. The split applies only to the supported reusable-workflow path; direct composite consumption forfeits this isolation and is not an L3 path.
-
-## Outputs from the reusable workflow
-
-| Output | What it is |
-|---|---|
-| `dist-artifact-name` | Workflow-artifact name for the goreleaser-produced `dist/` contents (binaries, archives, `checksums.txt`). |
-| `provenance-artifact-name` | SLSA provenance bundle — a Sigstore bundle covering all dist subjects (empty when `should-release` is false). Format: `go-provenance-bundle-<shortname>`. |
-| `metadata-artifact-name` | SBOM artifact: `go-metadata-<shortname>`. Contents: `sbom.spdx.json`. |
-| `checks-metadata-artifact-name` | govulncheck output: `go-checks-metadata-<shortname>`. Contents: `govulncheck.json` (informational findings). |
-| `should-release` | `"true"` if the event matches `release-events`. |
-| `hashes`, `version` | |
-
-`<shortname>` is path-derived: `.` becomes `_`, `cmd/foo` becomes `cmd_foo`.
-
-## Controlling when releases happen
-
-`release-events` (default: `tag-only`) governs **which events run wrangle's full pipeline** (build, tests, SBOM, provenance). It does NOT control publish directly — publish happens whenever you push a tag (`gh release create` requires one). The interaction:
-
-| Setting | Tag push behavior | Non-tag push (e.g. main) | PR build |
-|---|---|---|---|
-| `tag-only` (default) | Full pipeline + publish | Workflow doesn't run | Workflow doesn't run |
-| `non-pull-request` | Full pipeline + publish | Full pipeline, no publish (snapshot mode) | Workflow doesn't run |
-| `main-and-tags` | Full pipeline + publish | Full pipeline on `main`, no publish (snapshot mode) | Workflow doesn't run |
-
-For most adopters: **`tag-only` is the cheapest setting** (workflow runs only when it would do something meaningful). Use `non-pull-request` if you want main/dispatch builds to exercise the pipeline for early failure-detection (at the cost of a snapshot goreleaser run on every push).
-
-```yaml
-uses: TomHennen/wrangle/.github/workflows/build_and_publish_go.yml@v0.2.0
-with:
-  path: "."
-  release-events: tag-only
-```
-
-Full vocabulary in [`docs/SPEC.md`](../../../docs/SPEC.md) "Release-events gating."
-
-## SLSA provenance verification (the `verify` job)
-
-After goreleaser publishes, the `verify` job verifies the provenance — ampel (via `actions/verify`) checks the provenance's Sigstore signature against the wrangle PolicySet's `common.identities` (fail-closed: only wrangle's reusable-workflow signer passes) and the SLSA tenets, then emits the signed VSA. It's gated on `should-release`, so it runs on every release; it is not opt-out-able. If verification fails the workflow fails and any downstream `needs:` job is blocked. This is wrangle dogfooding the same kind of check downstream consumers will run — if it fails, consumers running verify will fail too, so the artifact is effectively rejected at the security-aware-consumer layer regardless of whether bad provenance reached the attestation store. (See "Publish first, attest second" above for why presence ≠ trust in the SLSA model.)
-
-### Verifying after install (downstream consumers)
-
-The provenance is stored in GitHub's attestation store for your repo (not attached to the release), so a consumer verifies the downloaded archive against it with `gh attestation verify` — `gh` fetches the attestation by the archive's digest, so no separate provenance file download is needed:
+Downstream users verify a release archive with one command. Download the archive and its VSA (`<archive>.intoto.jsonl`) from the release, then ([ampel](https://github.com/carabiner-dev/ampel) ≥ v1.3.0):
 
 ```bash
-# Download the archive from your GitHub release
-curl -LO "https://github.com/<owner>/<repo>/releases/download/<tag>/<binary>-<version>-linux-amd64.tar.gz"
-
-gh attestation verify "<binary>-<version>-linux-amd64.tar.gz" \
-  --repo <owner>/<repo> \
-  --signer-workflow TomHennen/wrangle/.github/workflows/build_and_publish_go.yml
-```
-
-`--signer-workflow` is the binding: it fails closed unless wrangle's reusable workflow signed the provenance.
-
-### Verifying the VSA
-
-On tag pushes wrangle attaches a signed SLSA Verification Summary Attestation (VSA) per archive — `<archive>.intoto.jsonl` — to the GitHub release, recording that the build provenance passed the `wrangle-provenance-go-v1` PolicySet. A consumer trusts that single signed VSA instead of re-running the policy engine. It is keyless-signed by **wrangle's** reusable workflow (`build_and_publish_go.yml`), not your own. Its `resourceUri` is the golang module purl `pkg:golang/<module-path>@<version>` (the module path is the `module` directive in your `go.mod`) — pin that value.
-
-Grab the archive and its VSA from the release:
-
-```bash
-curl -LO "https://github.com/<owner>/<repo>/releases/download/<tag>/<archive>"
-curl -LO "https://github.com/<owner>/<repo>/releases/download/<tag>/<archive>.intoto.jsonl"
-```
-
-**Recommended — `ampel verify` (one command).** The complete check in a single command: ampel confirms the signature, the keyless signer identity (wrangle's reusable workflow), **your origin repository** — the policy's `sourceRepositoryUriMatch` binds the signing cert's source-repository extension to the `sourceRepo` you pass, proving *which repo* built the artifact — and the predicate fields (`verificationResult` / `resourceUri` / `verifiedLevels`), against a wrangle-hosted consumer policy fetched by locator (you author no policy). Requires [ampel](https://github.com/carabiner-dev/ampel) ≥ v1.3.0 (one Go binary); both context values are required, so omitting one is a hard error, never a weaker check:
-
-```bash
-ampel verify \
-  --subject <archive> \
-  --policy git+https://github.com/TomHennen/wrangle@<version>#policies/wrangle-vsa-consumer-v1.hjson \
+ampel verify --subject <archive> \
+  --policy git+https://github.com/TomHennen/wrangle@v0.2.0#policies/wrangle-vsa-consumer-v1.hjson \
   --attestation <archive>.intoto.jsonl \
   --context expectedResourceUri:pkg:golang/<module-path>@<version> \
   --context sourceRepo:https://github.com/<your-org>/<your-repo>
 ```
 
-**Without ampel — `cosign verify-blob-attestation` + `jq`.** The same complete check from cosign: it confirms the signature, the signer identity, your origin repository (`--certificate-github-workflow-repository`), and that the archive's hash matches the VSA subject. cosign doesn't read predicate fields, so a `jq` decode covers `verificationResult` / `resourceUri` / `verifiedLevels`:
-
-```bash
-cosign verify-blob-attestation --bundle <archive>.intoto.jsonl --new-bundle-format \
-  --certificate-oidc-issuer https://token.actions.githubusercontent.com \
-  --certificate-identity-regexp '^https://github\.com/TomHennen/wrangle/\.github/workflows/build_and_publish_go\.yml@refs/tags/v' \
-  --certificate-github-workflow-repository <your-org>/<your-repo> \
-  --type https://slsa.dev/verification_summary/v1 \
-  <archive>
-
-payload="$(jq -r '.dsseEnvelope.payload' <archive>.intoto.jsonl | base64 -d)"
-jq -e '.predicate.verificationResult == "PASSED"' <<<"$payload"
-jq -e '.predicate.resourceUri == "pkg:golang/<module-path>@<version>"' <<<"$payload"
-jq -e '.predicate.verifiedLevels | index("SLSA_BUILD_LEVEL_3")' <<<"$payload"
-```
-
-`--type` must be the full URI `https://slsa.dev/verification_summary/v1` — cosign rejects the `slsaverificationsummary` alias.
-
-> **`slsa-verifier verify-vsa` is not usable here.** It only verifies *key-signed* VSAs (it requires `--public-key-path`); wrangle's VSAs are keyless (Fulcio/Sigstore), so there is no identity flag to pass. Tracked under the [Attestation trust gaps](../../../README.md) section / [#317](https://github.com/TomHennen/wrangle/issues/317).
+That single command checks — fail-closed — the signature, wrangle's signer identity, that the build ran in *your* repo, and that policy passed at SLSA Build L3. The module path is the `module` directive in your `go.mod`. No ampel? See the [artifact verification guide](../../../docs/verifying_artifacts.md) for an equivalent cosign recipe and the full trust model.
 
 ## Further reading
 
-- [`SPEC.md`](./SPEC.md) — this action's full specification
-- [`../../../docs/SPEC.md`](../../../docs/SPEC.md) — wrangle's overall architecture
-- [`../../../docs/SLSA_L3_AUDIT.md`](../../../docs/SLSA_L3_AUDIT.md) — per-builder L3 conformance audit
-- [`../../../actions/scan/README.md`](../../../actions/scan/README.md) — the embedded source scan (`scan-tools` input)
-- [goreleaser customization](https://goreleaser.com/customization/) — the underlying build tool
-- [actions/attest-build-provenance](https://github.com/actions/attest-build-provenance) — produces the GitHub-issued SLSA provenance
-- [govulncheck](https://pkg.go.dev/golang.org/x/vuln/cmd/govulncheck) — Go-aware callgraph vuln scanner
+- [`SPEC.md`](./SPEC.md) — design rationale: tool choices, permissions architecture, cache isolation.
+- [`docs/verifying_artifacts.md`](../../../docs/verifying_artifacts.md) — consumer verification: ampel, cosign, `gh attestation verify`, and the publish/attest timing model.
+- [`docs/SLSA_L3_AUDIT.md`](../../../docs/SLSA_L3_AUDIT.md) — the conditions behind the Build L3 claim.
+- [goreleaser customization](https://goreleaser.com/customization/) — the underlying build tool.
