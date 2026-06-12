@@ -124,7 +124,7 @@ jobs:
     permissions: {}    # reads env only — no workspace, no API, no secrets
     steps:
       # TODO: replace with $/actions/preflight_guard when GitHub ships $/ syntax (#136)
-      - uses: TomHennen/wrangle/actions/preflight_guard@15b64ecbe38ca59cd24964eb9403d428075ffa37 # main 2026-06-10
+      - uses: TomHennen/wrangle/actions/preflight_guard@e0944de1f0748ef3210cb40db0a987dd5919e73d # main 2026-06-12
 
   gate:
     needs: [guard]
@@ -135,7 +135,7 @@ jobs:
     steps:
       # No checkout: release_gate resolves via ${{ github.action_path }}.
       # TODO: replace with $/actions/release_gate when GitHub ships $/ syntax (#136)
-      - uses: TomHennen/wrangle/actions/release_gate@15b64ecbe38ca59cd24964eb9403d428075ffa37 # main 2026-06-10
+      - uses: TomHennen/wrangle/actions/release_gate@e0944de1f0748ef3210cb40db0a987dd5919e73d # main 2026-06-12
         id: gate
         with:
           events: ${{ inputs.release-events }}
@@ -158,7 +158,7 @@ jobs:
           ref: ${{ inputs.ref || '' }}
 
       # TODO: replace with $/actions/scan when GitHub ships $/ syntax (#136)
-      - uses: TomHennen/wrangle/actions/scan@15b64ecbe38ca59cd24964eb9403d428075ffa37 # main 2026-06-10
+      - uses: TomHennen/wrangle/actions/scan@e0944de1f0748ef3210cb40db0a987dd5919e73d # main 2026-06-12
         if: ${{ inputs.scan-tools != '' }}
         with:
           tools: ${{ inputs.scan-tools }}
@@ -188,7 +188,7 @@ jobs:
           ref: ${{ inputs.ref || '' }}
 
       # TODO: replace with $/build/actions/npm when GitHub ships $/ syntax (#136)
-      - uses: TomHennen/wrangle/build/actions/npm@15b64ecbe38ca59cd24964eb9403d428075ffa37 # main 2026-06-10
+      - uses: TomHennen/wrangle/build/actions/npm@e0944de1f0748ef3210cb40db0a987dd5919e73d # main 2026-06-12
         id: build
         with:
           path: ${{ inputs.path }}
@@ -322,7 +322,7 @@ jobs:
           path: provenance/
 
       # TODO: replace with $/actions/verify when GitHub ships $/ syntax (#136)
-      - uses: TomHennen/wrangle/actions/verify@15b64ecbe38ca59cd24964eb9403d428075ffa37 # main 2026-06-10
+      - uses: TomHennen/wrangle/actions/verify@e0944de1f0748ef3210cb40db0a987dd5919e73d # main 2026-06-12
         with:
           subject: dist/${{ matrix.artifact }}
           policy: policies/wrangle-provenance-npm-v1.hjson
