@@ -25,8 +25,11 @@ SIGNER_REPO="TomHennen/wrangle-test"
 ISSUER="https://token.actions.githubusercontent.com"
 VSA_PREDICATE="https://slsa.dev/verification_summary/v1"
 # A real PYTHON VSA (wheel subject) from run 26991037293 — same cosign
-# verify-blob-attestation shape as npm, but a distinct signer workflow and a
-# pkg:generic resourceUri, so it can drift independently of the npm path.
+# verify-blob-attestation shape as npm, but a distinct signer workflow. This
+# capture predates the pkg:pypi migration (#373), and a keyless-signed VSA
+# can't be re-resourced without re-signing, so its resourceUri stays the old
+# pkg:generic form; releases now emit pkg:pypi (PEP 503-normalized). Re-capture
+# from a post-migration release to flip this.
 PY_RESOURCE_URI="pkg:generic/wrangle_test_fixture@0.0.1.dev26991037293"
 PY_SIGNER_REGEX='^https://github\.com/TomHennen/wrangle/\.github/workflows/build_and_publish_python\.yml@'
 # A real CONTAINER VSA (digest subject) from the same run — covers the
@@ -94,8 +97,9 @@ require_sigstore() {
 
 # --- Path A (python): the python README's verify-blob-attestation command ---
 # Same shape as npm, exercised against a real python wheel + its VSA so the
-# python README's literals (signer workflow, pkg:generic resourceUri) can't
-# drift unnoticed.
+# python README's signer-workflow literal can't drift unnoticed. The
+# resourceUri here is the fixture's pre-#373 pkg:generic value (see above),
+# not the pkg:pypi form releases now emit.
 
 @test "consumer A (python): cosign verify-blob-attestation verifies the wheel's signer + subject" {
     [[ -x "$COSIGN_BIN" ]] || skip_or_fail "real cosign not available"
@@ -121,7 +125,7 @@ require_sigstore() {
     [[ "$status" -ne 0 ]]
 }
 
-@test "consumer A (python): predicate fields decode to PASSED / pkg:generic resourceUri / L3" {
+@test "consumer A (python): predicate fields decode to PASSED / resourceUri / L3" {
     payload="$(jq -r '.dsseEnvelope.payload' "$PY_VSA" | base64 -d)"
     [[ "$(jq -r '.predicate.verificationResult' <<<"$payload")" == "PASSED" ]]
     [[ "$(jq -r '.predicate.resourceUri' <<<"$payload")" == "$PY_RESOURCE_URI" ]]

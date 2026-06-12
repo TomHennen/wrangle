@@ -71,7 +71,7 @@ on:
         description: "The package version that was built"
         value: ${{ jobs.build.outputs.version }}
       resource-uri:
-        description: "The purl the VSA's resourceUri names (pkg:generic/<name>@<version>). Pipe into actions/verify-vsa's resource-uri input."
+        description: "The purl the VSA's resourceUri names (pkg:pypi/<name>@<version>, name PEP 503-normalized). Pipe into actions/verify-vsa's resource-uri input."
         value: ${{ jobs.build.outputs.resource-uri }}
       dist-artifact-name:
         description: "Name of the uploaded dist/ artifact (download with this name to publish)"
@@ -156,9 +156,7 @@ jobs:
       hashes: ${{ steps.build.outputs.hashes }}
       name: ${{ steps.build.outputs.name }}
       version: ${{ steps.build.outputs.version }}
-      # Single composition site for the purl: the verify job bakes this into
-      # the VSA's resourceUri and the workflow re-exports it for publish gates.
-      resource-uri: pkg:generic/${{ steps.build.outputs.name }}@${{ steps.build.outputs.version }}
+      resource-uri: ${{ steps.purl.outputs.resource-uri }}
       shortname: ${{ steps.build.outputs.shortname }}
       dist-artifact-name: ${{ steps.names.outputs.dist }}
       metadata-artifact-name: ${{ steps.names.outputs.metadata }}
@@ -184,6 +182,20 @@ jobs:
           # fast iteration; they produce no provenance, so cache poisoning
           # is not an L3 concern at that layer.
           cache: ${{ needs.gate.outputs.should-release == 'true' && 'disabled' || 'enabled' }}
+
+      # Compose the VSA resourceUri purl. PyPI's purl type normalizes the
+      # name per PEP 503 (lowercase; runs of . _ - collapse to -), so the
+      # identity matches what ecosystem-aware tooling derives from the
+      # published package.
+      - id: purl
+        shell: bash
+        env:
+          NAME: ${{ steps.build.outputs.name }}
+          VERSION: ${{ steps.build.outputs.version }}
+        run: |
+          set -euo pipefail
+          normalized="$(printf '%s' "$NAME" | tr '[:upper:]' '[:lower:]' | sed -E 's/[._-]+/-/g')"
+          printf 'resource-uri=pkg:pypi/%s@%s\n' "$normalized" "$VERSION" >> "$GITHUB_OUTPUT"
 
       # Namespace artifact names by the path-derived shortname so multiple
       # python builds in one workflow don't collide.
@@ -306,9 +318,9 @@ jobs:
           subject: dist/${{ matrix.artifact }}
           policy: policies/wrangle-provenance-python-v1.hjson
           collector: jsonl:provenance/provenance.jsonl
-          # resourceUri names the package the VSA covers (pkg:generic, matching
-          # the policy harness — pypi purl normalization isn't load-bearing while
-          # no consumer reads it). The subject digest is the cryptographic bind.
+          # resourceUri names the package the VSA covers (pkg:pypi, PEP
+          # 503-normalized); the consumer/gate check pins it. The subject
+          # digest is the cryptographic bind.
           context: buildPoint:git+https://github.com/${{ github.repository }},vsa.resourceUri:${{ needs.build.outputs.resource-uri }}
           artifact-name: ${{ matrix.artifact }}
           fail: "true"
