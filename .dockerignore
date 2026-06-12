@@ -4,3 +4,4 @@
 # exclude .claude/ separately, since ./test.sh mounts the repo at runtime.)
 .claude/
 .beads/
+.wrangle/
