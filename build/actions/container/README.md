@@ -17,16 +17,16 @@ Copy [`build_and_publish_containers.yml`](../../../gh_workflow_examples/build_an
 - **Build + push to ghcr.io** (other registries are out of scope — see [`SPEC.md`](./SPEC.md#current-scope-ghcrio-only)).
 - **Source scan** built in — vulnerable dependencies (OSV), unsafe workflow patterns (Zizmor), and more ([details](../../../actions/scan/README.md)); a load-bearing finding blocks the build and push.
 - **A BuildKit-native SBOM**, attached to the image as an OCI attestation and uploaded as a workflow artifact (SPDX JSON).
-- **SLSA Build L3 provenance** for the image digest (consumed through the reusable workflow on GitHub-hosted runners — conditions in [`docs/SLSA_L3_AUDIT.md`](../../../docs/SLSA_L3_AUDIT.md)).
+- **SLSA Build L3 provenance** for the image digest ([the conditions behind the claim](../../../docs/SLSA_L3_AUDIT.md)).
 - **A signed VSA** stored in the registry as an OCI referrer on the image digest, so consumers can verify the image with one command.
 
 ## Good to know
 
 - **`release-events`** (default: `non-pull-request`) gates provenance generation and verification — see [`docs/SPEC.md`](../../../docs/SPEC.md) "Release-events gating". The docker push itself happens earlier and is gated by your workflow's own `on:` triggers.
 - **Release builds never use a cache** — BuildKit's shared cache isn't re-verified on hits, so a poisoned entry could reach the attested image. PR builds get a per-PR isolated cache by default, which closes PR-to-PR cache poisoning; tune that with the `pr-cache` input, documented in [`build_and_publish_container.yml`](../../../.github/workflows/build_and_publish_container.yml).
-- **Never invoke this workflow from `pull_request_target`** — that trigger runs fork PRs in the base-repo context with cache write access.
-- **Private repos**: the `verify` job pulls the provenance referrer without registry auth, so auth-gated pulls are a known gap ([#182](https://github.com/TomHennen/wrangle/issues/182)).
-- **Workflow outputs** (`imagename`, `metadata-artifact-name`, `should-release`, …) are documented in [`build_and_publish_container.yml`](../../../.github/workflows/build_and_publish_container.yml) itself.
+- **`pull_request_target` can't trigger this workflow** — wrangle refuses it at startup (likewise `workflow_run` chained from it); those triggers hand fork PRs elevated access.
+- **Private repos aren't supported** — the `verify` job can't pull auth-gated provenance referrers ([#182](https://github.com/TomHennen/wrangle/issues/182)).
+- **Workflow outputs** are documented in [`build_and_publish_container.yml`](../../../.github/workflows/build_and_publish_container.yml) itself.
 
 ## Verifying what you shipped
 

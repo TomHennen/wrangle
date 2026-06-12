@@ -38,7 +38,7 @@ jobs:
 - **pytest runs automatically** when `tests/`, `test/`, or `[tool.pytest.ini_options]` is present (default pytest discovery conventions).
 - **Source scan** built in — vulnerable dependencies (OSV), unsafe workflow patterns (Zizmor), and more ([details](../../../actions/scan/README.md)); a load-bearing finding blocks publish.
 - **An SPDX SBOM**, uploaded as a workflow artifact.
-- **SLSA Build L3 provenance** (consumed through the reusable workflow on GitHub-hosted runners — conditions in [`docs/SLSA_L3_AUDIT.md`](../../../docs/SLSA_L3_AUDIT.md)), plus PEP 740 attestations on PyPI from the publish step.
+- **SLSA Build L3 provenance** ([the conditions behind the claim](../../../docs/SLSA_L3_AUDIT.md)), plus PEP 740 attestations on PyPI from the publish step.
 - **A signed VSA** attached to the release on tag pushes, so downstream users can verify your dist files with one command.
 
 ## Your publish job
@@ -66,9 +66,10 @@ Skip the gate and you publish on every non-PR event; skip verify-vsa and you may
 
 ## Good to know
 
-- **`release-events`** (default: `non-pull-request`; the example sets `tag-only`) controls when release-time actions run and what `should-release` reports — see [`docs/SPEC.md`](../../../docs/SPEC.md) "Release-events gating". Treat `should-release` as the source of truth rather than re-evaluating events yourself.
+- **`release-events`** (default: `non-pull-request`; the example sets `tag-only`) controls when release-time actions run and what `should-release` reports — see [`docs/SPEC.md`](../../../docs/SPEC.md) "Release-events gating".
+- **`pull_request_target` can't trigger this workflow** — wrangle refuses it at startup (likewise `workflow_run` chained from it); those triggers hand fork PRs elevated access.
 - **Using wrangle as a single step instead of the reusable workflow** (`uses: TomHennen/wrangle/build/actions/python@v0.2.0`) gets you build + test + SBOM, but you wire provenance and publish yourself and the result no longer qualifies for Build L3 — lower assurance, only worth it when the reusable workflow can't fit your pipeline.
-- **Workflow outputs** (`dist-artifact-name`, `provenance-artifact-name`, `metadata-artifact-name`, `hashes`, `version`, `should-release`) are documented in [`build_and_publish_python.yml`](../../../.github/workflows/build_and_publish_python.yml) itself.
+- **Workflow outputs** are documented in [`build_and_publish_python.yml`](../../../.github/workflows/build_and_publish_python.yml) itself.
 
 ## Verifying what you shipped
 

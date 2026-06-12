@@ -40,7 +40,7 @@ Complete in order; step 1 only applies to brand-new packages.
 - **Your scripts run as usual** — `scripts.build` if present, `scripts.test` unless it's npm's default placeholder, then `npm pack` / `pnpm pack`.
 - **Source scan** built in — vulnerable dependencies (OSV), unsafe workflow patterns (Zizmor), and more ([details](../../../actions/scan/README.md)); a load-bearing finding blocks publish.
 - **An SPDX SBOM**, uploaded as a workflow artifact.
-- **SLSA Build L3 provenance** (consumed through the reusable workflow on GitHub-hosted runners — conditions in [`docs/SLSA_L3_AUDIT.md`](../../../docs/SLSA_L3_AUDIT.md)), in addition to the L2 attestation `npm publish --provenance` writes to the registry.
+- **SLSA Build L3 provenance** ([the conditions behind the claim](../../../docs/SLSA_L3_AUDIT.md)), in addition to the L2 attestation `npm publish --provenance` writes to the registry.
 - **A signed VSA** attached to the release on tag pushes, so downstream users can verify the tarball with one command.
 
 ## Your publish job
@@ -69,11 +69,12 @@ Skip the gate and you publish on every non-PR event; skip verify-vsa and you may
 ## Good to know
 
 - **Node version resolution**: `node-version` input → `.nvmrc` → `package.json` `engines.node` → a wrangle-default LTS. Set one of the first three if you care about a specific version.
-- **Lifecycle hooks fire normally** (`prepare`, `prepack`, `postpack`, dependency `install` hooks) — a malicious script there is the same threat surface as malicious code in `src/`, governed by source review. Two exceptions: `prepublishOnly` does NOT fire (your publish job runs `npm publish` against the pre-built tarball, so the attested bytes are exactly what ships — move type-checking into `scripts.build`), and `ignore-scripts: true` opts into "source bytes only, no script execution".
+- **Lifecycle hooks fire normally** (`prepare`, `prepack`, `postpack`, dependency `install` hooks). `prepublishOnly` does NOT — your publish job publishes the pre-built tarball, so move type-checking into `scripts.build`. Set `ignore-scripts: true` to disable script execution entirely.
 - **Single-package npm/pnpm only** — workspaces are rejected ([#208](https://github.com/TomHennen/wrangle/issues/208)), and so are Yarn lockfiles.
-- **SBOM scope is the source tree, not the tarball** — if `package.json`'s `files` field restricts what ships, the SBOM may list more than the `.tgz` contains. The L3 attestation covers the exact `.tgz` bytes regardless.
+- **The SBOM covers the source tree, not the tarball contents** — the L3 attestation covers the exact `.tgz` bytes regardless.
 - **`release-events`** (default: `non-pull-request`; the example sets `tag-only`) controls when release-time actions run and what `should-release` reports — see [`docs/SPEC.md`](../../../docs/SPEC.md) "Release-events gating".
-- **Workflow outputs** (`dist-artifact-name`, `tarball`, `provenance-artifact-name`, `metadata-artifact-name`, `hashes`, `version`, `should-release`) are documented in [`build_and_publish_npm.yml`](../../../.github/workflows/build_and_publish_npm.yml) itself.
+- **`pull_request_target` can't trigger this workflow** — wrangle refuses it at startup (likewise `workflow_run` chained from it); those triggers hand fork PRs elevated access.
+- **Workflow outputs** are documented in [`build_and_publish_npm.yml`](../../../.github/workflows/build_and_publish_npm.yml) itself.
 
 ## Verifying what you shipped
 
