@@ -139,7 +139,7 @@ jobs:
           ref: ${{ inputs.ref || '' }}
 
       # TODO: replace with $/actions/scan when GitHub ships $/ syntax (#136)
-      - uses: TomHennen/wrangle/actions/scan@e0944de1f0748ef3210cb40db0a987dd5919e73d # main 2026-06-12
+      - uses: TomHennen/wrangle/actions/scan@ba74caf4d236992224c23b072879410228a88d09 # chore/bump-pins-pre-v0.2.0 2026-06-12 (bootstrap)
         if: ${{ inputs.scan-tools != '' }}
         with:
           tools: ${{ inputs.scan-tools }}
