@@ -84,7 +84,7 @@ ampel verify --subject <dist-file> \
   --context sourceRepo:https://github.com/<your-org>/<your-repo>
 ```
 
-That single command checks — fail-closed — the signature, wrangle's signer identity, that the build ran in *your* repo, and that policy passed at SLSA Build L3. The `<name>` is [PEP 503-normalized](https://peps.python.org/pep-0503/#normalized-names) (lowercase; runs of `.`, `_`, `-` collapse to `-`), matching the published PyPI project. No ampel? See the [artifact verification guide](../../../docs/verifying_artifacts.md) for an equivalent cosign recipe, the PEP 740 path, and the full trust model.
+That single command checks — fail-closed — the signature, wrangle's signer identity, that the build ran in *your* repo, and that policy passed at SLSA Build L3. The `<name>` is [PEP 503-normalized](https://peps.python.org/pep-0503/#normalized-names). No ampel? See the [artifact verification guide](../../../docs/verifying_artifacts.md) for an equivalent cosign recipe, the PEP 740 path, and the full trust model.
 
 ## Further reading
 

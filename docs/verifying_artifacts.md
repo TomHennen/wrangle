@@ -22,7 +22,7 @@ you trust one signature instead of re-running the policy engine.
 | Build type | VSA location | `resourceUri` to expect | Signing workflow |
 |---|---|---|---|
 | Go | GitHub release, `<archive>.intoto.jsonl` | `pkg:golang/<module-path>@<version>` (the `module` directive in `go.mod`) | `build_and_publish_go.yml` |
-| Python | GitHub release, `<dist-file>.intoto.jsonl` (wheel or sdist) | `pkg:pypi/<name>@<version>` (name [PEP 503-normalized](https://peps.python.org/pep-0503/#normalized-names): lowercase, runs of `.`/`_`/`-` → `-`) | `build_and_publish_python.yml` |
+| Python | GitHub release, `<dist-file>.intoto.jsonl` (wheel or sdist) | `pkg:pypi/<name>@<version>` (name [PEP 503-normalized](https://peps.python.org/pep-0503/#normalized-names)) | `build_and_publish_python.yml` |
 | npm | GitHub release, `<tarball>.intoto.jsonl` | `pkg:npm/<name>@<version>` (scoped names verbatim, e.g. `pkg:npm/@scope/pkg@1.2.3`) | `build_and_publish_npm.yml` |
 | Container | OCI referrer on the image digest | `<imagename>@sha256:<digest>` | `build_and_publish_container.yml` |
 
