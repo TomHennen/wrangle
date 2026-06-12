@@ -9,6 +9,8 @@ setup() {
     export TEST_DIR ORIG_DIR
     mkdir -p "$TEST_DIR/bin" "$TEST_DIR/install_bin"
     export WRANGLE_BIN_DIR="$TEST_DIR/install_bin"
+    # No real Sigstore here, so the inter-attempt backoff is pure dead time.
+    export WRANGLE_RETRY_DELAY=0
 }
 
 teardown() {

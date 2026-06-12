@@ -38,12 +38,15 @@ wrangle_resolve_policy() {
 # the same attestations against the same policy is deterministic, so a retry
 # can only flip a transient failure, never a real verdict. $1 is the stdout
 # capture file, truncated per attempt so a retry can't append to a partial
-# report.
+# report. WRANGLE_RETRY_DELAY (seconds) spaces the attempts so a brief
+# Sigstore blip has time to clear; an immediate retry tends to hit the same
+# failing connection. Tests set it to 0.
 wrangle_retry_once() {
     local out="$1"; shift
-    if "$@" > "$out"; then return 0; fi
+    "$@" > "$out" && return 0
     local rc=$?
     printf 'wrangle: %s failed (exit %s); retrying once for transient Sigstore I/O\n' "$1" "$rc" >&2
+    sleep "${WRANGLE_RETRY_DELAY:-5}"
     "$@" > "$out"
 }
 

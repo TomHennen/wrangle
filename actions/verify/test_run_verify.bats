@@ -34,6 +34,8 @@ setup() {
     export CONTEXT=""
     export ATTESTATION=""
     export OCI_TARGET=""
+    # No real Sigstore here, so the inter-attempt backoff is pure dead time.
+    export WRANGLE_RETRY_DELAY=0
 
     # shellcheck source=run_verify.sh
     source "$SCRIPT"
@@ -396,6 +398,8 @@ SHIM
     [[ "$status" -eq 0 ]]
     [[ "$(wc -l < "$shim.calls")" -eq 2 ]]
     [[ "$output" == *"retrying once"* ]]
+    # The notice carries the first attempt's real exit code, not a stale $?.
+    [[ "$output" == *"(exit 1)"* ]]
     # Truncated per attempt: no 'partial' residue from the failed first try.
     [[ "$(cat "$TEST_DIR/out")" == "good" ]]
 }

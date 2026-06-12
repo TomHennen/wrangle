@@ -103,6 +103,8 @@ wrangle_cosign_verify_checksums() {
 # distinguishable from network trouble.
 if ! verify_err="$(wrangle_cosign_verify_checksums 2>&1)"; then
     printf 'wrangle: cosign verify-blob failed; retrying once for transient Sigstore I/O\n' >&2
+    # Spaced so a brief Sigstore blip has time to clear; tests set 0.
+    sleep "${WRANGLE_RETRY_DELAY:-5}"
     if ! verify_err="$(wrangle_cosign_verify_checksums 2>&1)"; then
         printf '%s\n' "$verify_err" >&2
         printf 'wrangle: FATAL: Cosign signature verification failed for syft %s\n' "$VERSION" >&2
