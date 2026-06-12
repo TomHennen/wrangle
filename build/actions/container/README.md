@@ -1,6 +1,6 @@
 # Wrangle Build Container
 
-Build a container image from your Dockerfile and publish it to ghcr.io with an SBOM, SLSA Build L3 provenance, and a signed VSA your users can verify with one command — all from a single job in your workflow.
+Wrangle builds a container image from your Dockerfile and publishes it to ghcr.io with an SBOM and SLSA Build L3 provenance — all from a single job in your workflow. Your users get a signed VSA they can verify with one command.
 
 ## Quick start
 
@@ -24,7 +24,7 @@ Copy [`build_and_publish_containers.yml`](../../../gh_workflow_examples/build_an
 
 - **`release-events`** (default: `non-pull-request`) gates provenance generation and verification — see [`docs/SPEC.md`](../../../docs/SPEC.md) "Release-events gating". The docker push itself happens earlier and is gated by your workflow's own `on:` triggers.
 - **Release builds never use a cache** — BuildKit's shared cache isn't re-verified on hits, so a poisoned entry could reach the attested image. PR builds get a per-PR isolated cache by default, which closes PR-to-PR cache poisoning; tune that with the `pr-cache` input, documented in [`build_and_publish_container.yml`](../../../.github/workflows/build_and_publish_container.yml).
-- **`pull_request_target` can't trigger this workflow** — wrangle refuses it at startup (likewise `workflow_run` chained from it); those triggers hand fork PRs elevated access.
+- **`pull_request_target` can't trigger this workflow** — that trigger (and `workflow_run` chained from it) is a common exploit vector, so wrangle blocks both at startup.
 - **Private repos aren't supported** — the `verify` job can't pull auth-gated provenance referrers ([#182](https://github.com/TomHennen/wrangle/issues/182)).
 - **Workflow outputs** are documented in [`build_and_publish_container.yml`](../../../.github/workflows/build_and_publish_container.yml) itself.
 

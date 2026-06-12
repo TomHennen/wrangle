@@ -50,7 +50,7 @@ Push a `v`-prefixed semver tag (e.g. `v1.2.3`) and wrangle runs the full pipelin
 
 - **Tags must be `v`-prefixed semver** (`v1.2.3`) — goreleaser derives the version from the nearest `v*` tag. No `v*` tags yet? Use the [example config](../../../gh_workflow_examples/build_go.goreleaser.yml)'s snapshot template, which doesn't depend on tag history.
 - **Provenance covers everything in `checksums.txt`.** Docker images and Homebrew taps goreleaser pushes are *not* covered — pair with wrangle's [container build type](../container/README.md) for images.
-- **`pull_request_target` can't trigger this workflow** — wrangle refuses it at startup (likewise `workflow_run` chained from it); those triggers hand fork PRs elevated access.
+- **`pull_request_target` can't trigger this workflow** — that trigger (and `workflow_run` chained from it) is a common exploit vector, so wrangle blocks both at startup.
 - **`release-events`** (default: `tag-only`) controls which events run the full pipeline — see [`docs/SPEC.md`](../../../docs/SPEC.md) "Release-events gating".
 - **Workflow outputs** are documented in [`build_and_publish_go.yml`](../../../.github/workflows/build_and_publish_go.yml) itself.
 

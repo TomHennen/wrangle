@@ -1,6 +1,6 @@
 # Wrangle Build npm
 
-Build an npm or pnpm package, run your tests, generate an SBOM, produce SLSA Build L3 provenance, and publish to npmjs.org via Trusted Publishing — no `NPM_TOKEN` in your repo, and a signed VSA your users can verify with one command. The package manager is detected from your lockfile: `package-lock.json` / `npm-shrinkwrap.json` selects npm, `pnpm-lock.yaml` selects pnpm.
+Wrangle builds your npm or pnpm package, runs your tests, generates an SBOM, produces SLSA Build L3 provenance, and publishes to npmjs.org via Trusted Publishing — no `NPM_TOKEN` in your repo. Your users get a signed VSA they can verify with one command. The package manager comes from your lockfile: `package-lock.json` / `npm-shrinkwrap.json` means npm, `pnpm-lock.yaml` means pnpm.
 
 One wrinkle is npm's, not wrangle's: the publish step must live in *your* workflow, because npm's OIDC token must come from the caller's workflow filename ([npm/documentation#1755](https://github.com/npm/documentation/issues/1755)). The example wires it — see [Your publish job](#your-publish-job).
 
@@ -28,7 +28,7 @@ jobs:
 
 ## Before first use
 
-Complete in order; step 1 only applies to brand-new packages.
+These steps set up [npm Trusted Publishing](https://docs.npmjs.com/trusted-publishers/): CI publishes via OIDC, so no token ever lives in your repo. Complete them in order. Already publishing this package via Trusted Publishing? Skip step 1, point your trusted publisher at `build_npm.yml` (step 2), and double-check step 3.
 
 1. **Brand-new package: bootstrap the first version manually.** npm Trusted Publishing can't publish a package's *first* version ([npm/cli#8544](https://github.com/npm/cli/issues/8544)) — there is no PyPI-style "pending publisher" flow. Run `npm publish` once from a maintainer's terminal to mint the initial version; skipping this makes the first workflow run fail with a non-obvious "package not found".
 2. **Configure the trusted publisher** — npmjs.com → your package → Settings → Trusted publishing. Pin your repo and the workflow filename (`build_npm.yml`).
@@ -73,7 +73,7 @@ Skip the gate and you publish on every non-PR event; skip verify-vsa and you may
 - **Single-package npm/pnpm only** — workspaces are rejected ([#208](https://github.com/TomHennen/wrangle/issues/208)), and so are Yarn lockfiles.
 - **The SBOM covers the source tree, not the tarball contents** — the L3 attestation covers the exact `.tgz` bytes regardless.
 - **`release-events`** (default: `non-pull-request`; the example sets `tag-only`) controls when release-time actions run and what `should-release` reports — see [`docs/SPEC.md`](../../../docs/SPEC.md) "Release-events gating".
-- **`pull_request_target` can't trigger this workflow** — wrangle refuses it at startup (likewise `workflow_run` chained from it); those triggers hand fork PRs elevated access.
+- **`pull_request_target` can't trigger this workflow** — that trigger (and `workflow_run` chained from it) is a common exploit vector, so wrangle blocks both at startup.
 - **Workflow outputs** are documented in [`build_and_publish_npm.yml`](../../../.github/workflows/build_and_publish_npm.yml) itself.
 
 ## Verifying what you shipped

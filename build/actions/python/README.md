@@ -1,6 +1,6 @@
 # Wrangle Build Python
 
-Build a Python package (wheel + sdist), run pytest, generate an SBOM, produce SLSA Build L3 provenance, and publish to PyPI via Trusted Publishing — no API tokens in your repo, and a signed VSA your users can verify with one command.
+Wrangle builds your Python package (wheel + sdist), runs pytest, generates an SBOM, produces SLSA Build L3 provenance, and publishes to PyPI via Trusted Publishing — no API tokens in your repo. Your users get a signed VSA they can verify with one command.
 
 One wrinkle is PyPI's, not wrangle's: the publish step must live in *your* workflow, because PyPI requires the OIDC token to come from the caller ([pypi/warehouse#11096](https://github.com/pypi/warehouse/issues/11096)). The example wires it — see [Your publish job](#your-publish-job).
 
@@ -27,6 +27,8 @@ jobs:
 ```
 
 ## Before first use
+
+These steps set up [PyPI Trusted Publishing](https://docs.pypi.org/trusted-publishers/): CI publishes via OIDC, so no token ever lives in your repo. Already publishing this project via Trusted Publishing? Just point your trusted publisher at `build_python.yml` (step 1) and double-check step 2.
 
 1. **Configure a Trusted Publisher on PyPI**, pinning your repo and the workflow filename (`build_python.yml`). Existing project: Project → Publishing → Add a trusted publisher. Brand-new package: use PyPI's [pending publisher](https://docs.pypi.org/trusted-publishers/creating-a-project-through-oidc/) flow — the first successful CI publish creates the project.
 2. **Disable legacy API token uploads** (PyPI Publishing settings). A stolen or leftover token can push to the registry without ever touching your CI; this toggle closes that path, and only PyPI can flip it.
@@ -67,8 +69,7 @@ Skip the gate and you publish on every non-PR event; skip verify-vsa and you may
 ## Good to know
 
 - **`release-events`** (default: `non-pull-request`; the example sets `tag-only`) controls when release-time actions run and what `should-release` reports — see [`docs/SPEC.md`](../../../docs/SPEC.md) "Release-events gating".
-- **`pull_request_target` can't trigger this workflow** — wrangle refuses it at startup (likewise `workflow_run` chained from it); those triggers hand fork PRs elevated access.
-- **Using wrangle as a single step instead of the reusable workflow** (`uses: TomHennen/wrangle/build/actions/python@v0.2.0`) gets you build + test + SBOM, but you wire provenance and publish yourself and the result no longer qualifies for Build L3 — lower assurance, only worth it when the reusable workflow can't fit your pipeline.
+- **`pull_request_target` can't trigger this workflow** — that trigger (and `workflow_run` chained from it) is a common exploit vector, so wrangle blocks both at startup.
 - **Workflow outputs** are documented in [`build_and_publish_python.yml`](../../../.github/workflows/build_and_publish_python.yml) itself.
 
 ## Verifying what you shipped

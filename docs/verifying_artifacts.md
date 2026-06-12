@@ -17,7 +17,7 @@ Wrangle produces two attestations for every released artifact:
 A consumer's one-command check is the VSA: it carries the full verdict, so
 you trust one signature instead of re-running the policy engine.
 
-## What the VSA binds, per ecosystem
+## What to plug in, per ecosystem
 
 | Build type | VSA location | `resourceUri` to expect | Signing workflow |
 |---|---|---|---|
@@ -35,11 +35,6 @@ artifact** (not a fork, not someone else's wrangle build), and the verdict
 is PASSED at SLSA Build L3. The policy is wrangle-hosted and fetched by
 locator, so you author nothing. Both `--context` values are required;
 omitting one is a hard error, never a weaker check.
-
-Under the hood: the policy's `sourceRepositoryUriMatch` binds the signing
-cert's source-repository extension to the `sourceRepo` you pass, and the
-policy tenets check the predicate fields (`verificationResult` /
-`resourceUri` / `verifiedLevels`).
 
 For file artifacts (Go / Python / npm), download the artifact and its VSA
 from the release, then:
@@ -131,7 +126,8 @@ gh attestation verify <artifact> \
   --signer-workflow TomHennen/wrangle/.github/workflows/build_and_publish_<type>.yml
 ```
 
-`--signer-workflow` is the binding: it fails closed unless wrangle's
+`--signer-workflow` ties the check to wrangle: verification fails unless
+wrangle's
 reusable workflow signed the provenance. For container images, wrangle's own
 `verify` job checks the provenance referrer in the registry before the VSA
 is emitted; consumers use the VSA path above.
