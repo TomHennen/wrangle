@@ -120,7 +120,7 @@ Adapters do NOT receive secrets (env stripped by the orchestrator). If a tool ne
 - Branch from `main`, descriptive branch names.
 - All PRs must pass CI (`make test` via GitHub Actions); shellcheck cleanly; actionlint cleanly.
 - Spec changes (`docs/SPEC.md`) require discussion — open an issue first.
-- Update `AGENTS.md` if the adoption interface changes.
+- Update the README and `gh_workflow_examples/` if the adoption interface changes.
 - For personal-environment preferences that shouldn't be checked in (your local test command, your shell, your editor's quirks), use `CLAUDE.local.md` — it's git-ignored.
 
 ## Open work and future ideas

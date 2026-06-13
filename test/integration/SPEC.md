@@ -314,7 +314,7 @@ GitHub's "Require approval for outside collaborators" gate is deliberately **not
 - **Multi-platform runners.** The companion repo tests against `ubuntu-latest` only. macOS and Windows integration testing is a future extension.
 - **Multi-version testing.** The companion repo tests against wrangle at the PR's head SHA, not against older released versions of wrangle. Release-time regression testing against older adopter ref pins is a separate concern.
 - **Load testing or performance benchmarking.** Integration testing validates contract correctness, not throughput.
-- **Adopter onboarding testing.** Whether a brand-new adopter can successfully wire wrangle into their repo from `AGENTS.md` is a separate concern (covered by the adoption tests referenced in wrangle's main SPEC).
+- **Adopter onboarding testing.** Whether a brand-new adopter can successfully wire wrangle into their repo from the README and examples is a separate concern (covered by the adoption tests referenced in wrangle's main SPEC).
 
 ## Known limitations
 
@@ -337,6 +337,6 @@ Integration testing sits alongside the testing layers already specified in wrang
 - Per-action structural tests (`<action-dir>/test.bats`) — action-shape invariants that actionlint and zizmor don't cover.
 - Dogfooding — real-GHA end-to-end testing of the workflows wrangle itself uses.
 - **Integration testing (this spec)** — real-GHA end-to-end testing of the workflows wrangle ships, on an adopter-shaped project, including the ones wrangle can't dogfood.
-- Adoption testing (future) — whether a fresh repo can successfully adopt wrangle by following `AGENTS.md`. Not covered here.
+- Adoption testing (future) — whether a fresh repo can successfully adopt wrangle by following the README and examples. Not covered here.
 
 Each layer catches regressions the others miss. None is a substitute for the others.

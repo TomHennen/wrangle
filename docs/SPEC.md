@@ -325,14 +325,13 @@ wrangle/
 ├── run.sh                  # Orchestrator (installs + runs tools)
 ├── gh_workflow_examples/   # Copy-paste templates for adopters
 ├── test/                   # Integration tests, fixtures, schemas
-├── docs/
-│   └── SPEC.md             # This document
-└── AGENTS.md               # AI agent adoption instructions
+└── docs/
+    └── SPEC.md             # This document
 ```
 
 **Why per-tool directories?** Everything related to a single capability lives in one place. To understand "what does wrangle's OSV integration entail?" — look in `tools/osv/`. To add a new tool — copy any `tools/<name>/` directory and adapt. This makes the project easy to navigate and extend.
 
-**Note on root layout:** `run.sh` and `AGENTS.md` live at the repo root for discoverability. If the repo grows and the root gets noisy, `run.sh` could move into a `src/` directory (updating the `../../` path constraint in the composite action accordingly).
+**Note on root layout:** `run.sh` lives at the repo root for discoverability. If the repo grows and the root gets noisy, `run.sh` could move into a `src/` directory (updating the `../../` path constraint in the composite action accordingly).
 
 **`build/actions/` extensibility:** The `build/actions/container/` directory is the first build type. Future build types (e.g., `build/actions/python/`, `build/actions/npm/`) follow the same pattern, providing opinionated build+publish workflows for different project types.
 
@@ -1108,8 +1107,6 @@ The README's quick-start section and the workflow examples in `gh_workflow_examp
 
 If the project type is unknown (no Dockerfile, no recognized language files), adopt only the source scanning workflow — this is always applicable regardless of project type.
 
-`AGENTS.md` in the repo root may additionally provide AI-agent-specific instructions. It is not required; the README and examples are the primary adoption surface.
-
 ### Long-term: OpenSSF contribution
 
 The adapter pattern and tool composition logic are candidates for contribution to OpenSSF (e.g., as part of Minder or a new working group). The spec and implementation will be designed with this handoff in mind.
@@ -1139,7 +1136,6 @@ The adapter pattern and tool composition logic are candidates for contribution t
 - [ ] SLSA source track adopted for the wrangle repo itself
 - [ ] Testing infrastructure (actionlint + shellcheck + bats)
 - [ ] Tested on Concordance
-- [ ] AGENTS.md for AI agent adoption
 
 ### v0.2.0 — Verify story complete + Go hardening + tool plumbing
 
