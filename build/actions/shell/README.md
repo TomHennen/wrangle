@@ -13,7 +13,7 @@ jobs:
       contents: read
       actions: read           # source scan
       security-events: write  # scan findings -> Security tab
-    uses: TomHennen/wrangle/.github/workflows/build_shell.yml@v0.2.0
+    uses: TomHennen/wrangle/.github/workflows/build_shell.yml@1448b250fb8d75841dfba3b2c8f5c23e85162b89 # v0.2.0
 ```
 
 PRs, pushes, and manual dispatches all run the same checks — there's no release step to gate.

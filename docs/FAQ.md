@@ -4,55 +4,61 @@ Short answers to questions adopters ask. For mechanism and contracts, each
 answer links to the source of truth — start with [`SPEC.md`](SPEC.md) and the
 [verification guide](verifying_artifacts.md).
 
-## Why do the examples pin a release tag (`@vX.Y.Z`) instead of a commit SHA?
+## How should I pin wrangle's reusable workflows?
 
-The usual advice is to SHA-pin third-party actions, because tags are mutable.
-Wrangle's examples pin its *own* reusable workflows by **release tag** on
-purpose, for two reasons:
+By **commit SHA, with the version in a trailing comment** — exactly like any
+other third-party action:
 
-- **Your verifier's identity has to match what you pinned.** Wrangle signs each
-  VSA keylessly, and the Sigstore certificate records the ref you invoked
-  wrangle at. The copy-paste `cosign` verify command in the
-  [verification guide](verifying_artifacts.md) anchors the signer identity on
-  `@refs/tags/v…`, so a tag pin makes that command work unedited. (The
-  recommended `ampel` path accepts either — see the next question.)
-- **A tag version-locks the whole tested release.** A reusable workflow resolves
-  its internal action references at the ref you called it with, so `@v0.2.0`
-  runs exactly the internal toolchain that release shipped — see
-  [SPEC.md → Reusable Workflow Interface](SPEC.md#reusable-workflow-interface).
+```yaml
+uses: TomHennen/wrangle/.github/workflows/build_and_publish_go.yml@<sha> # v0.2.0
+```
 
-You don't trade away freshness: Dependabot bumps the tag for you (the
-[`dependabot.yml`](../gh_workflow_examples/dependabot.yml) starter wires it),
-on wrangle's no-auto-merge cooldown.
+Three reasons, and the examples are pinned this way:
 
-## Do I have to pin a tag for verification to work?
+- **It's wrangle's own rule.** To your repo, `TomHennen/wrangle` is a third-party
+  action, and wrangle's policy (and the wider GitHub Actions consensus) is that
+  third-party actions are SHA-pinned because tags are mutable.
+- **wrangle's own scan would otherwise flag you.** A wrangle build type runs
+  zizmor over your workflows, and zizmor's `unpinned-uses` flags a third-party
+  action that isn't SHA-pinned. Pin the SHA and your first run is clean; pin a
+  tag and you'll get a finding on the very line wrangle told you to add.
+- **You keep freshness.** Dependabot bumps the SHA and refreshes the `# vX.Y.Z`
+  comment on wrangle's no-auto-merge cooldown — copy the
+  [`dependabot.yml`](../gh_workflow_examples/dependabot.yml) starter.
 
-No. The recommended **`ampel verify`** path accepts a tag *or* a SHA — its
-policy matches the signer identity as `…@.+`. Only the **`cosign`** fallback
-command assumes a tag, and the [verification guide](verifying_artifacts.md)
-tells you how to adjust the identity regexp if you pinned a SHA.
+## Can I pin a `@vX.Y.Z` tag instead?
 
-The rule underneath both: **your verifier's expected identity must match
-whatever you actually pinned** — tag → `@refs/tags/vX.Y.Z`, SHA → `@<sha>`.
-Pinning a tag just means the documented commands work as written.
+You can, but wrangle's bundled zizmor scan will flag it (`unpinned-uses`) because
+a tag can be moved. The principled way to keep a tag is a **scoped** policy in
+your own `.github/zizmor.yml` — not a blanket disable:
 
-## Aren't mutable tags a supply-chain risk?
+```yaml
+rules:
+  unpinned-uses:
+    config:
+      policies:
+        "TomHennen/wrangle/*": ref-pin   # trust wrangle's release tags
+```
 
-A tag can be moved, so pinning one trusts wrangle's release process not to
-repoint it. Two things bound the blast radius:
+That exempts only wrangle's refs; your other actions still require a SHA. (Once
+wrangle publishes immutable release tags and zizmor treats them as pinned, tag
+pins will be clean by default — that work is tracked in
+[#387](https://github.com/TomHennen/wrangle/issues/387), not done yet.)
 
-- Every artifact you consume is checked against a **wrangle-signed VSA that
-  binds the signer identity and your source repo** — verification fails if the
-  bytes, the signer, or the origin repo don't match (see the
-  [verification guide](verifying_artifacts.md)).
-- **Dependabot** moves your pin forward only to published releases, after
-  wrangle's cooldown, with no auto-merge.
+## How does my pin affect verification?
 
-If you want the strongest pin, SHA-pin wrangle's workflow and adjust your verify
-identity as described above — verification still works.
+Your verifier's expected identity must match **whatever you pinned** — wrangle's
+keyless VSA records the ref you invoked it at in the signing certificate. With a
+SHA pin the identity is `…build_and_publish_<type>.yml@<sha>`:
 
-## Which version should I pin?
+- The recommended **`ampel verify`** path needs no change — its policy matches
+  the signer as `…@.+`.
+- The **`cosign`** fallback's `--certificate-identity-regexp` must match your
+  SHA (the [verification guide](verifying_artifacts.md) shows the form); a
+  tag pin would instead match `@refs/tags/vX.Y.Z`.
 
-The latest [release tag](https://github.com/TomHennen/wrangle/releases). The
-per-ecosystem READMEs under [`build/`](../build/) and the examples in
+## Which SHA should I pin?
+
+The commit the latest [release](https://github.com/TomHennen/wrangle/releases)
+tags, with that version in the comment. Dependabot and the examples under
 [`gh_workflow_examples/`](../gh_workflow_examples/) track the current release.

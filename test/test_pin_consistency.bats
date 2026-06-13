@@ -1,43 +1,39 @@
 #!/usr/bin/env bats
 
-# Divergence guard for adopter-facing wrangle release-tag pins.
+# Divergence guard for adopter-facing wrangle release pins.
 #
 # Every example workflow and per-build-type README carries its own
-# `uses: TomHennen/wrangle/...@vX.Y.Z` pin, and nothing single-sources the
-# version. A release that bumps some pins but not all hands adopters a stale
-# wrangle on copy-paste, with no signal that anything is wrong. This fails
-# closed when the pins disagree.
+# `uses: TomHennen/wrangle/...@<sha> # vX.Y.Z` pin, and nothing single-sources
+# the SHA. A release that bumps some pins but not all hands adopters a stale
+# wrangle on copy-paste, with no signal. This fails closed when the pins
+# disagree on the commit.
 #
-# Scope is the release-tag pins only: SHA self-references (`@<40-hex>`) and the
-# `git+https://...@vX` policy locators (which may name any v* tag) are excluded
-# by anchoring on `uses: ` and a semver tag.
+# Scope is the adopter-facing release pins — anchored on `uses: ` + a 40-hex
+# SHA + a `# vX.Y.Z` version comment. Wrangle's internal self-references carry a
+# `# main YYYY-MM-DD` comment instead, so they're excluded; the
+# `git+https://...@vX` policy locators (no SHA, no `uses:`) are excluded too.
 
 setup() {
-    # Resolve the repo root from this file's location, not git — the test
-    # container mounts the repo read-only and runs as a different user than
-    # owns the checkout, so a git invocation here would trip git's
-    # dubious-ownership guard.
     REPO_ROOT="$(cd "$(dirname "$BATS_TEST_FILENAME")/.." && pwd)"
     export REPO_ROOT
-    # Match `uses: <org>/wrangle/<path>@vX.Y.Z`. The org needs a
-    # case-insensitive scan (`grep -i`): GitHub treats owners that way and the
-    # docs mix `TomHennen` and `tomhennen`.
-    PIN_RE='uses: [a-z]+/wrangle/[^@[:space:]]+@v[0-9]+\.[0-9]+\.[0-9]+'
+    # `uses: <org>/wrangle/<path>@<40-hex> # vX.Y.Z`. Org match is
+    # case-insensitive (docs mix `TomHennen` and `tomhennen`).
+    PIN_RE='uses: [a-z]+/wrangle/[^@[:space:]]+@[0-9a-f]{40} # v[0-9]+\.[0-9]+\.[0-9]+'
     export PIN_RE
 }
 
-@test "adopter-facing wrangle tag pins all name the same version" {
-    local versions
-    versions="$(grep -rhoiIE "$PIN_RE" --exclude-dir=.git "$REPO_ROOT" \
-        | grep -oiE 'v[0-9]+\.[0-9]+\.[0-9]+$' | sort -u)"
+@test "adopter-facing wrangle release pins all name the same commit" {
+    local shas
+    shas="$(grep -rhoiIE "$PIN_RE" --exclude-dir=.git "$REPO_ROOT" \
+        | grep -oiE '@[0-9a-f]{40}' | tr -d '@' | sort -u)"
 
-    # A non-empty result guards against the regex silently rotting to nothing.
-    [ -n "$versions" ]
+    # Non-empty guards against the regex silently rotting to nothing.
+    [ -n "$shas" ]
 
     local count
-    count="$(printf '%s\n' "$versions" | wc -l | tr -d ' ')"
+    count="$(printf '%s\n' "$shas" | wc -l | tr -d ' ')"
     if [ "$count" -ne 1 ]; then
-        printf 'Divergent wrangle release-tag pins (expected one version):\n%s\n' "$versions" >&2
+        printf 'Divergent wrangle release pins (expected one commit SHA):\n%s\n' "$shas" >&2
         grep -rniIE "$PIN_RE" --exclude-dir=.git "$REPO_ROOT" >&2
         return 1
     fi
