@@ -22,7 +22,7 @@ uses one of wrangle's reusable workflows.  With that single job developers get:
 * Automatic execution of unit tests
 * Automatic builds with safe defaults
 * [SBOMs](https://spdx.dev)
-* [SLSA Build Level 3 provenance](docs/slsa-conformance.md) — per build type, mapped to evidence
+* [SLSA Build Level 3 provenance](docs/REQUIREMENTS_MAPPING.md) — per build type, mapped to evidence
 * Build provenance verified against SLSA policy (fail-closed) with [Ampel](https://github.com/carabiner-dev/ampel)
 * A [SLSA VSA](https://slsa.dev/verification_summary/v1) letting downstream users easily verify the artifacts you distribute.
 * and more
@@ -35,7 +35,7 @@ and let developers focus on the features they want to ship.
 Wrangle's goal is to **prove it's possible** to hand a developer one workflow call and give
 back a hardened, fail-closed, *verifiable* supply chain — SLSA Build L3 provenance and a signed
 VSA included — without asking them to understand or assemble any of it. The list above is the
-bet; [`docs/slsa-conformance.md`](docs/slsa-conformance.md) is the receipts (which build types
+bet; [`docs/REQUIREMENTS_MAPPING.md`](docs/REQUIREMENTS_MAPPING.md) is the receipts (which build types
 meet which level, with evidence); the warning at the top is the honest status — it works and
 wrangle dogfoods it, but it hasn't had an independent security review.
 
@@ -123,7 +123,7 @@ Wrangle is a supply-chain security tool, so its defaults lean toward safety:
   the build *before* anything is published. For build types that publish inline (Go, container), a
   failed attestation or policy check fails the run after the push rather than rolling it back — so
   the guarantee consumers rely on is that a bad artifact carries no PASSED VSA, not that it never
-  appeared. The [conformance map](docs/slsa-conformance.md) has the per-build-type timing.
+  appeared. The [conformance map](docs/REQUIREMENTS_MAPPING.md) has the per-build-type timing.
 - **Dangerous triggers: blocked where it can, flagged everywhere else.** Wrangle refuses to run its
   own workflows under `pull_request_target` (and `workflow_run` chained from it), and its source
   scan runs Zizmor across *all* your workflows to flag that pattern wherever else it appears — it
