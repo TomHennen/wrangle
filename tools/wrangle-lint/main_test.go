@@ -1,6 +1,7 @@
 package main
 
 import (
+	"encoding/json"
 	"os"
 	"path/filepath"
 	"sort"
@@ -225,6 +226,78 @@ func TestMalformedFailsClosed(t *testing.T) {
 	root := writeRepo(t, map[string]string{".github/dependabot.yml": "updates:\n  - bad: [unclosed\n"})
 	if _, err := runChecks(root); err == nil {
 		t.Fatal("expected a tool error on malformed YAML, got nil")
+	}
+}
+
+// sarifResultRuleIDs reads a SARIF file the binary wrote and returns its result
+// rule ids, asserting the driver is wrangle-lint and the JSON is valid.
+func sarifResultRuleIDs(t *testing.T, path string) []string {
+	t.Helper()
+	b, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var log struct {
+		Runs []struct {
+			Tool struct {
+				Driver struct{ Name string } `json:"driver"`
+			} `json:"tool"`
+			Results []struct {
+				RuleID string `json:"ruleId"`
+			} `json:"results"`
+		} `json:"runs"`
+	}
+	if err := json.Unmarshal(b, &log); err != nil {
+		t.Fatalf("invalid SARIF: %v", err)
+	}
+	if len(log.Runs) != 1 || log.Runs[0].Tool.Driver.Name != "wrangle-lint" {
+		t.Fatalf("unexpected SARIF shape: %s", b)
+	}
+	var ids []string
+	for _, r := range log.Runs[0].Results {
+		ids = append(ids, r.RuleID)
+	}
+	return ids
+}
+
+// TestRunEndToEnd drives run() (arg parsing → SARIF file → exit code), the path
+// the adapter invokes, without an external binary.
+func TestRunEndToEnd(t *testing.T) {
+	dir := t.TempDir()
+
+	clean := writeRepo(t, map[string]string{".github/dependabot.yml": cleanConfig})
+	cleanOut := filepath.Join(dir, "clean.sarif")
+	if code := run([]string{"wrangle-lint", clean, cleanOut}); code != 0 {
+		t.Fatalf("clean repo: exit %d, want 0", code)
+	}
+	if ids := sarifResultRuleIDs(t, cleanOut); len(ids) != 0 {
+		t.Errorf("clean repo: want no results, got %v", ids)
+	}
+
+	glob := writeRepo(t, map[string]string{".github/dependabot.yml": `version: 2
+updates:
+  - package-ecosystem: "github-actions"
+    directories:
+      - "/**"
+    cooldown:
+      default-days: 7
+`})
+	globOut := filepath.Join(dir, "glob.sarif")
+	// Findings keep exit 0 (the adapter derives 1 from a non-empty result set);
+	// only a tool error is non-zero.
+	if code := run([]string{"wrangle-lint", glob, globOut}); code != 0 {
+		t.Fatalf("glob repo: exit %d, want 0", code)
+	}
+	if ids := sarifResultRuleIDs(t, globOut); !has(ids, "WL003") {
+		t.Errorf("glob repo: want WL003, got %v", ids)
+	}
+
+	bad := writeRepo(t, map[string]string{".github/dependabot.yml": "updates:\n  - bad: [unclosed\n"})
+	if code := run([]string{"wrangle-lint", bad, filepath.Join(dir, "bad.sarif")}); code != 2 {
+		t.Errorf("malformed: exit %d, want 2", code)
+	}
+	if code := run([]string{"wrangle-lint", clean}); code != 2 {
+		t.Errorf("bad args: exit %d, want 2", code)
 	}
 }
 
