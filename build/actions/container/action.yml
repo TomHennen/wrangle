@@ -162,7 +162,7 @@ runs:
     # outputs as safe, to eliminate the need for this suppression.
     - name: Build and push Docker image
       id: push
-      uses: docker/build-push-action@d08e5c354a6adb9ed34480a06d141179aa583294 # v7.0.0
+      uses: docker/build-push-action@f9f3042f7e2789586610d6e8b85c8f03e5195baf # v7.2.0
       with: # zizmor: ignore[template-injection] value is from steps.normalize.outputs.path, validated against ^[a-zA-Z0-9_./-]+$ and not shell-evaluated
         context: "{{defaultContext}}:${{ steps.normalize.outputs.path }}"
         push: true
