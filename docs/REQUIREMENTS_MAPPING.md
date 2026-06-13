@@ -111,9 +111,15 @@ only requirement that varies by build type is the **Isolated → cache** sub-poi
 > Spec section: **"Provenance Unforgeable"** (`#provenance-unforgeable`).
 
 - **Secret material used to sign is stored securely and only the build service
-  account can reach it** — MEETS. There is no long-lived key; the per-run signing
-  credential is the OIDC token + ephemeral Fulcio key, issued only to the
-  `attest`/`verify` jobs (Sigstore manages the root).
+  account can reach it** — MEETS, **with a caveat**. There is no long-lived
+  signing key to store or steal: the per-run credential is the OIDC token + an
+  ephemeral (~minutes) Fulcio key, held only by the isolated `attest`/`verify`
+  jobs. The "secure management system" here is GitHub OIDC + Sigstore + per-job
+  runner isolation — **not** a wrangle-operated KMS/HSM. **Residual risk:**
+  keyless reduces but does not eliminate credential theft — if the signing job
+  itself were compromised (e.g. a malicious action pinned into it, or a runner
+  compromise) the short-lived token/key could be exfiltrated within its validity
+  window. We don't claim KMS/HSM-grade key custody.
 - **Secret material NOT accessible to the environment running user build steps**
   — MEETS, and this is the load-bearing control: build jobs hold `contents: read`
   and **no `id-token`**; only the separate `attest`/`verify` jobs (no adopter
@@ -154,17 +160,19 @@ Post-v1.0 — see [`ampel_research.md`](ampel_research.md).
 | `builderDependencies`, `builder.version`, `byproducts` | optional | N/A | Not used. |
 
 **Builder identity (the "different mode → different builder.id/signer" MUST).**
-Distinguished two ways, both per-type, because `attest-build-provenance` runs
-inside the reusable workflow:
-
-- **Signer** — the Fulcio certificate SAN is that workflow's path
-  (`build_and_publish_python.yml` vs `…_go.yml`); each
-  `wrangle-provenance-<type>-v1.hjson` binds its own.
-- **`builder.id`** — the `slsa-builder-id` tenet binds `runDetails.builder.id` to
-  the per-type path: it passes only when the id equals
-  `…/build_and_publish_<type>.yml` or starts with that + `@<ref>`. So a passing
-  VSA guarantees the build ran under that workflow, and the build types do carry
-  distinct `builder.id`s — not a single fixed value.
+Because `attest-build-provenance` runs inside the reusable workflow, the
+provenance's `runDetails.builder.id` is that workflow — **per build type**.
+Verified on a recent build: a Go artifact carries
+`builder.id = https://github.com/TomHennen/wrangle/.github/workflows/build_and_publish_go.yml@<ref>`
+(python carries `…/build_and_publish_python.yml@<ref>`; `<ref>` is whatever the
+adopter pinned the reusable workflow at). This is **distinct** from
+`externalParameters.workflow`, which names the adopter's *caller* workflow (e.g.
+`<your-repo>/.github/workflows/release.yml`) — so the provenance cleanly
+separates *who built it* (wrangle, in `builder.id`) from *what invoked the build*
+(the adopter). Each `wrangle-provenance-<type>-v1.hjson` binds its own
+`builder.id` (the `slsa-builder-id` tenet: pass iff the id equals
+`…/build_and_publish_<type>.yml` or starts with that + `@`) **and** its signer
+SAN, so a passing VSA guarantees the build ran under that per-type workflow.
 
 - **Consumers MUST accept only specific (signer, builder.id) pairs** — MEETS, per
   the per-type policy bindings above.
