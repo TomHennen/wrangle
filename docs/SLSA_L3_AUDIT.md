@@ -2,9 +2,9 @@
 
 > **This is the historical isolation review, not the current claim.** For the
 > maintained, per-build-type Build Track level wrangle claims today — with live
-> `file:line` evidence — see [`slsa-conformance.md`](slsa-conformance.md). This
+> evidence — see [`REQUIREMENTS_MAPPING.md`](REQUIREMENTS_MAPPING.md). This
 > document records the point-in-time review (and the findings that drove the
-> hardening); read it for the *why*, read the conformance page for the *what*.
+> hardening); read it for the *why*, read the requirements mapping for the *what*.
 
 **Status:** Audit, not a fix plan. Each finding records evidence and a recommended
 direction; concrete remediations spawn their own issues per the contract of
