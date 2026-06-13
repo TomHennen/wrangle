@@ -154,16 +154,17 @@ Post-v1.0 — see [`ampel_research.md`](ampel_research.md).
 | `builderDependencies`, `builder.version`, `byproducts` | optional | N/A | Not used. |
 
 **Builder identity (the "different mode → different builder.id/signer" MUST).**
-What unambiguously distinguishes a wrangle build type to a consumer is the
-**signer**: because `attest-build-provenance` runs inside the reusable workflow,
-the Fulcio certificate SAN is that workflow's path —
-`build_and_publish_python.yml` vs `…_go.yml` — and each
-`wrangle-provenance-<type>-v1.hjson` binds its own. The policy *also* bakes a
-per-type `builder.id` and checks it (`slsa-builder-id` tenet). The exact
-granularity of `builder.id` is whatever `attest-build-provenance` emits for a
-reusable-workflow run; the per-type **signer identity** is the binding wrangle
-relies on, so the requirement holds even if `builder.id` were coarser than the
-workflow path.
+Distinguished two ways, both per-type, because `attest-build-provenance` runs
+inside the reusable workflow:
+
+- **Signer** — the Fulcio certificate SAN is that workflow's path
+  (`build_and_publish_python.yml` vs `…_go.yml`); each
+  `wrangle-provenance-<type>-v1.hjson` binds its own.
+- **`builder.id`** — the `slsa-builder-id` tenet binds `runDetails.builder.id` to
+  the per-type path: it passes only when the id equals
+  `…/build_and_publish_<type>.yml` or starts with that + `@<ref>`. So a passing
+  VSA guarantees the build ran under that workflow, and the build types do carry
+  distinct `builder.id`s — not a single fixed value.
 
 - **Consumers MUST accept only specific (signer, builder.id) pairs** — MEETS, per
   the per-type policy bindings above.
