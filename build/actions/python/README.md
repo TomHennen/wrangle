@@ -40,7 +40,7 @@ These steps set up [PyPI Trusted Publishing](https://docs.pypi.org/trusted-publi
 - **pytest runs automatically** when `tests/`, `test/`, or `[tool.pytest.ini_options]` is present (default pytest discovery conventions).
 - **Source scan** built in — vulnerable dependencies (OSV), unsafe workflow patterns (Zizmor), and more ([details](../../../actions/scan/README.md)); a load-bearing finding blocks publish.
 - **An SPDX SBOM**, uploaded as a workflow artifact.
-- **SLSA Build L3 provenance** ([the conditions behind the claim](../../../docs/SLSA_L3_AUDIT.md)), plus PEP 740 attestations on PyPI from the publish step.
+- **SLSA Build L3 provenance** ([the requirements it meets](../../../docs/REQUIREMENTS_MAPPING.md)), plus PEP 740 attestations on PyPI from the publish step.
 - **A signed VSA** attached to the release on tag pushes, so downstream users can verify your dist files with one command.
 
 ## Your publish job
@@ -91,5 +91,5 @@ That single command checks — fail-closed — the signature, wrangle's signer i
 
 - [`SPEC.md`](./SPEC.md) — this action's full specification: inputs, outputs, step sequence, security model.
 - [`docs/verifying_artifacts.md`](../../../docs/verifying_artifacts.md) — consumer verification: ampel, cosign, `gh attestation verify`, PEP 740.
-- [`docs/SLSA_L3_AUDIT.md`](../../../docs/SLSA_L3_AUDIT.md) — the conditions behind the Build L3 claim, including the uv cache analysis.
+- [`docs/REQUIREMENTS_MAPPING.md`](../../../docs/REQUIREMENTS_MAPPING.md) — the SLSA Build L3 requirements mapping, including the per-surface cache analysis (pip vs uv).
 - [PyPI Trusted Publishing](https://docs.pypi.org/trusted-publishers/) — the underlying publish mechanism.

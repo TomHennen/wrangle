@@ -17,7 +17,7 @@ Copy [`build_and_publish_containers.yml`](../../../gh_workflow_examples/build_an
 - **Build + push to ghcr.io** (other registries are out of scope — see [`SPEC.md`](./SPEC.md#current-scope-ghcrio-only)).
 - **Source scan** built in — vulnerable dependencies (OSV), unsafe workflow patterns (Zizmor), and more ([details](../../../actions/scan/README.md)); a load-bearing finding blocks the build and push.
 - **A BuildKit-native SBOM**, attached to the image as an OCI attestation and uploaded as a workflow artifact (SPDX JSON).
-- **SLSA Build L3 provenance** for the image digest ([the conditions behind the claim](../../../docs/SLSA_L3_AUDIT.md)).
+- **SLSA Build L3 provenance** for the image digest ([the requirements it meets](../../../docs/REQUIREMENTS_MAPPING.md)).
 - **A signed VSA** stored in the registry as an OCI referrer on the image digest, so consumers can verify the image with one command.
 
 ## Good to know
@@ -49,4 +49,4 @@ The SBOM is also inspectable straight off the image: `docker buildx imagetools i
 
 - [`SPEC.md`](./SPEC.md) — this action's full specification: failure contract, trust model, trigger restriction.
 - [`docs/verifying_artifacts.md`](../../../docs/verifying_artifacts.md) — consumer verification: ampel, cosign, and the publish/attest timing model.
-- [`docs/SLSA_L3_AUDIT.md`](../../../docs/SLSA_L3_AUDIT.md) — the conditions behind the Build L3 claim, including the BuildKit cache analysis.
+- [`docs/REQUIREMENTS_MAPPING.md`](../../../docs/REQUIREMENTS_MAPPING.md) — the SLSA Build L3 requirements mapping, including the per-surface cache analysis (BuildKit `type=gha`).

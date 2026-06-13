@@ -43,7 +43,7 @@ Push a `v`-prefixed semver tag (e.g. `v1.2.3`) and wrangle runs the full pipelin
 - **Source scan** built in — vulnerable dependencies (OSV), unsafe workflow patterns (Zizmor), and more ([details](../../../actions/scan/README.md)); a load-bearing finding blocks the release. No separate scan workflow needed.
 - **Checks before bytes ship** — gofmt, `go vet`, `go test`, govulncheck run in a read-only job; a failure blocks the release job.
 - **An SPDX SBOM**, uploaded as a workflow artifact.
-- **SLSA Build L3 provenance** tying each artifact to the workflow that built it ([the conditions behind the claim](../../../docs/SLSA_L3_AUDIT.md)).
+- **SLSA Build L3 provenance** tying each artifact to the workflow that built it ([the requirements it meets](../../../docs/REQUIREMENTS_MAPPING.md)).
 - **A signed VSA** attached to the release, so downstream users can verify your artifacts with one command.
 
 ## Good to know
@@ -84,5 +84,5 @@ That single command checks — fail-closed — the signature, wrangle's signer i
 
 - [`SPEC.md`](./SPEC.md) — design rationale: tool choices, permissions architecture, cache isolation.
 - [`docs/verifying_artifacts.md`](../../../docs/verifying_artifacts.md) — consumer verification: ampel, cosign, `gh attestation verify`, and the publish/attest timing model.
-- [`docs/SLSA_L3_AUDIT.md`](../../../docs/SLSA_L3_AUDIT.md) — the conditions behind the Build L3 claim.
+- [`docs/REQUIREMENTS_MAPPING.md`](../../../docs/REQUIREMENTS_MAPPING.md) — the SLSA Build L3 requirements mapping (the conditions behind the claim).
 - [goreleaser customization](https://goreleaser.com/customization/) — the underlying build tool.
