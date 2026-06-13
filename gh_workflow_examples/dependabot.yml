@@ -9,8 +9,11 @@
 version: 2
 updates:
   - package-ecosystem: "github-actions"
-    directories:
-      - "/**"
+    # "/" covers .github/workflows, where your `uses: TomHennen/wrangle/...` pin
+    # lives. If you add your OWN composite actions in subdirectories, add a
+    # directory entry per action — github-actions globs don't recurse into
+    # nested action.yml files.
+    directory: "/"
     schedule:
       interval: "weekly"
     open-pull-requests-limit: 5
