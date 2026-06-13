@@ -82,7 +82,7 @@ runs:
         set -euo pipefail
         "${{ github.action_path }}/validate_inputs.sh" "$INPUT_PATH" "$INPUT_REGISTRY" "$INPUT_IMAGENAME" "$INPUT_CACHE"
 
-    - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+    - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
       with:
         persist-credentials: false
 
@@ -107,7 +107,7 @@ runs:
           type=raw,value=latest,enable=${{ github.ref == 'refs/heads/main' }}
 
     - name: Log in to the Container registry
-      uses: docker/login-action@c94ce9fb468520275223c153574b00df6fe4bcc9 # v3.7.0
+      uses: docker/login-action@650006c6eb7dba73a995cc03b0b2d7f5ca915bee # v4.2.0
       with:
         registry: ${{ inputs.registry }}
         username: ${{ github.actor }}
@@ -240,7 +240,7 @@ runs:
           "$WRANGLE_ROOT/lib/format_sarif_summary.sh" "./metadata" >> "$GITHUB_STEP_SUMMARY"
         fi
 
-    - uses: actions/upload-artifact@bbbca2ddaa5d8feaa63e36b76fdaad77386f024f # v7.0.0
+    - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
       if: always()
       with:
         # Convention shared with other build types: <type>-metadata-<shortname>,
