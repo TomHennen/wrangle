@@ -7,9 +7,9 @@ whether the surrounding config is wired up to deliver what wrangle promises).
 
 | Property | Value |
 |----------|-------|
-| Pattern | Adapter (`tools/wrangle-lint/adapter.sh` + `check.py`) |
-| Integrity verification | PyYAML hash-pinned in `tools/wrangle-lint/requirements.txt`, installed `--require-hashes` into an isolated venv (DEP_MGMT branch 3; Dependabot bumps version + hashes atomically) |
-| SARIF output | `$WRANGLE_METADATA_DIR/wrangle-lint/output.sarif` (written by adapter) |
+| Pattern | Adapter (`tools/wrangle-lint/adapter.sh` + the first-party `wrangle-lint` Go binary) |
+| Integrity verification | First-party Go (`tool` directive in `tools/go.mod`), built by the orchestrator's upfront `go install tool`; dependency integrity via go.sum / sum.golang.org (DEP_MGMT branch 1) |
+| SARIF output | `$WRANGLE_METADATA_DIR/wrangle-lint/output.sarif` (written by the binary) |
 | SARIF upload | Wrangle uploads with category `wrangle/wrangle-lint` |
 | Default policy | `:fail` — config footguns block the check |
 | Suppression | inline `# wrangle-lint: ignore WL00X -- justification` on the flagged line or the comment block directly above it (justification required) |
@@ -24,11 +24,18 @@ whether the surrounding config is wired up to deliver what wrangle promises).
 | WL004 | error | A composite `action.yml` directory in the repo is absent from the `github-actions` `directories` — its pins drift from the workflow copies |
 | WL005 | warning | An updates entry has no `cooldown.default-days >= 7` — bumps land before the community can surface a supply-chain attack |
 
+## Testing
+
+Rule-logic coverage (every rule, suppression, malformed-fails-closed, dogfood)
+is in the Go table tests (`main_test.go`, run by `make gotest`). The bats suite
+drives the real binary through `adapter.sh` to pin the adapter wrapper contract
+(exit-code mapping, SARIF validity, argument handling).
+
 ## Known limitations
 
 - Ecosystem-coverage inference (a `go.mod`/`package.json` present but its
   ecosystem missing from `updates`) is tracked separately — it relies on
   manifest detection and belongs at `:info` until proven, so it is not yet a
   rule here.
-- WL001 (missing file) has no line to anchor a suppression comment to, so it
-  is not suppressible inline.
+- WL001 (missing file) has no line to anchor a suppression comment to, so it is
+  not suppressible inline.

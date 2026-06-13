@@ -111,13 +111,12 @@ RUN set -euo pipefail && \
         --require-hashes -r /tmp/wwl-requirements.txt && \
     rm /tmp/wwl-requirements.txt
 
-# wrangle-lint's PyYAML — same hash-pinned venv pattern. check.py is run under
-# /opt/wrangle-lint/bin/python3 by adapter.sh; the base python has no yaml.
-COPY tools/wrangle-lint/requirements.txt /tmp/wl-requirements.txt
+# wrangle-lint is a first-party Go tool (a tool directive in tools/go.mod).
+# Pre-fetch its module dependency so the unit suite builds and tests it without
+# network access at test time.
+COPY tools/go.mod tools/go.sum /tmp/wl-tools/
 RUN set -euo pipefail && \
-    python3 -m venv /opt/wrangle-lint && \
-    /opt/wrangle-lint/bin/pip install --no-cache-dir \
-        --require-hashes -r /tmp/wl-requirements.txt && \
-    rm /tmp/wl-requirements.txt
+    go -C /tmp/wl-tools mod download gopkg.in/yaml.v3 && \
+    rm -rf /tmp/wl-tools
 
 WORKDIR /wrangle

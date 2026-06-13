@@ -4,14 +4,14 @@ set -f  # disable globbing — adapter walks adopter-controlled paths
 
 # wrangle-lint adapter for wrangle.
 # Audits adopter configuration for footguns that silently defeat wrangle's
-# protections (v1: Dependabot config correctness). Distinct from the security
-# scanners — it checks whether the surrounding config is wired up, not the code.
+# protections (v1: Dependabot config correctness) — distinct from the security
+# scanners, which check code/workflows rather than whether config is wired up.
+#
+# The wrangle-lint binary is a first-party Go tool (a tool directive in
+# tools/go.mod); run.sh installs it onto PATH via the upfront `go install tool`.
 #
 # Usage: adapter.sh <src_dir> <output_dir>
 # Exit: 0 = no findings, 1 = findings found, 2 = tool error
-
-SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-CHECK_PY="${SCRIPT_DIR}/check.py"
 
 if [[ $# -ne 2 ]]; then
     printf 'Usage: adapter.sh <src_dir> <output_dir>\n' >&2
@@ -31,29 +31,19 @@ if [[ ! -d "$OUTPUT_DIR" ]]; then
     exit 2
 fi
 
-SARIF_FILE="${OUTPUT_DIR}/output.sarif"
-
-# Resolve a python3 that can import yaml: the managed venv the test image and
-# install.sh build, else a system python3 with PyYAML (local dev). The image's
-# base python has no yaml, so the fallback fails closed there rather than
-# masking a broken venv.
-VENV_PYTHON="/opt/wrangle-lint/bin/python3"
-if [[ -x "$VENV_PYTHON" ]]; then
-    PYTHON="$VENV_PYTHON"
-elif command -v python3 >/dev/null 2>&1 && python3 -c 'import yaml' >/dev/null 2>&1; then
-    PYTHON="python3"
-else
-    printf 'wrangle/wrangle-lint: no python3 with PyYAML found.\n' >&2
-    printf 'wrangle/wrangle-lint: install tools/wrangle-lint/requirements.txt into a venv (see test/Dockerfile).\n' >&2
+if ! command -v wrangle-lint >/dev/null 2>&1; then
+    printf 'wrangle/wrangle-lint: wrangle-lint binary not on PATH (built from tools/go.mod)\n' >&2
     exit 2
 fi
 
-# check.py writes the SARIF directly; a non-zero exit is a tool error
-# (e.g. malformed dependabot.yml) and must fail the adapter closed.
-check_exit=0
-"$PYTHON" "$CHECK_PY" "$SRC_DIR" "$SARIF_FILE" || check_exit=$?
-if [[ "$check_exit" -ne 0 ]]; then
-    printf 'wrangle/wrangle-lint: check failed (exit %d)\n' "$check_exit" >&2
+SARIF_FILE="${OUTPUT_DIR}/output.sarif"
+
+# A non-zero exit is a tool error (e.g. malformed dependabot.yml); the binary
+# writes the SARIF and the findings/no-findings split is derived below.
+lint_exit=0
+wrangle-lint "$SRC_DIR" "$SARIF_FILE" || lint_exit=$?
+if [[ "$lint_exit" -ne 0 ]]; then
+    printf 'wrangle/wrangle-lint: check failed (exit %d)\n' "$lint_exit" >&2
     exit 2
 fi
 
