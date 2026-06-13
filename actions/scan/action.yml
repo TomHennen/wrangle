@@ -161,7 +161,7 @@ runs:
     # produced — see issue #189.
     - name: Upload OSV SARIF
       if: always() && contains(inputs.tools, 'osv')
-      uses: github/codeql-action/upload-sarif@7211b7c8077ea37d8641b6271f6a365a22a5fbfa # v4.36.0
+      uses: github/codeql-action/upload-sarif@8aad20d150bbac5944a9f9d289da16a4b0d87c1e # v4.36.2
       continue-on-error: true
       with:
         sarif_file: ${{ github.workspace }}/.wrangle/metadata/osv/output.sarif
@@ -173,7 +173,7 @@ runs:
 
     - name: Upload Scorecard SARIF
       if: always() && contains(inputs.tools, 'scorecard') && github.event_name != 'pull_request'
-      uses: github/codeql-action/upload-sarif@7211b7c8077ea37d8641b6271f6a365a22a5fbfa # v4.36.0
+      uses: github/codeql-action/upload-sarif@8aad20d150bbac5944a9f9d289da16a4b0d87c1e # v4.36.2
       continue-on-error: true
       with:
         sarif_file: ${{ github.workspace }}/.wrangle/metadata/scorecard/output.sarif
@@ -188,7 +188,7 @@ runs:
     # failure. Gating on the marker preserves the prior valid state.
     - name: Upload Dependency Review SARIF
       if: always() && contains(inputs.tools, 'dependency-review') && github.event_name == 'pull_request' && hashFiles('.wrangle/metadata/dependency-review/error') == ''
-      uses: github/codeql-action/upload-sarif@7211b7c8077ea37d8641b6271f6a365a22a5fbfa # v4.36.0
+      uses: github/codeql-action/upload-sarif@8aad20d150bbac5944a9f9d289da16a4b0d87c1e # v4.36.2
       continue-on-error: true
       with:
         sarif_file: ${{ github.workspace }}/.wrangle/metadata/dependency-review/output.sarif
