@@ -10,8 +10,12 @@ text at the spec link above; it's paraphrased here.)
 
 It is the **source of truth for the SLSA level wrangle claims.**
 [`SLSA_L3_AUDIT.md`](SLSA_L3_AUDIT.md) is the point-in-time isolation review that
-drove the hardening — the *why*; this page is the *what*. Verdicts: **MEETS** /
-**PARTIAL** / **GAP** / **N/A**.
+drove the hardening — the *why*; this page is the *what*. (Its bottom-line table
+still shows uv and container at Build L2; audit Findings 1 and 2 are **resolved**
+— their caches are disabled on release — so the L3 verdicts here supersede that
+snapshot.) Verdicts: **MEETS** = satisfied at the claimed level (a "(caveat)" or
+"disclosed limitation" flags a documented residual that doesn't void it);
+**GAP** = a requirement genuinely unmet; **N/A** = doesn't apply.
 
 ## Scope and preconditions
 
@@ -21,8 +25,8 @@ Every verdict holds **only** under these conditions — they are part of the cla
   `TomHennen/wrangle/.github/workflows/build_and_publish_<type>.yml`. Calling the
   `build/actions/<type>/` composites directly is **not** an L3 path (see
   *Unforgeable* → direct-composite gap).
-- **GitHub-hosted runners only.** Self-hosted runners void the Isolated, Hosted,
-  and ephemeral-environment verdicts (restated on each).
+- **GitHub-hosted runners only.** Self-hosted runners void the Isolated and
+  Hosted verdicts (restated on each).
 - **Operator may be the source owner.** L3 does not require the build platform to
   be run by a third party, so an org running its **own fork** of wrangle is in
   scope ([#395](https://github.com/TomHennen/wrangle/issues/395)) as long as the
@@ -33,19 +37,19 @@ Every verdict holds **only** under these conditions — they are part of the cla
 | Build type | Level | Note |
 |---|---|---|
 | Go | **Build L3** | Publishes inline (publish-before-verify — see Distribution). |
-| Python — pip | **Build L3** | — |
-| Python — uv | **Build L3** | — |
-| npm | **Build L3** | Rests on `npm ci` re-verification (see Cache isolation). |
-| npm — pnpm | **Build L3** | — |
+| Python (pip / uv) | **Build L3** | One workflow; the per-PM cache differs — see Cache isolation. |
+| npm (npm / pnpm) | **Build L3** | One workflow; the npm PM rests on `npm ci` re-verification. |
 | Container | **Build L3** | Public registry only ([#182](https://github.com/TomHennen/wrangle/issues/182)); publishes inline. |
 | Shell | **N/A** | No artifact → no provenance/VSA. Lint + tests + source scan only. |
 
-The artifact-producing types share one machinery: each `build_and_publish_*.yml`
-runs `actions/attest-build-provenance` **inside the reusable workflow itself**,
-and the per-build-type provenance policy is
-`policies/wrangle-provenance-<type>-v1.hjson`. The signing-certificate SAN is the
-reusable workflow's own path (per build type) — see *builder identity* below. The
-only requirement that varies by build type is the **Isolated → cache** sub-point.
+pip/uv and npm/pnpm are package-manager variants of the same two reusable
+workflows, not separate L3 surfaces. The artifact-producing types share one
+machinery: each `build_and_publish_*.yml` runs `actions/attest-build-provenance`
+**inside the reusable workflow itself**, and the per-build-type provenance policy
+is `policies/wrangle-provenance-<type>-v1.hjson`. The signing-certificate SAN is
+the reusable workflow's own path (per build type) — see *builder identity* below.
+The only requirement that varies by build type is the **Isolated → cache**
+sub-point.
 
 ## Provenance requirements
 
@@ -72,10 +76,10 @@ only requirement that varies by build type is the **Isolated → cache** sub-poi
 - **Consumer can identify the build platform and entities to trust** — MEETS. The
   consumer's `ampel verify` (policy `wrangle-vsa-consumer-v1.hjson`) checks two
   bound identities:
-  - the **signer** is wrangle's reusable workflow, e.g.
+  - the **signer** is a wrangle reusable workflow, e.g.
     `https://github.com/TomHennen/wrangle/.github/workflows/build_and_publish_python.yml@<ref>` (the Fulcio cert SAN);
   - the build ran in **your own repo** — the cert's source-repository extension
-    must equal the `sourceRepo` you pass (`https://github.com/<your-org>/<your-repo>`).
+    must equal the `sourceRepo` *the consumer passes* (`https://github.com/<your-org>/<your-repo>`).
   Both must match, so a wrangle-signed artifact from someone else's repo is
   rejected.
 
@@ -103,8 +107,9 @@ only requirement that varies by build type is the **Isolated → cache** sub-poi
   `subject` digests are computed in the tenant build job (the `hash` step), which
   is the spec's permitted exception; `resolvedDependencies` is best-effort
   (below).
-- **Completeness is best-effort at L2** — MEETS (the stricter L3 rule on
-  `externalParameters` is under *Unforgeable*).
+- **Completeness SHOULD hold at L2** — MEETS. `externalParameters` MAY be
+  incompletely captured at L2 (it becomes MUST-complete at L3, under
+  *Unforgeable*); resolved-dependency completeness is best-effort.
 
 ### Provenance is Unforgeable — `Build L3`
 
@@ -116,17 +121,20 @@ only requirement that varies by build type is the **Isolated → cache** sub-poi
   ephemeral (~minutes) Fulcio key, held only by the isolated `attest`/`verify`
   jobs. The "secure management system" here is GitHub OIDC + Sigstore + per-job
   runner isolation — **not** a wrangle-operated KMS/HSM. **Residual risk:**
-  keyless reduces but does not eliminate credential theft — if the signing job
-  itself were compromised (e.g. a malicious action pinned into it, or a runner
-  compromise) the short-lived token/key could be exfiltrated within its validity
-  window. We don't claim KMS/HSM-grade key custody.
+  keyless reduces but does not eliminate credential theft. The signing jobs run
+  **no adopter code**, so the realistic vector is a wrangle-side supply-chain
+  compromise — a malicious dependency in one of wrangle's *own* pinned
+  signing-job actions (governed by [`DEP_MGMT.md`](../DEP_MGMT.md)) — or a runner
+  compromise; either could exfiltrate the short-lived token/key within its
+  validity window. We don't claim KMS/HSM-grade key custody.
 - **Secret material NOT accessible to the environment running user build steps**
-  — MEETS, and this is the load-bearing control: build jobs hold `contents: read`
-  and **no `id-token`**; only the separate `attest`/`verify` jobs (no adopter
-  code, separate VMs) get `id-token: write`. (Go's `release` job has `contents:
-  write` for inline goreleaser publish but still no `id-token`.) This is exactly
-  the defense against the "leaked id-token" failure mode — the token is never
-  granted to a job that runs tenant code.
+  — MEETS, and this is the load-bearing control: **no build job holds
+  `id-token: write`**; only the separate `attest`/`verify` jobs (no adopter code,
+  separate VMs) get it. Build jobs otherwise carry only what they need to publish
+  — the Go `release` job adds `contents: write` (goreleaser) and the container
+  `build` job adds `packages: write` (push the image), neither with `id-token`.
+  This is exactly the defense against the "leaked id-token" failure mode — the
+  token is never granted to a job that runs tenant code.
 - **Every field generated or verified by the control plane; user steps can't
   inject or alter it** — MEETS. Predicate is control-plane populated; the
   `::stop-commands::` guard (`lib/stop_commands_guard.sh`, wired in each
@@ -134,7 +142,8 @@ only requirement that varies by build type is the **Isolated → cache** sub-poi
   build output.
 - **Completeness: `externalParameters` MUST be fully enumerated at L3** — MEETS;
   the control plane records the full workflow invocation (repo, ref, workflow
-  path). `resolvedDependencies` remains best-effort (a disclosed gap, below).
+  path). `resolvedDependencies` remains best-effort (a disclosed limitation,
+  below).
 
 **Gap (direct composite use):** calling `build/actions/<type>/` directly forfeits
 the build/sign separation — one `id-token: write` on a job that also runs the
@@ -143,7 +152,10 @@ build breaks unforgeability. The supported L3 interface is the reusable workflow
 **Gap (builder == verifier):** wrangle's `verify` job (which emits the VSA) runs
 in the same reusable workflow that built the artifact; SLSA guidance is that the
 verifier should not be the builder of its own provenance. This affects the
-*VSA's independence*, not the underlying `attest-build-provenance` provenance.
+*VSA's independence*, not the underlying `attest-build-provenance` provenance. It
+also **compounds with the own-fork allowance** (Scope): one party can own the
+source, operate the builder, and sign the VSA — still within L3 (which constrains
+the build platform's integrity, not third-party operation), but worth naming.
 Post-v1.0 — see [`ampel_research.md`](ampel_research.md).
 
 ### Provenance contents — per field (`build-provenance.md`)
@@ -154,9 +166,9 @@ Post-v1.0 — see [`ampel_research.md`](ampel_research.md).
 | `buildType` | REQUIRED L1 | MEETS | `https://actions.github.io/buildtypes/workflow/v1`; `slsa-build-type` tenet. |
 | `externalParameters` | REQUIRED L1; **complete at L3** | MEETS | Control-plane workflow invocation (repo, ref, workflow path); source repo bound by `slsa-build-point`. |
 | `internalParameters` | optional | N/A | Not relied on. |
-| `resolvedDependencies` | best-effort (through L3) | **GAP (disclosed)** | Records the source repo + digest, **not** the transitive dependency closure — do not read the provenance as an attestation of every dependency. |
+| `resolvedDependencies` | best-effort (through L3) | MEETS (disclosed limitation) | Best-effort is satisfied by the source repo + digest; the **transitive dependency closure is not enumerated** — do not read the provenance as an attestation of every dependency. |
 | `runDetails.builder.id` | REQUIRED L1; **different build modes MUST use a different `builder.id`** (SHOULD use a different signer) | MEETS — see *builder identity* below | per-type signer SAN + baked `builderId` in `wrangle-provenance-<type>-v1.hjson`. |
-| `metadata.invocationId/startedOn/finishedOn` | no required level | MEETS | Control-plane populated. |
+| `metadata.invocationId/startedOn/finishedOn` | no required level | MEETS | Emitted by `attest-build-provenance` where present (control-plane populated; none required). |
 | `builderDependencies`, `builder.version`, `byproducts` | optional | N/A | Not used. |
 
 **Builder identity (the "different mode → different builder.id/signer" MUST).**
@@ -169,17 +181,26 @@ adopter pinned the reusable workflow at). This is **distinct** from
 `externalParameters.workflow`, which names the adopter's *caller* workflow (e.g.
 `<your-repo>/.github/workflows/release.yml`) — so the provenance cleanly
 separates *who built it* (wrangle, in `builder.id`) from *what invoked the build*
-(the adopter). Each `wrangle-provenance-<type>-v1.hjson` binds its own
-`builder.id` (the `slsa-builder-id` tenet: pass iff the id equals
-`…/build_and_publish_<type>.yml` or starts with that + `@`) **and** its signer
-SAN, so a passing VSA guarantees the build ran under that per-type workflow.
+(the adopter). The per-type bind is enforced **at VSA emission**: each
+`wrangle-provenance-<type>-v1.hjson` AND-binds its own `builder.id` (the
+`slsa-builder-id` tenet: pass iff the id equals `…/build_and_publish_<type>.yml`
+or starts with that + `@`) with its signer SAN. The **consumer** policy
+(`wrangle-vsa-consumer-v1.hjson`) does *not* re-check `builder.id` — it verifies
+the VSA's signer is *a* wrangle `build_and_publish_*` verify workflow, plus the
+source repo, resourceUri, and L3 verdict, and trusts wrangle's verifier for the
+per-type bind (this is the builder == verifier delegation noted above).
 
-- **Consumers MUST accept only specific (signer, builder.id) pairs** — MEETS, per
-  the per-type policy bindings above.
+- **Consumers MUST accept only specific (signer, builder.id) pairs** — MEETS at
+  VSA emission: `wrangle-provenance-<type>-v1.hjson` AND-binds the wrangle signer
+  identity with the baked per-type `builderId`. The consumer's own check binds
+  the VSA signer (any wrangle `build_and_publish_*` verify workflow) — not
+  `builder.id` directly — so consumers rely on wrangle's verifier for the pair.
 - **`builder.id` SHOULD resolve to docs of scope / claimed level / accuracy +
-  completeness + any tenant-generated fields** — **this document is that doc**:
-  the level table, plus the tenant-generated `subject` and best-effort
-  `resolvedDependencies` disclosures.
+  completeness + any tenant-generated fields** — MEETS in substance: wrangle
+  publishes this documentation (the claimed level, plus the tenant-generated
+  `subject` and best-effort `resolvedDependencies` disclosures). The `builder.id`
+  URI resolves to the workflow source rather than to this page directly, so the
+  SHOULD is met by intent, not by URI resolution.
 
 ## Build environment requirements
 
@@ -189,14 +210,19 @@ SAN, so a passing VSA guarantees the build ran under that per-type workflow.
 > guarantee each of the following, even between builds in the same tenant.
 
 - **A build can't reach the platform's secrets (the signing material)** — MEETS.
-  Build jobs are `contents: read`, no `id-token`; adapters also run under `env -i`
-  with a fixed allowlist (`run.sh`), so scan tools see no secrets.
+  **No build job holds `id-token: write`** — the load-bearing fact (a build job
+  can't mint the signing identity). Build jobs are otherwise minimal-permission
+  (`contents: read`; the Go `release` job adds `contents: write` and the container
+  `build` job adds `packages: write` to publish, neither with `id-token`).
+  Adapters run under `env -i` with a fixed allowlist (`run.sh`), and every
+  checkout sets `persist-credentials: false`, so the build environment sees no
+  platform secrets.
 - **Overlapping builds can't influence one another** — MEETS. Each job is a
   separate GitHub-hosted ephemeral VM.
 - **No build persists into a later build's environment (ephemeral per build)** —
-  MEETS *(GitHub-hosted only)*. Runner re-provisioned per job;
-  `persist-credentials: false` on every checkout. **Precondition:** self-hosted
-  runners void this.
+  MEETS *(GitHub-hosted only)*. GitHub re-provisions a fresh runner VM per job, so
+  nothing carries to the next build. **Precondition:** self-hosted runners void
+  this.
 - **No cache poisoning (output identical with or without the cache)** — MEETS per
   build type; see **Cache isolation**.
 - **No services opened for remote influence unless captured as
@@ -219,12 +245,16 @@ These fall on the adopter (the *producer*); wrangle exists to satisfy them.
   is the consistent process; the adopter's pinned config (`.goreleaser.yml`,
   `pyproject.toml`, lockfiles) is their per-project metadata, which they keep
   current.
-- **Distribute provenance (MAY delegate to the ecosystem)** — MEETS. GitHub
-  attestation store (`attestations: write`); containers also as an OCI referrer
-  on the digest. A per-artifact signed VSA is a release asset (Go/Python/npm) or a
-  registry referrer (container). For npm/python the publish lives in the adopter's
-  caller (Trusted Publishing), so the registry redistributes — the permitted
-  delegation.
+- **Distribute provenance (MAY delegate to the ecosystem)** — MEETS for the build
+  **provenance**: it lands in the GitHub attestation store (`attestations: write`),
+  and for containers also as an OCI referrer on the image digest. The signed
+  **VSA** is delivered as: a GitHub release asset for **Go** (goreleaser creates
+  the release inline); a release asset for **Python/npm** *only if the adopter's
+  tooling created a release for the tag*, otherwise the run-scoped workflow
+  artifact; an OCI referrer for **container**. **Enabled, not executed:** for
+  Python/npm wrangle stops before publish (publishing is the adopter's caller via
+  Trusted Publishing), so whether the *registry* redistributes provenance is the
+  adopter's step — wrangle enables it but does not perform it.
 - **Attestations SHOULD be bound to artifacts, not releases** — MEETS.
   Per-artifact digest subjects + a one-per-artifact VSA matrix.
 
