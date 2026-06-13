@@ -422,6 +422,18 @@ write_pyproject() {
     [[ "$status" -eq 0 ]]
 }
 
+@test "python: scan job needs gate so go-cache can read should-release" {
+    run bash -c "sed -n '/^  scan:/,/^  [a-z]/p' \"$WORKFLOW\" | grep -E 'needs:.*gate'"
+    [[ "$status" -eq 0 ]]
+}
+
+@test "python: scan job forces go-cache off on release" {
+    # The scan gates the attested release; its Go tool cache must build cold
+    # on release so a poisoned cache cannot forge a passing scan.
+    run bash -c "sed -n '/^  scan:/,/^  [a-z]/p' \"$WORKFLOW\" | grep -E \"go-cache:.*should-release == 'true' && ''\""
+    [[ "$status" -eq 0 ]]
+}
+
 @test "python: workflow has gate job calling release_gate" {
     run grep -E '^  gate:' "$WORKFLOW"
     [[ "$status" -eq 0 ]]
