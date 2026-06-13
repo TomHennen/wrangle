@@ -50,6 +50,14 @@ setup() {
     COSIGN_BIN="$(command -v cosign || echo "${WRANGLE_BIN_DIR:-/nonexistent}/cosign")"
     AMPEL_BIN="$(command -v ampel || echo "${WRANGLE_BIN_DIR:-/nonexistent}/ampel")"
     TMP="$(mktemp -d)"
+    # The shipped policy requires a release-tag signer identity (@refs/tags/v…).
+    # The captured fixtures are from PR-head SHA runs, so their signer ref is a
+    # SHA — tenet and repo-binding tests run against a lenient variant that
+    # relaxes only the ref anchor. Derived here, never shipped, so it can't
+    # drift from production; a dedicated test proves the shipped policy rejects
+    # the SHA identity.
+    POLICY_LENIENT="$TMP/consumer-lenient.hjson"
+    sed 's#@refs/tags/v\[0-9.\]+\$#@.+#' "$POLICY" > "$POLICY_LENIENT"
 }
 
 teardown() { rm -rf "$TMP"; }
@@ -144,7 +152,7 @@ require_sigstore() {
     [[ -x "$AMPEL_BIN" ]] || skip_or_fail "real ampel not available"
     require_sigstore
     run "$AMPEL_BIN" verify --subject "$BLOB" \
-        --policy "$POLICY" --attestation "$VSA" \
+        --policy "$POLICY_LENIENT" --attestation "$VSA" \
         --context "expectedResourceUri:$RESOURCE_URI" \
         --context "sourceRepo:https://github.com/$SIGNER_REPO"
     [[ "$status" -eq 0 ]]
@@ -155,7 +163,7 @@ require_sigstore() {
     [[ -x "$AMPEL_BIN" ]] || skip_or_fail "real ampel not available"
     require_sigstore
     run "$AMPEL_BIN" verify --subject "$BLOB" \
-        --policy "$POLICY" --attestation "$VSA" \
+        --policy "$POLICY_LENIENT" --attestation "$VSA" \
         --context "expectedResourceUri:pkg:npm/@attacker/evil@9.9.9" \
         --context "sourceRepo:https://github.com/$SIGNER_REPO"
     [[ "$status" -ne 0 ]]
@@ -168,7 +176,7 @@ require_sigstore() {
     # A wrangle-signed VSA built in a different repo must be rejected even
     # though the signer identity (wrangle's reusable workflow) matches.
     run "$AMPEL_BIN" verify --subject "$BLOB" \
-        --policy "$POLICY" --attestation "$VSA" \
+        --policy "$POLICY_LENIENT" --attestation "$VSA" \
         --context "expectedResourceUri:$RESOURCE_URI" \
         --context "sourceRepo:https://github.com/attacker/evil-repo"
     [[ "$status" -ne 0 ]]
@@ -178,7 +186,7 @@ require_sigstore() {
     [[ -x "$AMPEL_BIN" ]] || skip_or_fail "real ampel not available"
     require_sigstore
     run "$AMPEL_BIN" verify --subject "$BLOB" \
-        --policy "$POLICY" --attestation "$VSA" \
+        --policy "$POLICY_LENIENT" --attestation "$VSA" \
         --context "expectedResourceUri:$RESOURCE_URI"
     [[ "$status" -ne 0 ]]
 }
@@ -187,7 +195,7 @@ require_sigstore() {
     [[ -x "$AMPEL_BIN" ]] || skip_or_fail "real ampel not available"
     require_sigstore
     run "$AMPEL_BIN" verify --subject "$CONTAINER_DIGEST" \
-        --policy "$POLICY" --attestation "$FIX/container-vsa.intoto.jsonl" \
+        --policy "$POLICY_LENIENT" --attestation "$FIX/container-vsa.intoto.jsonl" \
         --context "expectedResourceUri:$CONTAINER_URI" \
         --context "sourceRepo:https://github.com/$SIGNER_REPO"
     [[ "$status" -eq 0 ]]
@@ -198,7 +206,7 @@ require_sigstore() {
     [[ -x "$AMPEL_BIN" ]] || skip_or_fail "real ampel not available"
     require_sigstore
     # Same policy with an identity that can't match our VSA's signer.
-    sed 's#build_and_publish_\[a-z\]+#NOT_a_wrangle_workflow#' "$POLICY" > "$TMP/bad-identity.hjson"
+    sed 's#build_and_publish_\[a-z\]+#NOT_a_wrangle_workflow#' "$POLICY_LENIENT" > "$TMP/bad-identity.hjson"
     run "$AMPEL_BIN" verify --subject "$BLOB" \
         --policy "$TMP/bad-identity.hjson" --attestation "$VSA" \
         --context "expectedResourceUri:$RESOURCE_URI" \
@@ -217,6 +225,21 @@ require_sigstore() {
     cp "$BLOB" "$TMP/tampered.tgz"
     printf 'tamper' >> "$TMP/tampered.tgz"   # one extra byte -> different sha256
     run "$AMPEL_BIN" verify --subject "$TMP/tampered.tgz" \
+        --policy "$POLICY_LENIENT" --attestation "$VSA" \
+        --context "expectedResourceUri:$RESOURCE_URI" \
+        --context "sourceRepo:https://github.com/$SIGNER_REPO"
+    [[ "$status" -ne 0 ]]
+}
+
+# The tightening that makes the consumer guarantee real: the SHIPPED policy
+# requires a release-tag signer identity (@refs/tags/v…), so a VSA signed when
+# the adopter pinned wrangle by SHA (identity @<sha>) is rejected. This fixture
+# is exactly that case (a PR-head SHA run), verified here against the production
+# policy — not the lenient variant the tenet tests above use.
+@test "consumer B: the shipped policy REJECTS a SHA-pinned (non-tag) signer identity" {
+    [[ -x "$AMPEL_BIN" ]] || skip_or_fail "real ampel not available"
+    require_sigstore
+    run "$AMPEL_BIN" verify --subject "$BLOB" \
         --policy "$POLICY" --attestation "$VSA" \
         --context "expectedResourceUri:$RESOURCE_URI" \
         --context "sourceRepo:https://github.com/$SIGNER_REPO"
@@ -224,47 +247,23 @@ require_sigstore() {
 }
 
 # --- adopter-side publish gate (actions/verify-vsa) ---
-# The gate script evaluates the consumer PolicySet with ampel; running it
-# against the same real fixture proves the script's ampel invocation and
-# policy wiring work on genuine bnd-emitted bundles, not just the unit
-# suite's shim.
-
-@test "verify-vsa: gate script verifies the real npm fixture end-to-end" {
+# The gate runs the consumer PolicySet with ampel. The shipped policy now
+# requires a release-tag signer identity, and the only real bundles we have are
+# from PR-head SHA runs — so the gate rejects them, which is exactly what an
+# adopter sees if they SHA-pin wrangle. This exercises the wrapper's ampel
+# invocation + output parsing end-to-end on a genuine bundle.
+#
+# DEFERRED: the wrapper's ADMIT path (and gate-level repo-binding / tamper
+# checks) need a tag-identity VSA fixture captured from a release-showcase run,
+# which doesn't exist yet (every fixture is a PR-head SHA run). The underlying
+# policy logic for those — repo binding and the subject-digest tamper bind — is
+# covered by the Path B lenient tests above. Tracked in the consumer-provenance
+# follow-up; re-add the admit-path gate tests once a tag-identity fixture lands.
+@test "verify-vsa: gate script rejects a SHA-pinned (non-tag) VSA — tag-pinning enforced" {
     [[ -x "$AMPEL_BIN" ]] || skip_or_fail "real ampel not available"
     require_sigstore
     mkdir -p "$TMP/dist" "$TMP/vsas"
     cp "$BLOB" "$TMP/dist/npm-package.tgz"
-    cp "$VSA" "$TMP/vsas/npm-package.tgz.intoto.jsonl"
-    PATH="$(dirname "$AMPEL_BIN"):$PATH" \
-        ARTIFACT_PATH="$TMP/dist" RESOURCE_URI="$RESOURCE_URI" REPO="$SIGNER_REPO" VSA_DIR="$TMP/vsas" \
-        run "$REPO_ROOT/actions/verify-vsa/verify_vsa.sh"
-    [[ "$status" -eq 0 ]]
-    [[ "$output" == *"1 file(s) verified against PASSED VSAs"* ]]
-}
-
-@test "verify-vsa: gate script rejects the fixture under a wrong origin repo (fail-closed)" {
-    [[ -x "$AMPEL_BIN" ]] || skip_or_fail "real ampel not available"
-    require_sigstore
-    mkdir -p "$TMP/dist" "$TMP/vsas"
-    cp "$BLOB" "$TMP/dist/npm-package.tgz"
-    cp "$VSA" "$TMP/vsas/npm-package.tgz.intoto.jsonl"
-    PATH="$(dirname "$AMPEL_BIN"):$PATH" \
-        ARTIFACT_PATH="$TMP/dist" RESOURCE_URI="$RESOURCE_URI" REPO="attacker/repo" VSA_DIR="$TMP/vsas" \
-        run "$REPO_ROOT/actions/verify-vsa/verify_vsa.sh"
-    [[ "$status" -eq 1 ]]
-    [[ "$output" == *"ampel rejected"* ]]
-}
-
-# The exact runner-side substitution this gate exists to stop: a tampered blob
-# sitting under the same basename as a legitimately-signed VSA. Repo,
-# resourceUri, and signer identity all still match the real VSA — only the
-# bytes differ — so this is rejected iff the subject-digest bind holds.
-@test "verify-vsa: gate script rejects a tampered blob under a matching VSA basename" {
-    [[ -x "$AMPEL_BIN" ]] || skip_or_fail "real ampel not available"
-    require_sigstore
-    mkdir -p "$TMP/dist" "$TMP/vsas"
-    cp "$BLOB" "$TMP/dist/npm-package.tgz"
-    printf 'tamper' >> "$TMP/dist/npm-package.tgz"   # substitute the published bytes
     cp "$VSA" "$TMP/vsas/npm-package.tgz.intoto.jsonl"
     PATH="$(dirname "$AMPEL_BIN"):$PATH" \
         ARTIFACT_PATH="$TMP/dist" RESOURCE_URI="$RESOURCE_URI" REPO="$SIGNER_REPO" VSA_DIR="$TMP/vsas" \

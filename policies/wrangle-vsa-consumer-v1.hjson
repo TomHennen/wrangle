@@ -28,7 +28,12 @@
                 sigstore: {
                     mode: "regexp"
                     issuer: "^https://token\\.actions\\.githubusercontent\\.com$"
-                    identity: "^https://github\\.com/TomHennen/wrangle/\\.github/workflows/build_and_publish_[a-z]+\\.yml@.+$"
+                    // Require a release-tag ref, not an arbitrary commit, so a
+                    // consumer can trust the adopter built with an official
+                    // wrangle release rather than a cherry-picked SHA. Keep this
+                    // ref anchor in lockstep with the cosign identity regexp in
+                    // docs/verifying_artifacts.md (drift-guarded).
+                    identity: "^https://github\\.com/TomHennen/wrangle/\\.github/workflows/build_and_publish_[a-z]+\\.yml@refs/tags/v[0-9.]+$"
                     // Binds the cert's source-repository extension (the repo
                     // wrangle's reusable workflow was invoked from) to the
                     // consumer-supplied sourceRepo — whole-value exact match,
