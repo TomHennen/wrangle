@@ -204,6 +204,11 @@ Post-v1.0 work — see [`ampel_research.md`](ampel_research.md).
   endpoints; outbound calls are dependency/registry fetches the build is a client
   of. No carve-out needed.
 
+*Spec scope: L3 ensures a well-intentioned build runs securely; it does not stop
+a producer from choosing a risky build, nor prohibit calling out to a
+remote/self-hosted executor outside the platform's trust boundary — which is why
+GitHub-hosted runners are a precondition here.*
+
 ### Hosted — `Build L2+`
 
 - **All build steps ran on a hosted platform, not an individual workstation** —
@@ -211,9 +216,27 @@ Post-v1.0 work — see [`ampel_research.md`](ampel_research.md).
   `build_and_publish_*.yml` (build, attest, verify, scan, gate). **Precondition:**
   self-hosted runners void this.
 
-## Distribution
+## Producer requirements
 
-### Provenance distribution — Producer, `Build L1+`
+These fall on the adopter (the *producer*); wrangle exists to satisfy them.
+
+### Choose an appropriate build platform — `L1+`
+
+- **Producer MUST select a platform capable of the desired level** — MEETS
+  (enabled). Adopting wrangle's reusable workflow *is* choosing an L3-capable
+  platform; the level table above is the claim.
+
+### Follow a consistent build process — `L1+`
+
+- **Producer MUST build consistently so verifiers can form expectations** —
+  MEETS (enabled). The reusable workflow is the consistent process; the adopter's
+  pinned config (`.goreleaser.yml`, `pyproject.toml`, lockfiles) is the
+  per-project metadata.
+- **If the package ecosystem needs a build-config file, the producer MUST keep
+  it current** — adopter responsibility (e.g. `.goreleaser.yml` for Go); wrangle
+  validates inputs but does not own the adopter's config.
+
+### Distribute provenance — `L1+`
 
 > The producer MUST distribute provenance to consumers, and MAY delegate that to
 > the package ecosystem if the ecosystem can distribute it.
@@ -256,6 +279,15 @@ relies entirely on `npm ci`.
 
 Adapters/scan tools receive **no secrets** (`run.sh` strips the environment with
 `env -i`); `GITHUB_TOKEN` is granted only to the steps that publish.
+
+## General requirements
+
+- **All implementations MUST use industry security best practices** — access
+  controls, secured communications, cryptographic-secret management, frequent
+  updates, prompt vulnerability fixes — MEETS. wrangle's posture: SHA-pinned
+  actions, least-privilege per-job `permissions`, keyless signing, the source
+  scan (OSV/Zizmor) gating every build, and the supply-chain discipline in
+  [`DEP_MGMT.md`](../DEP_MGMT.md).
 
 ## Maintaining this page
 
