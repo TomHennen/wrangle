@@ -6,55 +6,61 @@ answer links to the source of truth — start with [`SPEC.md`](SPEC.md) and the
 
 ## How should I pin wrangle's reusable workflows?
 
-By **commit SHA, with the version in a trailing comment** — exactly like any
-other third-party action:
+Either a release **tag** or a commit **SHA** — both are safe; the choice is
+preference. wrangle's examples use a tag for legibility.
+
+**Tag** (`@vX.Y.Z`), with an inline zizmor exception on that one line:
 
 ```yaml
-uses: TomHennen/wrangle/.github/workflows/build_and_publish_go.yml@<sha> # v0.2.0
+uses: TomHennen/wrangle/.github/workflows/build_and_publish_go.yml@v0.2.1 # zizmor: ignore[unpinned-uses] - immutable
 ```
 
-Two reasons:
+wrangle's release tags are
+[immutable](https://docs.github.com/en/code-security/concepts/supply-chain-security/immutable-releases)
+— a published `vX.Y.Z` is locked to its commit and can't be moved or deleted. A
+tag is legible (you see the version), Dependabot-tracked, and its verify
+identity (`@refs/tags/vX.Y.Z`) is the one the
+[verification guide](verifying_artifacts.md)'s `cosign` command shows by
+default. The cost is the one-line ignore — wrangle's bundled zizmor scan flags
+any tag-pinned `uses:` and can't tell the tag is immutable.
 
-- **A tag can be moved; a SHA can't** — the usual reason to pin any third-party
-  action by digest.
-- **wrangle's own scan would otherwise flag you.** A wrangle build type runs
-  zizmor over your workflows, and zizmor's `unpinned-uses` flags a third-party
-  action that isn't SHA-pinned. Pin a tag and your first run fails on the very
-  line wrangle told you to add; pin the SHA and it's clean.
-
-SHA pins are opaque and go stale, but Dependabot handles both — it bumps the SHA
-and refreshes the `# vX.Y.Z` comment on wrangle's no-auto-merge cooldown (copy
-the [`dependabot.yml`](../gh_workflow_examples/dependabot.yml) starter).
-
-### Can I pin a `@vX.Y.Z` tag instead?
-
-You can, but wrangle's bundled zizmor scan will flag it (`unpinned-uses`) because
-a tag can be moved. Since you only call wrangle once, the simplest fix is an
-inline ignore on that line:
+**SHA** (`@<sha> # vX.Y.Z`), like any other third-party action — no ignore needed:
 
 ```yaml
-uses: TomHennen/wrangle/.github/workflows/build_and_publish_go.yml@v0.2.0 # zizmor: ignore[unpinned-uses]
+uses: TomHennen/wrangle/.github/workflows/build_and_publish_go.yml@<sha> # v0.2.1
 ```
 
-It scopes the exception to the wrangle line; your other actions still need a
-SHA. (Once wrangle publishes immutable release tags and zizmor treats them as
-pinned, tag pins will be clean with no ignore — tracked in
-[#387](https://github.com/TomHennen/wrangle/issues/387), not done yet.)
+A SHA is immutable *by construction* (a content hash — no external assumption);
+Dependabot bumps it and refreshes the comment. The cost is legibility (opaque)
+and a verify identity of `@<sha>` (adjust the `cosign` regexp).
+
+Either way, your **other** actions still pin by SHA — they aren't immutable.
+
+### Tag or SHA — which?
+
+In practice, equivalent. The honest difference is what each rests on: a SHA's
+immutability is cryptographic and needs nothing external; a tag's depends on
+wrangle keeping immutable-releases and the no-bypass ruleset enabled — a
+GitHub-control-plane assumption a SHA doesn't carry (though a release published
+while they're on stays immutable even if they're later disabled). Pick the tag
+for legibility and a verify command that matches out of the box; pick the SHA
+for the most self-contained integrity.
 
 ### How does my pin affect verification?
 
 Your verifier's expected identity must match **whatever you pinned** — wrangle's
-keyless VSA records the ref you invoked it at in the signing certificate. With a
-SHA pin the identity is `…build_and_publish_<type>.yml@<sha>`:
+keyless VSA records the ref you invoked it at in the signing certificate.
 
-- The recommended **`ampel verify`** path needs no change — its policy matches
-  the signer as `…@.+`.
-- The **`cosign`** fallback's `--certificate-identity-regexp` must match your
-  SHA (the [verification guide](verifying_artifacts.md) shows the form); a
-  tag pin would instead match `@refs/tags/vX.Y.Z`.
+- A **tag** pin yields identity `…build_and_publish_<type>.yml@refs/tags/vX.Y.Z`
+  — what the [verification guide](verifying_artifacts.md)'s `cosign` command
+  already expects.
+- A **SHA** pin yields `…@<sha>`; adjust the `cosign`
+  `--certificate-identity-regexp` accordingly.
+- The recommended **`ampel verify`** path matches either (its policy uses
+  `…@.+`).
 
-### Which SHA should I pin?
+### Which version should I pin?
 
-The commit the latest [release](https://github.com/TomHennen/wrangle/releases)
-tags, with that version in the comment. Dependabot and the examples under
+The latest [release](https://github.com/TomHennen/wrangle/releases) tag.
+Dependabot and the examples under
 [`gh_workflow_examples/`](../gh_workflow_examples/) track the current release.

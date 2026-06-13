@@ -41,7 +41,7 @@ from the release, then:
 
 ```bash
 ampel verify --subject <artifact> \
-  --policy git+https://github.com/TomHennen/wrangle@v0.2.0#policies/wrangle-vsa-consumer-v1.hjson \
+  --policy git+https://github.com/TomHennen/wrangle@v0.2.1#policies/wrangle-vsa-consumer-v1.hjson \
   --attestation <artifact>.intoto.jsonl \
   --context expectedResourceUri:<resourceUri from the table above> \
   --context sourceRepo:https://github.com/<your-org>/<your-repo>
@@ -52,7 +52,7 @@ download step:
 
 ```bash
 ampel verify --subject sha256:<digest> \
-  --policy git+https://github.com/TomHennen/wrangle@v0.2.0#policies/wrangle-vsa-consumer-v1.hjson \
+  --policy git+https://github.com/TomHennen/wrangle@v0.2.1#policies/wrangle-vsa-consumer-v1.hjson \
   --collector oci:<imagename>@sha256:<digest> \
   --context expectedResourceUri:<imagename>@sha256:<digest> \
   --context sourceRepo:https://github.com/<your-org>/<your-repo>
@@ -73,7 +73,7 @@ For file artifacts (`cosign verify-blob-attestation`):
 ```bash
 cosign verify-blob-attestation --bundle <artifact>.intoto.jsonl --new-bundle-format \
   --certificate-oidc-issuer https://token.actions.githubusercontent.com \
-  --certificate-identity-regexp '^https://github\.com/TomHennen/wrangle/\.github/workflows/build_and_publish_<type>\.yml@[0-9a-f]{40}$' \
+  --certificate-identity-regexp '^https://github\.com/TomHennen/wrangle/\.github/workflows/build_and_publish_<type>\.yml@refs/tags/v[0-9.]+$' \
   --certificate-github-workflow-repository <your-org>/<your-repo> \
   --type https://slsa.dev/verification_summary/v1 \
   <artifact>
@@ -84,9 +84,9 @@ jq -e '.predicate.resourceUri == "<resourceUri from the table above>"' <<<"$payl
 jq -e '.predicate.verifiedLevels | index("SLSA_BUILD_LEVEL_3")' <<<"$payload"
 ```
 
-Substitute `<type>` with `go`, `python`, or `npm`. The `@[0-9a-f]{40}` anchor
-assumes a SHA pin (the examples' default); use `@refs/tags/vX.Y.Z` instead if
-you pinned wrangle at a tag. `--type` must be the full URI — cosign rejects the
+Substitute `<type>` with `go`, `python`, or `npm`. The `@refs/tags/v…` anchor
+matches the examples' tag pin; use `@[0-9a-f]{40}$` instead if you pinned
+wrangle by SHA. `--type` must be the full URI — cosign rejects the
 `slsaverificationsummary` alias.
 
 For container images, a digest subject has no file blob, so the command is
@@ -97,7 +97,7 @@ verified envelope to stdout, so capture and decode that:
 cosign verify-attestation \
   --type https://slsa.dev/verification_summary/v1 \
   --certificate-oidc-issuer https://token.actions.githubusercontent.com \
-  --certificate-identity-regexp '^https://github\.com/TomHennen/wrangle/\.github/workflows/build_and_publish_container\.yml@[0-9a-f]{40}$' \
+  --certificate-identity-regexp '^https://github\.com/TomHennen/wrangle/\.github/workflows/build_and_publish_container\.yml@refs/tags/v[0-9.]+$' \
   --certificate-github-workflow-repository <your-org>/<your-repo> \
   <imagename>@sha256:<digest> > vsa.json
 
