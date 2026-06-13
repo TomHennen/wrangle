@@ -26,7 +26,7 @@ SHA pins are opaque and go stale, but Dependabot handles both — it bumps the S
 and refreshes the `# vX.Y.Z` comment on wrangle's no-auto-merge cooldown (copy
 the [`dependabot.yml`](../gh_workflow_examples/dependabot.yml) starter).
 
-## Can I pin a `@vX.Y.Z` tag instead?
+### Can I pin a `@vX.Y.Z` tag instead?
 
 You can, but wrangle's bundled zizmor scan will flag it (`unpinned-uses`) because
 a tag can be moved. Since you only call wrangle once, the simplest fix is an
@@ -41,7 +41,7 @@ SHA. (Once wrangle publishes immutable release tags and zizmor treats them as
 pinned, tag pins will be clean with no ignore — tracked in
 [#387](https://github.com/TomHennen/wrangle/issues/387), not done yet.)
 
-## How does my pin affect verification?
+### How does my pin affect verification?
 
 Your verifier's expected identity must match **whatever you pinned** — wrangle's
 keyless VSA records the ref you invoked it at in the signing certificate. With a
@@ -53,7 +53,7 @@ SHA pin the identity is `…build_and_publish_<type>.yml@<sha>`:
   SHA (the [verification guide](verifying_artifacts.md) shows the form); a
   tag pin would instead match `@refs/tags/vX.Y.Z`.
 
-## Which SHA should I pin?
+### Which SHA should I pin?
 
 The commit the latest [release](https://github.com/TomHennen/wrangle/releases)
 tags, with that version in the comment. Dependabot and the examples under
