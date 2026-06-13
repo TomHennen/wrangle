@@ -15,7 +15,7 @@ jobs:
       contents: read
       actions: read  # source scan: Scorecard reads the Actions API
       security-events: write  # source-scan SARIF -> Security tab
-    uses: TomHennen/wrangle/.github/workflows/build_shell.yml@v0.1.0
+    uses: TomHennen/wrangle/.github/workflows/build_shell.yml@v0.2.0
     # with:
     #   scan-path: "."       # optional: subdirectory to scan (default: repo root)
     #   bats-path: ""        # optional: path to bats tests (default: auto-detect)

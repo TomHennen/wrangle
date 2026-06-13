@@ -122,3 +122,8 @@ Go, Python, npm, and Container each run the full pipeline and produce an atteste
 | Container | [README](build/actions/container/README.md) | [build_and_publish_containers.yml](gh_workflow_examples/build_and_publish_containers.yml) |
 | Shell | — | [build_shell.yml](gh_workflow_examples/build_shell.yml) |
 | Source-only — no build, scan only | [README](actions/scan/README.md) | [check_source_change.yml](gh_workflow_examples/check_source_change.yml) |
+
+## FAQ
+
+Why the examples pin a release tag instead of a SHA, whether you have to, and
+how verification ties to your pin: see [docs/FAQ.md](docs/FAQ.md).
