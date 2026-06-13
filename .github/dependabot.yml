@@ -1,11 +1,27 @@
 version: 2
 updates:
   - package-ecosystem: "github-actions"
-    # Glob finds all action.yml files: .github/workflows/, actions/scan/,
-    # build/actions/container/, tools/scorecard/, tools/zizmor/, etc.
-    # New composite actions are picked up automatically.
+    # github-actions only auto-discovers workflow files and composite action.yml
+    # at directories listed explicitly — a "/**" glob does not recurse into
+    # nested action.yml, so composites were silently never bumped. "/" covers
+    # .github/workflows; every other directory holding an action.yml is listed.
+    # A new composite needs an entry here (a divergence test backstops a miss).
     directories:
-      - "/**"
+      - "/"
+      - "/actions/preflight_guard"
+      - "/actions/release_gate"
+      - "/actions/scan"
+      - "/actions/verify"
+      - "/actions/verify-vsa"
+      - "/build/actions/container"
+      - "/build/actions/go/checks"
+      - "/build/actions/go/release"
+      - "/build/actions/npm"
+      - "/build/actions/python"
+      - "/build/actions/shell"
+      - "/tools/dependency-review"
+      - "/tools/scorecard"
+      - "/tools/zizmor"
     schedule:
       interval: "weekly"
     open-pull-requests-limit: 5
