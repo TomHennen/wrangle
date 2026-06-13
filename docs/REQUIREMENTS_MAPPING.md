@@ -175,36 +175,31 @@ Post-v1.0 — see [`ampel_research.md`](ampel_research.md).
 | `metadata.invocationId/startedOn/finishedOn` | no required level | MEETS | Emitted by `attest-build-provenance` where present (control-plane populated; none required). |
 | `builderDependencies`, `builder.version`, `byproducts` | optional | N/A | Not used. |
 
-**Builder identity — the MUST that different build modes carry a different
-`builder.id` (and SHOULD a different signer).** Because `attest-build-provenance`
-runs inside the reusable workflow, the provenance's `runDetails.builder.id` is that
-workflow. Verified on a recent build: a Go artifact carries
-`builder.id = https://github.com/TomHennen/wrangle/.github/workflows/build_and_publish_go.yml@<ref>`
-(python carries `…/build_and_publish_python.yml@<ref>`; `<ref>` is whatever the
-adopter pinned the reusable workflow at). This is **distinct** from
-`externalParameters.workflow`, which names the adopter's *caller* workflow (e.g.
-`<your-repo>/.github/workflows/release.yml`) — so the provenance cleanly
-separates *who built it* (wrangle, in `builder.id`) from *what invoked the build*
-(the adopter). The per-type bind is enforced **at VSA emission**: each
-`wrangle-provenance-<type>-v1.hjson` AND-binds its own `builder.id` (the
-`slsa-builder-id` tenet: pass iff the id equals `…/build_and_publish_<type>.yml`
-or starts with that + `@`) with its signer SAN. The **consumer** policy
-(`wrangle-vsa-consumer-v1.hjson`) does *not* re-check `builder.id` — it verifies
-the VSA's signer is *a* wrangle `build_and_publish_*` verify workflow, plus the
-source repo, resourceUri, and L3 verdict, and trusts wrangle's verifier for the
-per-type bind (this is the builder == verifier delegation noted above).
+**Builder identity.** wrangle sets `builder.id` to the reusable workflow's own path —
+`https://github.com/TomHennen/wrangle/.github/workflows/build_and_publish_go.yml@<ref>`
+for Go, `…/build_and_publish_python.yml@<ref>` for Python, and so on (verified on a
+recent build; `<ref>` is whatever the adopter pinned). Each workflow builds exactly one
+way and claims one Build Level, so a different build mode is a different workflow is a
+different `builder.id` — which is what the spec's "different mode → different
+`builder.id`" MUST asks for. This is **distinct** from `externalParameters.workflow`,
+the adopter's *caller* workflow (e.g. `<your-repo>/.github/workflows/release.yml`): the
+provenance separates *who built it* (wrangle) from *what invoked the build* (the
+adopter).
 
-- **Consumers MUST accept only specific (signer, builder.id) pairs** — MEETS at
-  VSA emission: `wrangle-provenance-<type>-v1.hjson` AND-binds the wrangle signer
-  identity with the baked per-type `builderId`. The consumer's own check binds
-  the VSA signer (any wrangle `build_and_publish_*` verify workflow) — not
-  `builder.id` directly — so consumers rely on wrangle's verifier for the pair.
-- **`builder.id` SHOULD resolve to docs of scope / claimed level / accuracy +
-  completeness + any tenant-generated fields** — MEETS in substance: wrangle
-  publishes this documentation (the claimed level, plus the tenant-generated
-  `subject` and best-effort `resolvedDependencies` disclosures). The `builder.id`
-  URI resolves to the workflow source rather than to this page directly, so the
-  SHOULD is met by intent, not by URI resolution.
+wrangle binds that identity **when it emits the VSA** (`wrangle-provenance-<type>-v1.hjson`
+requires both the per-type `builder.id` and the matching signer). The **consumer** policy
+then checks the VSA's signer, your source repo, the resource URI, and the L3 verdict —
+not `builder.id` directly — so consumers rely on wrangle's verifier for the per-type bind
+(the builder == verifier delegation noted above).
+
+- **Consumers MUST accept only specific (signer, builder.id) pairs** — MEETS: wrangle
+  binds the pair at VSA emission; the consumer binds the VSA signer and trusts wrangle's
+  verifier for the rest.
+- **`builder.id` SHOULD resolve to docs of scope / level / accuracy + completeness** —
+  MEETS in substance: wrangle publishes this page (claimed level, plus the
+  tenant-generated `subject` and best-effort `resolvedDependencies` disclosures). The
+  `builder.id` URI resolves to the workflow source, not to this page, so the SHOULD is
+  met by intent.
 
 ## Build environment requirements
 
