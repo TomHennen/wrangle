@@ -27,6 +27,11 @@ jobs:
       # the tree — unit and integration suites alike — with their tool
       # dependencies installed by the setup script.
       setup-script: test/setup_integration.sh
+      # Cache the Go tools built from source: go-tools-dir for the
+      # setup-script's tools in the shell-build job, go-cache for the
+      # scan job's osv-scanner et al.
+      go-cache: enabled
+      go-tools-dir: tools
 
   # Wrangle-internal (self-ref pins are not an adopter concern, so this
   # lives in the dogfood caller, not the reusable build_shell.yml). Fails

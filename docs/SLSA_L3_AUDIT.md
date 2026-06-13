@@ -41,8 +41,10 @@ adopter consuming wrangle through one of wrangle's **reusable workflows**:
     no point-in-time row; this row reflects its current state. Go meets Build L3
     by the same generic-generator isolation as the other paths, with the
     release-vs-PR cache asymmetry applied to `actions/setup-go`'s module + build
-    caches (the module cache is `npm ci`-like — re-verified against `go.sum`; the
-    build cache is disabled on release builds). Per-builder analysis lives in
+    caches (release builds disable both via `cache: false`: the build cache has
+    no checked-in source-of-truth for compiled output, and the module cache
+    trusts its extracted tree on restore unless an explicit `go mod verify` runs
+    — neither is automatically `npm ci`-like). Per-builder analysis lives in
     [`build/actions/go/SPEC.md`](../build/actions/go/SPEC.md) "Cache isolation",
     not in this historical document.
 

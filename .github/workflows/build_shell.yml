@@ -34,6 +34,27 @@ on:
         required: false
         type: string
         default: "osv zizmor scorecard:info dependency-review"
+      go-cache:
+        description: >
+          Set to "enabled" to cache the Go module + build caches the
+          scan tools build from source (osv-scanner et al. — #343).
+          Default off: the cache is ~1.5–3 GB against this repo's
+          Actions cache quota. Source scanning produces no provenance,
+          so caching is L3-safe here regardless.
+        required: false
+        type: string
+        default: ""
+      go-tools-dir:
+        description: >
+          Workspace-relative directory holding a go.mod + go.sum whose
+          `go install tool` deps your setup-script builds. When set, the
+          shell-build job caches the Go module + build caches keyed on
+          that go.sum, so those tools aren't recompiled from source every
+          run. The cache counts against your repo's Actions quota. Empty
+          (default) disables it. To cache the scan tools, use go-cache.
+        required: false
+        type: string
+        default: ""
 
 jobs:
   # Refuse trigger patterns known to expose this workflow to supply-chain
@@ -71,6 +92,7 @@ jobs:
         if: ${{ inputs.scan-tools != '' }}
         with:
           tools: ${{ inputs.scan-tools }}
+          go-cache: ${{ inputs.go-cache }}
 
   shell-build:
     needs: [guard]
@@ -81,6 +103,17 @@ jobs:
       - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
         with:
           persist-credentials: false
+
+      # The setup-script's `go install tool` builds from source; cache the
+      # module + build caches keyed on the tool manifest's go.sum. Non-release
+      # only (this workflow produces no provenance), so the build cache's
+      # trust-on-hit (docs/SLSA_L3_AUDIT.md) is not an L3 concern here.
+      - name: Set up Go with module + build cache
+        if: ${{ inputs.go-tools-dir != '' }}
+        uses: actions/setup-go@4a3601121dd01d1626a1e23e37211e3254c1c06c # v6.4.0
+        with:
+          go-version-file: ${{ inputs.go-tools-dir }}/go.mod
+          cache-dependency-path: ${{ inputs.go-tools-dir }}/go.sum
 
       - name: Run shell build
         # TODO: replace with $/build/actions/shell when GitHub ships $/ syntax (#136)
