@@ -1041,11 +1041,11 @@ All `uses:` references in wrangle's own workflows and examples MUST be pinned:
 | Reference type | Pinning requirement |
 |---------------|---------------------|
 | Third-party actions | Full commit SHA |
-| Wrangle's own actions (in examples) | Full commit SHA + `# vX.Y.Z` comment (a tag is flagged by zizmor `unpinned-uses`) |
+| Wrangle's own actions (in examples) | Release tag `@vX.Y.Z` + `# zizmor: ignore[unpinned-uses]` — wrangle's release tags are immutable; the ignore silences `unpinned-uses`, which can't tell. A full commit SHA + `# vX.Y.Z` comment is an accepted alternative |
 | Wrangle internal refs in reusable workflows | Relative path (`./`) — resolves to the workflow's own repo at the called ref |
 | Wrangle internal refs in composite actions | Relative path (`./`) — resolves to the same repo at the called ref |
 
-Adopters are advised to pin a released commit SHA (with the version in a `# vX.Y.Z` comment). The `@main` ref MUST NOT appear in any `uses:` line in the repo, including examples and documentation.
+Adopters are advised to pin the release tag `@vX.Y.Z` with `# zizmor: ignore[unpinned-uses]` (or, equivalently, a released commit SHA with a `# vX.Y.Z` comment). The `@main` ref MUST NOT appear in any `uses:` line in the repo, including examples and documentation.
 
 ### Output Sanitization
 

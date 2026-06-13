@@ -125,5 +125,5 @@ Go, Python, npm, and Container each run the full pipeline and produce an atteste
 
 ## FAQ
 
-How to pin wrangle (by SHA, and why zizmor wants it that way), whether you can
-use a tag, and how verification ties to your pin: see [docs/FAQ.md](docs/FAQ.md).
+How to pin wrangle (by immutable release tag with a one-line zizmor exception —
+or by SHA), and how verification ties to your pin: see [docs/FAQ.md](docs/FAQ.md).
