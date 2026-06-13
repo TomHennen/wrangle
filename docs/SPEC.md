@@ -691,7 +691,7 @@ jobs:
       actions: read
       contents: read
       security-events: write
-    uses: TomHennen/wrangle/.github/workflows/check_source_change.yml@1448b250fb8d75841dfba3b2c8f5c23e85162b89 # v0.2.0
+    uses: TomHennen/wrangle/.github/workflows/check_source_change.yml@v0.2.1 # zizmor: ignore[unpinned-uses]
 ```
 
 This is the entire file an adopter needs. No secrets, no configuration, no dependencies to manage.

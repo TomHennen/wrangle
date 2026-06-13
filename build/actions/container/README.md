@@ -35,7 +35,7 @@ Consumers verify the image with one command — ampel fetches the VSA straight f
 
 ```bash
 ampel verify --subject sha256:<digest> \
-  --policy git+https://github.com/TomHennen/wrangle@v0.2.0#policies/wrangle-vsa-consumer-v1.hjson \
+  --policy git+https://github.com/TomHennen/wrangle@v0.2.1#policies/wrangle-vsa-consumer-v1.hjson \
   --collector oci:<imagename>@sha256:<digest> \
   --context expectedResourceUri:<imagename>@sha256:<digest> \
   --context sourceRepo:https://github.com/<your-org>/<your-repo>

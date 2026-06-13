@@ -41,7 +41,7 @@ from the release, then:
 
 ```bash
 ampel verify --subject <artifact> \
-  --policy git+https://github.com/TomHennen/wrangle@v0.2.0#policies/wrangle-vsa-consumer-v1.hjson \
+  --policy git+https://github.com/TomHennen/wrangle@v0.2.1#policies/wrangle-vsa-consumer-v1.hjson \
   --attestation <artifact>.intoto.jsonl \
   --context expectedResourceUri:<resourceUri from the table above> \
   --context sourceRepo:https://github.com/<your-org>/<your-repo>
@@ -52,7 +52,7 @@ download step:
 
 ```bash
 ampel verify --subject sha256:<digest> \
-  --policy git+https://github.com/TomHennen/wrangle@v0.2.0#policies/wrangle-vsa-consumer-v1.hjson \
+  --policy git+https://github.com/TomHennen/wrangle@v0.2.1#policies/wrangle-vsa-consumer-v1.hjson \
   --collector oci:<imagename>@sha256:<digest> \
   --context expectedResourceUri:<imagename>@sha256:<digest> \
   --context sourceRepo:https://github.com/<your-org>/<your-repo>

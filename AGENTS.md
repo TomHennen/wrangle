@@ -35,7 +35,7 @@ jobs:
       actions: read
       contents: read
       security-events: write
-    uses: tomhennen/wrangle/.github/workflows/check_source_change.yml@1448b250fb8d75841dfba3b2c8f5c23e85162b89 # v0.2.0
+    uses: tomhennen/wrangle/.github/workflows/check_source_change.yml@v0.2.1 # zizmor: ignore[unpinned-uses]
 ```
 
 Replace `DEFAULT_BRANCH` with the repository's default branch name.
@@ -109,11 +109,11 @@ PR CI tests the actual code in the PR branch, not `main`, because wrangle's own 
 3. If CI fails, investigate before re-pushing — it may reveal a real environment difference
 
 **What CI does not cover:**
-- Cross-repo consumption (`uses: tomhennen/wrangle/...@1448b250fb8d75841dfba3b2c8f5c23e85162b89 # v0.2.0`) is only testable after tagging a release. If your change affects the reusable workflow interface, note this in the PR description.
+- Cross-repo consumption (`uses: tomhennen/wrangle/...@v0.2.1 # zizmor: ignore[unpinned-uses]`) is only testable after tagging a release. If your change affects the reusable workflow interface, note this in the PR description.
 
 ## Do NOT
 
 - Do not add secrets beyond what the workflow documents — source scanning needs none; the container build needs only `gh_token` (see its example)
-- Do not use `@main` in production — pin a released commit SHA (e.g., `@<sha> # v0.2.0`); a `@vX.Y.Z` tag is flagged by wrangle's own zizmor scan (`unpinned-uses`)
+- Do not use `@main` in production — pin the release tag (e.g., `@v0.2.1 # zizmor: ignore[unpinned-uses]`); wrangle's release tags are immutable, and the inline ignore silences the `unpinned-uses` finding that can't tell. A SHA pin works too if you prefer (no ignore needed)
 - Do not add extra permissions beyond those listed for the workflow you adopt
 - Do not configure Dependabot auto-merge — adopt new versions only after a delay (see Quick Start)

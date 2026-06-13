@@ -90,7 +90,7 @@ whatever is already set.
 | Third-party GitHub Action | `@<40-hex sha> # vX` |
 | Wrangle self-ref in a reusable workflow | `@<sha> # main YYYY-MM-DD` |
 | Wrangle composite → sibling composite | relative path `./actions/…` |
-| Wrangle action in examples/docs | commit SHA `@<sha> # vX.Y.Z` (zizmor `unpinned-uses` flags a tag) |
+| Wrangle action in examples/docs | release tag `@vX.Y.Z # zizmor: ignore[unpinned-uses]` (tags are immutable; the ignore silences `unpinned-uses`, which can't tell) |
 | Go tool | `tool` directive + pinned `require` in `tools/go.mod` (+ `go.sum`) |
 | Python tool | `==version --hash=sha256:` in `requirements.txt` |
 | Binary with no package manager | version pinned in the install script |

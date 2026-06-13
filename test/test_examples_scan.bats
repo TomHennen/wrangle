@@ -3,13 +3,12 @@
 # Dogfoods the adopter-facing example workflows in gh_workflow_examples/.
 #
 # These are the files the docs tell adopters to copy into .github/workflows/,
-# yet nothing scans them: zizmor's directory walk only collects files already
-# under a .github/workflows/ path, and the pin-consistency guard only compares
-# SHAs among refs already pinned by SHA — a tag-pinned wrangle ref (the
-# regression that shipped unpinned examples) matches neither. This stages each
-# example the way an adopter would and runs the real scanner over it, so an
-# unpinned/tag-pinned reference fails CI here instead of on an adopter's first
-# run on the line wrangle told them to add.
+# yet nothing else scans them: zizmor's directory walk only collects files
+# already under a .github/workflows/ path. The wrangle ref is tag-pinned to an
+# immutable release and carries an inline `# zizmor: ignore[unpinned-uses]`;
+# this stages each example the way an adopter would and runs the real scanner
+# over it, so a dropped ignore — or any other unpinned ref — fails CI here
+# instead of on an adopter's first run on the line wrangle told them to add.
 
 # skip_or_fail (fail-not-skip under CI) lives in a shared bats helper.
 load "lib/bats_helpers"
@@ -44,8 +43,8 @@ teardown() {
     [ "$staged" -gt 0 ]
 
     # zizmor exits 0 clean, 14 on findings; --no-online-audits still runs
-    # unpinned-uses (it works offline), which is the audit that catches a
-    # tag-pinned wrangle reference.
+    # unpinned-uses (it works offline) — the audit the wrangle line's inline
+    # ignore scopes, and that would fire on any other unpinned ref.
     run zizmor --no-online-audits "$TMP_DIR"
     if [ "$status" -ne 0 ]; then
         printf '%s\n' "$output" >&2
