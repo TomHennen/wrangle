@@ -111,4 +111,13 @@ RUN set -euo pipefail && \
         --require-hashes -r /tmp/wwl-requirements.txt && \
     rm /tmp/wwl-requirements.txt
 
+# wrangle-lint's PyYAML — same hash-pinned venv pattern. check.py is run under
+# /opt/wrangle-lint/bin/python3 by adapter.sh; the base python has no yaml.
+COPY tools/wrangle-lint/requirements.txt /tmp/wl-requirements.txt
+RUN set -euo pipefail && \
+    python3 -m venv /opt/wrangle-lint && \
+    /opt/wrangle-lint/bin/pip install --no-cache-dir \
+        --require-hashes -r /tmp/wl-requirements.txt && \
+    rm /tmp/wl-requirements.txt
+
 WORKDIR /wrangle

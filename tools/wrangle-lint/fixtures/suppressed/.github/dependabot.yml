@@ -1,0 +1,11 @@
+version: 2
+updates:
+  - package-ecosystem: "github-actions"
+    directories:
+      # wrangle-lint: ignore WL003 -- monorepo with no composite actions; glob is intentional
+      - "/**"
+    schedule:
+      interval: "weekly"
+    open-pull-requests-limit: 5
+    cooldown:
+      default-days: 7
