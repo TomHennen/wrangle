@@ -148,6 +148,30 @@ updates:
 			},
 			notWant: "WL004",
 		},
+		{
+			name:  "WL001 fires when the file has no updates entries",
+			files: map[string]string{".github/dependabot.yml": "version: 2\n"},
+			want:  "WL001",
+		},
+		{
+			name: "WL005 not fired for an aliased cooldown (alias resolution)",
+			files: map[string]string{".github/dependabot.yml": `version: 2
+updates:
+  - package-ecosystem: "github-actions"
+    directory: "/"
+    cooldown: &cd
+      default-days: 7
+  - package-ecosystem: "gomod"
+    directory: "/"
+    cooldown: *cd
+`},
+			notWant: "WL005",
+		},
+		{
+			name:  "multi-document: a leading --- empty doc is skipped, not no-op'd",
+			files: map[string]string{".github/dependabot.yml": "---\n---\nversion: 2\nupdates:\n  - package-ecosystem: \"github-actions\"\n    directory: \"/\"\n"},
+			want:  "WL005",
+		},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
@@ -207,6 +231,19 @@ updates:
 `,
 			suppressed: false,
 		},
+		{
+			name: "a typo'd four-digit id does not suppress (WL0033 != WL003)",
+			dependabot: `version: 2
+updates:
+  - package-ecosystem: "github-actions"
+    directories:
+      # wrangle-lint: ignore WL0033 -- typo, four digits
+      - "/**"
+    cooldown:
+      default-days: 7
+`,
+			suppressed: false,
+		},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
@@ -229,9 +266,23 @@ func TestMalformedFailsClosed(t *testing.T) {
 	}
 }
 
-// sarifResultRuleIDs reads a SARIF file the binary wrote and returns its result
-// rule ids, asserting the driver is wrangle-lint and the JSON is valid.
-func sarifResultRuleIDs(t *testing.T, path string) []string {
+type sarifResult struct {
+	RuleID    string `json:"ruleId"`
+	Locations []struct {
+		PhysicalLocation struct {
+			ArtifactLocation struct {
+				URI string `json:"uri"`
+			} `json:"artifactLocation"`
+			Region struct {
+				StartLine int `json:"startLine"`
+			} `json:"region"`
+		} `json:"physicalLocation"`
+	} `json:"locations"`
+}
+
+// parseSARIF reads a SARIF file the binary wrote, asserts it is valid and names
+// the wrangle-lint driver, and returns its results.
+func parseSARIF(t *testing.T, path string) []sarifResult {
 	t.Helper()
 	b, err := os.ReadFile(path)
 	if err != nil {
@@ -242,9 +293,7 @@ func sarifResultRuleIDs(t *testing.T, path string) []string {
 			Tool struct {
 				Driver struct{ Name string } `json:"driver"`
 			} `json:"tool"`
-			Results []struct {
-				RuleID string `json:"ruleId"`
-			} `json:"results"`
+			Results []sarifResult `json:"results"`
 		} `json:"runs"`
 	}
 	if err := json.Unmarshal(b, &log); err != nil {
@@ -253,15 +302,20 @@ func sarifResultRuleIDs(t *testing.T, path string) []string {
 	if len(log.Runs) != 1 || log.Runs[0].Tool.Driver.Name != "wrangle-lint" {
 		t.Fatalf("unexpected SARIF shape: %s", b)
 	}
+	return log.Runs[0].Results
+}
+
+func resultRuleIDs(results []sarifResult) []string {
 	var ids []string
-	for _, r := range log.Runs[0].Results {
+	for _, r := range results {
 		ids = append(ids, r.RuleID)
 	}
 	return ids
 }
 
 // TestRunEndToEnd drives run() (arg parsing → SARIF file → exit code), the path
-// the adapter invokes, without an external binary.
+// the adapter invokes, without an external binary. It also pins that go-sarif
+// carries the file+line location through, since the adapter wrapper relies on it.
 func TestRunEndToEnd(t *testing.T) {
 	dir := t.TempDir()
 
@@ -270,8 +324,8 @@ func TestRunEndToEnd(t *testing.T) {
 	if code := run([]string{"wrangle-lint", clean, cleanOut}); code != 0 {
 		t.Fatalf("clean repo: exit %d, want 0", code)
 	}
-	if ids := sarifResultRuleIDs(t, cleanOut); len(ids) != 0 {
-		t.Errorf("clean repo: want no results, got %v", ids)
+	if results := parseSARIF(t, cleanOut); len(results) != 0 {
+		t.Errorf("clean repo: want no results, got %v", resultRuleIDs(results))
 	}
 
 	glob := writeRepo(t, map[string]string{".github/dependabot.yml": `version: 2
@@ -288,8 +342,16 @@ updates:
 	if code := run([]string{"wrangle-lint", glob, globOut}); code != 0 {
 		t.Fatalf("glob repo: exit %d, want 0", code)
 	}
-	if ids := sarifResultRuleIDs(t, globOut); !has(ids, "WL003") {
-		t.Errorf("glob repo: want WL003, got %v", ids)
+	results := parseSARIF(t, globOut)
+	if !has(resultRuleIDs(results), "WL003") {
+		t.Fatalf("glob repo: want WL003, got %v", resultRuleIDs(results))
+	}
+	loc := results[0].Locations
+	if len(loc) == 0 || loc[0].PhysicalLocation.ArtifactLocation.URI != ".github/dependabot.yml" {
+		t.Errorf("WL003 location uri not carried through: %+v", results[0])
+	}
+	if len(loc) > 0 && loc[0].PhysicalLocation.Region.StartLine < 1 {
+		t.Errorf("WL003 startLine = %d, want >= 1", loc[0].PhysicalLocation.Region.StartLine)
 	}
 
 	bad := writeRepo(t, map[string]string{".github/dependabot.yml": "updates:\n  - bad: [unclosed\n"})

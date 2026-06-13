@@ -11,7 +11,10 @@ tool (
 	golang.org/x/vuln/cmd/govulncheck
 )
 
-require gopkg.in/yaml.v3 v3.0.1
+require (
+	github.com/owenrumney/go-sarif/v3 v3.3.0
+	gopkg.in/yaml.v3 v3.0.1
+)
 
 require (
 	bitbucket.org/creachadair/stringset v0.0.14 // indirect
@@ -340,7 +343,6 @@ require (
 	github.com/opencontainers/selinux v1.13.1 // indirect
 	github.com/openvex/go-vex v0.2.8 // indirect
 	github.com/ossf/osv-schema/bindings/go v0.0.0-20260304051245-ec3272c283e4 // indirect
-	github.com/owenrumney/go-sarif/v3 v3.3.0 // indirect
 	github.com/package-url/packageurl-go v0.1.6 // indirect
 	github.com/pandatix/go-cvss v0.6.2 // indirect
 	github.com/pborman/uuid v1.2.1 // indirect

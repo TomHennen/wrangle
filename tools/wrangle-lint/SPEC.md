@@ -19,7 +19,7 @@ wrangle-specific policy (see [Scope](#scope)).
 
 | Rule | Level | What it flags |
 |------|-------|---------------|
-| WL001 | warning | No `.github/dependabot.yml` — update PRs never run |
+| WL001 | error | No effective Dependabot config — `.github/dependabot.yml` is missing, or present with no `updates` entries, so no update PRs run |
 | WL002 | error | Config at `.github/dependabot.yaml` — Dependabot reads only `.yml`, so it is silently ignored |
 | WL003 | error | A `github-actions` entry globs `directory`/`directories` with `**` — it does not recurse into nested `action.yml` (and `/**` provokes duplicate PRs) |
 | WL004 | error | A composite `action.yml` directory in the repo is absent from the `github-actions` `directories` — its pins drift from the workflow copies |
@@ -39,16 +39,17 @@ two ways:
 
 ## Testing
 
-Rule-logic coverage (every rule, suppression, malformed-fails-closed, dogfood)
-is in the Go table tests (`main_test.go`, run by `make gotest`). The bats suite
-drives the real binary through `adapter.sh` to pin the adapter wrapper contract
-(exit-code mapping, SARIF validity, argument handling).
+Rule-logic coverage (every rule, suppression, alias/multi-doc edge cases,
+malformed-fails-closed, dogfood) and `run()` end-to-end are in the Go tests
+(`main_test.go`, run by `make gotest`). The bats suite drives `adapter.sh`
+against a PATH shim to pin the wrapper contract (exit-code mapping, SARIF
+validity, argument handling) — the shim can emit the invalid-SARIF and
+tool-error cases a real scanner never produces on demand.
 
 ## Known limitations
 
-- Ecosystem-coverage inference (a `go.mod`/`package.json` present but its
-  ecosystem missing from `updates`) is tracked separately — it relies on
-  manifest detection and belongs at `:info` until proven, so it is not yet a
-  rule here.
-- WL001 (missing file) has no line to anchor a suppression comment to, so it is
-  not suppressible inline.
+- Flagging a *missing* ecosystem the adopter needs (e.g. they build with
+  `build_and_publish_npm` but have no `npm` entry) is tracked in #409.
+- A *missing* `.github/dependabot.yml` has no line to anchor a comment to and is
+  not inline-suppressible; the present-but-no-`updates` variant is (it's a real
+  file), as is every other finding.

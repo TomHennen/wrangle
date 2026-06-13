@@ -1,18 +1,16 @@
-// Command wrangle-lint audits an adopter repo's wrangle-relevant configuration
-// for footguns that silently defeat the protection wrangle sets up. It is a
-// config-correctness layer, distinct from the security scanning osv/zizmor/
-// scorecard do: those check the adopter's code and workflows; this checks
-// whether the surrounding configuration is wired up to deliver what wrangle
-// promises.
+// Command wrangle-lint audits an adopter repo's Dependabot configuration for
+// footguns that silently defeat dependency hygiene. It is a config-correctness
+// layer, distinct from the security scanners (osv/zizmor/scorecard check the
+// adopter's code and workflows; this checks whether the surrounding config is
+// wired up). v1 covers .github/dependabot.yml:
 //
-// v1 covers Dependabot configuration correctness — the class behind the
-// "/**"-doesn't-recurse coverage gap:
-//
-//	WL001  no .github/dependabot.yml — dependency/action-pin updates never run.
-//	WL002  config at .github/dependabot.yaml — Dependabot reads only .yml, so a
-//	       .yaml file is silently ignored.
-//	WL003  a github-actions entry globs directory/directories with ** — it does
-//	       not recurse into nested action.yml (and /** provokes duplicate PRs).
+//	WL001  no effective Dependabot config (file missing, or present with no
+//	       `updates` entries) — dependency and action-pin updates never run.
+//	WL002  config at .github/dependabot.yaml — Dependabot reads only `.yml`,
+//	       so a `.yaml` file is silently ignored.
+//	WL003  a github-actions entry globs directory/directories with `**` — it
+//	       does not recurse into nested action.yml (and `/**` also provokes
+//	       duplicate update PRs).
 //	WL004  a composite action.yml directory in the repo is absent from the
 //	       github-actions directories — its pins drift from the workflow copies.
 //	WL005  an updates entry has no cooldown.default-days >= 7 — bumps land
@@ -22,17 +20,17 @@
 //
 //	# wrangle-lint: ignore WL00X -- why this is safe here
 //
-// on the flagged line or in the contiguous comment block directly above it.
-// The justification is required. WL001 (missing file) has no line to anchor a
-// comment to and is not suppressible.
+// on the flagged line or the contiguous comment block directly above it. A
+// missing file has no line to anchor a comment to and is not suppressible.
 //
 // Usage: wrangle-lint <src_dir> <out_sarif>
 // Exit: 0 SARIF written (with or without findings), 2 tool error (fail closed).
 package main
 
 import (
-	"encoding/json"
+	"bytes"
 	"fmt"
+	"io"
 	"io/fs"
 	"os"
 	"path/filepath"
@@ -41,6 +39,8 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/owenrumney/go-sarif/v3/pkg/report"
+	"github.com/owenrumney/go-sarif/v3/pkg/report/v210/sarif"
 	"gopkg.in/yaml.v3"
 )
 
@@ -56,10 +56,10 @@ type ruleMeta struct {
 	level, severity, desc string
 }
 
-// level drives both the SARIF result level and the markdown severity
-// (error=HIGH, warning=MED).
+// level drives both the SARIF result level and (downstream) the markdown
+// severity; security-severity orders the GitHub code-scanning view.
 var rules = map[string]ruleMeta{
-	"WL001": {"warning", "5.0", "No Dependabot configuration"},
+	"WL001": {"error", "7.0", "No effective Dependabot configuration"},
 	"WL002": {"error", "6.0", "Dependabot configuration uses an ignored .yaml extension"},
 	"WL003": {"error", "7.0", "github-actions directory glob does not recurse into composites"},
 	"WL004": {"error", "7.0", "Composite action directory not covered by Dependabot"},
@@ -75,16 +75,25 @@ type finding struct {
 }
 
 // A suppression directive naming a specific rule; the trailing text is the
-// (required) justification.
-var suppressRe = regexp.MustCompile(`wrangle-lint:\s*ignore[\s\[]+(WL\d{3})\]?\s*(.*)$`)
+// (required) justification. `\b` after the id rejects a longer typo like WL0044.
+var suppressRe = regexp.MustCompile(`wrangle-lint:\s*ignore[\s\[]+(WL\d{3})\b\]?\s*(.*)$`)
+
+// resolve follows a YAML alias to its anchor so `*ref` is treated as its target.
+func resolve(n *yaml.Node) *yaml.Node {
+	for n != nil && n.Kind == yaml.AliasNode {
+		n = n.Alias
+	}
+	return n
+}
 
 func mapGet(n *yaml.Node, key string) *yaml.Node {
+	n = resolve(n)
 	if n == nil || n.Kind != yaml.MappingNode {
 		return nil
 	}
 	for i := 0; i+1 < len(n.Content); i += 2 {
 		if n.Content[i].Value == key {
-			return n.Content[i+1]
+			return resolve(n.Content[i+1])
 		}
 	}
 	return nil
@@ -141,7 +150,7 @@ func entryDirectories(entry *yaml.Node) []dirRef {
 	}
 	if p := mapGet(entry, "directories"); p != nil && p.Kind == yaml.SequenceNode {
 		for _, it := range p.Content {
-			if it.Kind == yaml.ScalarNode {
+			if it = resolve(it); it.Kind == yaml.ScalarNode {
 				out = append(out, dirRef{it.Value, it.Line})
 			}
 		}
@@ -166,30 +175,64 @@ func cooldownDays(entry *yaml.Node) (int, bool) {
 	return n, true
 }
 
+func cooldownMessage(eco string) string {
+	who := "An"
+	if eco != "" {
+		who = "The '" + eco + "'"
+	}
+	return fmt.Sprintf("%s update entry has no cooldown.default-days >= %d, so dependency "+
+		"bumps land before the community can surface a supply-chain attack. Add a "+
+		"`cooldown:` block with `default-days: %d` to that entry.", who, cooldownMinDays, cooldownMinDays)
+}
+
+// parseFirstDoc decodes the first mapping-rooted YAML document, skipping leading
+// `---` separators and empty documents (which decode to a null scalar, not an
+// empty node). Returns (nil, nil) when no such document exists.
+func parseFirstDoc(content []byte, uri string) (*yaml.Node, error) {
+	dec := yaml.NewDecoder(bytes.NewReader(content))
+	for {
+		var doc yaml.Node
+		err := dec.Decode(&doc)
+		if err == io.EOF {
+			return nil, nil
+		}
+		if err != nil {
+			return nil, fmt.Errorf("%s: YAML parse error: %w", uri, err)
+		}
+		if len(doc.Content) > 0 {
+			if r := resolve(doc.Content[0]); r != nil && r.Kind == yaml.MappingNode {
+				return r, nil
+			}
+		}
+	}
+}
+
 func checkDependabot(ymlPath, uri, srcDir string) ([]finding, error) {
 	content, err := os.ReadFile(ymlPath)
 	if err != nil {
 		return nil, err
 	}
-	var doc yaml.Node
-	if err := yaml.Unmarshal(content, &doc); err != nil {
-		return nil, fmt.Errorf("%s: YAML parse error: %w", uri, err)
+	root, err := parseFirstDoc(content, uri)
+	if err != nil {
+		return nil, err
 	}
-	if len(doc.Content) == 0 {
-		return nil, nil
+
+	var findings []finding
+	updates := mapGet(root, "updates")
+	if updates == nil || updates.Kind != yaml.SequenceNode || len(updates.Content) == 0 {
+		// Present but inert: a comment can still suppress it (the file exists).
+		return append(findings, finding{"WL001", uri, ymlPath, 1, fmt.Sprintf(
+			"%s has no `updates:` entries, so Dependabot raises no update PRs. Add an "+
+				"`updates:` list (see gh_workflow_examples/dependabot.yml).", uri)}), nil
 	}
-	root := doc.Content[0]
+
 	composites, err := compositeDirs(srcDir)
 	if err != nil {
 		return nil, err
 	}
 
-	var fs []finding
-	updates := mapGet(root, "updates")
-	if updates == nil || updates.Kind != yaml.SequenceNode {
-		return fs, nil
-	}
 	for _, entry := range updates.Content {
+		entry = resolve(entry)
 		if entry.Kind != yaml.MappingNode {
 			continue
 		}
@@ -201,11 +244,7 @@ func checkDependabot(ymlPath, uri, srcDir string) ([]finding, error) {
 		}
 
 		if days, ok := cooldownDays(entry); !ok || days < cooldownMinDays {
-			fs = append(fs, finding{"WL005", uri, ymlPath, anchorLine, fmt.Sprintf(
-				"The '%s' update entry has no cooldown.default-days >= %d. Without it, "+
-					"dependency bumps land immediately, before the community can surface a "+
-					"supply-chain attack. Add cooldown.default-days: %d.",
-				eco, cooldownMinDays, cooldownMinDays)})
+			findings = append(findings, finding{"WL005", uri, ymlPath, anchorLine, cooldownMessage(eco)})
 		}
 
 		if eco != "github-actions" {
@@ -217,11 +256,11 @@ func checkDependabot(ymlPath, uri, srcDir string) ([]finding, error) {
 		for _, d := range dirs {
 			if strings.Contains(d.val, "**") {
 				hasGlob = true
-				fs = append(fs, finding{"WL003", uri, ymlPath, d.line, fmt.Sprintf(
-					"The github-actions entry uses a '%s' glob. github-actions does not "+
-						"recurse into nested action.yml, so composite actions are never bumped "+
-						"(and '/**' provokes duplicate update PRs). List each directory holding "+
-						"an action.yml explicitly.", d.val)})
+				findings = append(findings, finding{"WL003", uri, ymlPath, d.line, fmt.Sprintf(
+					"The github-actions entry's '%s' is a `**` glob: Dependabot does not recurse "+
+						"into nested action.yml (so composite actions are never bumped) and `/**` "+
+						"also creates duplicate PRs. List each directory explicitly, e.g. "+
+						"`directories: [\"/\", \"/path/to/your/action\"]`.", d.val)})
 			}
 		}
 		// A glob is already flagged (WL003); enumerating coverage on top would
@@ -245,13 +284,13 @@ func checkDependabot(ymlPath, uri, srcDir string) ([]finding, error) {
 		}
 		sort.Strings(missing)
 		for _, c := range missing {
-			fs = append(fs, finding{"WL004", uri, ymlPath, anchor, fmt.Sprintf(
-				"Composite action '%s/action.yml' is not listed in the github-actions "+
-					"directories. Its third-party pins will drift from the workflow copies. "+
-					"Add a directory entry for it.", c)})
+			findings = append(findings, finding{"WL004", uri, ymlPath, anchor, fmt.Sprintf(
+				"Composite action '%s/action.yml' is not covered by the github-actions entry, so "+
+					"its pinned actions never get update PRs. Add \"%s\" to that entry's `directories`.",
+				c, c)})
 		}
 	}
-	return fs, nil
+	return findings, nil
 }
 
 func runChecks(srcDir string) ([]finding, error) {
@@ -263,12 +302,13 @@ func runChecks(srcDir string) ([]finding, error) {
 	case fileExists(yamlPath):
 		return []finding{{"WL002", ".github/dependabot.yaml", yamlPath, 1,
 			"Dependabot reads only .github/dependabot.yml; this .yaml file is silently " +
-				"ignored, so no update PRs run. Rename it to dependabot.yml."}}, nil
+				"ignored, so no update PRs run. Rename it: `git mv .github/dependabot.yaml " +
+				".github/dependabot.yml`."}}, nil
 	default:
 		return []finding{{"WL001", ".github/dependabot.yml", "", 1,
-			"No .github/dependabot.yml found. Dependency and action-pin updates " +
-				"(including your wrangle pin) never run. Copy " +
-				"gh_workflow_examples/dependabot.yml to .github/dependabot.yml."}}, nil
+			"No .github/dependabot.yml, so no dependency or action-pin update PRs run. Copy " +
+				"gh_workflow_examples/dependabot.yml to .github/dependabot.yml and enable the " +
+				"ecosystems you use."}}, nil
 	}
 }
 
@@ -326,7 +366,12 @@ func filterSuppressed(findings []finding) ([]finding, error) {
 	return kept, nil
 }
 
-func buildSARIF(findings []finding) sarifLog {
+// writeSARIF emits SARIF 2.1.0 via go-sarif, with one rule entry per rule that
+// fired and a result per finding.
+func writeSARIF(findings []finding, outPath string) error {
+	rep := report.NewV210Report()
+	run := sarif.NewRunWithInformationURI("wrangle-lint", "https://github.com/TomHennen/wrangle")
+
 	usedSet := map[string]bool{}
 	for _, f := range findings {
 		usedSet[f.ruleID] = true
@@ -336,42 +381,27 @@ func buildSARIF(findings []finding) sarifLog {
 		used = append(used, id)
 	}
 	sort.Strings(used)
-
-	driverRules := make([]sarifRule, 0, len(used))
 	for _, id := range used {
 		m := rules[id]
-		driverRules = append(driverRules, sarifRule{
-			ID:                   id,
-			Name:                 id,
-			ShortDescription:     sarifText{m.desc},
-			DefaultConfiguration: sarifRuleCfg{m.level},
-			Properties:           sarifRuleProps{m.severity},
-		})
+		pb := sarif.NewPropertyBag()
+		pb.Add("security-severity", m.severity)
+		run.AddRule(id).
+			WithShortDescription(sarif.NewMultiformatMessageString().WithText(m.desc)).
+			WithDefaultConfiguration(sarif.NewReportingConfiguration().WithLevel(m.level)).
+			WithProperties(pb)
 	}
-	results := make([]sarifResult, 0, len(findings))
 	for _, f := range findings {
-		results = append(results, sarifResult{
-			RuleID:  f.ruleID,
-			Level:   rules[f.ruleID].level,
-			Message: sarifText{f.message},
-			Locations: []sarifLocation{{PhysicalLocation: sarifPhysical{
-				ArtifactLocation: sarifArtifact{f.uri},
-				Region:           sarifRegion{f.line},
-			}}},
-		})
+		run.CreateResultForRule(f.ruleID).
+			WithLevel(rules[f.ruleID].level).
+			WithMessage(sarif.NewTextMessage(f.message)).
+			AddLocation(sarif.NewLocationWithPhysicalLocation(
+				sarif.NewPhysicalLocation().
+					WithArtifactLocation(sarif.NewSimpleArtifactLocation(f.uri)).
+					WithRegion(sarif.NewRegion().WithStartLine(f.line)),
+			))
 	}
-	return sarifLog{
-		Version: "2.1.0",
-		Schema:  "https://raw.githubusercontent.com/oasis-tcs/sarif-spec/main/sarif-2.1/schema/sarif-schema-2.1.0.json",
-		Runs: []sarifRun{{
-			Tool: sarifTool{Driver: sarifDriver{
-				Name:           "wrangle-lint",
-				InformationURI: "https://github.com/TomHennen/wrangle",
-				Rules:          driverRules,
-			}},
-			Results: results,
-		}},
-	}
+	rep.AddRun(run)
+	return rep.WriteFile(outPath)
 }
 
 func run(args []string) int {
@@ -396,12 +426,7 @@ func run(args []string) int {
 		}
 		return findings[i].ruleID < findings[j].ruleID
 	})
-	data, err := json.MarshalIndent(buildSARIF(findings), "", "  ")
-	if err != nil {
-		fmt.Fprintf(os.Stderr, "wrangle-lint: %v\nwrangle-lint: failing closed.\n", err)
-		return 2
-	}
-	if err := os.WriteFile(args[2], append(data, '\n'), 0o644); err != nil {
+	if err := writeSARIF(findings, args[2]); err != nil {
 		fmt.Fprintf(os.Stderr, "wrangle-lint: %v\nwrangle-lint: failing closed.\n", err)
 		return 2
 	}
