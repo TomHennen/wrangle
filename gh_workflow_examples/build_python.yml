@@ -47,7 +47,7 @@ jobs:
       attestations: write   # wrangle's attest job writes GitHub-issued SLSA provenance
       actions: read  # source scan: Scorecard reads the Actions API
       security-events: write  # source-scan SARIF -> Security tab
-    uses: TomHennen/wrangle/.github/workflows/build_and_publish_python.yml@v0.2.1 # zizmor: ignore[unpinned-uses]
+    uses: TomHennen/wrangle/.github/workflows/build_and_publish_python.yml@v0.2.1 # zizmor: ignore[unpinned-uses] - immutable
     with:
       path: "."
       release-events: tag-only          # only tag pushes publish (recommended default)
@@ -72,7 +72,7 @@ jobs:
 
       # Verify the downloaded dist against wrangle's signed VSA — the
       # full policy verdict — before any bytes leave this runner.
-      - uses: TomHennen/wrangle/actions/verify-vsa@v0.2.1 # zizmor: ignore[unpinned-uses]
+      - uses: TomHennen/wrangle/actions/verify-vsa@v0.2.1 # zizmor: ignore[unpinned-uses] - immutable
         with:
           path: dist/
           resource-uri: ${{ needs.build.outputs.resource-uri }}

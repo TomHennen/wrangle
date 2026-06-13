@@ -3,7 +3,7 @@
 # Divergence guard for adopter-facing wrangle release pins.
 #
 # Every example workflow and per-build-type README carries its own
-# `uses: TomHennen/wrangle/...@vX.Y.Z # zizmor: ignore[unpinned-uses]` pin, and
+# `uses: TomHennen/wrangle/...@vX.Y.Z # zizmor: ignore[unpinned-uses] - immutable` pin, and
 # nothing single-sources the version. A release that bumps some pins but not all
 # hands adopters a stale wrangle on copy-paste, with no signal. This fails closed
 # when the pins disagree on the version.
@@ -42,7 +42,7 @@ setup() {
 
 @test "adopter-facing wrangle refs are SHA-pinned or tag-pinned with a zizmor ignore" {
     # Adopter-facing wrangle refs must be a 40-hex SHA pin, or a release-tag pin
-    # carrying the inline `# zizmor: ignore[unpinned-uses]` — wrangle's tags are
+    # carrying the inline `# zizmor: ignore[unpinned-uses] - immutable` — wrangle's tags are
     # immutable, so the ignore is safe. A bare tag, a branch, or `@main` trips an
     # adopter's own unpinned-uses on first run. The example files are scanned by
     # test_examples_scan.bats; README/FAQ snippets are markdown and aren't, so

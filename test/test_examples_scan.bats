@@ -5,7 +5,7 @@
 # These are the files the docs tell adopters to copy into .github/workflows/,
 # yet nothing else scans them: zizmor's directory walk only collects files
 # already under a .github/workflows/ path. The wrangle ref is tag-pinned to an
-# immutable release and carries an inline `# zizmor: ignore[unpinned-uses]`;
+# immutable release and carries an inline `# zizmor: ignore[unpinned-uses] - immutable`;
 # this stages each example the way an adopter would and runs the real scanner
 # over it, so a dropped ignore — or any other unpinned ref — fails CI here
 # instead of on an adopter's first run on the line wrangle told them to add.

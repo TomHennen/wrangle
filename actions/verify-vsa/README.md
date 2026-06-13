@@ -18,7 +18,7 @@ Drop it into your publish job between `download-artifact` and the publish step:
     name: ${{ needs.build.outputs.dist-artifact-name }}
     path: dist/
 
-- uses: TomHennen/wrangle/actions/verify-vsa@v0.2.1 # zizmor: ignore[unpinned-uses]
+- uses: TomHennen/wrangle/actions/verify-vsa@v0.2.1 # zizmor: ignore[unpinned-uses] - immutable
   with:
     path: dist/
     resource-uri: ${{ needs.build.outputs.resource-uri }}

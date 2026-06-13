@@ -56,7 +56,7 @@ jobs:
       attestations: write     # GitHub-issued SLSA provenance
       actions: read           # source scan: Scorecard reads the Actions API
       security-events: write  # source-scan SARIF -> Security tab
-    uses: TomHennen/wrangle/.github/workflows/build_and_publish_go.yml@v0.2.1 # zizmor: ignore[unpinned-uses]
+    uses: TomHennen/wrangle/.github/workflows/build_and_publish_go.yml@v0.2.1 # zizmor: ignore[unpinned-uses] - immutable
     with:
       path: "."
 ```
@@ -125,5 +125,5 @@ Go, Python, npm, and Container each run the full pipeline and produce an atteste
 
 ## FAQ
 
-How to pin wrangle (by immutable release tag with a one-line zizmor exception —
-or by SHA), and how verification ties to your pin: see [docs/FAQ.md](docs/FAQ.md).
+Pinning, verification, and Dependabot questions are answered in the
+[FAQ](docs/FAQ.md).
