@@ -706,6 +706,7 @@ This is the entire file an adopter needs. No secrets, no configuration, no depen
 | [Zizmor](https://github.com/zizmorcore/zizmor) | Action (wraps `zizmorcore/zizmor-action`) | Security-focused linting of GitHub Actions workflows |
 | [OSSF Scorecard](https://scorecard.dev/) | Action (wraps `ossf/scorecard-action`) | Assesses repo security health across 18+ categories |
 | [Dependency Review](https://github.com/actions/dependency-review-action) | Action (wraps `actions/dependency-review-action`) | PR-time gate: blocks PRs that introduce known-vulnerable dependencies. Runs on `pull_request` events only |
+| wrangle-lint | Adapter (first-party Go) | Audits the adopter's `.github/dependabot.yml` for config footguns that silently defeat dependency hygiene (see `tools/wrangle-lint/SPEC.md`) |
 
 ### Two Tool Patterns
 
