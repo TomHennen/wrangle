@@ -1,0 +1,17 @@
+# Canary fixture for the unpinned-uses detection test in test.bats.
+#
+# The tag-pinned actions/checkout below is the deliberate flaw the canary
+# asserts zizmor still flags; persist-credentials:false keeps it the only
+# finding. zizmor only collects .github/workflows/* and action.yml, so this
+# file is never picked up by the repo's own scan — the test passes it to
+# zizmor explicitly.
+name: unpinned-uses canary
+on: push
+permissions: {}
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false

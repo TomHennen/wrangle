@@ -20,3 +20,7 @@ Zizmor has two install paths and they are kept deliberately in sync:
 
 `tools/zizmor/action.yml`'s default `version` input and `tools/zizmor/requirements.txt`'s `zizmor==` pin must track each other; a structural test in `test.bats` enforces this. Bumping one without the other masks regressions between the local pre-push check and CI.
 
+## Detection canary
+
+`test.bats` runs the real binary against `fixtures/unpinned_uses.yml` — a deliberately tag-pinned action — and asserts the `unpinned-uses` audit still fires. The rest of the suite feeds synthetic SARIF, which proves the plumbing but never that zizmor still *detects* anything; the canary is the positive control that turns a false-negative regression (a zizmor version or config change that silently stops flagging a class) into a red test instead of a passing scan.
+

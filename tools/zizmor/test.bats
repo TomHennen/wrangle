@@ -4,8 +4,12 @@
 #
 # Action-pattern tools wrap an upstream GitHub Action; there's no
 # install.sh or adapter.sh to unit-test. These cover action.yml
-# structure plus collect_sarif.sh's fail-closed disambiguation. Full
-# integration testing happens via dogfooding in CI.
+# structure, collect_sarif.sh's fail-closed disambiguation, and a
+# detection canary that runs the real binary against a known-bad
+# workflow. Full integration testing happens via dogfooding in CI.
+
+# skip_or_fail (fail-not-skip under CI) lives in a shared bats helper.
+load "../../test/lib/bats_helpers"
 
 setup() {
     ORIG_DIR="$(pwd)"
@@ -114,6 +118,28 @@ make_sarif() {
 
 @test "zizmor: collect_sarif.sh exists and is executable" {
     [ -x "$TOOL_DIR/collect_sarif.sh" ]
+}
+
+# --- detection canary: real zizmor still flags a known-bad workflow ---
+
+# A positive control for the scanner itself. Every other test here feeds
+# synthetic SARIF or checks action.yml structure — none proves zizmor still
+# *detects* anything, so a false-negative regression (a zizmor version that
+# stops flagging tag pins, or a config change that silences the audit) would
+# pass silently, exactly the gap that let unpinned wrangle examples ship.
+# This runs the real binary against a deliberately tag-pinned action and
+# asserts unpinned-uses fires. unpinned-uses works offline, so
+# --no-online-audits keeps it network-free; SARIF mode always exits 0 (the
+# findings live in the document), so the assertion is on SARIF content.
+@test "zizmor canary: unpinned-uses fires on a tag-pinned action" {
+    command -v zizmor >/dev/null 2>&1 || skip_or_fail "zizmor not on PATH"
+
+    # bash -c redirects zizmor's stderr away so $output is pure SARIF.
+    run bash -c "zizmor --no-online-audits --format sarif '$TOOL_DIR/fixtures/unpinned_uses.yml' 2>/dev/null"
+    # The ruleId is "zizmor/unpinned-uses"; match the audit name within it.
+    printf '%s' "$output" | jq -e \
+        '[.runs[].results[] | select(.ruleId | test("unpinned-uses"))] | length >= 1' \
+        >/dev/null
 }
 
 # --- collect_sarif.sh: fail-closed disambiguation ---
