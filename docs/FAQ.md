@@ -6,47 +6,45 @@ answer links to the source of truth — start with [`SPEC.md`](SPEC.md) and the
 
 ## How should I pin wrangle's reusable workflows?
 
-By **release tag**, with an inline zizmor exception on that one line:
+Either a release **tag** or a commit **SHA** — both are safe; the choice is
+preference. wrangle's examples use a tag for legibility.
+
+**Tag** (`@vX.Y.Z`), with an inline zizmor exception on that one line:
 
 ```yaml
 uses: TomHennen/wrangle/.github/workflows/build_and_publish_go.yml@v0.2.1 # zizmor: ignore[unpinned-uses] - immutable
 ```
 
 wrangle's release tags are
-[immutable](https://docs.github.com/en/code-security/concepts/supply-chain-security/immutable-releases):
-a published `vX.Y.Z` is locked to its commit and can never be moved or deleted.
-So a tag pin carries the same integrity as a SHA, while staying readable and
-matching the verification identity (below).
+[immutable](https://docs.github.com/en/code-security/concepts/supply-chain-security/immutable-releases)
+— a published `vX.Y.Z` is locked to its commit and can't be moved or deleted. A
+tag is legible (you see the version), Dependabot-tracked, and its verify
+identity (`@refs/tags/vX.Y.Z`) is the one the
+[verification guide](verifying_artifacts.md)'s `cosign` command shows by
+default. The cost is the one-line ignore — wrangle's bundled zizmor scan flags
+any tag-pinned `uses:` and can't tell the tag is immutable.
 
-The one wrinkle: wrangle's bundled zizmor scan flags any tag-pinned `uses:`
-(`unpinned-uses`) — it can't tell wrangle's tags are immutable. The inline
-`# zizmor: ignore[unpinned-uses] - immutable` scopes that exception to the wrangle line.
-**Your other actions still pin by SHA** — they aren't immutable.
+**SHA** (`@<sha> # vX.Y.Z`), like any other third-party action — no ignore needed:
 
-### Why a tag and not a SHA?
+```yaml
+uses: TomHennen/wrangle/.github/workflows/build_and_publish_go.yml@<sha> # v0.2.1
+```
 
-Pinning third-party actions by SHA is the usual advice because **a tag can be
-moved** — a compromised maintainer can repoint `v1` at malicious code and your
-pin follows it. wrangle removes that risk at the source: its release tags are
-immutable ([immutable releases](https://docs.github.com/en/code-security/concepts/supply-chain-security/immutable-releases)
-plus a no-bypass tag ruleset), so a published `vX.Y.Z` is permanently bound to
-one commit and can never be moved or deleted.
+A SHA is immutable *by construction* (a content hash — no external assumption);
+Dependabot bumps it and refreshes the comment. The cost is legibility (opaque)
+and a verify identity of `@<sha>` (adjust the `cosign` regexp).
 
-With the move-the-tag attack gone, a SHA buys no extra integrity here, while a
-tag is more legible (you see the version), bumps cleanly (Dependabot tracks the
-tag), and makes your `cosign` verify identity (`@refs/tags/vX.Y.Z`) match the
-[verification guide](verifying_artifacts.md) with no edits. The only cost is the
-one-line zizmor ignore — `unpinned-uses` can't tell the tag is immutable. A SHA
-pin remains fully supported if you prefer it.
+Either way, your **other** actions still pin by SHA — they aren't immutable.
 
-### Prefer a SHA pin?
+### Tag or SHA — which?
 
-That works too, and needs no ignore — `@<sha> # vX.Y.Z`, like any other
-third-party action. Dependabot bumps the SHA and refreshes the comment on
-wrangle's no-auto-merge cooldown (copy the
-[`dependabot.yml`](../gh_workflow_examples/dependabot.yml) starter). The
-tradeoff is ergonomic: SHA pins are opaque, and your `cosign` verification
-identity becomes `@<sha>` instead of the tag.
+In practice, equivalent. The honest difference is what each rests on: a SHA's
+immutability is cryptographic and needs nothing external; a tag's depends on
+wrangle keeping immutable-releases and the no-bypass ruleset enabled — a
+GitHub-control-plane assumption a SHA doesn't carry (though a release published
+while they're on stays immutable even if they're later disabled). Pick the tag
+for legibility and a verify command that matches out of the box; pick the SHA
+for the most self-contained integrity.
 
 ### How does my pin affect verification?
 
