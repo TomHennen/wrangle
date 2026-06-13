@@ -86,7 +86,7 @@ and `build/actions/<type>/README.md`.
 Two notes for every build workflow:
 
 - **`scan-tools` input** — space-separated source-scan tools, default
-  `"osv zizmor scorecard:info dependency-review"`. Suffix a tool with
+  `"osv zizmor scorecard:info dependency-review wrangle-lint"`. Suffix a tool with
   `:info` to make it non-blocking; empty string disables scanning. A
   load-bearing (`:fail`) finding blocks publishing.
 - **Caller permissions** — REQUIRED to grant `actions: read` and

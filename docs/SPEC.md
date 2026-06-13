@@ -217,7 +217,7 @@ Asymmetry: container vs. python. The container reusable workflow's docker push h
 
 ### Source-scan gating
 
-Contract introduced in [#334](https://github.com/TomHennen/wrangle/issues/334). Every `build_and_publish_*.yml` runs the embedded `scan` job (`actions/scan`) before building, controlled by a `scan-tools` input (default `"osv zizmor scorecard:info dependency-review"`; `:info`-suffixed tools are non-blocking; empty string disables the scan). A load-bearing (`:fail`) scan finding blocks publishing — but, like `release-events`, *where* it blocks tracks each build type's publish path, because that path is what must be prevented:
+Contract introduced in [#334](https://github.com/TomHennen/wrangle/issues/334). Every `build_and_publish_*.yml` runs the embedded `scan` job (`actions/scan`) before building, controlled by a `scan-tools` input (default `"osv zizmor scorecard:info dependency-review wrangle-lint"`; `:info`-suffixed tools are non-blocking; empty string disables the scan). A load-bearing (`:fail`) scan finding blocks publishing — but, like `release-events`, *where* it blocks tracks each build type's publish path, because that path is what must be prevented:
 
 - **container** — the `build` job `needs: [scan]`, so a finding blocks the build (and therefore the mid-composite push) on **every** event, not only release events. This is the documented exception, mirroring the `release-events` container asymmetry above: the push is mid-composite and not release-gated, so the scan gate cannot defer to release time either.
 - **go** — the scan gates the `release` job on release events; PR snapshot builds still run, consistent with the `release-events` model.
