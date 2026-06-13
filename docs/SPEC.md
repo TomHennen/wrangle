@@ -635,7 +635,7 @@ The scan action parses the `tools` input to dispatch adapter-pattern tools (thos
 
 The **step summary is the primary output**. It works on all repos — private, no Advanced Security, etc. SARIF upload to the Security tab is additive. The **metadata directory** (`$GITHUB_WORKSPACE/.wrangle/metadata/`) is a complete catalog of which tools ran and what they found, enabling future signed attestations.
 
-**Portability:** Shell script paths use `${{ github.action_path }}` for resolution relative to the composite action's own directory. Action-pattern tool steps use `./` paths (e.g., `uses: ./tools/zizmor`), which resolve to the same repo at the called ref — so when an adopter pins `@v0.1.0`, all internal actions resolve at that tag, and when wrangle's own CI runs on a PR branch, they resolve at the PR's code.
+**Portability:** Shell script paths use `${{ github.action_path }}` for resolution relative to the composite action's own directory. Action-pattern tool steps use `./` paths (e.g., `uses: ./tools/zizmor`), which resolve to the same repo at the called ref — so when an adopter pins `@<sha>`, all internal actions resolve at that commit, and when wrangle's own CI runs on a PR branch, they resolve at the PR's code.
 
 **Path constraint:** The composite action resolves the orchestrator via `${{ github.action_path }}/../../run.sh`, which means the scan action MUST remain at exactly `actions/scan/` (two directories below the repo root). This is a hard structural constraint — moving the action to a different depth breaks the relative path. If the directory layout changes, these paths must be updated in the same commit.
 
@@ -661,7 +661,7 @@ The scan action strips `:fail`/`:info` suffixes before passing tool names to the
 
 The reusable workflow (`.github/workflows/check_source_change.yml`) wraps the composite action for `workflow_call` consumers.
 
-**Internal path resolution:** All `uses:` steps inside the reusable workflow use `./` paths (e.g., `uses: ./actions/scan`). When a caller invokes the workflow at a specific ref (e.g., `@v0.1.0`), GitHub fetches the workflow at that ref, and all `./` references resolve to the same repo at that ref. This means adopters automatically get version-locked internal actions matching their pinned tag, and wrangle's own PR CI tests the PR branch's code (not main).
+**Internal path resolution:** All `uses:` steps inside the reusable workflow use `./` paths (e.g., `uses: ./actions/scan`). When a caller invokes the workflow at a specific ref (e.g., `@<sha>`), GitHub fetches the workflow at that ref, and all `./` references resolve to the same repo at that ref. This means adopters automatically get version-locked internal actions matching their pinned ref, and wrangle's own PR CI tests the PR branch's code (not main).
 
 ```yaml
 on:
@@ -691,7 +691,7 @@ jobs:
       actions: read
       contents: read
       security-events: write
-    uses: TomHennen/wrangle/.github/workflows/check_source_change.yml@v0.1.0
+    uses: TomHennen/wrangle/.github/workflows/check_source_change.yml@1448b250fb8d75841dfba3b2c8f5c23e85162b89 # v0.2.0
 ```
 
 This is the entire file an adopter needs. No secrets, no configuration, no dependencies to manage.
@@ -1040,11 +1040,11 @@ All `uses:` references in wrangle's own workflows and examples MUST be pinned:
 | Reference type | Pinning requirement |
 |---------------|---------------------|
 | Third-party actions | Full commit SHA |
-| Wrangle's own actions (in examples) | Release tag (e.g., `@v0.1.0`) |
+| Wrangle's own actions (in examples) | Full commit SHA + `# vX.Y.Z` comment (a tag is flagged by zizmor `unpinned-uses`) |
 | Wrangle internal refs in reusable workflows | Relative path (`./`) — resolves to the workflow's own repo at the called ref |
 | Wrangle internal refs in composite actions | Relative path (`./`) — resolves to the same repo at the called ref |
 
-Adopters are advised to pin to a release tag. The `@main` ref MUST NOT appear in any `uses:` line in the repo, including examples and documentation.
+Adopters are advised to pin a released commit SHA (with the version in a `# vX.Y.Z` comment). The `@main` ref MUST NOT appear in any `uses:` line in the repo, including examples and documentation.
 
 ### Output Sanitization
 

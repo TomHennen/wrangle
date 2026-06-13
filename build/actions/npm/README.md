@@ -17,7 +17,7 @@ jobs:
       attestations: write     # GitHub-issued SLSA provenance
       actions: read           # source scan
       security-events: write  # scan findings -> Security tab
-    uses: TomHennen/wrangle/.github/workflows/build_and_publish_npm.yml@v0.2.0
+    uses: TomHennen/wrangle/.github/workflows/build_and_publish_npm.yml@1448b250fb8d75841dfba3b2c8f5c23e85162b89 # v0.2.0
     with:
       path: "."
       release-events: tag-only   # only tag pushes publish
@@ -58,7 +58,7 @@ Publishing happens in your workflow, so two things there are load-bearing — bo
 2. **Verify before you publish** — run wrangle's [`verify-vsa`](../../../actions/verify-vsa/README.md) action between `download-artifact` and `npm publish`, piping the build's `resource-uri` output, so the exact bytes leaving the runner are the bytes that passed wrangle's policy:
 
    ```yaml
-   - uses: TomHennen/wrangle/actions/verify-vsa@v0.2.0
+   - uses: TomHennen/wrangle/actions/verify-vsa@1448b250fb8d75841dfba3b2c8f5c23e85162b89 # v0.2.0
      with:
        path: dist/
        resource-uri: ${{ needs.build.outputs.resource-uri }}

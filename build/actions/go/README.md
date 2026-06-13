@@ -17,7 +17,7 @@ jobs:
       attestations: write     # GitHub-issued SLSA provenance
       actions: read           # source scan
       security-events: write  # scan findings -> Security tab
-    uses: TomHennen/wrangle/.github/workflows/build_and_publish_go.yml@v0.2.0
+    uses: TomHennen/wrangle/.github/workflows/build_and_publish_go.yml@1448b250fb8d75841dfba3b2c8f5c23e85162b89 # v0.2.0
     with:
       path: "."
 ```

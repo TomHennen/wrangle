@@ -73,7 +73,7 @@ For file artifacts (`cosign verify-blob-attestation`):
 ```bash
 cosign verify-blob-attestation --bundle <artifact>.intoto.jsonl --new-bundle-format \
   --certificate-oidc-issuer https://token.actions.githubusercontent.com \
-  --certificate-identity-regexp '^https://github\.com/TomHennen/wrangle/\.github/workflows/build_and_publish_<type>\.yml@refs/tags/v' \
+  --certificate-identity-regexp '^https://github\.com/TomHennen/wrangle/\.github/workflows/build_and_publish_<type>\.yml@[0-9a-f]{40}$' \
   --certificate-github-workflow-repository <your-org>/<your-repo> \
   --type https://slsa.dev/verification_summary/v1 \
   <artifact>
@@ -84,10 +84,10 @@ jq -e '.predicate.resourceUri == "<resourceUri from the table above>"' <<<"$payl
 jq -e '.predicate.verifiedLevels | index("SLSA_BUILD_LEVEL_3")' <<<"$payload"
 ```
 
-Substitute `<type>` with `go`, `python`, or `npm`. The `@refs/tags/v` anchor
-assumes the adopter pinned wrangle at a release tag (the examples' default);
-adjust it if they pinned a SHA. `--type` must be the full URI — cosign
-rejects the `slsaverificationsummary` alias.
+Substitute `<type>` with `go`, `python`, or `npm`. The `@[0-9a-f]{40}` anchor
+assumes a SHA pin (the examples' default); use `@refs/tags/vX.Y.Z` instead if
+you pinned wrangle at a tag. `--type` must be the full URI — cosign rejects the
+`slsaverificationsummary` alias.
 
 For container images, a digest subject has no file blob, so the command is
 `cosign verify-attestation` (cosign v3) against the image. It prints the
@@ -97,7 +97,7 @@ verified envelope to stdout, so capture and decode that:
 cosign verify-attestation \
   --type https://slsa.dev/verification_summary/v1 \
   --certificate-oidc-issuer https://token.actions.githubusercontent.com \
-  --certificate-identity-regexp '^https://github\.com/TomHennen/wrangle/\.github/workflows/build_and_publish_container\.yml@refs/tags/v' \
+  --certificate-identity-regexp '^https://github\.com/TomHennen/wrangle/\.github/workflows/build_and_publish_container\.yml@[0-9a-f]{40}$' \
   --certificate-github-workflow-repository <your-org>/<your-repo> \
   <imagename>@sha256:<digest> > vsa.json
 

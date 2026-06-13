@@ -56,7 +56,7 @@ jobs:
       attestations: write     # GitHub-issued SLSA provenance
       actions: read           # source scan: Scorecard reads the Actions API
       security-events: write  # source-scan SARIF -> Security tab
-    uses: TomHennen/wrangle/.github/workflows/build_and_publish_go.yml@v0.2.0
+    uses: TomHennen/wrangle/.github/workflows/build_and_publish_go.yml@1448b250fb8d75841dfba3b2c8f5c23e85162b89 # v0.2.0
     with:
       path: "."
 ```
@@ -122,3 +122,8 @@ Go, Python, npm, and Container each run the full pipeline and produce an atteste
 | Container | [README](build/actions/container/README.md) | [build_and_publish_containers.yml](gh_workflow_examples/build_and_publish_containers.yml) |
 | Shell | — | [build_shell.yml](gh_workflow_examples/build_shell.yml) |
 | Source-only — no build, scan only | [README](actions/scan/README.md) | [check_source_change.yml](gh_workflow_examples/check_source_change.yml) |
+
+## FAQ
+
+How to pin wrangle (by SHA, and why zizmor wants it that way), whether you can
+use a tag, and how verification ties to your pin: see [docs/FAQ.md](docs/FAQ.md).

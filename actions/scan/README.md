@@ -23,7 +23,7 @@ jobs:
       actions: read
       contents: read
       security-events: write   # SARIF upload to the Security tab
-    uses: TomHennen/wrangle/.github/workflows/check_source_change.yml@v0.1.0
+    uses: TomHennen/wrangle/.github/workflows/check_source_change.yml@1448b250fb8d75841dfba3b2c8f5c23e85162b89 # v0.2.0
 ```
 
 Findings appear in the Security tab; the run's step summary shows an overview.
@@ -49,7 +49,7 @@ The May 2026 Mini Shai-Hulud compromise of TanStack/router is the canonical exam
 The `tools` input is a space-separated list. Default: `"osv zizmor scorecard:info dependency-review"`. Suffix with `:info` to make a tool's findings non-blocking.
 
 ```yaml
-uses: TomHennen/wrangle/.github/workflows/check_source_change.yml@v0.1.0
+uses: TomHennen/wrangle/.github/workflows/check_source_change.yml@1448b250fb8d75841dfba3b2c8f5c23e85162b89 # v0.2.0
 with:
   tools: "osv zizmor"   # skip Scorecard and dependency-review
 ```
