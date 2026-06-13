@@ -8,14 +8,11 @@ specifically: each requirement, broken down to its individual MUST/SHOULD
 sub-points, with a verdict and evidence you can re-verify. (Read the requirement
 text at the spec link above; it's paraphrased here.)
 
-It is the **source of truth for the SLSA level wrangle claims.**
-[`SLSA_L3_AUDIT.md`](SLSA_L3_AUDIT.md) is the point-in-time isolation review that
-drove the hardening — the *why*; this page is the *what*. (Its bottom-line table
-still shows uv and container at Build L2; audit Findings 1 and 2 are **resolved**
-— their caches are disabled on release — so the L3 verdicts here supersede that
-snapshot.) Verdicts: **MEETS** = satisfied at the claimed level (a "(caveat)" or
-"disclosed limitation" flags a documented residual that doesn't void it);
-**GAP** = a requirement genuinely unmet; **N/A** = doesn't apply.
+[`SLSA_L3_AUDIT.md`](SLSA_L3_AUDIT.md) is an earlier point-in-time audit that drove
+a number of hardening changes; its findings no longer hold. **This document** is the
+authoritative analysis of how wrangle meets SLSA Build L3. Verdicts: **MEETS** (a
+"(caveat)" / "disclosed limitation" flags a documented residual that doesn't void
+it) / **GAP** (genuinely unmet) / **N/A**.
 
 ## Scope and preconditions
 
@@ -34,22 +31,23 @@ Every verdict holds **only** under these conditions — they are part of the cla
 
 ## Build Track level by build type
 
+Each row links the reusable workflow it covers. pip/uv and npm/pnpm are
+package-manager options within one workflow each, not separate L3 surfaces.
+
 | Build type | Level | Note |
 |---|---|---|
-| Go | **Build L3** | Publishes inline (publish-before-verify — see Distribution). |
-| Python (pip / uv) | **Build L3** | One workflow; the per-PM cache differs — see Cache isolation. |
-| npm (npm / pnpm) | **Build L3** | One workflow; the npm PM rests on `npm ci` re-verification. |
-| Container | **Build L3** | Public registry only ([#182](https://github.com/TomHennen/wrangle/issues/182)); publishes inline. |
-| Shell | **N/A** | No artifact → no provenance/VSA. Lint + tests + source scan only. |
+| [Go](../.github/workflows/build_and_publish_go.yml) | **Build L3** | Publishes inline (publish-before-verify — see Distribution). |
+| [Python](../.github/workflows/build_and_publish_python.yml) (pip, uv) | **Build L3** | Cache handling differs between pip and uv — see Cache isolation. |
+| [npm](../.github/workflows/build_and_publish_npm.yml) (npm, pnpm) | **Build L3** | npm keeps its cache on release, relying on `npm ci` — see Cache isolation. |
+| [Container](../.github/workflows/build_and_publish_container.yml) | **Build L3** | Public registry only ([#182](https://github.com/TomHennen/wrangle/issues/182)); publishes inline. |
+| [Shell](../.github/workflows/build_shell.yml) | **N/A** | No artifact → no provenance/VSA. Lint + tests + source scan only. |
 
-pip/uv and npm/pnpm are package-manager variants of the same two reusable
-workflows, not separate L3 surfaces. The artifact-producing types share one
-machinery: each `build_and_publish_*.yml` runs `actions/attest-build-provenance`
-**inside the reusable workflow itself**, and the per-build-type provenance policy
-is `policies/wrangle-provenance-<type>-v1.hjson`. The signing-certificate SAN is
-the reusable workflow's own path (per build type) — see *builder identity* below.
-The only requirement that varies by build type is the **Isolated → cache**
-sub-point.
+All artifact-producing types share one machinery: each `build_and_publish_*.yml`
+runs `actions/attest-build-provenance` **inside the reusable workflow itself**, the
+signing-certificate SAN is that workflow's own path (per build type — see *builder
+identity* below), and the per-type provenance policy is
+`policies/wrangle-provenance-<type>-v1.hjson`. The only requirement that varies by
+build type is the **Isolated → cache** sub-point.
 
 ## Provenance requirements
 
@@ -115,35 +113,41 @@ sub-point.
 
 > Spec section: **"Provenance Unforgeable"** (`#provenance-unforgeable`).
 
-- **Secret material used to sign is stored securely and only the build service
-  account can reach it** — MEETS, **with a caveat**. There is no long-lived
-  signing key to store or steal: the per-run credential is the OIDC token + an
-  ephemeral (~minutes) Fulcio key, held only by the isolated `attest`/`verify`
-  jobs. The "secure management system" here is GitHub OIDC + Sigstore + per-job
-  runner isolation — **not** a wrangle-operated KMS/HSM. **Residual risk:**
-  keyless reduces but does not eliminate credential theft. The signing jobs run
-  **no adopter code**, so the realistic vector is a wrangle-side supply-chain
-  compromise — a malicious dependency in one of wrangle's *own* pinned
-  signing-job actions (governed by [`DEP_MGMT.md`](../DEP_MGMT.md)) — or a runner
-  compromise; either could exfiltrate the short-lived token/key within its
-  validity window. We don't claim KMS/HSM-grade key custody.
-- **Secret material NOT accessible to the environment running user build steps**
-  — MEETS, and this is the load-bearing control: **no build job holds
-  `id-token: write`**; only the separate `attest`/`verify` jobs (no adopter code,
-  separate VMs) get it. Build jobs otherwise carry only what they need to publish
-  — the Go `release` job adds `contents: write` (goreleaser) and the container
-  `build` job adds `packages: write` (push the image), neither with `id-token`.
-  This is exactly the defense against the "leaked id-token" failure mode — the
-  token is never granted to a job that runs tenant code.
-- **Every field generated or verified by the control plane; user steps can't
-  inject or alter it** — MEETS. Predicate is control-plane populated; the
-  `::stop-commands::` guard (`lib/stop_commands_guard.sh`, wired in each
-  `build/actions/<type>/` composite) neutralizes workflow-command injection from
-  build output.
-- **Completeness: `externalParameters` MUST be fully enumerated at L3** — MEETS;
-  the control plane records the full workflow invocation (repo, ref, workflow
-  path). `resolvedDependencies` remains best-effort (a disclosed limitation,
-  below).
+#### Signing secret stored securely, reachable only by the build service account
+
+MEETS, **with a caveat**. There is no long-lived signing key to store or steal: the
+per-run credential is the OIDC token + an ephemeral (~minutes) Fulcio key, held only
+by the isolated `attest`/`verify` jobs. The "secure management system" here is GitHub
+OIDC + Sigstore + per-job runner isolation — **not** a wrangle-operated KMS/HSM.
+
+**Residual risk:** keyless reduces but does not eliminate credential theft. The
+signing jobs run **no adopter code**, so the realistic vector is a wrangle-side
+supply-chain compromise — a malicious dependency in one of wrangle's *own* pinned
+signing-job actions (governed by [`DEP_MGMT.md`](../DEP_MGMT.md)) — or a runner
+compromise; either could exfiltrate the short-lived token/key within its validity
+window. We don't claim KMS/HSM-grade key custody.
+
+#### Signing secret not accessible to the environment running user build steps
+
+MEETS, and this is the load-bearing control: **no build job holds `id-token: write`**;
+only the separate `attest`/`verify` jobs (no adopter code, separate VMs) get it. Build
+jobs otherwise carry only what they need to publish — the Go `release` job adds
+`contents: write` (goreleaser) and the container `build` job adds `packages: write`
+(push the image), neither with `id-token`. This is exactly the defense against the
+"leaked id-token" failure mode — the token is never granted to a job that runs tenant
+code.
+
+#### Every field generated or verified by the control plane
+
+MEETS. Predicate is control-plane populated; the `::stop-commands::` guard
+(`lib/stop_commands_guard.sh`, wired in each `build/actions/<type>/` composite)
+neutralizes workflow-command injection from build output, so user steps can't inject
+or alter provenance fields.
+
+#### Completeness — `externalParameters` MUST be fully enumerated at L3
+
+MEETS; the control plane records the full workflow invocation (repo, ref, workflow
+path). `resolvedDependencies` remains best-effort (a disclosed limitation, below).
 
 **Gap (direct composite use):** calling `build/actions/<type>/` directly forfeits
 the build/sign separation — one `id-token: write` on a job that also runs the
@@ -171,10 +175,10 @@ Post-v1.0 — see [`ampel_research.md`](ampel_research.md).
 | `metadata.invocationId/startedOn/finishedOn` | no required level | MEETS | Emitted by `attest-build-provenance` where present (control-plane populated; none required). |
 | `builderDependencies`, `builder.version`, `byproducts` | optional | N/A | Not used. |
 
-**Builder identity (the "different mode → different builder.id/signer" MUST).**
-Because `attest-build-provenance` runs inside the reusable workflow, the
-provenance's `runDetails.builder.id` is that workflow — **per build type**.
-Verified on a recent build: a Go artifact carries
+**Builder identity — the MUST that different build modes carry a different
+`builder.id` (and SHOULD a different signer).** Because `attest-build-provenance`
+runs inside the reusable workflow, the provenance's `runDetails.builder.id` is that
+workflow. Verified on a recent build: a Go artifact carries
 `builder.id = https://github.com/TomHennen/wrangle/.github/workflows/build_and_publish_go.yml@<ref>`
 (python carries `…/build_and_publish_python.yml@<ref>`; `<ref>` is whatever the
 adopter pinned the reusable workflow at). This is **distinct** from

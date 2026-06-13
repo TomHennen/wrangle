@@ -40,7 +40,7 @@ These steps set up [npm Trusted Publishing](https://docs.npmjs.com/trusted-publi
 - **Your scripts run as usual** — `scripts.build` if present, `scripts.test` unless it's npm's default placeholder, then `npm pack` / `pnpm pack`.
 - **Source scan** built in — vulnerable dependencies (OSV), unsafe workflow patterns (Zizmor), and more ([details](../../../actions/scan/README.md)); a load-bearing finding blocks publish.
 - **An SPDX SBOM**, uploaded as a workflow artifact.
-- **SLSA Build L3 provenance** ([the conditions behind the claim](../../../docs/SLSA_L3_AUDIT.md)), in addition to the L2 attestation `npm publish --provenance` writes to the registry.
+- **SLSA Build L3 provenance** ([the requirements it meets](../../../docs/REQUIREMENTS_MAPPING.md)), in addition to the L2 attestation `npm publish --provenance` writes to the registry.
 - **A signed VSA** attached to the release on tag pushes, so downstream users can verify the tarball with one command.
 
 ## Your publish job
@@ -95,5 +95,5 @@ That single command checks — fail-closed — the signature, wrangle's signer i
 
 - [`SPEC.md`](./SPEC.md) — design rationale: attestation model (L2 vs L3), tool choices.
 - [`docs/verifying_artifacts.md`](../../../docs/verifying_artifacts.md) — consumer verification: ampel, cosign, `gh attestation verify`, `npm audit signatures`.
-- [`docs/SLSA_L3_AUDIT.md`](../../../docs/SLSA_L3_AUDIT.md) — the conditions behind the Build L3 claim, including the npm-vs-pnpm cache analysis.
+- [`docs/REQUIREMENTS_MAPPING.md`](../../../docs/REQUIREMENTS_MAPPING.md) — the SLSA Build L3 requirements mapping, including the per-surface cache analysis (npm vs pnpm).
 - [npm Trusted Publishing](https://docs.npmjs.com/trusted-publishers/) — the underlying publish mechanism.
