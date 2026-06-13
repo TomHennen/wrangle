@@ -7,7 +7,7 @@ on:
         description: "Space-separated list of tools to run (suffix :info for informational)"
         required: false
         type: string
-        default: "osv zizmor scorecard:info dependency-review"
+        default: "osv zizmor scorecard:info dependency-review wrangle-lint"
       go-cache:
         description: >
           Set to "enabled" to cache the Go module + build caches the
@@ -30,7 +30,7 @@ jobs:
     permissions: {}    # reads env only — no workspace, no API, no secrets
     steps:
       # TODO: replace with $/actions/preflight_guard when GitHub ships $/ syntax (#136)
-      - uses: TomHennen/wrangle/actions/preflight_guard@8160c96f7134fffa7751210e21a05c4652b336dd # main 2026-06-13
+      - uses: TomHennen/wrangle/actions/preflight_guard@344eedec99a5d7ed85d6d1f7d347d32a00253548 # main 2026-06-13
 
   check-change:
     needs: [guard]
@@ -48,7 +48,7 @@ jobs:
       # action-pattern tools (zizmor, scorecard) via uses: internally.
       # TODO: replace with $/actions/scan when GitHub ships $/ syntax (#136)
       - name: Source scan
-        uses: TomHennen/wrangle/actions/scan@8160c96f7134fffa7751210e21a05c4652b336dd # main 2026-06-13
+        uses: TomHennen/wrangle/actions/scan@344eedec99a5d7ed85d6d1f7d347d32a00253548 # main 2026-06-13
         with:
           tools: ${{ inputs.tools }}
           go-cache: ${{ inputs.go-cache }}

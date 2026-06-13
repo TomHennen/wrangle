@@ -21,7 +21,7 @@ Wrangle's own workflows all have filenames that start with `local_`.
 
 **Embedded source scan.** Each of these workflows runs a `scan` job (the `actions/scan` composite) before building, so adopters get scanning *and* build/publish from one workflow — no separate `check_source_change.yml` needed.
 
-- **`scan-tools` input** — space-separated tools, default `"osv zizmor scorecard:info dependency-review"`. Suffix a tool with `:info` to make it non-blocking. Empty string disables scanning entirely.
+- **`scan-tools` input** — space-separated tools, default `"osv zizmor scorecard:info dependency-review wrangle-lint"`. Suffix a tool with `:info` to make it non-blocking. Empty string disables scanning entirely.
 - **Publish gating.** A load-bearing (`:fail`) finding blocks publishing. The point where it blocks differs by build type:
   - **container** — blocks the `build` job on *every* event; the docker push happens mid-composite and is not release-gated, so this is the documented exception.
   - **go** — blocks the `release` job on release events; PR snapshot builds still run.
