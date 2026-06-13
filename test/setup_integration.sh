@@ -44,6 +44,17 @@ if ! command -v ast-grep >/dev/null 2>&1; then
     ln -sf /tmp/wrangle-venvs/ast-grep/bin/ast-grep "$WRANGLE_BIN_DIR/ast-grep"
 fi
 
+# zizmor for the detection canary (tools/zizmor/test.bats) and the
+# example-workflow scan (test/test_examples_scan.bats). Same hash-pinned
+# requirements.txt the test container installs; entrypoint onto PATH via
+# WRANGLE_BIN_DIR. Without it those bats skip_or_fail (FATAL) under CI.
+if ! command -v zizmor >/dev/null 2>&1; then
+    python3 -m venv /tmp/wrangle-venvs/zizmor
+    /tmp/wrangle-venvs/zizmor/bin/pip install --quiet --no-cache-dir \
+        --require-hashes -r "$REPO_ROOT/tools/zizmor/requirements.txt"
+    ln -sf /tmp/wrangle-venvs/zizmor/bin/zizmor "$WRANGLE_BIN_DIR/zizmor"
+fi
+
 # wrangle-workflow-lint's lint.sh prefers this exact venv path (PyYAML is
 # a library — no entrypoint to put on PATH). Root (the test container)
 # writes /opt directly; the GitHub runner needs sudo.
@@ -70,3 +81,4 @@ printf 'setup_integration: installed tool versions:\n'
 osv-scanner --version | head -1
 ampel version | head -1
 cosign version 2>&1 | grep GitVersion
+zizmor --version | head -1

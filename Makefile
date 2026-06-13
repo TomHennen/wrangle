@@ -52,9 +52,10 @@ integration:
 	@source lib/env.sh && ./test/setup_integration.sh && bats $(INTEGRATION_BATS)
 
 # Workflow security linting (matches tools/zizmor/action.yml's CI invocation).
-# --no-online-audits keeps the test container offline-friendly; the
-# online audits (e.g. unpinned-uses against the live registry) are
-# exercised by the same upstream action in CI.
+# --no-online-audits keeps the test container offline-friendly; the audits
+# that need network (e.g. known-vulnerable-actions against the GitHub
+# Advisories DB) are exercised by the same upstream action in CI. unpinned-uses
+# works offline, so this run does enforce SHA-pinning locally.
 zizmor:
 	@echo "=== zizmor ==="
 	@zizmor --no-online-audits .github/workflows actions/ tools/ build/
