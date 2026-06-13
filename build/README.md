@@ -8,7 +8,7 @@ Build types live here. Each produces a signed artifact with an SBOM and SLSA pro
 | npm / pnpm | [`actions/npm/README.md`](actions/npm/README.md) | [`build_npm.yml`](../gh_workflow_examples/build_npm.yml) |
 | Python (pip / uv) | [`actions/python/README.md`](actions/python/README.md) | [`build_python.yml`](../gh_workflow_examples/build_python.yml) |
 | Container | [`actions/container/README.md`](actions/container/README.md) | [`build_and_publish_containers.yml`](../gh_workflow_examples/build_and_publish_containers.yml) |
-| Shell | (no artifact — shellcheck + bats only) | [`build_shell.yml`](../gh_workflow_examples/build_shell.yml) |
+| Shell | [`actions/shell/README.md`](actions/shell/README.md) | [`build_shell.yml`](../gh_workflow_examples/build_shell.yml) |
 
 ## Build Track level
 
