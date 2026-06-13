@@ -22,13 +22,33 @@ uses one of wrangle's reusable workflows.  With that single job developers get:
 * Automatic execution of unit tests
 * Automatic builds with safe defaults
 * [SBOMs](https://spdx.dev)
-* [SLSA Build Level 3 provenance](https://slsa.dev/spec/v1.2/levels)
+* [SLSA Build Level 3 provenance](docs/slsa-conformance.md) — per build type, mapped to evidence
 * Build provenance verified against SLSA policy (fail-closed) with [Ampel](https://github.com/carabiner-dev/ampel)
 * A [SLSA VSA](https://slsa.dev/verification_summary/v1) letting downstream users easily verify the artifacts you distribute.
 * and more
 
 The promise is that if developers use wrangle, wrangle will take care of drudgery, safely,
 and let developers focus on the features they want to ship.
+
+## What wrangle is proving
+
+Wrangle's goal is to **prove it's possible** to hand a developer one workflow call and give
+back a hardened, fail-closed, *verifiable* supply chain — SLSA Build L3 provenance and a signed
+VSA included — without asking them to understand or assemble any of it. The list above is the
+bet; [`docs/slsa-conformance.md`](docs/slsa-conformance.md) is the receipts (which build types
+meet which level, with evidence); the warning at the top is the honest status — it works and
+wrangle dogfoods it, but it hasn't had an independent security review.
+
+Two things fall out of building it this way:
+
+- **You stop having to know what you're supposed to do.** Wrangle makes the choices — which
+  tools, which gates, safe defaults — and ships them as one versioned unit. As the landscape
+  moves and wrangle adds protections, you pick them up by bumping a pin; you don't have to
+  discover that you needed them.
+- **It shrinks what an automated agent can get wrong.** When an AI agent wires your release, a
+  dozen hand-assembled security steps are a dozen things to misconfigure. One fail-closed call
+  is far less surface — and the result is *independently verifiable* (the VSA), no matter how
+  the agent behaved.
 
 ## Quick Start
 
@@ -99,8 +119,15 @@ ecosystems run the whole pipeline.
 
 Wrangle is a supply-chain security tool, so its defaults lean toward safety:
 
-- **Fail-closed on security guarantees.** If a security problem is found (e.g. vulnerability found,
-  attestation generation failure) releases will be blocked by default.
+- **Fail-closed on security guarantees.** A load-bearing source-scan finding (OSV, Zizmor) blocks
+  the build *before* anything is published. For build types that publish inline (Go, container), a
+  failed attestation or policy check fails the run after the push rather than rolling it back — so
+  the guarantee consumers rely on is that a bad artifact carries no PASSED VSA, not that it never
+  appeared. The [conformance map](docs/slsa-conformance.md) has the per-build-type timing.
+- **Dangerous triggers: blocked where it can, flagged everywhere else.** Wrangle refuses to run its
+  own workflows under `pull_request_target` (and `workflow_run` chained from it), and its source
+  scan runs Zizmor across *all* your workflows to flag that pattern wherever else it appears — it
+  can surface a risky trigger in a workflow it doesn't control, even though only you can remove it.
 - **Keyless signing.** Attestations are signed with [Sigstore](https://www.sigstore.dev/) using
   Wrangle's identity combined with your repo's identity.
 - **Verifiable provenance.** The provenance ties each artifact back to the exact workflow that
