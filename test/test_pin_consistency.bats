@@ -38,3 +38,26 @@ setup() {
         return 1
     fi
 }
+
+@test "no adopter-facing wrangle reference is tag- or branch-pinned" {
+    # Adopter-facing wrangle refs must pin a 40-hex SHA: a tag or branch ref
+    # (@vX.Y.Z, @main) trips an adopter's own zizmor unpinned-uses on first run.
+    # The example files are scanned by test_examples_scan.bats; README/FAQ
+    # snippets are markdown and aren't, so this catches the snippets too.
+    #
+    # Excluded: test/ fixtures (synthetic pins), the @__WRANGLE_SHA__ integration
+    # template token, @<...> doc placeholders, and the lone FAQ line that
+    # demonstrates the tag form behind an explicit `# zizmor: ignore` escape.
+    local bad
+    bad="$(grep -rniIE 'uses: [a-z]+/wrangle/[^@[:space:]]+@[^[:space:]]+' \
+            --exclude-dir=.git --exclude-dir=test "$REPO_ROOT" \
+        | grep -viE '# *zizmor: *ignore' \
+        | grep -viE '@[0-9a-f]{40}([[:space:]]|#|$)' \
+        | grep -viE '@<[^>]+>' \
+        | grep -viE '@__[A-Za-z_]+__' || true)"
+
+    if [ -n "$bad" ]; then
+        printf 'Tag/branch-pinned adopter-facing wrangle refs (must be @<40-hex SHA>):\n%s\n' "$bad" >&2
+        return 1
+    fi
+}
