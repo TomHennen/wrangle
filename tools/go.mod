@@ -3,11 +3,17 @@ module github.com/TomHennen/wrangle/tools
 go 1.26.4
 
 tool (
+	github.com/TomHennen/wrangle/tools/wrangle-lint
 	github.com/carabiner-dev/ampel/cmd/ampel
 	github.com/carabiner-dev/bnd
 	github.com/google/osv-scanner/v2/cmd/osv-scanner
 	github.com/sigstore/cosign/v3/cmd/cosign
 	golang.org/x/vuln/cmd/govulncheck
+)
+
+require (
+	github.com/owenrumney/go-sarif/v3 v3.3.0
+	gopkg.in/yaml.v3 v3.0.1
 )
 
 require (
@@ -337,7 +343,6 @@ require (
 	github.com/opencontainers/selinux v1.13.1 // indirect
 	github.com/openvex/go-vex v0.2.8 // indirect
 	github.com/ossf/osv-schema/bindings/go v0.0.0-20260304051245-ec3272c283e4 // indirect
-	github.com/owenrumney/go-sarif/v3 v3.3.0 // indirect
 	github.com/package-url/packageurl-go v0.1.6 // indirect
 	github.com/pandatix/go-cvss v0.6.2 // indirect
 	github.com/pborman/uuid v1.2.1 // indirect
@@ -469,7 +474,6 @@ require (
 	gopkg.in/inf.v0 v0.9.1 // indirect
 	gopkg.in/ini.v1 v1.67.2 // indirect
 	gopkg.in/warnings.v0 v0.1.2 // indirect
-	gopkg.in/yaml.v3 v3.0.1 // indirect
 	k8s.io/api v0.35.3 // indirect
 	k8s.io/apimachinery v0.35.3 // indirect
 	k8s.io/client-go v0.35.3 // indirect

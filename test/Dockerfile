@@ -111,4 +111,12 @@ RUN set -euo pipefail && \
         --require-hashes -r /tmp/wwl-requirements.txt && \
     rm /tmp/wwl-requirements.txt
 
+# wrangle-lint is a first-party Go tool (a tool directive in tools/go.mod).
+# Pre-fetch its module dependency so the unit suite builds and tests it without
+# network access at test time.
+COPY tools/go.mod tools/go.sum /tmp/wl-tools/
+RUN set -euo pipefail && \
+    go -C /tmp/wl-tools mod download gopkg.in/yaml.v3 && \
+    rm -rf /tmp/wl-tools
+
 WORKDIR /wrangle

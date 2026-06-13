@@ -9,7 +9,7 @@ inputs:
       are dispatched to run.sh; action-pattern tools are invoked via
       their uses: steps.
     required: false
-    default: "osv zizmor scorecard:info dependency-review"
+    default: "osv zizmor scorecard:info dependency-review wrangle-lint"
   go-cache:
     description: >
       Set to "enabled" to cache the Go module + build caches that
@@ -166,6 +166,14 @@ runs:
       with:
         sarif_file: ${{ github.workspace }}/.wrangle/metadata/osv/output.sarif
         category: wrangle/osv
+
+    - name: Upload wrangle-lint SARIF
+      if: always() && contains(inputs.tools, 'wrangle-lint')
+      uses: github/codeql-action/upload-sarif@8aad20d150bbac5944a9f9d289da16a4b0d87c1e # v4.36.2
+      continue-on-error: true
+      with:
+        sarif_file: ${{ github.workspace }}/.wrangle/metadata/wrangle-lint/output.sarif
+        category: wrangle/wrangle-lint
 
     # Zizmor SARIF upload is handled by the upstream zizmor-action
     # (advanced-security: true). Adding a wrangle upload here would create
