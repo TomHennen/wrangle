@@ -3,12 +3,15 @@ module github.com/TomHennen/wrangle/tools
 go 1.26.4
 
 tool (
+	github.com/TomHennen/wrangle/tools/wrangle-lint
 	github.com/carabiner-dev/ampel/cmd/ampel
 	github.com/carabiner-dev/bnd
 	github.com/google/osv-scanner/v2/cmd/osv-scanner
 	github.com/sigstore/cosign/v3/cmd/cosign
 	golang.org/x/vuln/cmd/govulncheck
 )
+
+require gopkg.in/yaml.v3 v3.0.1
 
 require (
 	bitbucket.org/creachadair/stringset v0.0.14 // indirect
@@ -469,7 +472,6 @@ require (
 	gopkg.in/inf.v0 v0.9.1 // indirect
 	gopkg.in/ini.v1 v1.67.2 // indirect
 	gopkg.in/warnings.v0 v0.1.2 // indirect
-	gopkg.in/yaml.v3 v3.0.1 // indirect
 	k8s.io/api v0.35.3 // indirect
 	k8s.io/apimachinery v0.35.3 // indirect
 	k8s.io/client-go v0.35.3 // indirect

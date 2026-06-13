@@ -46,7 +46,7 @@ The May 2026 Mini Shai-Hulud compromise of TanStack/router is the canonical exam
 
 ## Customizing which tools run
 
-The `tools` input is a space-separated list. Default: `"osv zizmor scorecard:info dependency-review"`. Suffix with `:info` to make a tool's findings non-blocking.
+The `tools` input is a space-separated list. Default: `"osv zizmor scorecard:info dependency-review wrangle-lint"`. Suffix with `:info` to make a tool's findings non-blocking.
 
 ```yaml
 uses: TomHennen/wrangle/.github/workflows/check_source_change.yml@1448b250fb8d75841dfba3b2c8f5c23e85162b89 # v0.2.0

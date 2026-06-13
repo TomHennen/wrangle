@@ -47,7 +47,7 @@ docker build -t "$IMAGE_NAME" -f "$SCRIPT_DIR/test/Dockerfile" "$SCRIPT_DIR"
 # leaning on word-splitting (and the SC2086 disable that used to require).
 case "$TEST_TARGET" in
     ci)    MAKE_TARGETS=(all) ;;
-    quick) MAKE_TARGETS=(lint shellcheck shellstyle workflowstyle bats) ;;
+    quick) MAKE_TARGETS=(lint shellcheck shellstyle workflowstyle gotest bats) ;;
     *)     MAKE_TARGETS=("$TEST_TARGET") ;;
 esac
 

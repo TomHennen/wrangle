@@ -1,4 +1,4 @@
-.PHONY: all test lint shellcheck shellstyle workflowstyle bats zizmor integration bump-action-pins
+.PHONY: all test lint shellcheck shellstyle workflowstyle gotest bats zizmor integration bump-action-pins
 
 # bash, not the default sh: the integration recipe sources lib/env.sh,
 # whose `set -o pipefail` dash doesn't reliably support.
@@ -13,7 +13,7 @@ INTEGRATION_BATS := tools/osv/test.bats policies/test.bats actions/verify/test_r
 all: test
 
 # Run all local checks
-test: lint shellcheck shellstyle workflowstyle bats zizmor
+test: lint shellcheck shellstyle workflowstyle gotest bats zizmor
 
 # Validate all workflow and action YAML files
 lint:
@@ -30,6 +30,11 @@ shellstyle:
 workflowstyle:
 	@echo "=== wrangle-workflow-lint ==="
 	@./tools/wrangle-workflow-lint/lint.sh
+
+# Run first-party Go unit tests (the wrangle-lint rule engine).
+gotest:
+	@echo "=== go test ==="
+	@go -C tools test ./wrangle-lint/...
 
 # Lint all shell scripts (.sh and .bats) via the same script CI's dogfooded
 # shell build runs, so the local and CI shellcheck surfaces can't drift (#368).

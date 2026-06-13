@@ -104,7 +104,7 @@ setup() {
 }
 
 @test "scan: default tools input includes dependency-review" {
-    run grep 'default: "osv zizmor scorecard:info dependency-review"' "$ACTION_DIR/action.yml"
+    run grep 'default: "osv zizmor scorecard:info dependency-review wrangle-lint"' "$ACTION_DIR/action.yml"
     [ "$status" -eq 0 ]
 }
 
