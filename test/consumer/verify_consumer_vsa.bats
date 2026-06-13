@@ -206,6 +206,23 @@ require_sigstore() {
     [[ "$status" -ne 0 ]]
 }
 
+# The keystone bind: the VSA must cover THESE bytes. Every other Path-B case
+# varies a context or the signer identity; this one holds the real VSA, repo,
+# and resourceUri valid and varies only the *subject bytes*. A pass here would
+# mean "a signed VSA for the real package verifies a different blob" — i.e. the
+# publish gate would green-light substituted bytes that never passed policy.
+@test "consumer B: ampel verify FAILS on tampered subject bytes (valid VSA, wrong content)" {
+    [[ -x "$AMPEL_BIN" ]] || skip_or_fail "real ampel not available"
+    require_sigstore
+    cp "$BLOB" "$TMP/tampered.tgz"
+    printf 'tamper' >> "$TMP/tampered.tgz"   # one extra byte -> different sha256
+    run "$AMPEL_BIN" verify --subject "$TMP/tampered.tgz" \
+        --policy "$POLICY" --attestation "$VSA" \
+        --context "expectedResourceUri:$RESOURCE_URI" \
+        --context "sourceRepo:https://github.com/$SIGNER_REPO"
+    [[ "$status" -ne 0 ]]
+}
+
 # --- adopter-side publish gate (actions/verify-vsa) ---
 # The gate script evaluates the consumer PolicySet with ampel; running it
 # against the same real fixture proves the script's ampel invocation and
@@ -233,6 +250,24 @@ require_sigstore() {
     cp "$VSA" "$TMP/vsas/npm-package.tgz.intoto.jsonl"
     PATH="$(dirname "$AMPEL_BIN"):$PATH" \
         ARTIFACT_PATH="$TMP/dist" RESOURCE_URI="$RESOURCE_URI" REPO="attacker/repo" VSA_DIR="$TMP/vsas" \
+        run "$REPO_ROOT/actions/verify-vsa/verify_vsa.sh"
+    [[ "$status" -eq 1 ]]
+    [[ "$output" == *"ampel rejected"* ]]
+}
+
+# The exact runner-side substitution this gate exists to stop: a tampered blob
+# sitting under the same basename as a legitimately-signed VSA. Repo,
+# resourceUri, and signer identity all still match the real VSA — only the
+# bytes differ — so this is rejected iff the subject-digest bind holds.
+@test "verify-vsa: gate script rejects a tampered blob under a matching VSA basename" {
+    [[ -x "$AMPEL_BIN" ]] || skip_or_fail "real ampel not available"
+    require_sigstore
+    mkdir -p "$TMP/dist" "$TMP/vsas"
+    cp "$BLOB" "$TMP/dist/npm-package.tgz"
+    printf 'tamper' >> "$TMP/dist/npm-package.tgz"   # substitute the published bytes
+    cp "$VSA" "$TMP/vsas/npm-package.tgz.intoto.jsonl"
+    PATH="$(dirname "$AMPEL_BIN"):$PATH" \
+        ARTIFACT_PATH="$TMP/dist" RESOURCE_URI="$RESOURCE_URI" REPO="$SIGNER_REPO" VSA_DIR="$TMP/vsas" \
         run "$REPO_ROOT/actions/verify-vsa/verify_vsa.sh"
     [[ "$status" -eq 1 ]]
     [[ "$output" == *"ampel rejected"* ]]
