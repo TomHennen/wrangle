@@ -1,7 +1,7 @@
 # wrangle
 
 > [!WARNING]
-> Wrangle is **experimental**. Interfaces, policies, and security guarantees are still settling, and the code hasn't had independent security review — don't rely on it to protect anything important yet. Kick the tires, file issues, but keep your existing protections in place.
+> Wrangle is an **experimental proof of concept**. Interfaces, policies, and security guarantees are still settling, and the code hasn't had independent security review — don't rely on it to protect anything important yet. Kick the tires, file issues, but keep your existing protections in place.
 
 Developers want to ship features.  They'd like to do it securely but it's hard.  We ask too much of them:
 
@@ -22,7 +22,7 @@ uses one of wrangle's reusable workflows.  With that single job developers get:
 * Automatic execution of unit tests
 * Automatic builds with safe defaults
 * [SBOMs](https://spdx.dev)
-* [SLSA Build Level 3 provenance](https://slsa.dev/spec/v1.2/levels)
+* [SLSA Build Level 3 provenance](docs/REQUIREMENTS_MAPPING.md) — per build type, mapped to evidence
 * Build provenance verified against SLSA policy (fail-closed) with [Ampel](https://github.com/carabiner-dev/ampel)
 * A [SLSA VSA](https://slsa.dev/verification_summary/v1) letting downstream users easily verify the artifacts you distribute.
 * and more
@@ -99,8 +99,8 @@ ecosystems run the whole pipeline.
 
 Wrangle is a supply-chain security tool, so its defaults lean toward safety:
 
-- **Fail-closed on security guarantees.** If a security problem is found (e.g. vulnerability found,
-  attestation generation failure) releases will be blocked by default.
+- **Fail-closed on security guarantees.** A load-bearing scan finding blocks the build before
+  publish; a failed attestation or policy check means no PASSED VSA is emitted for the artifact.
 - **Keyless signing.** Attestations are signed with [Sigstore](https://www.sigstore.dev/) using
   Wrangle's identity combined with your repo's identity.
 - **Verifiable provenance.** The provenance ties each artifact back to the exact workflow that
