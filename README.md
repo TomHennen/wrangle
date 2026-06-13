@@ -1,7 +1,7 @@
 # wrangle
 
 > [!WARNING]
-> Wrangle is an **experimental proof of concept** — it aims to show that one workflow call can give you a verifiable SLSA Build L3 supply chain ([what it proves, per build type](docs/REQUIREMENTS_MAPPING.md)). It hasn't had independent security review; don't rely on it to protect anything important yet. Kick the tires, file issues, but keep your existing protections in place.
+> Wrangle is an **experimental proof of concept**. Interfaces, policies, and security guarantees are still settling, and the code hasn't had independent security review — don't rely on it to protect anything important yet. Kick the tires, file issues, but keep your existing protections in place.
 
 Developers want to ship features.  They'd like to do it securely but it's hard.  We ask too much of them:
 
