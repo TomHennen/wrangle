@@ -18,6 +18,7 @@ Drop it into your publish job between `download-artifact` and the publish step:
     name: ${{ needs.build.outputs.dist-artifact-name }}
     path: dist/
 
+# Pin by release tag; a SHA-pinned build's VSA fails this gate (see below).
 - uses: TomHennen/wrangle/actions/verify-vsa@v0.2.1 # zizmor: ignore[unpinned-uses] - immutable
   with:
     path: dist/
@@ -43,7 +44,7 @@ No extra permissions are needed: the action reads the VSAs from this run's workf
 For each file, fail-closed:
 
 - the file's hash matches the VSA's subject — these exact bytes are what passed policy;
-- the VSA's signature is valid and was signed by one of wrangle's reusable `build_and_publish_*` workflows;
+- the VSA's signature is valid and was signed by one of wrangle's reusable `build_and_publish_*` workflows, pinned by **release tag** — the signer identity must be `@refs/tags/vX.Y.Z`;
 - that workflow was running in *your* repository (`repo`) — a wrangle-signed VSA from someone else's repo is rejected;
 - the VSA names the resource you expect to publish (`resource-uri`);
 - the verdict is `PASSED`, at SLSA Build L3.
@@ -51,7 +52,7 @@ For each file, fail-closed:
 Known gaps and scope limits:
 
 - **It does not re-run policy.** Wrangle's `verify` job already evaluated the PolicySet; the VSA is that decision, signed. This action checks that the decision covers these bytes and says PASSED.
-- **The signer binding accepts any ref** of wrangle's workflows (your build job already pins wrangle's ref; a tag-pinned binding would break SHA- and branch-pinned callers).
+- **The signer binding requires a release tag.** This ensures consumers trust VSAs issued by official wrangle releases, not any commit in the repo: the VSA's signing cert records the ref you pinned wrangle at, so pin by release tag — a SHA-pinned build's VSA fails this gate (and any downstream consumer). It does not stop you pinning an *old* release tag.
 - **File blobs only, for now.** Container images have an image digest as their VSA subject, not a file, and are pushed from inside wrangle's reusable workflow rather than from an adopter publish job — so the container path verifies its VSA against the registry instead (see the [container README](../../build/actions/container/README.md)). Direct container support is tracked in [#353](https://github.com/TomHennen/wrangle/issues/353).
 
 ## Who can use it
