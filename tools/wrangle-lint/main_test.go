@@ -172,6 +172,82 @@ updates:
 			files: map[string]string{".github/dependabot.yml": "---\n---\nversion: 2\nupdates:\n  - package-ecosystem: \"github-actions\"\n    directory: \"/\"\n"},
 			want:  "WL005",
 		},
+		{
+			name: "WL006 workflows pin actions but no github-actions ecosystem",
+			files: map[string]string{
+				".github/dependabot.yml": `version: 2
+updates:
+  - package-ecosystem: "gomod"
+    directory: "/"
+    cooldown:
+      default-days: 7
+`,
+				".github/workflows/ci.yml": "on: push\njobs:\n  b:\n    runs-on: ubuntu-latest\n    steps:\n      - uses: actions/checkout@v4\n",
+			},
+			want: "WL006",
+		},
+		{
+			name: "WL006 not fired when github-actions ecosystem is present",
+			files: map[string]string{
+				".github/dependabot.yml":   cleanConfig,
+				".github/workflows/ci.yml": "on: push\njobs:\n  b:\n    runs-on: ubuntu-latest\n    steps:\n      - uses: actions/checkout@v4\n",
+			},
+			notWant: "WL006",
+		},
+		{
+			name: "WL006 not fired when no workflow pins an external action",
+			files: map[string]string{
+				".github/dependabot.yml": `version: 2
+updates:
+  - package-ecosystem: "gomod"
+    directory: "/"
+    cooldown:
+      default-days: 7
+`,
+				".github/workflows/ci.yml": "on: push\njobs:\n  b:\n    runs-on: ubuntu-latest\n    steps:\n      - uses: ./.github/actions/local\n",
+			},
+			notWant: "WL006",
+		},
+		{
+			name: "WL006 not fired with no workflows at all",
+			files: map[string]string{".github/dependabot.yml": `version: 2
+updates:
+  - package-ecosystem: "gomod"
+    directory: "/"
+    cooldown:
+      default-days: 7
+`},
+			notWant: "WL006",
+		},
+		{
+			name: "WL006 detects reusable workflow pins",
+			files: map[string]string{
+				".github/dependabot.yml": `version: 2
+updates:
+  - package-ecosystem: "gomod"
+    directory: "/"
+    cooldown:
+      default-days: 7
+`,
+				".github/workflows/release.yml": "on: push\njobs:\n  b:\n    uses: TomHennen/wrangle/.github/workflows/build_go.yml@abc123\n",
+			},
+			want: "WL006",
+		},
+		{
+			name: "WL006 suppressible with a justified ignore",
+			files: map[string]string{
+				".github/dependabot.yml": `version: 2
+updates:
+  # wrangle-lint: ignore WL006 -- action pins managed in a central repo
+  - package-ecosystem: "gomod"
+    directory: "/"
+    cooldown:
+      default-days: 7
+`,
+				".github/workflows/ci.yml": "on: push\njobs:\n  b:\n    runs-on: ubuntu-latest\n    steps:\n      - uses: actions/checkout@v4\n",
+			},
+			notWant: "WL006",
+		},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {

@@ -15,6 +15,8 @@
 //	       github-actions directories — its pins drift from the workflow copies.
 //	WL005  an updates entry has no cooldown.default-days >= 7 — bumps land
 //	       before the community can surface a supply-chain attack.
+//	WL006  workflows pin actions with `uses:` but no github-actions ecosystem
+//	       is configured — those action pins never get update PRs.
 //
 // Findings are suppressible with an inline comment carrying a justification:
 //
@@ -64,6 +66,7 @@ var rules = map[string]ruleMeta{
 	"WL003": {"error", "7.0", "github-actions directory glob does not recurse into composites"},
 	"WL004": {"error", "7.0", "Composite action directory not covered by Dependabot"},
 	"WL005": {"warning", "4.0", "Dependabot cooldown missing or shorter than the adoption delay"},
+	"WL006": {"error", "7.0", "Workflows pin actions but no github-actions Dependabot ecosystem is configured"},
 }
 
 type finding struct {
@@ -136,6 +139,76 @@ func compositeDirs(srcDir string) (map[string]bool, error) {
 		return nil
 	})
 	return found, err
+}
+
+// externalActionRef matches a pinned reference to an external action or
+// reusable workflow (`owner/repo...@ref`) — the kind Dependabot's
+// github-actions ecosystem raises update PRs for. Local (`./...`) and
+// `docker://` refs are excluded: Dependabot does not bump them.
+var externalActionRef = regexp.MustCompile(`^[^./][^@]*/[^@]*@`)
+
+// usesExternalAction reports whether any `uses:` in the node tree pins an
+// external action or reusable workflow.
+func usesExternalAction(n *yaml.Node) bool {
+	n = resolve(n)
+	if n == nil {
+		return false
+	}
+	if n.Kind == yaml.MappingNode {
+		for i := 0; i+1 < len(n.Content); i += 2 {
+			v := resolve(n.Content[i+1])
+			if n.Content[i].Value == "uses" && v != nil && v.Kind == yaml.ScalarNode {
+				val := strings.TrimSpace(v.Value)
+				if !strings.HasPrefix(val, "docker://") && externalActionRef.MatchString(val) {
+					return true
+				}
+			}
+			if usesExternalAction(v) {
+				return true
+			}
+		}
+		return false
+	}
+	for _, c := range n.Content {
+		if usesExternalAction(c) {
+			return true
+		}
+	}
+	return false
+}
+
+// workflowsPinActions reports whether any .github/workflows file pins an
+// external action or reusable workflow — the universal case for needing a
+// github-actions Dependabot ecosystem.
+func workflowsPinActions(srcDir string) (bool, error) {
+	dir := filepath.Join(srcDir, ".github", "workflows")
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return false, nil
+		}
+		return false, err
+	}
+	for _, e := range entries {
+		name := e.Name()
+		if e.IsDir() || (!strings.HasSuffix(name, ".yml") && !strings.HasSuffix(name, ".yaml")) {
+			continue
+		}
+		content, err := os.ReadFile(filepath.Join(dir, name))
+		if err != nil {
+			return false, err
+		}
+		// A malformed workflow is the security scanners' concern, not this
+		// config audit's — skip it rather than failing the whole lint closed.
+		root, err := parseFirstDoc(content, name)
+		if err != nil || root == nil {
+			continue
+		}
+		if usesExternalAction(root) {
+			return true, nil
+		}
+	}
+	return false, nil
 }
 
 type dirRef struct {
@@ -231,6 +304,7 @@ func checkDependabot(ymlPath, uri, srcDir string) ([]finding, error) {
 		return nil, err
 	}
 
+	hasGitHubActions := false
 	for _, entry := range updates.Content {
 		entry = resolve(entry)
 		if entry.Kind != yaml.MappingNode {
@@ -250,6 +324,7 @@ func checkDependabot(ymlPath, uri, srcDir string) ([]finding, error) {
 		if eco != "github-actions" {
 			continue
 		}
+		hasGitHubActions = true
 
 		dirs := entryDirectories(entry)
 		hasGlob := false
@@ -288,6 +363,20 @@ func checkDependabot(ymlPath, uri, srcDir string) ([]finding, error) {
 				"Composite action '%s/action.yml' is not covered by the github-actions entry, so "+
 					"its pinned actions never get update PRs. Add \"%s\" to that entry's `directories`.",
 				c, c)})
+		}
+	}
+
+	if !hasGitHubActions {
+		pin, err := workflowsPinActions(srcDir)
+		if err != nil {
+			return nil, err
+		}
+		if pin {
+			findings = append(findings, finding{"WL006", uri, ymlPath, updates.Line,
+				"Workflows under .github/workflows pin actions with `uses:`, but the Dependabot " +
+					"config has no `github-actions` ecosystem entry, so those action pins never get " +
+					"update PRs. Add an `updates:` entry with `package-ecosystem: \"github-actions\"` " +
+					"(see gh_workflow_examples/dependabot.yml)."})
 		}
 	}
 	return findings, nil
