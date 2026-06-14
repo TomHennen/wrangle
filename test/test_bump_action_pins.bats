@@ -372,6 +372,32 @@ EOF
     ! grep -q '^set +f' "$REPO_ROOT/tools/bump_action_pins.sh"
 }
 
+@test "bump_action_pins: bumps nested self-ref pins in composites, not just workflows" {
+    # The footgun this guards: a nested pin in actions/ or build/ ageing while
+    # only .github/workflows/ got bumped. Recursion must reach both.
+    mkdir -p actions/scan build/actions/go/release
+    cat > .github/workflows/w.yml <<EOF
+jobs:
+  scan:
+    uses: TomHennen/wrangle/actions/scan@aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
+EOF
+    cat > actions/scan/action.yml <<EOF
+runs:
+  steps:
+    - uses: TomHennen/wrangle/tools/zizmor@aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
+EOF
+    cat > build/actions/go/release/action.yml <<EOF
+runs:
+  steps:
+    - uses: TomHennen/wrangle/build/actions/go@aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
+EOF
+    run "$SCRIPT" "$NEW_SHA"
+    [[ "$status" -eq 0 ]]
+    grep -q "actions/scan@${NEW_SHA}" .github/workflows/w.yml
+    grep -q "tools/zizmor@${NEW_SHA}" actions/scan/action.yml
+    grep -q "build/actions/go@${NEW_SHA}" build/actions/go/release/action.yml
+}
+
 @test "bump_action_pins: only mixed-SHA files are rewritten when some pins already match target" {
     # File with a mix of SHAs — must be rewritten so all pins reach target.
     cat > .github/workflows/mixed.yml <<EOF

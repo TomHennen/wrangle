@@ -1,6 +1,8 @@
 #!/bin/bash
 # tools/bump_action_pins.sh — Rewrite TomHennen/wrangle/...@<sha> action refs
-# in .github/workflows/ to a target SHA (default: current HEAD).
+# to a target SHA (default: current HEAD). Walks every tree that may carry such
+# pins (the shared tools/self_ref_pin_paths.sh set), so a nested pin inside a
+# composite is bumped alongside the workflow pins rather than aging on its own.
 #
 # Wrangle's reusable workflows pin to local composite actions via
 # fully-qualified SHA refs because GitHub resolves `uses: ./` relative
@@ -26,7 +28,6 @@
 #
 # Env overrides (escape hatch for forks / testing):
 #   WRANGLE_PINS_REPO   — repo prefix to match (default: TomHennen/wrangle)
-#   WRANGLE_PINS_DIR    — directory to walk (default: .github/workflows)
 #   WRANGLE_PINS_BRANCH — branch label to write into the comment.
 #                         Default detection (in order):
 #                           1. If target_sha is reachable from `main` (i.e.,
@@ -55,7 +56,10 @@ if [[ -z "$REPO_ROOT" ]]; then
 fi
 
 PINS_REPO="${WRANGLE_PINS_REPO:-TomHennen/wrangle}"
-PINS_DIR="${WRANGLE_PINS_DIR:-.github/workflows}"
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+# shellcheck source=self_ref_pin_paths.sh
+source "$SCRIPT_DIR/self_ref_pin_paths.sh"
 
 if [[ $# -gt 1 ]]; then
     printf 'Usage: %s [<sha>]\n' "$0" >&2
@@ -124,17 +128,27 @@ new_suffix="@${target_sha} # ${escaped_branch} ${escaped_date}"
 match='\(^[[:space:]]*-\{0,1\}[[:space:]]*uses:[[:space:]]*'"$escaped_repo"'/[^@[:space:]]*\)@[0-9a-f]\{40\}\([[:space:]]*#.*\)\{0,1\}'
 replace='\1'"$new_suffix"
 
-# Expand the workflow-file glob inside a subshell so the `set +f` toggle
-# is unconditionally scoped — even if collection fails, the parent stays
-# noglob. Files then iterate in the parent with `set -f` still on.
+# Resolve the pin-path set against this clone, skipping trees it lacks.
+mapfile -t pin_paths < <(wrangle_self_ref_pin_paths)
+search_dirs=()
+for rel in "${pin_paths[@]}"; do
+    [[ -d "$REPO_ROOT/$rel" ]] && search_dirs+=("$REPO_ROOT/$rel")
+done
+
+# Expand the YAML glob inside a subshell so the `set +f` toggle is
+# unconditionally scoped — even if collection fails, the parent stays noglob.
+# `globstar` recurses so nested composite action.yml files are found, not only
+# the flat workflows dir. Files then iterate in the parent with `set -f` on.
 files=()
 while IFS= read -r f; do
     files+=("$f")
 done < <(
     set +f
-    shopt -s nullglob
-    for g in "$REPO_ROOT/$PINS_DIR"/*.yml "$REPO_ROOT/$PINS_DIR"/*.yaml; do
-        [[ -f "$g" ]] && printf '%s\n' "$g"
+    shopt -s nullglob globstar
+    for base in "${search_dirs[@]}"; do
+        for g in "$base"/**/*.yml "$base"/**/*.yaml; do
+            [[ -f "$g" ]] && printf '%s\n' "$g"
+        done
     done
 )
 
