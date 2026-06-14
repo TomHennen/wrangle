@@ -56,3 +56,22 @@ commit" to "any release," nothing more.
 The latest [release](https://github.com/TomHennen/wrangle/releases) tag.
 Dependabot and the examples under
 [`gh_workflow_examples/`](../gh_workflow_examples/) track the current release.
+
+## I'm on a private repo without Advanced Security — which scan tools work?
+
+Most of the default `scan-tools` work as-is. The SARIF upload to the Security
+tab needs code scanning (GitHub Advanced Security), but it's additive — when
+it's unavailable the tools still gate on findings via the step summary
+(see [`SPEC.md`](SPEC.md)). `scorecard` is already `:info` and push-only.
+
+The one default that hard-fails is **`dependency-review`**: it calls GitHub's
+dependency-graph API, which a private repo only exposes with Advanced Security,
+so without it the call returns 403 and the scan fails closed. Drop it from
+`scan-tools` (or set `dependency-review:info`) until you enable Advanced
+Security or the repo goes public, then promote it back to blocking:
+
+```yaml
+scan-tools: "osv zizmor scorecard:info wrangle-lint"
+```
+
+`osv`, `zizmor`, and `wrangle-lint` stay blocking on real findings.

@@ -9,7 +9,7 @@
 | SARIF upload | Handled by the upstream action (wrangle does not upload separately) |
 | Default policy | `:fail` — workflow security issues block the check |
 | Suppression | `.zizmor.yml` at repo root configures accepted findings. Suppress only documented false positives, not convenience silencing |
-| Tool-error handling | `continue-on-error: true` on the upstream step is required so the SARIF collection step can access outputs after zizmor finds issues (exit code 14). `collect_sarif.sh` disambiguates "found issues" from "tool error": when upstream outcome is `failure` and the SARIF is missing, empty, malformed, or reports zero results, it writes an `error` marker that `lib/check_results.sh` reads to fail closed for `:fail` policy. A parseable SARIF with `>0` results is preserved as findings so `:info` policy reports findings informationally rather than as an error. The "Check results" step in the scan action is the actual pass/fail gate. |
+| Tool-error handling | `continue-on-error: true` on the upstream step is required so the SARIF collection step can access outputs after zizmor finds issues (exit code 14). `collect_sarif.sh` disambiguates "found issues" from "tool error": only a missing, empty, or malformed SARIF under upstream outcome `failure` writes an `error` marker that `lib/check_results.sh` reads to fail closed for `:fail` policy. A parseable SARIF is authoritative — `>0` results are preserved as findings, and zero results is a clean audit even when the outcome is `failure`, because the upstream action's Code Scanning upload (its last step, run after the SARIF is written) fails on repos without Advanced Security and must not gate the scan. The "Check results" step in the scan action is the actual pass/fail gate. |
 
 ## Install paths
 

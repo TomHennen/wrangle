@@ -8,9 +8,14 @@ set -f  # disable globbing — processes external tool output
 # Hidden upstream constraint: zizmor-action pipes through `tee`, so
 # SARIF_SRC always exists even on image-pull failure or mid-run crash
 # (then empty/truncated). File presence does not imply success — we
-# must inspect contents. zizmor exits 14 (→ outcome=failure) only after
-# writing a complete SARIF with findings; anything else under
-# outcome=failure is a tool error.
+# inspect contents. A complete, parseable SARIF means the audit itself
+# ran to completion, so its result count is authoritative regardless of
+# outcome: >0 are real findings, 0 a clean audit. outcome=failure spans
+# both zizmor's findings exit (14) and a clean audit whose Code Scanning
+# upload failed — the upload is the action's last step, run after the
+# SARIF is already on disk, and fails on repos without code scanning
+# (private, no Advanced Security). Neither is a zizmor error; only an
+# unusable SARIF (missing/empty/unparseable) under outcome=failure is.
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 # shellcheck source=../../lib/write_tool_error_marker.sh
@@ -40,9 +45,13 @@ if [[ -n "$SARIF_SRC" ]] && [[ -f "$SARIF_SRC" ]] && [[ -s "$SARIF_SRC" ]]; then
     fi
 fi
 
-# `[[ -le ]]` not `(( ))`: an arithmetic 0 exits non-zero, which under
-# set -e could short-circuit a future && chain before the marker write.
-if [[ "$OUTCOME" == "failure" ]] && [[ "$src_count" -le 0 ]]; then
+# Only a genuinely unusable SARIF (src_count<0) is a tool error: a
+# parseable SARIF — even with zero results — means the audit finished,
+# so a failed outcome is then just the Code Scanning upload, which must
+# not fail the scan on a no-Advanced-Security repo. `[[ -lt ]]` not
+# `(( ))`: an arithmetic 0 exits non-zero, which under set -e could
+# short-circuit a future && chain before the marker write.
+if [[ "$OUTCOME" == "failure" ]] && [[ "$src_count" -lt 0 ]]; then
     wrangle_write_tool_error_marker "$METADATA_DIR" \
         "upstream zizmor-action exited non-zero with no usable SARIF output (outcome=${OUTCOME})"
 fi
