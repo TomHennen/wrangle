@@ -71,6 +71,19 @@ but we can make it easier.  Copy
 Once in place it will create a PR whenever a dependency (including Wrangle!) needs to
 be updated.
 
+## Ecosystems
+
+Go, Python, npm, and Container each run the full pipeline and produce an attested, verifiable artifact; Shell and source-only run the checks only. Pick the row matching your project:
+
+| Ecosystem | README | Example |
+|-----------|--------|---------|
+| Go — uses your `.goreleaser.yml` | [README](build/actions/go/README.md) | [build_go.yml](gh_workflow_examples/build_go.yml) with example goreleaser configs in [pure-Go](gh_workflow_examples/build_go.goreleaser.yml) or [cgo cross-compile](gh_workflow_examples/build_go_cgo.goreleaser.yml) |
+| Python — uv or pip, auto-detected | [README](build/actions/python/README.md) | [build_python.yml](gh_workflow_examples/build_python.yml) |
+| npm — npm or pnpm, auto-detected | [README](build/actions/npm/README.md) | [build_npm.yml](gh_workflow_examples/build_npm.yml) |
+| Container | [README](build/actions/container/README.md) | [build_and_publish_containers.yml](gh_workflow_examples/build_and_publish_containers.yml) |
+| Shell | — | [build_shell.yml](gh_workflow_examples/build_shell.yml) |
+| Source-only — no build, scan only | [README](actions/scan/README.md) | [check_source_change.yml](gh_workflow_examples/check_source_change.yml) |
+
 ## How Wrangle Works
 
 Behind that one workflow call, wrangle runs your code through a pipeline of well-known security
@@ -109,19 +122,6 @@ Wrangle is a supply-chain security tool, so its defaults lean toward safety:
   `permissions:` block, so the scan and test jobs run read-only while only the publish, sign,
   and attest jobs hold write or token scopes (`contents: write`, `packages: write`,
   `id-token: write`, `attestations: write`) — and only for the length of that one job.
-
-## Ecosystems
-
-Go, Python, npm, and Container each run the full pipeline and produce an attested, verifiable artifact; Shell and source-only run the checks only. Pick the row matching your project:
-
-| Ecosystem | README | Example |
-|-----------|--------|---------|
-| Go — uses your `.goreleaser.yml` | [README](build/actions/go/README.md) | [build_go.yml](gh_workflow_examples/build_go.yml) with example goreleaser configs in [pure-Go](gh_workflow_examples/build_go.goreleaser.yml) or [cgo cross-compile](gh_workflow_examples/build_go_cgo.goreleaser.yml) |
-| Python — uv or pip, auto-detected | [README](build/actions/python/README.md) | [build_python.yml](gh_workflow_examples/build_python.yml) |
-| npm — npm or pnpm, auto-detected | [README](build/actions/npm/README.md) | [build_npm.yml](gh_workflow_examples/build_npm.yml) |
-| Container | [README](build/actions/container/README.md) | [build_and_publish_containers.yml](gh_workflow_examples/build_and_publish_containers.yml) |
-| Shell | — | [build_shell.yml](gh_workflow_examples/build_shell.yml) |
-| Source-only — no build, scan only | [README](actions/scan/README.md) | [check_source_change.yml](gh_workflow_examples/check_source_change.yml) |
 
 ## FAQ
 
