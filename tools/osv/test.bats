@@ -467,6 +467,26 @@ SARIF
     fi
 }
 
+@test "osv install e2e: install.sh downloads and provenance-verifies the binary" {
+    # Exercises the real SLSA-provenance verification path end to end. Needs
+    # cosign on PATH plus network to GitHub releases + Sigstore (Fulcio/Rekor/
+    # TUF); the integration job provides both, so skip_or_fail fails under CI
+    # if they're missing rather than letting coverage silently lapse.
+    if ! command -v cosign >/dev/null 2>&1; then
+        skip_or_fail "cosign not on PATH (sigstore/cosign-installer provides it in CI)"
+    fi
+    local bindir="$TMP_DIR/prebuilt-bin"
+    mkdir -p "$bindir"
+    WRANGLE_BIN_DIR="$bindir" WRANGLE_RETRY_DELAY=0 run "$ORIG_DIR/tools/osv/install.sh"
+    if [ "$status" -ne 0 ]; then
+        # A forged/identity-mismatched binary fails here too — but offline or a
+        # Sigstore outage looks identical, so skip locally / fail under CI.
+        skip_or_fail "install.sh did not complete (offline or Sigstore-unreachable): $output"
+    fi
+    [ -x "$bindir/osv-scanner" ]
+    "$bindir/osv-scanner" --version | grep -q "2.3.8"
+}
+
 # --- osv suppressions: stale-entry detector --------------------------------
 
 @test "osv e2e: every osv-scanner.toml suppression still matches a live finding" {
