@@ -24,6 +24,7 @@ wrangle-specific policy (see [Scope](#scope)).
 | WL003 | error | A `github-actions` entry globs `directory`/`directories` with `**` — it does not recurse into nested `action.yml` (and `/**` provokes duplicate PRs) |
 | WL004 | error | A composite `action.yml` directory in the repo is absent from the `github-actions` `directories` — its pins drift from the workflow copies |
 | WL005 | warning | An updates entry has no `cooldown.default-days >= 7` — bumps land before the community can surface a supply-chain attack (7 days is a recommended baseline) |
+| WL006 | error | Workflows under `.github/workflows` pin actions with `uses:`, but no `github-actions` ecosystem is configured — those action pins never get update PRs |
 
 ## Scope
 
@@ -48,8 +49,9 @@ tool-error cases a real scanner never produces on demand.
 
 ## Known limitations
 
-- Flagging a *missing* ecosystem the adopter needs (e.g. they build with
-  `build_and_publish_npm` but have no `npm` entry) is tracked in #409.
+- WL006 flags a missing `github-actions` ecosystem when workflows pin actions;
+  inferring *other* missing ecosystems from build workflows or manifests (e.g.
+  `build_and_publish_npm` but no `npm` entry) is still tracked in #409.
 - A *missing* `.github/dependabot.yml` has no line to anchor a comment to and is
   not inline-suppressible; the present-but-no-`updates` variant is (it's a real
   file), as is every other finding.
