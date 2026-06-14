@@ -3,7 +3,9 @@ set -euo pipefail
 set -f
 
 # tools/check_pin_ancestry.sh — fail if any wrangle self-reference action pin
-# under .github/workflows is not reachable from HEAD.
+# is not reachable from HEAD. Walks every tree that may carry such pins (the
+# shared tools/self_ref_pin_paths.sh set), not just .github/workflows, so a
+# nested pin in a composite is held to the same reachability invariant.
 #
 # Why this exists: a "bootstrap pin" (see test/integration/SPEC.md §Known
 # limitations) points a nested `TomHennen/wrangle/...@<sha>` self-reference at a
@@ -25,27 +27,38 @@ set -f
 
 REPO_PREFIX="${WRANGLE_PINS_REPO:-TomHennen/wrangle}"
 
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+# shellcheck source=self_ref_pin_paths.sh
+source "$SCRIPT_DIR/self_ref_pin_paths.sh"
+
 repo_root="$(git rev-parse --show-toplevel)" || {
     printf 'check_pin_ancestry: not inside a git work tree\n' >&2
     exit 2
 }
-workflows_dir="${WRANGLE_WORKFLOWS_DIR:-$repo_root/.github/workflows}"
 
-if [[ ! -d "$workflows_dir" ]]; then
-    printf 'check_pin_ancestry: no workflows dir at %s\n' "$workflows_dir" >&2
+mapfile -t pin_paths < <(wrangle_self_ref_pin_paths)
+search_dirs=()
+for rel in "${pin_paths[@]}"; do
+    [[ -d "$repo_root/$rel" ]] && search_dirs+=("$repo_root/$rel")
+done
+if [[ ${#search_dirs[@]} -eq 0 ]]; then
+    printf 'check_pin_ancestry: none of the pin paths exist under %s\n' "$repo_root" >&2
     exit 2
 fi
 
 # Collect the unique 40-hex shas pinned on a TomHennen/wrangle/...@<sha> ref.
+# Restricted to YAML so action/workflow files are searched but shell scripts,
+# SPEC.md, and .bats fixtures (which carry placeholder shas) can't false-match.
 # The prefix's '.' is escaped so an org/repo name can't act as a regex wildcard.
 escaped_prefix="$(printf '%s' "$REPO_PREFIX" | sed 's/\./\\./g')"
 mapfile -t shas < <(
-    grep -rhoE "${escaped_prefix}/[^@[:space:]]+@[0-9a-f]{40}" "$workflows_dir" 2>/dev/null \
+    grep -rhoE --include='*.yml' --include='*.yaml' \
+        "${escaped_prefix}/[^@[:space:]]+@[0-9a-f]{40}" "${search_dirs[@]}" 2>/dev/null \
         | grep -oE '[0-9a-f]{40}$' | sort -u
 )
 
 if [[ ${#shas[@]} -eq 0 ]]; then
-    printf 'check_pin_ancestry: no %s pins found under %s\n' "$REPO_PREFIX" "$workflows_dir"
+    printf 'check_pin_ancestry: no %s pins found in the pin paths\n' "$REPO_PREFIX"
     exit 0
 fi
 

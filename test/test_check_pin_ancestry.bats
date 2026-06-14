@@ -59,3 +59,30 @@ pin_workflow() {
     run bash -c "cd '$REPO' && '$SCRIPT'"
     [ "$status" -eq 0 ]
 }
+
+@test "check_pin_ancestry: FAILS on an orphaned nested pin in a composite (actions/)" {
+    # The pin lives in actions/, not .github/workflows/ — the gap that let the
+    # scan dispatch break. The walk must reach it.
+    commit "$REPO" A >/dev/null
+    git -C "$REPO" checkout -q -b feature
+    local b; b="$(commit "$REPO" B)"
+    git -C "$REPO" checkout -q -
+    commit "$REPO" C >/dev/null
+    mkdir -p "$REPO/actions/scan"
+    printf '      - uses: TomHennen/wrangle/tools/zizmor@%s # pin\n' "$b" \
+        > "$REPO/actions/scan/action.yml"
+    run bash -c "cd '$REPO' && '$SCRIPT'"
+    [ "$status" -eq 1 ]
+    [[ "$output" == *UNREACHABLE* ]]
+}
+
+@test "check_pin_ancestry: ignores placeholder shas in non-YAML files" {
+    # .bats fixtures and shell scripts carry placeholder self-ref shas; the
+    # YAML-only filter keeps them from being treated as real pins.
+    commit "$REPO" A >/dev/null
+    mkdir -p "$REPO/tools"
+    printf 'uses: TomHennen/wrangle/actions/scan@%s\n' \
+        "0000000000000000000000000000000000000000" > "$REPO/tools/example.bats"
+    run bash -c "cd '$REPO' && '$SCRIPT'"
+    [ "$status" -eq 0 ]
+}
