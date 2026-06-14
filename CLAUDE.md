@@ -120,6 +120,7 @@ Adapters do NOT receive secrets (env stripped by the orchestrator). If a tool ne
 - Branch from `main`, descriptive branch names.
 - All PRs must pass CI (`make test` via GitHub Actions); shellcheck cleanly; actionlint cleanly.
 - **No merge without an `LGTM` from the repository owner.** A PR may be merged only after the owner has commented `LGTM` on it; given that approval, it may be merged once CI is green. Green CI alone is never authorization to merge.
+- If a PR fully fixes a tracked issue, close it from the PR description with a GitHub closing keyword (`Fixes #NNN`) so the issue isn't left open after merge; if you're unsure whether the PR fully resolves the issue, ask the owner rather than guessing.
 - Update the README and `gh_workflow_examples/` if the adoption interface changes.
 - For personal-environment preferences that shouldn't be checked in (your local test command, your shell, your editor's quirks), use `CLAUDE.local.md` — it's git-ignored.
 
