@@ -166,10 +166,11 @@ make_sarif() {
 }
 
 @test "collect_sarif: outcome=failure + valid SARIF with findings → copy, no marker" {
-    # Findings exit (zizmor exit code 14 → upstream outcome=failure).
-    # SARIF is well-formed and reports >0 results, so we trust it.
-    # check_results.sh will fail-close via SARIF count for :fail; :info
-    # will report findings informationally (not as an error).
+    # A well-formed SARIF reporting >0 results is authoritative regardless
+    # of outcome: in SARIF mode zizmor exits 0 even with findings, so an
+    # outcome=failure here is the post-write Code Scanning upload failing,
+    # not a findings signal. check_results.sh fail-closes via the SARIF
+    # count for :fail; :info reports findings informationally, not as error.
     META="$TMP_DIR/meta-findings"
     mkdir -p "$META"
     SRC="$TMP_DIR/src-findings.sarif"
