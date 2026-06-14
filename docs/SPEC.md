@@ -1182,6 +1182,72 @@ and a config layer doesn't reduce the irreducible per-adopter inputs
 - Test integration as a profile-level concept — each build type already runs tests inside its own action
 - npm/pnpm/yarn workspaces ([#208](https://github.com/TomHennen/wrangle/issues/208)) — own track
 
+### v0.3.0 — Make the VSA mean something
+
+Theme: prove the full scan→attest→policy→consumer loop end-to-end. Today the
+VSA attests **build provenance only**. The release PolicySets already require
+SBOM and OSV tenets ([`policies/wrangle-default-v1.hjson`](../policies/wrangle-default-v1.hjson)),
+but nothing produces and signs the attestations those tenets consume — so they
+cannot pass on a real release. v0.3 builds that producer side, so the VSA comes
+to mean "scanned, has an SBOM, clean," and a consumer can verify it from the
+GitHub attestation store.
+
+This is a proof-of-concept release: the goal is to demonstrate the loop is
+possible, not to harden it. Success criterion — one build type goes green
+through a policy that *requires* SBOM + OSV attestations, and a consumer
+verifies that artifact from the attestation store. Reliability, ergonomics,
+and the adopter-facing workflow-policy work are explicitly deferred to v0.4
+(below).
+
+**Track A — the VSA loop:**
+
+- [ ] Emit a signed attestation for each scan-type action (SBOM, OSV, workflow
+      scan, scorecard), signed from wrangle's registered identity. Producer side
+      of the tenets the PolicySets already require. Tracking: [#420](https://github.com/TomHennen/wrangle/issues/420)
+- [ ] Deliver those attestations (and the VSA) to GitHub's attestation store —
+      the one-command consumer path. Tracking: [#372](https://github.com/TomHennen/wrangle/issues/372)
+- [ ] Close the consumer half: make `wrangle-default-v1` / `wrangle-strict-v1`
+      satisfiable against the new attestations rather than retiring them.
+      Tracking: [#328](https://github.com/TomHennen/wrangle/issues/328)
+- [ ] Bundle the per-build attestations into a single in-toto JSONL so delivery
+      is one file. Tracking: [#181](https://github.com/TomHennen/wrangle/issues/181)
+- [ ] Resolve the intermittent verify failure where one tenet fails to match a
+      recognized signer identity while siblings pass — rides with #420 because
+      adding tenets and signed attestations stresses exactly this surface.
+      Tracking: [#354](https://github.com/TomHennen/wrangle/issues/354)
+
+**Track B — close the footguns wrangle's own development keeps hitting.**
+Wrangle is a scanning framework; dogfooding its own discipline against the
+footguns that bite its development is on-theme. The adopter-facing config-drift
+footguns are already closed (`wrangle-lint` WL004 + the third-party pin
+divergence guard); what remains is the wrangle-internal set neither covers:
+
+- [ ] `bump_action_pins` / `check_pin_ancestry` walk only `.github/workflows/`,
+      so nested self-reference pins in `actions/`/`build/`/`tools/` age with no
+      freshness or reachability check — the gap that broke the scan dispatch in
+      #381. Single-source the path set across both scripts. Tracking: [#382](https://github.com/TomHennen/wrangle/issues/382)
+- [ ] Divergence-fail guard for the duplicated `govulncheck` version literal
+      (`test/Dockerfile` ↔ `build/actions/go/checks` default), mirroring the
+      zizmor parity guard. Tracking: [#286](https://github.com/TomHennen/wrangle/issues/286)
+- [ ] Single-source the cosign *binary* version (`tools/go.mod` vs the
+      cosign-installer default) so integration-tested and shipped cosign can't
+      drift. Tracking: [#349](https://github.com/TomHennen/wrangle/issues/349)
+
+**Deferred to v0.4+** (sound work, out of the PoC's path):
+
+- Adopter-facing workflow policy via poutine + a wrangle Rego rule pack —
+      transitive pin analysis (`unpinnable_action`), the per-job minimal
+      `permissions:` invariant ([#338](https://github.com/TomHennen/wrangle/issues/338),
+      folded in), and least-privilege rules (sensitive write scopes only on an
+      allowlisted publish/attest job pattern). Its own theme, dogfooded on
+      wrangle and shipped to adopters. Tracking: [#350](https://github.com/TomHennen/wrangle/issues/350)
+- Verify/sign reliability — `bnd` signing retry on transient Sigstore errors ([#369](https://github.com/TomHennen/wrangle/issues/369)).
+- Consumer ergonomics — `release:` collector for npm/go ([#314](https://github.com/TomHennen/wrangle/issues/314)), wrangle as `verifier.id` ([#317](https://github.com/TomHennen/wrangle/issues/317)).
+- Additional scan tools — actionlint ([#344](https://github.com/TomHennen/wrangle/issues/344)); shared SARIF-adapter helper ([#408](https://github.com/TomHennen/wrangle/issues/408), [#279](https://github.com/TomHennen/wrangle/issues/279)).
+- Go build knobs — validation-only sub-shape ([#239](https://github.com/TomHennen/wrangle/issues/239)), PR-build cost knob ([#245](https://github.com/TomHennen/wrangle/issues/245)).
+- `tools.lock` manifest ([#264](https://github.com/TomHennen/wrangle/issues/264)) — still marginal at current tool count.
+- Dependency-graph submission ([#385](https://github.com/TomHennen/wrangle/issues/385)) — a Dependabot graph snapshot, not a signed predicate; distinct from #420.
+
 ### v1.0.0 — OpenSSF ready
 
 - [ ] OpenSSF contribution proposal
