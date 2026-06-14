@@ -122,7 +122,7 @@ next `0.2.x`; it stays in the milestone until the milestone's whole scope
 is done; the minor tag (`0.3.0`) is cut only then. Pre-1.0, a `0.2.x` may
 therefore carry feature work, not just fixes — acceptable below 1.0.
 
-**Ordering constraint for dependency chains (loud).** When a feature is a
+**Ordering constraint for dependency chains.** When a feature is a
 chain — producer → delivery → a gate that *requires* the producer's
 output — ship the additive mechanism early but **flip the user-visible
 gate last.** Shipping a change that makes a policy require an attestation
