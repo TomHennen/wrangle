@@ -29,10 +29,10 @@ jobs:
     runs-on: ubuntu-latest
     permissions:
       contents: read
-    # The consumer fixtures are PR-head SHA runs (not release-tag signed), so
-    # run the gate in wrangle's own non-release dogfood mode; the shipped
-    # default is strict (release tag required). Job-level env reaches the
-    # composite's run step. See actions/verify-vsa/verify_vsa.sh.
+    # The checked-in VSA fixtures this job verifies were captured from PR-head
+    # SHA runs (not release-tag signed), so run the gate in wrangle's own
+    # non-release dogfood mode; the shipped default is strict (release tag
+    # required). Job-level env reaches the composite's run step.
     env:
       WRANGLE_VSA_NON_STRICT: "1"
     steps:

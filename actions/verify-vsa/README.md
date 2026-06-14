@@ -19,10 +19,7 @@ Drop it into your publish job between `download-artifact` and the publish step:
     path: dist/
 
 - uses: TomHennen/wrangle/actions/verify-vsa@v0.2.1 # zizmor: ignore[unpinned-uses] - immutable
-  # Pin wrangle's reusable workflows by release tag (@vX.Y.Z): the VSA's signing
-  # cert records the ref you pinned at, and the consumer policy requires the
-  # @refs/tags/vX.Y.Z identity a tag pin yields. A SHA pin still builds, but the
-  # VSA it produces fails this gate.
+  # Pin by release tag; a SHA-pinned build's VSA fails this gate (see below).
   with:
     path: dist/
     resource-uri: ${{ needs.build.outputs.resource-uri }}
@@ -55,7 +52,7 @@ For each file, fail-closed:
 Known gaps and scope limits:
 
 - **It does not re-run policy.** Wrangle's `verify` job already evaluated the PolicySet; the VSA is that decision, signed. This action checks that the decision covers these bytes and says PASSED.
-- **The signer binding requires a release tag.** The VSA's signing cert records the ref you pinned wrangle at, and this gate requires the `@refs/tags/vX.Y.Z` identity a tag pin yields — so you must pin wrangle's reusable workflows by release tag. A SHA-pinned build still runs, but the VSA it produces fails this gate (and any downstream consumer running wrangle's standard policy). This raises the floor from "any commit" to "any official release" — it does not stop you from pinning an old, possibly vulnerable, release tag.
+- **The signer binding requires a release tag.** This ensures consumers trust VSAs issued by official wrangle releases, not any commit in the repo: the VSA's signing cert records the ref you pinned wrangle at, so pin by release tag — a SHA-pinned build's VSA fails this gate (and any downstream consumer). It does not stop you pinning an *old* release tag.
 - **File blobs only, for now.** Container images have an image digest as their VSA subject, not a file, and are pushed from inside wrangle's reusable workflow rather than from an adopter publish job — so the container path verifies its VSA against the registry instead (see the [container README](../../build/actions/container/README.md)). Direct container support is tracked in [#353](https://github.com/TomHennen/wrangle/issues/353).
 
 ## Who can use it
