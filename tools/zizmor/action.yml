@@ -27,11 +27,12 @@ runs:
 
     - name: Run Zizmor
       id: zizmor
-      # advanced-security: true makes the upstream action produce SARIF
-      # (--format sarif) and upload it to the Security tab. We also copy
-      # the SARIF to the metadata dir for the step summary collector.
-      # continue-on-error ensures SARIF collection runs even when zizmor
-      # finds issues (exit code 14).
+      # advanced-security: true runs zizmor in SARIF mode (--format sarif)
+      # and uploads the result to the Security tab; we also copy the SARIF
+      # to the metadata dir for the step summary collector. In SARIF mode
+      # zizmor exits 0 even with findings, so continue-on-error is what
+      # keeps a failed upload (no Advanced Security) from failing the job —
+      # check_results.sh is the gate.
       uses: zizmorcore/zizmor-action@5f14fd08f7cf1cb1609c1e344975f152c7ee938d # v0.5.6
       continue-on-error: true
       with:
