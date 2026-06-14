@@ -111,6 +111,26 @@ wrangle attaches nothing to its own Releases, so this needs no
 draft-then-publish ordering here — unlike the build-type publish flows,
 which do (the VSA is attached post-publish).
 
+### Release train and milestone scope
+
+Releases are cut **continuously off `main`** as point releases (`0.2.x`)
+whenever there's something worth shipping. A milestone (e.g. `v0.3.0`)
+names the *eventual* minor tag and is the body of work that defines it —
+membership means "part of the `0.3` story," **independent of which point
+release first ships a given piece.** A merged milestone issue ships in the
+next `0.2.x`; it stays in the milestone until the milestone's whole scope
+is done; the minor tag (`0.3.0`) is cut only then. Pre-1.0, a `0.2.x` may
+therefore carry feature work, not just fixes — acceptable below 1.0.
+
+**Ordering constraint for dependency chains.** When a feature is a
+chain — producer → delivery → a gate that *requires* the producer's
+output — ship the additive mechanism early but **flip the user-visible
+gate last.** Shipping a change that makes a policy require an attestation
+in a `0.2.x` *before* the producer emits it on every build type
+hard-fails adopters' release gates mid-train. Keep new outputs additive
+until the loop closes, and hold consumer-facing docs until the feature is
+validated end-to-end (don't document untested consumer commands).
+
 Wrangle does not currently ship a release-helper workflow; tagging is
 a release-management concern that belongs to the maintainer's chosen
 versioning policy (semver here). If that changes, this section is the
