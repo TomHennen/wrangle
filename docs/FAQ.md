@@ -6,10 +6,8 @@ answer links to the source of truth — start with [`SPEC.md`](SPEC.md) and the
 
 ## How should I pin wrangle's reusable workflows?
 
-Either a release **tag** or a commit **SHA** — both are safe; the choice is
-preference. wrangle's examples use a tag for legibility.
-
-**Tag** (`@vX.Y.Z`), with an inline zizmor exception on that one line:
+Pin by release **tag** (`@vX.Y.Z`), with an inline zizmor exception on that one
+line:
 
 ```yaml
 uses: TomHennen/wrangle/.github/workflows/build_and_publish_go.yml@v0.2.1 # zizmor: ignore[unpinned-uses] - immutable
@@ -19,32 +17,23 @@ wrangle's release tags are
 [immutable](https://docs.github.com/en/code-security/concepts/supply-chain-security/immutable-releases)
 — a published `vX.Y.Z` is locked to its commit and can't be moved or deleted. A
 tag is legible (you see the version), Dependabot-tracked, and its verify
-identity (`@refs/tags/vX.Y.Z`) is the one the
-[verification guide](verifying_artifacts.md)'s `cosign` command shows by
-default. The cost is the one-line ignore — wrangle's bundled zizmor scan flags
-any tag-pinned `uses:` and can't tell the tag is immutable.
+identity (`@refs/tags/vX.Y.Z`) is the one wrangle's consumer policy and the
+[verification guide](verifying_artifacts.md)'s `cosign` command require. The
+inline ignore is needed because wrangle's bundled zizmor scan flags any
+tag-pinned `uses:` and can't tell the tag is immutable.
 
-**SHA** (`@<sha> # vX.Y.Z`), like any other third-party action — no ignore needed:
+Your **other** actions still pin by SHA — they aren't immutable.
 
-```yaml
-uses: TomHennen/wrangle/.github/workflows/build_and_publish_go.yml@<sha> # v0.2.1
-```
+### Why a tag and not a SHA?
 
-A SHA is immutable *by construction* (a content hash — no external assumption);
-Dependabot bumps it and refreshes the comment. The cost is legibility (opaque)
-and a verify identity of `@<sha>` (adjust the `cosign` regexp).
-
-Either way, your **other** actions still pin by SHA — they aren't immutable.
-
-### Tag or SHA — which?
-
-In practice, equivalent. The honest difference is what each rests on: a SHA's
-immutability is cryptographic and needs nothing external; a tag's depends on
-wrangle keeping immutable-releases and the no-bypass ruleset enabled — a
-GitHub-control-plane assumption a SHA doesn't carry (though a release published
-while they're on stays immutable even if they're later disabled). Pick the tag
-for legibility and a verify command that matches out of the box; pick the SHA
-for the most self-contained integrity.
+The VSA's keyless signing certificate records the ref you pinned wrangle at. A
+tag pin yields identity `@refs/tags/vX.Y.Z`; a SHA pin yields a bare `@<sha>`.
+wrangle's consumer policy requires the tag form, so a SHA-pinned build produces
+a VSA that fails both your own `verify-vsa` publish gate and any downstream
+consumer running wrangle's standard policy. The build still runs under a SHA pin
+— it just won't verify. This is a deliberate consumer-provenance guarantee: a
+consumer learns the artifact was built with an official wrangle release, not a
+cherry-picked commit.
 
 ### How does my pin affect verification?
 
@@ -52,12 +41,14 @@ Your verifier's expected identity must match **whatever you pinned** — wrangle
 keyless VSA records the ref you invoked it at in the signing certificate.
 
 - A **tag** pin yields identity `…build_and_publish_<type>.yml@refs/tags/vX.Y.Z`
-  — what the [verification guide](verifying_artifacts.md)'s `cosign` command
-  already expects.
-- A **SHA** pin yields `…@<sha>`; adjust the `cosign`
-  `--certificate-identity-regexp` accordingly.
-- The recommended **`ampel verify`** path matches either (its policy uses
-  `…@.+`).
+  — what both the [verification guide](verifying_artifacts.md)'s `cosign`
+  command and the **`ampel verify`** consumer policy require.
+- A **SHA** pin yields `…@<sha>`, which the consumer policy rejects; the VSA
+  won't verify.
+
+Requiring a release tag doesn't stop you pinning an old, possibly vulnerable
+release — any `vX.Y.Z` matches. It raises the verification floor from "any
+commit" to "any release," nothing more.
 
 ### Which version should I pin?
 

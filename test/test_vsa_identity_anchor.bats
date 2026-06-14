@@ -23,6 +23,7 @@ setup() {
 @test "no loosened wrangle VSA identity anchor (@.+ or a bare SHA) remains" {
     # A `build_and_publish_<type>.yml@` anchor that is `@.+` or a 40-hex SHA
     # would admit a non-release wrangle invocation — the gap this PR closes.
-    ! grep -qE 'yml@(\.\+|[0-9a-f]{40})' "$POLICY"
-    ! grep -qE 'yml@(\.\+|[0-9a-f]{40})' "$GUIDE"
+    # Both files in ONE grep so the negation is the governing command: under
+    # bats' set -e a non-final `! grep` is not allowed to fail the test.
+    ! grep -qE 'yml@(\.\+|[0-9a-f]{40})' "$POLICY" "$GUIDE"
 }
