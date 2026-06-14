@@ -13,7 +13,7 @@ inputs:
   go-cache:
     description: >
       Set to "enabled" to cache the Go module + build caches that
-      run.sh's `go install` populates (osv-scanner et al. build
+      run.sh's `go install` populates (wrangle-lint et al. build
       from source — #343). Default off: the cache is ~1.5–3 GB and is
       stored against the calling repo's Actions cache quota, so it is
       opt-in per-repo rather than imposed on every adopter. Leave off
@@ -55,6 +55,13 @@ runs:
         go-version-file: ${{ github.action_path }}/../../tools/go.mod
         cache-dependency-path: .wrangle/go-mod-cachekey
 
+    # osv-scanner installs from its prebuilt release binary, verified against
+    # its SLSA provenance by tools/osv/install.sh. Provide the prebuilt cosign
+    # it verifies with — only when osv is among the requested tools.
+    - name: Install cosign for osv provenance verification
+      if: contains(inputs.tools, 'osv')
+      uses: sigstore/cosign-installer@6f9f17788090df1f26f669e9d70d6ae9567deba6 # v4.1.2
+
     # Run adapter-pattern tools via the orchestrator (run.sh).
     # run.sh strips :policy suffixes and skips action-pattern tools.
     - name: Run adapter-pattern tools
@@ -66,9 +73,9 @@ runs:
       env:
         WRANGLE_TOOLS: ${{ inputs.tools }}
         WRANGLE_ROOT: ${{ github.action_path }}/../..
-        # osv-scanner builds from source via `go install`; a cold
-        # runner's module download + compile can exceed run.sh's 300s
-        # default install timeout.
+        # osv-scanner downloads its prebuilt binary; wrangle-lint still builds
+        # from source via `go install`. The generous timeout covers a cold
+        # runner's compile of the latter, well above run.sh's 300s default.
         WRANGLE_INSTALL_TIMEOUT: "900"
       run: |
         # shellcheck source=../../lib/env.sh

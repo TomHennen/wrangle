@@ -390,7 +390,7 @@ SARIF
         export PATH="${PATH#"$MOCK_BIN":}"
     fi
     if ! command -v osv-scanner >/dev/null 2>&1; then
-        skip_or_fail "osv-scanner not on PATH; build it first (./test.sh integration)"
+        skip_or_fail "osv-scanner not on PATH; run tools/osv/install.sh first"
     fi
 
     cp "$ORIG_DIR/tools/osv/testdata/vulnerable_go.mod" "$TMP_DIR/src/go.mod"
@@ -430,22 +430,41 @@ SARIF
     grep -q "CVE-2021-3121" "$TMP_DIR/output/output.md"
 }
 
-# --- install: tools/go.mod ---------------------------------------------------
-# osv-scanner has no install script: it is a tools/go.mod tool directive
-# (go.sum integrity, Dependabot freshness), declared in tools/osv/go-tools so
-# run.sh builds it when osv is requested. Real installs run in ./test.sh
-# integration and the dogfooded shell build.
+# --- install: prebuilt binary + SLSA provenance ------------------------------
+# osv-scanner is installed from Google's prebuilt release binary, verified
+# against its SLSA provenance with cosign (tools/osv/install.sh). go.mod keeps
+# the version pin (Dependabot freshness; a divergence guard ties install.sh to
+# it). No go-tools file: run.sh runs install.sh instead of `go install`.
 
-@test "osv install: osv-scanner is a tools/go.mod tool directive" {
-    grep -q 'github.com/google/osv-scanner/v2/cmd/osv-scanner' "$ORIG_DIR/tools/go.mod"
+@test "osv install: install.sh exists and is executable" {
+    [ -x "$ORIG_DIR/tools/osv/install.sh" ]
 }
 
-@test "osv install: go-tools declares the osv-scanner package for run.sh" {
-    grep -Fxq 'github.com/google/osv-scanner/v2/cmd/osv-scanner' "$ORIG_DIR/tools/osv/go-tools"
+@test "osv install: no go-tools file (run.sh uses install.sh, not go install)" {
+    [ ! -f "$ORIG_DIR/tools/osv/go-tools" ]
 }
 
-@test "osv install: no bespoke install.sh (the go.mod path is canonical)" {
-    [ ! -f "$ORIG_DIR/tools/osv/install.sh" ]
+@test "osv install: install.sh pins the SLSA generator identity and OIDC issuer" {
+    grep -Fq 'generator_generic_slsa3.yml@refs/tags/' "$ORIG_DIR/tools/osv/install.sh"
+    grep -Fq 'https://token.actions.githubusercontent.com' "$ORIG_DIR/tools/osv/install.sh"
+}
+
+@test "osv install: install.sh verifies via cosign, with no weaker fallback" {
+    grep -Fq 'cosign verify-blob-attestation' "$ORIG_DIR/tools/osv/install.sh"
+}
+
+@test "osv install: install.sh version matches the tools/go.mod pin" {
+    local sh_ver gomod_ver
+    sh_ver="$(grep -E '^VERSION=' "$ORIG_DIR/tools/osv/install.sh" \
+        | sed -E 's/.*:-([0-9.]+)\}.*/\1/')"
+    gomod_ver="$(grep -oE 'osv-scanner/v2 v[0-9.]+' "$ORIG_DIR/tools/go.mod" \
+        | head -1 | sed -E 's/.* v//')"
+    [ -n "$sh_ver" ]
+    [ -n "$gomod_ver" ]
+    if [ "$sh_ver" != "$gomod_ver" ]; then
+        printf 'osv version drift: install.sh=%s, tools/go.mod=%s\n' "$sh_ver" "$gomod_ver" >&2
+        return 1
+    fi
 }
 
 # --- osv suppressions: stale-entry detector --------------------------------
@@ -461,7 +480,7 @@ SARIF
         export PATH="${PATH#"$MOCK_BIN":}"
     fi
     if ! command -v osv-scanner >/dev/null 2>&1; then
-        skip_or_fail "osv-scanner not on PATH; build it first (./test.sh integration)"
+        skip_or_fail "osv-scanner not on PATH; run tools/osv/install.sh first"
     fi
 
     : > "$TMP_DIR/empty.toml"
