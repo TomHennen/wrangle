@@ -18,8 +18,8 @@ Drop it into your publish job between `download-artifact` and the publish step:
     name: ${{ needs.build.outputs.dist-artifact-name }}
     path: dist/
 
+# Pin by release tag; a SHA-pinned build's VSA fails this gate (see below).
 - uses: TomHennen/wrangle/actions/verify-vsa@v0.2.1 # zizmor: ignore[unpinned-uses] - immutable
-  # Pin by release tag; a SHA-pinned build's VSA fails this gate (see below).
   with:
     path: dist/
     resource-uri: ${{ needs.build.outputs.resource-uri }}
