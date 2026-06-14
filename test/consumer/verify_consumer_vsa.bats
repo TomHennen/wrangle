@@ -16,26 +16,26 @@
 
 load "../lib/bats_helpers"
 
-# Captured from a real run — do not edit without re-capturing the fixtures.
+# Captured from a curated v0.2.2 showcase run — do not edit without re-capturing
+# the fixtures. The signer identity is now a release tag (@refs/tags/v0.2.2), so
+# the tests verify against the STRICT shipped policy that adopters use. The one
+# exception is npm-vsa-nontag, an old SHA-identity capture kept to prove the
+# strict policy and gate reject a non-release VSA.
 # No hardcoded npm digest: ampel and cosign compute it from the package blob,
 # exactly as a consumer does; only the *expected* resourceUri/identity are pinned.
-RESOURCE_URI="pkg:npm/@tomhennen/wrangle-integration-fixture@0.0.2-integration.26922828083"
+RESOURCE_URI="pkg:npm/@tomhennen/wrangle-integration-fixture@0.0.1-dev.27500274491"
 SIGNER_REGEX='^https://github\.com/TomHennen/wrangle/\.github/workflows/build_and_publish_npm\.yml@'
 SIGNER_REPO="TomHennen/wrangle-test"
 ISSUER="https://token.actions.githubusercontent.com"
 VSA_PREDICATE="https://slsa.dev/verification_summary/v1"
-# A real PYTHON VSA (wheel subject) from run 26991037293 — same cosign
-# verify-blob-attestation shape as npm, but a distinct signer workflow. This
-# capture predates the pkg:pypi migration (#373), and a keyless-signed VSA
-# can't be re-resourced without re-signing, so its resourceUri stays the old
-# pkg:generic form; releases now emit pkg:pypi (PEP 503-normalized). Re-capture
-# from a post-migration release to flip this.
-PY_RESOURCE_URI="pkg:generic/wrangle_test_fixture@0.0.1.dev26991037293"
+# A real PYTHON VSA (wheel subject) from the v0.2.2 curated showcase run — same
+# cosign verify-blob-attestation shape as npm, but a distinct signer workflow.
+PY_RESOURCE_URI="pkg:pypi/wrangle-test-fixture@0.0.1.dev27500274491"
 PY_SIGNER_REGEX='^https://github\.com/TomHennen/wrangle/\.github/workflows/build_and_publish_python\.yml@'
 # A real CONTAINER VSA (digest subject) from the same run — covers the
 # digest-native ampel path (no file blob) that npm/go don't exercise.
-CONTAINER_DIGEST="sha256:9984046b479c57d037f15ddf10bb1266adb2b7707f810c47b53c97af3a5488ad"
-CONTAINER_URI="ghcr.io/tomhennen/wrangle-test-staging@sha256:9984046b479c57d037f15ddf10bb1266adb2b7707f810c47b53c97af3a5488ad"
+CONTAINER_DIGEST="sha256:9d95b102a0dfff741005a14bc15b92b640a9e6feb3f1f04de0298dbbcfa5340c"
+CONTAINER_URI="ghcr.io/tomhennen/wrangle-test-showcase@sha256:9d95b102a0dfff741005a14bc15b92b640a9e6feb3f1f04de0298dbbcfa5340c"
 
 setup() {
     DIR="$(cd "$(dirname "$BATS_TEST_FILENAME")" && pwd)"
@@ -47,15 +47,18 @@ setup() {
     BLOB="$FIX/npm-package.tgz"
     PY_VSA="$FIX/python-vsa.intoto.jsonl"
     PY_BLOB="$FIX/python-package.whl"
+    # An old SHA-identity npm capture (signer ref is a SHA, not a release tag),
+    # kept to drive the rejection / non-strict cases.
+    NONTAG_VSA="$FIX/npm-vsa-nontag.intoto.jsonl"
+    NONTAG_BLOB="$FIX/npm-package-nontag.tgz"
+    NONTAG_URI="pkg:npm/@tomhennen/wrangle-integration-fixture@0.0.2-integration.26922828083"
     COSIGN_BIN="$(command -v cosign || echo "${WRANGLE_BIN_DIR:-/nonexistent}/cosign")"
     AMPEL_BIN="$(command -v ampel || echo "${WRANGLE_BIN_DIR:-/nonexistent}/ampel")"
     # The shipped strict policy requires a release-tag signer identity
-    # (@refs/tags/v…). The captured fixtures are from PR-head SHA runs, so their
-    # signer ref is a SHA — tenet and repo-binding tests run against the
-    # committed non-strict policy, which relaxes only the ref anchor to @.+ (the
-    # variant wrangle uses for its own @main dogfooding). A dedicated test below
-    # proves the strict policy still rejects the SHA identity.
-    POLICY_NONSTRICT="$REPO_ROOT/policies/wrangle-vsa-consumer-nonstrict-v1.hjson"
+    # (@refs/tags/v…). The main fixtures are release-tag-signed, so the tests run
+    # against the strict $POLICY — the same policy adopters use. One test sets
+    # WRANGLE_VSA_NON_STRICT=1 to exercise the ref-relaxed path the gate falls
+    # back to for wrangle's own non-release dogfooding.
     TMP="$(mktemp -d)"
 }
 
@@ -107,9 +110,7 @@ require_sigstore() {
 
 # --- Path A (python): the python README's verify-blob-attestation command ---
 # Same shape as npm, exercised against a real python wheel + its VSA so the
-# python README's signer-workflow literal can't drift unnoticed. The
-# resourceUri here is the fixture's pre-#373 pkg:generic value (see above),
-# not the pkg:pypi form releases now emit.
+# python README's signer-workflow literal can't drift unnoticed.
 
 @test "consumer A (python): cosign verify-blob-attestation verifies the wheel's signer + subject" {
     [[ -x "$COSIGN_BIN" ]] || skip_or_fail "real cosign not available"
@@ -151,7 +152,7 @@ require_sigstore() {
     [[ -x "$AMPEL_BIN" ]] || skip_or_fail "real ampel not available"
     require_sigstore
     run "$AMPEL_BIN" verify --subject "$BLOB" \
-        --policy "$POLICY_NONSTRICT" --attestation "$VSA" \
+        --policy "$POLICY" --attestation "$VSA" \
         --context "expectedResourceUri:$RESOURCE_URI" \
         --context "sourceRepo:https://github.com/$SIGNER_REPO"
     [[ "$status" -eq 0 ]]
@@ -162,7 +163,7 @@ require_sigstore() {
     [[ -x "$AMPEL_BIN" ]] || skip_or_fail "real ampel not available"
     require_sigstore
     run "$AMPEL_BIN" verify --subject "$BLOB" \
-        --policy "$POLICY_NONSTRICT" --attestation "$VSA" \
+        --policy "$POLICY" --attestation "$VSA" \
         --context "expectedResourceUri:pkg:npm/@attacker/evil@9.9.9" \
         --context "sourceRepo:https://github.com/$SIGNER_REPO"
     [[ "$status" -ne 0 ]]
@@ -175,7 +176,7 @@ require_sigstore() {
     # A wrangle-signed VSA built in a different repo must be rejected even
     # though the signer identity (wrangle's reusable workflow) matches.
     run "$AMPEL_BIN" verify --subject "$BLOB" \
-        --policy "$POLICY_NONSTRICT" --attestation "$VSA" \
+        --policy "$POLICY" --attestation "$VSA" \
         --context "expectedResourceUri:$RESOURCE_URI" \
         --context "sourceRepo:https://github.com/attacker/evil-repo"
     [[ "$status" -ne 0 ]]
@@ -185,7 +186,7 @@ require_sigstore() {
     [[ -x "$AMPEL_BIN" ]] || skip_or_fail "real ampel not available"
     require_sigstore
     run "$AMPEL_BIN" verify --subject "$BLOB" \
-        --policy "$POLICY_NONSTRICT" --attestation "$VSA" \
+        --policy "$POLICY" --attestation "$VSA" \
         --context "expectedResourceUri:$RESOURCE_URI"
     [[ "$status" -ne 0 ]]
 }
@@ -194,7 +195,7 @@ require_sigstore() {
     [[ -x "$AMPEL_BIN" ]] || skip_or_fail "real ampel not available"
     require_sigstore
     run "$AMPEL_BIN" verify --subject "$CONTAINER_DIGEST" \
-        --policy "$POLICY_NONSTRICT" --attestation "$FIX/container-vsa.intoto.jsonl" \
+        --policy "$POLICY" --attestation "$FIX/container-vsa.intoto.jsonl" \
         --context "expectedResourceUri:$CONTAINER_URI" \
         --context "sourceRepo:https://github.com/$SIGNER_REPO"
     [[ "$status" -eq 0 ]]
@@ -205,7 +206,7 @@ require_sigstore() {
     [[ -x "$AMPEL_BIN" ]] || skip_or_fail "real ampel not available"
     require_sigstore
     # Same policy with an identity that can't match our VSA's signer.
-    sed 's#build_and_publish_\[a-z\]+#NOT_a_wrangle_workflow#' "$POLICY_NONSTRICT" > "$TMP/bad-identity.hjson"
+    sed 's#build_and_publish_\[a-z\]+#NOT_a_wrangle_workflow#' "$POLICY" > "$TMP/bad-identity.hjson"
     run "$AMPEL_BIN" verify --subject "$BLOB" \
         --policy "$TMP/bad-identity.hjson" --attestation "$VSA" \
         --context "expectedResourceUri:$RESOURCE_URI" \
@@ -224,7 +225,7 @@ require_sigstore() {
     cp "$BLOB" "$TMP/tampered.tgz"
     printf 'tamper' >> "$TMP/tampered.tgz"   # one extra byte -> different sha256
     run "$AMPEL_BIN" verify --subject "$TMP/tampered.tgz" \
-        --policy "$POLICY_NONSTRICT" --attestation "$VSA" \
+        --policy "$POLICY" --attestation "$VSA" \
         --context "expectedResourceUri:$RESOURCE_URI" \
         --context "sourceRepo:https://github.com/$SIGNER_REPO"
     [[ "$status" -ne 0 ]]
@@ -232,27 +233,27 @@ require_sigstore() {
 
 # The tightening that makes the consumer guarantee real: the SHIPPED strict
 # policy requires a release-tag signer identity (@refs/tags/v…), so a VSA signed
-# when the adopter pinned wrangle by SHA (identity @<sha>) is rejected. This
-# fixture is exactly that case (a PR-head SHA run), verified here against the
-# strict policy — not the non-strict variant the tenet tests above use.
+# when the adopter pinned wrangle by SHA (identity @<sha>) is rejected. The
+# nontag fixture is exactly that case (a PR-head SHA run), verified here against
+# the strict policy — not the non-strict variant the tenet tests above use.
 @test "consumer B: the shipped policy REJECTS a SHA-pinned (non-tag) signer identity" {
     [[ -x "$AMPEL_BIN" ]] || skip_or_fail "real ampel not available"
     require_sigstore
-    run "$AMPEL_BIN" verify --subject "$BLOB" \
-        --policy "$POLICY" --attestation "$VSA" \
-        --context "expectedResourceUri:$RESOURCE_URI" \
+    run "$AMPEL_BIN" verify --subject "$NONTAG_BLOB" \
+        --policy "$POLICY" --attestation "$NONTAG_VSA" \
+        --context "expectedResourceUri:$NONTAG_URI" \
         --context "sourceRepo:https://github.com/$SIGNER_REPO"
     [[ "$status" -ne 0 ]]
 }
 
 # --- adopter-side publish gate (actions/verify-vsa) ---
 # The gate runs the consumer PolicySet with ampel. With the default (strict)
-# policy it requires a release-tag signer identity, and the only real bundles we
-# have are from PR-head SHA runs — so the gate rejects them, which is exactly
-# what an adopter sees if they SHA-pin wrangle. WRANGLE_VSA_NON_STRICT=1 swaps in
-# the ref-relaxed policy so the same SHA fixture is admitted, letting the
-# admit-path, repo-binding, and tamper checks run end-to-end through the wrapper.
-@test "verify-vsa: gate script rejects a SHA-pinned (non-tag) VSA — tag-pinning enforced" {
+# policy it requires a release-tag signer identity. The main fixtures are
+# release-tag-signed, so the gate admits them under the strict default — exactly
+# what an adopter sees when they pin wrangle by release tag. The nontag fixture
+# (a SHA-identity capture) is rejected by that same default, and
+# WRANGLE_VSA_NON_STRICT=1 swaps in the ref-relaxed policy so it too is admitted.
+@test "verify-vsa: gate script verifies a release-tag VSA under the strict default" {
     [[ -x "$AMPEL_BIN" ]] || skip_or_fail "real ampel not available"
     require_sigstore
     mkdir -p "$TMP/dist" "$TMP/vsas"
@@ -261,12 +262,27 @@ require_sigstore() {
     PATH="$(dirname "$AMPEL_BIN"):$PATH" \
         ARTIFACT_PATH="$TMP/dist" RESOURCE_URI="$RESOURCE_URI" REPO="$SIGNER_REPO" VSA_DIR="$TMP/vsas" \
         run "$REPO_ROOT/actions/verify-vsa/verify_vsa.sh"
+    [[ "$status" -eq 0 ]]
+    [[ "$output" == *"verified against PASSED VSAs"* ]]
+}
+
+# The flip side of the strict default: a SHA-identity (non-release) VSA is
+# rejected by the shipped gate, even with the real bytes, repo, and resourceUri.
+@test "verify-vsa: gate script rejects a SHA-pinned (non-tag) VSA under the strict default" {
+    [[ -x "$AMPEL_BIN" ]] || skip_or_fail "real ampel not available"
+    require_sigstore
+    mkdir -p "$TMP/dist" "$TMP/vsas"
+    cp "$NONTAG_BLOB" "$TMP/dist/npm-package.tgz"
+    cp "$NONTAG_VSA" "$TMP/vsas/npm-package.tgz.intoto.jsonl"
+    PATH="$(dirname "$AMPEL_BIN"):$PATH" \
+        ARTIFACT_PATH="$TMP/dist" RESOURCE_URI="$NONTAG_URI" REPO="$SIGNER_REPO" VSA_DIR="$TMP/vsas" \
+        run "$REPO_ROOT/actions/verify-vsa/verify_vsa.sh"
     [[ "$status" -eq 1 ]]
     [[ "$output" == *"ampel rejected"* ]]
 }
 
 # Internal dogfood switch: WRANGLE_VSA_NON_STRICT=1 selects the non-strict
-# consumer policy (any wrangle build ref, not just release tags), so the SAME
+# consumer policy (any wrangle build ref, not just release tags), so the
 # SHA-pinned fixture the strict gate rejects above is admitted. Holds every
 # other binding (repo, resourceUri, subject bytes) at its real value — only the
 # ref anchor differs between the two policies.
@@ -274,11 +290,11 @@ require_sigstore() {
     [[ -x "$AMPEL_BIN" ]] || skip_or_fail "real ampel not available"
     require_sigstore
     mkdir -p "$TMP/dist" "$TMP/vsas"
-    cp "$BLOB" "$TMP/dist/npm-package.tgz"
-    cp "$VSA" "$TMP/vsas/npm-package.tgz.intoto.jsonl"
+    cp "$NONTAG_BLOB" "$TMP/dist/npm-package.tgz"
+    cp "$NONTAG_VSA" "$TMP/vsas/npm-package.tgz.intoto.jsonl"
     PATH="$(dirname "$AMPEL_BIN"):$PATH" \
         WRANGLE_VSA_NON_STRICT=1 \
-        ARTIFACT_PATH="$TMP/dist" RESOURCE_URI="$RESOURCE_URI" REPO="$SIGNER_REPO" VSA_DIR="$TMP/vsas" \
+        ARTIFACT_PATH="$TMP/dist" RESOURCE_URI="$NONTAG_URI" REPO="$SIGNER_REPO" VSA_DIR="$TMP/vsas" \
         run "$REPO_ROOT/actions/verify-vsa/verify_vsa.sh"
     [[ "$status" -eq 0 ]]
     [[ "$output" == *"verified against PASSED VSAs"* ]]
@@ -286,8 +302,8 @@ require_sigstore() {
 
 # Gate-level repo binding: the wrapper threads REPO into the policy's
 # sourceRepo context, so a VSA whose signing cert names a different origin repo
-# must be rejected even with the admit-path policy. Same admit setup as above,
-# only REPO is wrong.
+# must be rejected even though the signer identity passes. Same admit setup as
+# above (strict default), only REPO is wrong.
 @test "verify-vsa: gate FAILS on a wrong origin repo (fail-closed repo binding)" {
     [[ -x "$AMPEL_BIN" ]] || skip_or_fail "real ampel not available"
     require_sigstore
@@ -295,7 +311,6 @@ require_sigstore() {
     cp "$BLOB" "$TMP/dist/npm-package.tgz"
     cp "$VSA" "$TMP/vsas/npm-package.tgz.intoto.jsonl"
     PATH="$(dirname "$AMPEL_BIN"):$PATH" \
-        WRANGLE_VSA_NON_STRICT=1 \
         ARTIFACT_PATH="$TMP/dist" RESOURCE_URI="$RESOURCE_URI" REPO="attacker/evil-repo" VSA_DIR="$TMP/vsas" \
         run "$REPO_ROOT/actions/verify-vsa/verify_vsa.sh"
     [[ "$status" -eq 1 ]]
@@ -303,9 +318,9 @@ require_sigstore() {
 }
 
 # Gate-level tamper bind: the wrapper verifies the bytes on disk against the
-# VSA's subject digest. With the admit-path policy and the correct repo, a dist
-# file mutated by one byte (so its sha256 no longer matches the VSA) must still
-# be rejected — the publish gate refuses substituted bytes.
+# VSA's subject digest. With the strict default policy and the correct repo, a
+# dist file mutated by one byte (so its sha256 no longer matches the VSA) must
+# still be rejected — the publish gate refuses substituted bytes.
 @test "verify-vsa: gate FAILS on tampered subject bytes (valid VSA, wrong content)" {
     [[ -x "$AMPEL_BIN" ]] || skip_or_fail "real ampel not available"
     require_sigstore
@@ -314,7 +329,6 @@ require_sigstore() {
     printf 'tamper' >> "$TMP/dist/npm-package.tgz"   # one extra byte -> different sha256
     cp "$VSA" "$TMP/vsas/npm-package.tgz.intoto.jsonl"
     PATH="$(dirname "$AMPEL_BIN"):$PATH" \
-        WRANGLE_VSA_NON_STRICT=1 \
         ARTIFACT_PATH="$TMP/dist" RESOURCE_URI="$RESOURCE_URI" REPO="$SIGNER_REPO" VSA_DIR="$TMP/vsas" \
         run "$REPO_ROOT/actions/verify-vsa/verify_vsa.sh"
     [[ "$status" -eq 1 ]]
