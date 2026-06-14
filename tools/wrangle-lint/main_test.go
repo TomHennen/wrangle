@@ -229,7 +229,7 @@ updates:
     cooldown:
       default-days: 7
 `,
-				".github/workflows/release.yml": "on: push\njobs:\n  b:\n    uses: TomHennen/wrangle/.github/workflows/build_go.yml@abc123\n",
+				".github/workflows/release.yml": "on: push\njobs:\n  b:\n    uses: octo-org/ci/.github/workflows/build.yml@v1\n",
 			},
 			want: "WL006",
 		},
