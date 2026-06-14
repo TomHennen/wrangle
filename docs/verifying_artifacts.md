@@ -41,7 +41,7 @@ from the release, then:
 
 ```bash
 ampel verify --subject <artifact> \
-  --policy git+https://github.com/TomHennen/wrangle@v0.2.1#policies/wrangle-vsa-consumer-v1.hjson \
+  --policy git+https://github.com/TomHennen/wrangle@v0.2.2#policies/wrangle-vsa-consumer-v1.hjson \
   --attestation <artifact>.intoto.jsonl \
   --context expectedResourceUri:<resourceUri from the table above> \
   --context sourceRepo:https://github.com/<your-org>/<your-repo>
@@ -52,7 +52,7 @@ download step:
 
 ```bash
 ampel verify --subject sha256:<digest> \
-  --policy git+https://github.com/TomHennen/wrangle@v0.2.1#policies/wrangle-vsa-consumer-v1.hjson \
+  --policy git+https://github.com/TomHennen/wrangle@v0.2.2#policies/wrangle-vsa-consumer-v1.hjson \
   --collector oci:<imagename>@sha256:<digest> \
   --context expectedResourceUri:<imagename>@sha256:<digest> \
   --context sourceRepo:https://github.com/<your-org>/<your-repo>
@@ -85,8 +85,13 @@ jq -e '.predicate.verifiedLevels | index("SLSA_BUILD_LEVEL_3")' <<<"$payload"
 ```
 
 Substitute `<type>` with `go`, `python`, or `npm`. The `@refs/tags/v…` anchor
-matches the examples' tag pin; use `@[0-9a-f]{40}$` instead if you pinned
-wrangle by SHA. `--type` must be the full URI — cosign rejects the
+is the identity wrangle's policy requires: pin wrangle's reusable workflows by
+release tag (`@vX.Y.Z`) so the VSA's signing cert records `@refs/tags/vX.Y.Z`.
+A SHA-pinned wrangle still builds, but its VSA carries a bare `@<sha>` identity
+and won't verify here — or under the consumer policy below, or your own
+`verify-vsa` publish gate. Requiring a release tag does not stop you pinning an
+old (possibly vulnerable) release; it raises the floor from any commit to any
+release. `--type` must be the full URI — cosign rejects the
 `slsaverificationsummary` alias.
 
 For container images, a digest subject has no file blob, so the command is

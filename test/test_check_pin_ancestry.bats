@@ -59,3 +59,38 @@ pin_workflow() {
     run bash -c "cd '$REPO' && '$SCRIPT'"
     [ "$status" -eq 0 ]
 }
+
+@test "check_pin_ancestry: FAILS on an orphaned nested pin in a composite (actions/)" {
+    # The pin lives in actions/, not .github/workflows/ — the gap that let the
+    # scan dispatch break. The walk must reach it.
+    commit "$REPO" A >/dev/null
+    git -C "$REPO" checkout -q -b feature
+    local b; b="$(commit "$REPO" B)"
+    git -C "$REPO" checkout -q -
+    commit "$REPO" C >/dev/null
+    mkdir -p "$REPO/actions/scan"
+    printf '      - uses: TomHennen/wrangle/tools/zizmor@%s # pin\n' "$b" \
+        > "$REPO/actions/scan/action.yml"
+    run bash -c "cd '$REPO' && '$SCRIPT'"
+    [ "$status" -eq 1 ]
+    [[ "$output" == *UNREACHABLE* ]]
+}
+
+@test "check_pin_ancestry: validates real YAML pins while ignoring placeholders in non-YAML and fixtures/" {
+    # A reachable pin in a composite YAML must be validated; placeholder shas in
+    # a .bats file and in a fixtures/ YAML must be skipped. The "1 ... reachable"
+    # assertion proves the real pin was actually checked — not that the repo
+    # happened to have no pins — so this exercises the filters, not emptiness.
+    local a; a="$(commit "$REPO" A)"
+    commit "$REPO" B >/dev/null
+    mkdir -p "$REPO/actions/scan" "$REPO/tools" "$REPO/tools/lint/fixtures"
+    printf '      - uses: TomHennen/wrangle/tools/zizmor@%s # pin\n' "$a" \
+        > "$REPO/actions/scan/action.yml"
+    printf 'uses: TomHennen/wrangle/actions/scan@%s\n' \
+        "0000000000000000000000000000000000000000" > "$REPO/tools/example.bats"
+    printf '      - uses: TomHennen/wrangle/actions/scan@%s\n' \
+        "1111111111111111111111111111111111111111" > "$REPO/tools/lint/fixtures/bad.yml"
+    run bash -c "cd '$REPO' && '$SCRIPT'"
+    [ "$status" -eq 0 ]
+    [[ "$output" == *"1 wrangle self-ref pin(s) reachable"* ]]
+}

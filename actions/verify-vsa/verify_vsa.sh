@@ -26,6 +26,13 @@ source "$SCRIPT_DIR/../../lib/env.sh"
 # Ships with this action, so its content is pinned by the action ref the
 # caller chose — never fetched at verify time.
 POLICY="$SCRIPT_DIR/../../policies/wrangle-vsa-consumer-v1.hjson"
+# Internal dogfood only: wrangle's own @main showcase builds aren't release-tag
+# signed, so they can't satisfy the strict consumer policy's tag ref-anchor.
+# This swaps in a policy that accepts any wrangle build ref. Adopters never set
+# this — it stays unset, keeping the strict tag requirement.
+if [[ "${WRANGLE_VSA_NON_STRICT:-}" == "1" ]]; then
+    POLICY="$SCRIPT_DIR/../../policies/wrangle-vsa-consumer-nonstrict-v1.hjson"
+fi
 
 die_verify() {
     printf 'wrangle/verify-vsa: VERIFICATION FAILED: %s\n' "$1" >&2
