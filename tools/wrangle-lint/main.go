@@ -148,7 +148,9 @@ func compositeDirs(srcDir string) (map[string]bool, error) {
 var externalActionRef = regexp.MustCompile(`^[^./][^@]*/[^@]*@`)
 
 // usesExternalAction reports whether any `uses:` in the node tree pins an
-// external action or reusable workflow.
+// external action or reusable workflow. It matches a `uses` key at any depth
+// (step-level and reusable-workflow job-level), accepting the rare benign
+// false positive of a `with:` input literally named `uses`.
 func usesExternalAction(n *yaml.Node) bool {
 	n = resolve(n)
 	if n == nil {
@@ -372,6 +374,8 @@ func checkDependabot(ymlPath, uri, srcDir string) ([]finding, error) {
 			return nil, err
 		}
 		if pin {
+			// updates.Line is the first entry's line (a sequence node), which is
+			// the anchor a suppression comment must sit directly above.
 			findings = append(findings, finding{"WL006", uri, ymlPath, updates.Line,
 				"Workflows under .github/workflows pin actions with `uses:`, but the Dependabot " +
 					"config has no `github-actions` ecosystem entry, so those action pins never get " +

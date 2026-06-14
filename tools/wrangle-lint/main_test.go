@@ -234,6 +234,34 @@ updates:
 			want: "WL006",
 		},
 		{
+			name: "WL006 detects a .yaml-extension workflow",
+			files: map[string]string{
+				".github/dependabot.yml": `version: 2
+updates:
+  - package-ecosystem: "gomod"
+    directory: "/"
+    cooldown:
+      default-days: 7
+`,
+				".github/workflows/ci.yaml": "on: push\njobs:\n  b:\n    runs-on: ubuntu-latest\n    steps:\n      - uses: actions/checkout@v4\n",
+			},
+			want: "WL006",
+		},
+		{
+			name: "WL006 not fired for a docker:// uses ref",
+			files: map[string]string{
+				".github/dependabot.yml": `version: 2
+updates:
+  - package-ecosystem: "gomod"
+    directory: "/"
+    cooldown:
+      default-days: 7
+`,
+				".github/workflows/ci.yml": "on: push\njobs:\n  b:\n    runs-on: ubuntu-latest\n    steps:\n      - uses: docker://alpine@sha256:abc\n",
+			},
+			notWant: "WL006",
+		},
+		{
 			name: "WL006 suppressible with a justified ignore",
 			files: map[string]string{
 				".github/dependabot.yml": `version: 2
