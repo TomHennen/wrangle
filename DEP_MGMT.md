@@ -104,7 +104,9 @@ whatever is already set.
   use, weekly, no auto-merge, with a cooldown that implements the 7-day "adopt
   after a delay" rule. This automatic patching is *why* branch 1 is the default.
 - **`make bump-action-pins`** rewrites wrangle's own self-references after a
-  composite changes (it currently reaches only `.github/workflows/` — see #287).
+  composite changes, across `.github/workflows/`, `actions/`, `build/`, and
+  `tools/` (the shared `tools/self_ref_pin_paths.sh` set, which
+  `check_pin_ancestry` reuses).
 - **Manual today:** the binary+provenance installs (branch 2) and the base-image
   digest. Automating that surface — ideally one mechanism that also covers
   wrangle's own self-references — is #264.
@@ -133,7 +135,7 @@ requirements↔`action.yml` `bats` guard is the pattern to copy for the rest. Kn
 ## Tracking
 
 #264 (automate the manual binary surface, ideally covering wrangle's own refs too),
-#277 (install-method audit), #286 (divergence guards), #287 (self-ref bump scope),
+#277 (install-method audit), #286 (divergence guards),
 #136 (`$/` same-repo syntax), #218 (self-ref impostor-commit gap),
 #247 (Ampel verify — ships the verify stage; ampel/bnd install via the
 `tools/go.mod` `go install` manifest, branch 1 / Dependabot-covered).

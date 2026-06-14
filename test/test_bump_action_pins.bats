@@ -372,6 +372,64 @@ EOF
     ! grep -q '^set +f' "$REPO_ROOT/tools/bump_action_pins.sh"
 }
 
+@test "bump_action_pins: bumps nested self-ref pins in composites, not just workflows" {
+    # The footgun this guards: a nested pin in actions/ or build/ ageing while
+    # only .github/workflows/ got bumped. Recursion must reach both.
+    mkdir -p actions/scan build/actions/go/release
+    cat > .github/workflows/w.yml <<EOF
+jobs:
+  scan:
+    uses: TomHennen/wrangle/actions/scan@aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
+EOF
+    cat > actions/scan/action.yml <<EOF
+runs:
+  steps:
+    - uses: TomHennen/wrangle/tools/zizmor@aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
+EOF
+    cat > build/actions/go/release/action.yml <<EOF
+runs:
+  steps:
+    - uses: TomHennen/wrangle/build/actions/go@aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
+EOF
+    run "$SCRIPT" "$NEW_SHA"
+    [[ "$status" -eq 0 ]]
+    grep -q "actions/scan@${NEW_SHA}" .github/workflows/w.yml
+    grep -q "tools/zizmor@${NEW_SHA}" actions/scan/action.yml
+    grep -q "build/actions/go@${NEW_SHA}" build/actions/go/release/action.yml
+}
+
+@test "bump_action_pins: idempotent on a second run over nested composites" {
+    # Recursion is new, so confirm a re-run leaves an already-bumped nested file
+    # byte-identical (no spurious diff).
+    mkdir -p actions/scan
+    cat > actions/scan/action.yml <<EOF
+runs:
+  steps:
+    - uses: TomHennen/wrangle/tools/zizmor@aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
+EOF
+    "$SCRIPT" "$NEW_SHA" >/dev/null
+    BEFORE="$(cat actions/scan/action.yml)"
+    run "$SCRIPT" "$NEW_SHA"
+    [[ "$status" -eq 0 ]]
+    [[ "$output" == *"0 file(s) changed"* ]]
+    [[ "$BEFORE" == "$(cat actions/scan/action.yml)" ]]
+}
+
+@test "bump_action_pins: skips pins in fixtures/ subtrees" {
+    # Lint fixtures carry placeholder self-ref pins; the walk must not rewrite
+    # them even though they live under a walked tree (tools/).
+    mkdir -p tools/lint/fixtures
+    cat > tools/lint/fixtures/bad.yml <<EOF
+jobs:
+  b:
+    uses: TomHennen/wrangle/actions/scan@aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
+EOF
+    run "$SCRIPT" "$NEW_SHA"
+    [[ "$status" -eq 0 ]]
+    grep -q "@aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa" tools/lint/fixtures/bad.yml
+    ! grep -q "@${NEW_SHA}" tools/lint/fixtures/bad.yml
+}
+
 @test "bump_action_pins: only mixed-SHA files are rewritten when some pins already match target" {
     # File with a mix of SHAs — must be rewritten so all pins reach target.
     cat > .github/workflows/mixed.yml <<EOF
