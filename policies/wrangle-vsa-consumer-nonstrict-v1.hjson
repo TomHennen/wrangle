@@ -1,0 +1,62 @@
+{
+    // Consumer-side check, ref-relaxed variant of wrangle-vsa-consumer-v1:
+    // identical except the signer-identity anchor is @.+ (any ref) instead of
+    // a release tag. Exists only so wrangle can dogfood its own @main showcase
+    // builds, whose signing cert records a branch/SHA ref rather than a release
+    // tag; adopters use the strict wrangle-vsa-consumer-v1 policy.
+    // Requires ampel >= v1.3.0 (sourceRepositoryUriMatch). Run with:
+    //   ampel verify --subject <artifact-digest> \
+    //     --policy <this> --attestation <vsa>.intoto.jsonl \
+    //     --context expectedResourceUri:<purl-or-oci-ref> \
+    //     --context sourceRepo:https://github.com/<org>/<repo>
+    id: "wrangle-vsa-consumer-nonstrict-v1"
+    meta: {
+        description: "Consumer check (ref-relaxed, for wrangle's own non-release dogfooding): a wrangle-signed VSA PASSED for the expected resource at SLSA Build L3"
+    }
+    common: {
+        context: {
+            // The consumer supplies the resourceUri (purl / OCI ref) they expect.
+            expectedResourceUri: { type: "string", required: true }
+            // The repo the consumer expects the artifact was built in
+            // (https://github.com/<org>/<repo>), matched against the signing
+            // cert's source-repository extension. Required: omitting it is a
+            // hard error, never a silent skip.
+            sourceRepo: { type: "string", required: true }
+        }
+        // The VSA MUST be keyless-signed by wrangle's reusable build+verify
+        // workflow (fail-closed: ampel admits the attestation only if it matches).
+        identities: [
+            {
+                id: "wrangle-verify"
+                sigstore: {
+                    mode: "regexp"
+                    issuer: "^https://token\\.actions\\.githubusercontent\\.com$"
+                    // Any ref (@.+), not a release tag: this variant verifies
+                    // wrangle's own @main showcase builds, whose cert ref is a
+                    // branch/SHA. The strict policy anchors @refs/tags/v.
+                    identity: "^https://github\\.com/TomHennen/wrangle/\\.github/workflows/build_and_publish_[a-z]+\\.yml@.+$"
+                    // Binds the cert's source-repository extension (the repo
+                    // wrangle's reusable workflow was invoked from) to the
+                    // consumer-supplied sourceRepo — whole-value exact match,
+                    // AND-ed with the issuer + identity above.
+                    sourceRepositoryUriMatch: { fromContext: "sourceRepo" }
+                }
+            }
+        ]
+    }
+    policies: [
+        {
+            id: "vsa-passed"
+            identities: [ { ref: { id: "wrangle-verify" } } ]
+            tenets: [
+                {
+                    runtime: cel@v0
+                    predicates: { types: ["https://slsa.dev/verification_summary/v1"] }
+                    code: "size(predicates) > 0 && predicates[0].data.verificationResult == 'PASSED' && predicates[0].data.resourceUri == context.expectedResourceUri && predicates[0].data.verifiedLevels.exists(l, l == 'SLSA_BUILD_LEVEL_3')"
+                    assessment: { message: "VSA PASSED for the expected resource at SLSA Build L3" }
+                    error: { message: "VSA check failed (result / resourceUri / verified-level mismatch)" }
+                }
+            ]
+        }
+    ]
+}

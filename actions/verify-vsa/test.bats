@@ -150,6 +150,18 @@ EOF
     [[ "$output" == *"1 file(s) verified against PASSED VSAs"* ]]
 }
 
+# WRANGLE_VSA_NON_STRICT=1 is wrangle's own dogfood switch: it selects the
+# ref-relaxed consumer policy. Hermetic here (shim records the --policy path);
+# the real admit/reject behavior is exercised in test/consumer with real ampel.
+@test "behavior: WRANGLE_VSA_NON_STRICT=1 selects the non-strict consumer policy" {
+    touch "$TMP/a.tgz"
+    make_vsa "a.tgz"
+    WRANGLE_VSA_NON_STRICT=1 \
+        ARTIFACT_PATH="$TMP/a.tgz" RESOURCE_URI="pkg:npm/a@1.0.0" REPO="owner/repo" VSA_DIR="$VSAS" run "$SCRIPT"
+    [[ "$status" -eq 0 ]]
+    grep -q -- "wrangle-vsa-consumer-nonstrict-v1.hjson" "$AMPEL_LOG"
+}
+
 @test "behavior: fails closed when ampel rejects the VSA" {
     touch "$TMP/a.tgz"
     make_vsa "a.tgz"

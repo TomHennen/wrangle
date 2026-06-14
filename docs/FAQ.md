@@ -37,8 +37,9 @@ cherry-picked commit.
 
 ### How does my pin affect verification?
 
-Your verifier's expected identity must match **whatever you pinned** — wrangle's
-keyless VSA records the ref you invoked it at in the signing certificate.
+Your verifier's expected identity must match **the release tag you pinned** —
+wrangle's keyless VSA records the ref you invoked it at in the signing
+certificate.
 
 - A **tag** pin yields identity `…build_and_publish_<type>.yml@refs/tags/vX.Y.Z`
   — what both the [verification guide](verifying_artifacts.md)'s `cosign`
