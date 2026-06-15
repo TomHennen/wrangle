@@ -2,8 +2,14 @@
 *~
 metadata/
 .wrangle/
-.claude/
 CLAUDE.local.md
+
+# Local Claude state (machine settings, worktrees, locks) stays out of git;
+# the curated agents/commands/skills below are shared and checked in.
+.claude/*
+!.claude/agents/
+!.claude/commands/
+!.claude/skills/
 
 # Python bytecode cache from tools/wrangle-workflow-lint/lint.py
 __pycache__/

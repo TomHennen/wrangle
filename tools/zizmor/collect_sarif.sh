@@ -5,12 +5,18 @@ set -f  # disable globbing — processes external tool output
 # collect_sarif.sh — collect zizmor SARIF and disambiguate "found
 # issues" from "tool error" for lib/check_results.sh.
 #
-# Hidden upstream constraint: zizmor-action pipes through `tee`, so
-# SARIF_SRC always exists even on image-pull failure or mid-run crash
-# (then empty/truncated). File presence does not imply success — we
-# must inspect contents. zizmor exits 14 (→ outcome=failure) only after
-# writing a complete SARIF with findings; anything else under
-# outcome=failure is a tool error.
+# Hidden upstream constraint: with advanced-security: true the action
+# runs zizmor in SARIF mode, where zizmor exits 0 regardless of findings
+# (they live in the SARIF document). So outcome=failure is never a
+# findings signal — it means the action's Code Scanning upload (its last
+# step) failed, which it does on repos without code scanning (private,
+# no Advanced Security), or zizmor itself errored before writing usable
+# SARIF. The action also pipes through `tee`, so SARIF_SRC always exists
+# even on image-pull failure or mid-run crash (then empty/truncated) —
+# file presence does not imply success, so we inspect contents. A
+# complete, parseable SARIF means the audit ran to completion and its
+# result count is authoritative (>0 findings, 0 clean); only a missing,
+# empty, or unparseable SARIF under outcome=failure is a tool error.
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 # shellcheck source=../../lib/write_tool_error_marker.sh
@@ -40,9 +46,13 @@ if [[ -n "$SARIF_SRC" ]] && [[ -f "$SARIF_SRC" ]] && [[ -s "$SARIF_SRC" ]]; then
     fi
 fi
 
-# `[[ -le ]]` not `(( ))`: an arithmetic 0 exits non-zero, which under
-# set -e could short-circuit a future && chain before the marker write.
-if [[ "$OUTCOME" == "failure" ]] && [[ "$src_count" -le 0 ]]; then
+# Only a genuinely unusable SARIF (src_count<0) is a tool error: a
+# parseable SARIF — even with zero results — means the audit finished,
+# so a failed outcome over it is the upload (unavailable without
+# Advanced Security), which must not fail the scan. Use `[[ -lt ]]`, not
+# `(( ))`: a `(( 0 ))` test exits non-zero, which under set -e could
+# short-circuit a later && chain before the marker write.
+if [[ "$OUTCOME" == "failure" ]] && [[ "$src_count" -lt 0 ]]; then
     wrangle_write_tool_error_marker "$METADATA_DIR" \
         "upstream zizmor-action exited non-zero with no usable SARIF output (outcome=${OUTCOME})"
 fi

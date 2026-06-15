@@ -83,7 +83,7 @@ Scripts resolve paths relative to their own location via `SCRIPT_DIR="$(cd "$(di
 
 ## Testing
 
-Always run `./test.sh` before pushing — CI runs the same checks. `./test.sh quick` skips zizmor for inner-loop iteration. `./test.sh` only wraps `make test` (the target CI runs) in the pinned container; when the container can't be built (e.g. no Docker), run `make test` — or a single layer like `make bats` / `make shellcheck` — directly against the host toolchain instead. Every adapter and install script gets a `test.bats`. The test-layer breakdown (local layers, the containerized unit suite, CI integration, e2e) is in SPEC.md §Testing Strategy. Beyond that:
+Run `make test` before pushing — it's the exact suite CI runs. When the host toolchain is installed (the pinned set `test/Dockerfile` lists: shellcheck, bats, ast-grep, actionlint, PyYAML, Go, plus zizmor), run `make test` directly — or a single layer like `make bats` / `make shellcheck`. When those deps can't be installed, use `./test.sh`, which runs the same `make test` inside the pinned container with no host setup; `./test.sh quick` skips zizmor for inner-loop iteration. Every adapter and install script gets a `test.bats`. The test-layer breakdown (local layers, the containerized unit suite, CI integration, e2e) is in SPEC.md §Testing Strategy. Beyond that:
 
 - **Prefer real tools/binaries over shims/mocks.** Drive tests with the actual binary wherever practical; a shim is acceptable only with a one-line comment saying why a real tool can't be used (e.g., an adapter feeding deterministic fixture SARIF that no real scanner would emit on demand).
 - **Unit vs. integration — two independent axes.** *Containerized* (packaging: a reproducible pinned toolchain, no host setup) is separate from *hermetic* (the test's result doesn't depend on a real binary or network). The unit suite (`./test.sh`) is both, but that's a coincidence, not a rule: the integration job could run in a container and still be non-hermetic (it'd still hit registries/Sigstore/github.com). What decides where a test goes is the *dependency*, not the container — a test that needs a real binary or network is an integration test (dedicated CI job; also runs locally when prereqs are present, gated by `skip_or_fail`), kept out of the unit suite so that suite stays deterministic. A bats test lives next to the script it covers.
@@ -120,6 +120,7 @@ Adapters do NOT receive secrets (env stripped by the orchestrator). If a tool ne
 - Branch from `main`, descriptive branch names.
 - All PRs must pass CI (`make test` via GitHub Actions); shellcheck cleanly; actionlint cleanly.
 - **No merge without an `LGTM` from the repository owner.** A PR may be merged only after the owner has commented `LGTM` on it; given that approval, it may be merged once CI is green. Green CI alone is never authorization to merge.
+- If a PR fully fixes a tracked issue, close it from the PR description with a GitHub closing keyword (`Fixes #NNN`) so the issue isn't left open after merge; if you're unsure whether the PR fully resolves the issue, ask the owner rather than guessing.
 - Update the README and `gh_workflow_examples/` if the adoption interface changes.
 - For personal-environment preferences that shouldn't be checked in (your local test command, your shell, your editor's quirks), use `CLAUDE.local.md` — it's git-ignored.
 

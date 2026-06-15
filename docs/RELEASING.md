@@ -89,9 +89,14 @@ controls (below) are already configured on the repo.
    release** UI (pick the commit, type `vX.Y.Z`, publish), or
    `gh release create vX.Y.Z`. Never ship a bare `git tag && git push`
    — it creates no Release, so no attestation.
-3. After the tag exists, update the companion's
-   `showcase.yml` to repoint its `@main` pins to `@vX.Y.Z`
-   ([`wrangle-test#10`](https://github.com/TomHennen/wrangle-test/issues/10)).
+3. Leave the companion's `showcase.yml` pinned at `@main` — it is the
+   current-state heartbeat — running the verify-vsa gate in non-release
+   dogfood mode (`WRANGLE_VSA_NON_STRICT=1`), since an `@main` build is not
+   release-tag signed and would otherwise fail the strict consumer policy.
+   Consumer-verifiable *curated* example artifacts — built at the release tag
+   so they pass the strict policy, and the source of the consumer-VSA test
+   fixtures — come from a separate tag-pinned showcase path, not by repointing
+   the heartbeat ([`wrangle-test#10`](https://github.com/TomHennen/wrangle-test/issues/10)).
 
 **Tag immutability — two controls, already enabled (one-time setup; not
 re-done per release):**

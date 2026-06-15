@@ -166,10 +166,11 @@ make_sarif() {
 }
 
 @test "collect_sarif: outcome=failure + valid SARIF with findings → copy, no marker" {
-    # Findings exit (zizmor exit code 14 → upstream outcome=failure).
-    # SARIF is well-formed and reports >0 results, so we trust it.
-    # check_results.sh will fail-close via SARIF count for :fail; :info
-    # will report findings informationally (not as an error).
+    # A well-formed SARIF reporting >0 results is authoritative regardless
+    # of outcome: in SARIF mode zizmor exits 0 even with findings, so an
+    # outcome=failure here is the post-write Code Scanning upload failing,
+    # not a findings signal. check_results.sh fail-closes via the SARIF
+    # count for :fail; :info reports findings informationally, not as error.
     META="$TMP_DIR/meta-findings"
     mkdir -p "$META"
     SRC="$TMP_DIR/src-findings.sarif"
@@ -224,10 +225,11 @@ make_sarif() {
     [ -f "$META/error" ]
 }
 
-@test "collect_sarif: outcome=failure + parseable SARIF with zero results → marker written" {
-    # Parseable but reports nothing — combined with outcome=failure this
-    # cannot be a clean findings exit (zizmor only exits 14 *with*
-    # findings), so we treat as tool error and fail closed.
+@test "collect_sarif: outcome=failure + parseable SARIF with zero results → no marker (clean audit, upload failed)" {
+    # A complete, parseable SARIF reporting nothing means the audit ran
+    # clean. outcome=failure here is the Code Scanning upload failing —
+    # it runs after the SARIF is written and fails on repos without
+    # Advanced Security — not a zizmor error, so do not fail closed.
     META="$TMP_DIR/meta-zero"
     mkdir -p "$META"
     SRC="$TMP_DIR/src-zero.sarif"
@@ -236,7 +238,9 @@ make_sarif() {
     SARIF_SRC="$SRC" OUTCOME=failure \
         run "$TOOL_DIR/collect_sarif.sh" "$META"
     [ "$status" -eq 0 ]
-    [ -f "$META/error" ]
+    [ ! -f "$META/error" ]
+    [ -f "$META/output.sarif" ]
+    jq -e '[.runs[].results[]] | length == 0' "$META/output.sarif" >/dev/null
 }
 
 @test "collect_sarif: outcome=failure + empty SARIF_SRC env → marker written" {
