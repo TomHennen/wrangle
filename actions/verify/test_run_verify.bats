@@ -313,7 +313,10 @@ STUB
     [[ "$recorded" == *"$OCI_TARGET"* ]]
 }
 
-@test "run_verify: push fails the step when cosign fails (fail-closed)" {
+@test "run_verify: push is best-effort — a cosign failure does not fail the step" {
+    # The registry referrer is a nice-to-have; the guaranteed delivery is the
+    # workflow artifact / release asset. A push failure must be logged and
+    # swallowed so it never fails the verify job.
     cat > "$TEST_DIR/cosign" <<'STUB'
 #!/bin/bash
 exit 7
@@ -324,7 +327,8 @@ STUB
     local bundle="$TEST_DIR/bundle.intoto.jsonl"
     : > "$bundle"
     run wrangle_push_bundle "$bundle"
-    [[ "$status" -ne 0 ]]
+    [[ "$status" -eq 0 ]]
+    [[ "$output" == *"best-effort"* ]]
 }
 
 # --- emit path plumbing (stubbed ampel) ---
@@ -442,9 +446,9 @@ STUB
     run jq -e . "$b"; [[ "$status" -eq 0 ]]
 }
 
-@test "run_verify: run pushes the bundle as one referrer for an OCI target" {
-    # Container path: provenance fetched via cosign download, bundle pushed back
-    # as a single referrer after the VSA append.
+@test "run_verify: run pushes each per-artifact bundle as its own referrer for an OCI target" {
+    # Container path: provenance fetched via cosign download, the per-artifact
+    # bundle pushed back as its own referrer after the VSA append.
     cat > "$TEST_DIR/ampel" <<STUB
 #!/bin/bash
 for a in "\$@"; do case "\$a" in --results-path=*) printf '{"unsigned":1}\n' > "\${a#--results-path=}";; esac; done
@@ -478,6 +482,44 @@ STUB
     local bundle="$BUNDLE_OUT/sha256-0000000000000000000000000000000000000000000000000000000000000000.intoto.jsonl"
     [[ -f "$bundle" ]]
     # Bundle = fetched provenance line + the appended VSA.
+    [[ "$(wc -l < "$bundle")" -eq 2 ]]
+}
+
+@test "run_verify: run still succeeds and writes the bundle when the referrer push fails" {
+    # Regression for the container delivery: a failing cosign attach (the
+    # registry referrer is best-effort) must NOT fail the verify job. The
+    # per-artifact bundle still lands in BUNDLE_OUT for the workflow-artifact /
+    # release-asset delivery.
+    cat > "$TEST_DIR/ampel" <<STUB
+#!/bin/bash
+for a in "\$@"; do case "\$a" in --results-path=*) printf '{"unsigned":1}\n' > "\${a#--results-path=}";; esac; done
+printf 'report\n'
+STUB
+    cat > "$TEST_DIR/bnd" <<STUB
+#!/bin/bash
+cat "\$2"
+STUB
+    _dsse_line "https://slsa.dev/provenance/v1" > "$TEST_DIR/referrers.jsonl"
+    # download succeeds (seeds the provenance); attach fails (registry rejects /
+    # auth blip) — the job must survive it.
+    {
+        printf '#!/bin/bash\n'
+        printf '[[ "$1" == "download" ]] && { cat %q; exit 0; }\n' "$TEST_DIR/referrers.jsonl"
+        printf '[[ "$1" == "attach" ]] && exit 7\n'
+        printf 'exit 0\n'
+    } > "$TEST_DIR/cosign"
+    chmod +x "$TEST_DIR/ampel" "$TEST_DIR/bnd" "$TEST_DIR/cosign"
+    export PATH="$TEST_DIR:$PATH"
+    export GITHUB_STEP_SUMMARY="$TEST_DIR/summary.md"
+    : > "$GITHUB_STEP_SUMMARY"
+    export SUBJECTS="sha256:0000000000000000000000000000000000000000000000000000000000000000"
+    export OCI_TARGET="ghcr.io/o/r/img@sha256:0000000000000000000000000000000000000000000000000000000000000000"
+
+    run "$SCRIPT" run
+    [[ "$status" -eq 0 ]]
+    [[ "$output" == *"best-effort"* ]]
+    local bundle="$BUNDLE_OUT/sha256-0000000000000000000000000000000000000000000000000000000000000000.intoto.jsonl"
+    [[ -f "$bundle" ]]
     [[ "$(wc -l < "$bundle")" -eq 2 ]]
 }
 

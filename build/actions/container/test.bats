@@ -339,14 +339,15 @@ teardown() {
 # --- verify job: registry push + permissions ---
 # verify: is the last job; the block runs from `  verify:` to EOF.
 
-@test "container: verify job does NOT request contents: write (caller grants only read)" {
-    # The container caller grants contents: read; requesting write here is a
-    # startup-failing permission escalation. This is the dispatch-failure fix.
-    # Match the permission-block entry (6-space indent), not the explanatory
-    # comment that also mentions the phrase.
+@test "container: verify job requests contents: write to attach bundles to the release" {
+    # The bundle is delivered as a file (workflow artifact always, release asset
+    # when a release exists for the tag) — the guaranteed path, same as
+    # npm/go/python. Attaching to the release needs contents: write; the caller
+    # must grant it. Match the permission-block entry (6-space indent), not the
+    # explanatory comment that also mentions the phrase.
     local wf="$REPO_ROOT/.github/workflows/build_and_publish_container.yml"
     run bash -c "sed -n '/^  verify:/,\$p' \"$wf\" | grep -E '^      contents:[[:space:]]*write'"
-    [[ "$status" -ne 0 ]]
+    [[ "$status" -eq 0 ]]
 }
 
 @test "container: verify job requests packages: write for the registry push" {
@@ -355,12 +356,19 @@ teardown() {
     [[ "$status" -eq 0 ]]
 }
 
-@test "container: verify job pushes the VSA as an OCI referrer (oci-target + attach-to-release false)" {
+@test "container: verify job sets oci-target for the best-effort registry referrer" {
     local wf="$REPO_ROOT/.github/workflows/build_and_publish_container.yml"
     run bash -c "sed -n '/^  verify:/,\$p' \"$wf\" | grep -E 'oci-target:'"
     [[ "$status" -eq 0 ]]
+}
+
+@test "container: verify job leaves release-attach enabled (no attach-to-release false override)" {
+    # File delivery is the guaranteed path: the bundle attaches to the release
+    # when one exists. Disabling it would drop that guarantee, leaving only the
+    # workflow artifact and the best-effort referrer.
+    local wf="$REPO_ROOT/.github/workflows/build_and_publish_container.yml"
     run bash -c "sed -n '/^  verify:/,\$p' \"$wf\" | grep -E 'attach-to-release:[[:space:]]*\"false\"'"
-    [[ "$status" -eq 0 ]]
+    [[ "$status" -ne 0 ]]
 }
 
 @test "container: verify job installs cosign for the push (single pin across the workflow)" {

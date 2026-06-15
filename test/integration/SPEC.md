@@ -123,7 +123,7 @@ The secrets table above describes the **compromise impact** of `GITHUB_TOKEN` (w
 
 For the container builder specifically, `build_and_publish_container.yml` contains an `attest` job (and a downstream `vsa` job) gated `if: ${{ needs.gate.outputs.should-release == 'true' }}`. Because the companion workflow triggers on `push`, the gate is truthy and the attest job runs `actions/attest-build-provenance`, naming this workflow as the builder — so the `test-container` job must grant:
 
-- `contents: read`
+- `contents: write` (attach the per-artifact bundle to the GitHub release on a tag, if one exists; the integration push is not a tag, so the attach step is skipped, but adopters tag-publishing need this)
 - `packages: write` (push the attestation and VSA referrers to GHCR)
 - `id-token: write` (OIDC for Sigstore keyless signing of the provenance and the VSA)
 - `attestations: write` (write the SLSA provenance to GitHub's attestation store)
@@ -181,7 +181,7 @@ jobs:
 
   test-container:
     permissions:
-      contents: read
+      contents: write
       packages: write
       id-token: write
       attestations: write
