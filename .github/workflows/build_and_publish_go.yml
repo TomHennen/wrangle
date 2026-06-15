@@ -440,7 +440,7 @@ jobs:
           } >> "$GITHUB_OUTPUT"
 
       # TODO: replace with $/actions/verify when GitHub ships $/ syntax (#136)
-      - uses: TomHennen/wrangle/actions/verify@7d17baa2e70ba53e678b53465e06d76e35e83f12 # feat/bundle-single-intoto-181 2026-06-15 (bootstrap PR HEAD; bump after merge)
+      - uses: TomHennen/wrangle/actions/verify@42c620d4e0be14a2022d384830e6a1f3ca012d64 # feat/bundle-single-intoto-181 2026-06-15 (bootstrap PR HEAD; bump after merge)
         with:
           subjects: ${{ steps.subjects.outputs.subjects }}
           policy: policies/wrangle-provenance-go-v1.hjson
