@@ -265,7 +265,7 @@ jobs:
           password: ${{ secrets.GITHUB_TOKEN }}
 
       # TODO: replace with $/actions/verify when GitHub ships $/ syntax (#136)
-      - uses: TomHennen/wrangle/actions/verify@42c620d4e0be14a2022d384830e6a1f3ca012d64 # feat/bundle-single-intoto-181 2026-06-15 (bootstrap PR HEAD; bump after merge)
+      - uses: TomHennen/wrangle/actions/verify@66c1ca6dedf5b763e908239caae4c95db0286e1c # feat/bundle-single-intoto-181 2026-06-15 (bootstrap PR HEAD; bump after merge)
         with:
           subjects: ${{ needs.build.outputs.digest }}
           policy: policies/wrangle-provenance-container-v1.hjson
