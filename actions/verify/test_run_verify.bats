@@ -33,7 +33,8 @@ setup() {
     export ATTESTATION=""
     export OCI_TARGET=""
     export BUNDLE_IN="$TEST_DIR/provenance.jsonl"
-    export BUNDLE_OUT="$TEST_DIR/multiple.intoto.jsonl"
+    # bundle-out is the directory the per-artifact bundles are written into.
+    export BUNDLE_OUT="$TEST_DIR/bundles"
     export RUNNER_TEMP="$TEST_DIR"
     # The unsigned-VSA path the arg-vector tests reference.
     VSA="$TEST_DIR/vsa.intoto.jsonl"
@@ -206,8 +207,9 @@ teardown() {
 @test "run_verify: seed copies the provenance JSONL when no OCI target" {
     printf 'PROVLINE\n' > "$BUNDLE_IN"
     export OCI_TARGET=""
-    wrangle_seed_bundle
-    [[ "$(cat "$BUNDLE_OUT")" == "PROVLINE" ]]
+    local seed="$TEST_DIR/seed.jsonl"
+    wrangle_seed_bundle "$seed"
+    [[ "$(cat "$seed")" == "PROVLINE" ]]
     # BUNDLE_IN stays intact so a re-run starts from the same base.
     [[ "$(cat "$BUNDLE_IN")" == "PROVLINE" ]]
 }
@@ -230,10 +232,11 @@ _dsse_line() {
     _dsse_line "https://slsa.dev/provenance/v1" > "$TEST_DIR/referrers.jsonl"
     export PATH="$TEST_DIR:$PATH"
     export OCI_TARGET="ghcr.io/o/r/img@sha256:0000000000000000000000000000000000000000000000000000000000000000"
-    wrangle_seed_bundle
+    local seed="$TEST_DIR/seed.jsonl"
+    wrangle_seed_bundle "$seed"
     # Exactly the one provenance line, with its predicateType preserved.
-    [[ "$(wc -l < "$BUNDLE_OUT")" -eq 1 ]]
-    [[ "$(jq -r '.dsseEnvelope.payload | @base64d | fromjson | .predicateType' "$BUNDLE_OUT")" == "https://slsa.dev/provenance/v1" ]]
+    [[ "$(wc -l < "$seed")" -eq 1 ]]
+    [[ "$(jq -r '.dsseEnvelope.payload | @base64d | fromjson | .predicateType' "$seed")" == "https://slsa.dev/provenance/v1" ]]
 }
 
 @test "run_verify: seed drops a prior VSA referrer so a re-run stays idempotent" {
@@ -252,9 +255,10 @@ _dsse_line() {
     } > "$TEST_DIR/referrers.jsonl"
     export PATH="$TEST_DIR:$PATH"
     export OCI_TARGET="ghcr.io/o/r/img@sha256:0000000000000000000000000000000000000000000000000000000000000000"
-    wrangle_seed_bundle
-    [[ "$(wc -l < "$BUNDLE_OUT")" -eq 1 ]]
-    [[ "$(jq -r '.dsseEnvelope.payload | @base64d | fromjson | .predicateType' "$BUNDLE_OUT")" == "https://slsa.dev/provenance/v1" ]]
+    local seed="$TEST_DIR/seed.jsonl"
+    wrangle_seed_bundle "$seed"
+    [[ "$(wc -l < "$seed")" -eq 1 ]]
+    [[ "$(jq -r '.dsseEnvelope.payload | @base64d | fromjson | .predicateType' "$seed")" == "https://slsa.dev/provenance/v1" ]]
 }
 
 @test "run_verify: seed fails closed when no provenance referrer is present" {
@@ -269,7 +273,7 @@ _dsse_line() {
     _dsse_line "https://slsa.dev/verification_summary/v1" > "$TEST_DIR/referrers.jsonl"
     export PATH="$TEST_DIR:$PATH"
     export OCI_TARGET="ghcr.io/o/r/img@sha256:0000000000000000000000000000000000000000000000000000000000000000"
-    run wrangle_seed_bundle
+    run wrangle_seed_bundle "$TEST_DIR/seed.jsonl"
     [[ "$status" -ne 0 ]]
     [[ "$output" == *"no SLSA provenance referrer"* ]]
 }
@@ -286,7 +290,7 @@ STUB
     chmod +x "$TEST_DIR/cosign"
     export PATH="$TEST_DIR:$PATH"
     export OCI_TARGET=""
-    run wrangle_push_bundle
+    run wrangle_push_bundle "$TEST_DIR/bundle.intoto.jsonl"
     [[ "$status" -eq 0 ]]
 }
 
@@ -298,13 +302,14 @@ STUB
     chmod +x "$TEST_DIR/cosign"
     export PATH="$TEST_DIR:$PATH"
     export OCI_TARGET="ghcr.io/o/r/img@sha256:abc"
-    : > "$BUNDLE_OUT"
-    run wrangle_push_bundle
+    local bundle="$TEST_DIR/bundle.intoto.jsonl"
+    : > "$bundle"
+    run wrangle_push_bundle "$bundle"
     [[ "$status" -eq 0 ]]
     recorded="$(cat "$TEST_DIR/cosign-args")"
     [[ "$recorded" == *"attach"* ]]
     [[ "$recorded" == *"attestation"* ]]
-    [[ "$recorded" == *"$BUNDLE_OUT"* ]]
+    [[ "$recorded" == *"$bundle"* ]]
     [[ "$recorded" == *"$OCI_TARGET"* ]]
 }
 
@@ -316,8 +321,9 @@ STUB
     chmod +x "$TEST_DIR/cosign"
     export PATH="$TEST_DIR:$PATH"
     export OCI_TARGET="ghcr.io/o/r/img@sha256:abc"
-    : > "$BUNDLE_OUT"
-    run wrangle_push_bundle
+    local bundle="$TEST_DIR/bundle.intoto.jsonl"
+    : > "$bundle"
+    run wrangle_push_bundle "$bundle"
     [[ "$status" -ne 0 ]]
 }
 
@@ -419,15 +425,21 @@ STUB
 
     run "$SCRIPT" run
     [[ "$status" -eq 0 ]]
-    # Line 1 is the seeded provenance; lines 2-3 are the two signed VSAs, each
-    # one JSON object (jq -c flattened bnd's multi-line output).
-    [[ "$(wc -l < "$BUNDLE_OUT")" -eq 3 ]]
-    run head -n1 "$BUNDLE_OUT"; [[ "$output" == '{"provenance":1}' ]]
-    grep -q '"signed":{"unsigned":"dist/a.tgz"}' "$BUNDLE_OUT"
-    grep -q '"signed":{"unsigned":"dist/b.whl"}' "$BUNDLE_OUT"
-    # Every appended VSA is a single line (valid JSONL).
-    run jq -e . "$BUNDLE_OUT"
-    [[ "$status" -eq 0 ]]
+    # One per-artifact bundle per subject, named <artifact-basename>.intoto.jsonl.
+    local a="$BUNDLE_OUT/a.tgz.intoto.jsonl" b="$BUNDLE_OUT/b.whl.intoto.jsonl"
+    [[ -f "$a" && -f "$b" ]]
+    # Each bundle is the seeded provenance line plus exactly that subject's VSA.
+    [[ "$(wc -l < "$a")" -eq 2 ]]
+    [[ "$(wc -l < "$b")" -eq 2 ]]
+    run head -n1 "$a"; [[ "$output" == '{"provenance":1}' ]]
+    grep -q '"signed":{"unsigned":"dist/a.tgz"}' "$a"
+    grep -q '"signed":{"unsigned":"dist/b.whl"}' "$b"
+    # A subject's bundle carries only its own VSA, not the other's.
+    ! grep -q '"unsigned":"dist/b.whl"' "$a"
+    ! grep -q '"unsigned":"dist/a.tgz"' "$b"
+    # Every line is one JSON object (valid JSONL).
+    run jq -e . "$a"; [[ "$status" -eq 0 ]]
+    run jq -e . "$b"; [[ "$status" -eq 0 ]]
 }
 
 @test "run_verify: run pushes the bundle as one referrer for an OCI target" {
@@ -462,8 +474,11 @@ STUB
     # cosign was called to download the provenance AND to attach the bundle.
     grep -qx "download" "$TEST_DIR/cosign-calls"
     grep -qx "attach" "$TEST_DIR/cosign-calls"
+    # The single digest subject yields one bundle (colon in sha256: replaced).
+    local bundle="$BUNDLE_OUT/sha256-0000000000000000000000000000000000000000000000000000000000000000.intoto.jsonl"
+    [[ -f "$bundle" ]]
     # Bundle = fetched provenance line + the appended VSA.
-    [[ "$(wc -l < "$BUNDLE_OUT")" -eq 2 ]]
+    [[ "$(wc -l < "$bundle")" -eq 2 ]]
 }
 
 # --- attach to release (wrangle_attach_release) ---
@@ -493,17 +508,23 @@ SHIM
     export GITHUB_REF_NAME="v1.2.3"
 }
 
-@test "run_verify attach: existing release is uploaded to without create" {
+@test "run_verify attach: every per-artifact bundle is uploaded to the existing release" {
     _install_gh_shim
+    mkdir -p "$BUNDLE_OUT"
+    : > "$BUNDLE_OUT/a.tgz.intoto.jsonl"
+    : > "$BUNDLE_OUT/b.whl.intoto.jsonl"
     export GH_VIEW_SEQ="0"            # first view succeeds (release exists)
     run "$SCRIPT" attach
     [[ "$status" -eq 0 ]]
-    grep -qx "release upload v1.2.3 $BUNDLE_OUT --clobber" "$GH_LOG"
+    grep -qx "release upload v1.2.3 $BUNDLE_OUT/a.tgz.intoto.jsonl --clobber" "$GH_LOG"
+    grep -qx "release upload v1.2.3 $BUNDLE_OUT/b.whl.intoto.jsonl --clobber" "$GH_LOG"
     ! grep -q "release create" "$GH_LOG"   # create must be skipped
 }
 
 @test "run_verify attach: missing release skips create and upload, exits 0" {
     _install_gh_shim
+    mkdir -p "$BUNDLE_OUT"
+    : > "$BUNDLE_OUT/a.tgz.intoto.jsonl"
     export GH_VIEW_SEQ="1"            # view fails (no release)
     run "$SCRIPT" attach
     [[ "$status" -eq 0 ]]            # no release is not an error — bundle stays the artifact
