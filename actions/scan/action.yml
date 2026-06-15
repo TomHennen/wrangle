@@ -13,7 +13,7 @@ inputs:
   go-cache:
     description: >
       Set to "enabled" to cache the Go module + build caches that
-      run.sh's `go install tool` populates (osv-scanner et al. build
+      run.sh's `go install` populates (osv-scanner et al. build
       from source — #343). Default off: the cache is ~1.5–3 GB and is
       stored against the calling repo's Actions cache quota, so it is
       opt-in per-repo rather than imposed on every adopter. Leave off
@@ -66,9 +66,9 @@ runs:
       env:
         WRANGLE_TOOLS: ${{ inputs.tools }}
         WRANGLE_ROOT: ${{ github.action_path }}/../..
-        # osv-scanner builds from source via `go install` (tools/osv/
-        # install.sh); a cold runner's module download + compile can
-        # exceed run.sh's 300s default install timeout.
+        # osv-scanner builds from source via `go install`; a cold
+        # runner's module download + compile can exceed run.sh's 300s
+        # default install timeout.
         WRANGLE_INSTALL_TIMEOUT: "900"
       run: |
         # shellcheck source=../../lib/env.sh

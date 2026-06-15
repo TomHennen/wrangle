@@ -74,26 +74,36 @@ overall_status=0
 INSTALL_TIMEOUT="${WRANGLE_INSTALL_TIMEOUT:-300}"
 ADAPTER_TIMEOUT="${WRANGLE_ADAPTER_TIMEOUT:-600}"
 
-# Install every Go tool declared in tools/go.mod in one shot — versions and
-# integrity come from go.mod/go.sum (env.sh pins GOPROXY/GOSUMDB), and
-# Dependabot keeps them fresh. Deliberately simple over selective: cold
-# runners rebuild the lot (#348 tracks caching). Skipped when the manifest
-# has no tool directives (hermetic orchestrator tests point WRANGLE_TOOLS_DIR
-# at stub dirs). Retried: the go command does not retry transient proxy
-# failures itself (#190).
-if [[ -f "${TOOLS_DIR}/go.mod" ]] && grep -qE '^tool' "${TOOLS_DIR}/go.mod"; then
+# Build only the Go tools the requested adapters need: each adapter lists its
+# package(s) in tools/<tool>/go-tools, version-pinned in tools/go.mod (env.sh
+# pins GOPROXY/GOSUMDB; Dependabot keeps them fresh). A scan thus never compiles
+# the build/verify toolchain (cosign, ampel, bnd). Empty when no requested
+# adapter declares a Go tool (hermetic orchestrator tests point WRANGLE_TOOLS_DIR
+# at stub dirs with no go-tools file). Retried: go does not retry transient
+# proxy failures itself.
+declare -a go_pkgs=()
+for tool in "${adapter_tools[@]}"; do
+    go_tools_file="${TOOLS_DIR}/${tool}/go-tools"
+    [[ -f "$go_tools_file" ]] || continue
+    while IFS= read -r pkg || [[ -n "$pkg" ]]; do
+        [[ -z "$pkg" ]] && continue
+        go_pkgs+=("$pkg")
+    done < "$go_tools_file"
+done
+
+if [[ ${#go_pkgs[@]} -gt 0 ]]; then
     if ! command -v go >/dev/null 2>&1; then
         printf 'wrangle: go not on PATH (required for tools/go.mod tools)\n' >&2
         exit 2
     fi
     mkdir -p "$WRANGLE_BIN_DIR"
-    printf 'wrangle: installing Go tools from tools/go.mod...\n'
+    printf 'wrangle: installing Go tools: %s\n' "${go_pkgs[*]}"
     go_tools_exit=1
     backoff=1
     for attempt in 1 2 3; do
         go_tools_exit=0
         timeout "$INSTALL_TIMEOUT" env GOBIN="$(cd "$WRANGLE_BIN_DIR" && pwd)" \
-            go -C "$TOOLS_DIR" install tool || go_tools_exit=$?
+            go -C "$TOOLS_DIR" install "${go_pkgs[@]}" || go_tools_exit=$?
         [[ "$go_tools_exit" -eq 0 ]] && break
         if [[ "$attempt" -lt 3 ]]; then
             printf 'wrangle: go install attempt %d/3 failed, retrying in %ds...\n' "$attempt" "$backoff" >&2
@@ -102,7 +112,7 @@ if [[ -f "${TOOLS_DIR}/go.mod" ]] && grep -qE '^tool' "${TOOLS_DIR}/go.mod"; the
         fi
     done
     if [[ "$go_tools_exit" -ne 0 ]]; then
-        printf 'wrangle: FATAL: installing tools/go.mod tools failed\n' >&2
+        printf 'wrangle: FATAL: installing Go tools failed\n' >&2
         exit 2
     fi
 fi
