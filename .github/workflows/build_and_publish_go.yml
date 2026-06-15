@@ -387,8 +387,8 @@ jobs:
           if-no-files-found: error
 
   # Emit one signed SLSA Verification Summary Attestation (VSA) per dist archive
-  # and append them all to the SLSA provenance, producing the single
-  # multiple.intoto.jsonl bundle consumers fetch. ampel evaluates the
+  # and append it to the SLSA provenance, producing one per-artifact
+  # <archive>.intoto.jsonl bundle consumers fetch. ampel evaluates the
   # attest-build-provenance bundle against the wrangle-provenance-go-v1 PolicySet
   # (which binds wrangle's builder identity and verifies the bundle's Sigstore
   # signature — fail-closed) and bnd signs each VSA keyless with this workflow's
@@ -446,7 +446,7 @@ jobs:
           policy: policies/wrangle-provenance-go-v1.hjson
           collector: jsonl:provenance/provenance.jsonl
           bundle-in: provenance/provenance.jsonl
-          bundle-out: multiple.intoto.jsonl
+          bundle-out: bundles
           artifact-name: go-bundle-${{ needs.release.outputs.shortname }}
           # resourceUri is the golang module purl consumers pin when verifying;
           # each subject digest is the cryptographic bind.

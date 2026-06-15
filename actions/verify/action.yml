@@ -1,12 +1,15 @@
 # Wrangle Verify — verify a release's provenance against a wrangle PolicySet
-# with ampel, sign one SLSA VSA per dist subject, and append them to the
-# provenance bundle to produce the single `.intoto.jsonl` consumers fetch.
+# with ampel, sign one SLSA VSA per dist subject, and emit one per-artifact
+# `<artifact>.intoto.jsonl` bundle per subject (provenance + that subject's VSA)
+# consumers fetch.
 #
-# This is the consumer contract: a PASS produces one `bundle.intoto.jsonl` (a
-# valid in-toto JSONL bundle — one statement per line: the signed SLSA
-# provenance lines plus one signed VSA, slsa.dev/verification_summary/v1, per
-# subject). Downstream consumers trust the signed VSA lines (docs/ampel_research.md
-# §2) — they never run ampel themselves.
+# This is the consumer contract: a PASS produces one `<artifact>.intoto.jsonl`
+# per subject (each a valid in-toto JSONL bundle — one statement per line: the
+# signed SLSA provenance lines plus that artifact's signed VSA,
+# slsa.dev/verification_summary/v1). Per-artifact names follow the in-toto
+# bundle spec and can't collide when several build types publish to one release.
+# Downstream consumers trust the signed VSA lines (docs/ampel_research.md §2) —
+# they never run ampel themselves.
 #
 # ampel and bnd are built from tools/go.mod (`go install`); the runner needs a
 # Go toolchain (GitHub-hosted runners ship one). The PolicySet itself mandates
@@ -25,11 +28,12 @@
 name: Wrangle Verify
 description: >
   Verify a release's provenance against a wrangle PolicySet using ampel, sign
-  one SLSA VSA per dist subject, and append them to the provenance to emit a
-  single in-toto JSONL bundle. The bundle is written to bundle-out, uploaded as
-  a workflow artifact, and attached to the GitHub release on a tag push. When
+  one SLSA VSA per dist subject, and emit one per-artifact
+  <artifact>.intoto.jsonl bundle per subject (provenance + that subject's VSA).
+  The bundles are written into the bundle-out directory, uploaded as one
+  workflow artifact, and attached to the GitHub release on a tag push. When
   oci-target is set (container build type), the provenance is fetched from and
-  the bundle pushed back to the registry as one OCI referrer — this needs
+  the single bundle pushed back to the registry as one OCI referrer — this needs
   packages: write on the caller.
 
 inputs:
@@ -53,9 +57,9 @@ inputs:
     default: ""
   bundle-out:
     description: >
-      Path the emitted single in-toto JSONL bundle is written to. This is also
-      the basename attached to the GitHub release, so it is the consumer-facing
-      asset name (e.g. multiple.intoto.jsonl).
+      Directory the per-artifact in-toto JSONL bundles are written into, one
+      <artifact>.intoto.jsonl per subject. These filenames are the
+      consumer-facing release asset names (e.g. foo-linux-amd64.tar.gz.intoto.jsonl).
     required: true
   artifact-name:
     description: >
@@ -108,12 +112,13 @@ runs:
         GOBIN="$WRANGLE_BIN_DIR" go -C "$WRANGLE_ROOT/tools" install tool
 
     # One step: run_verify.sh run validates the inputs, runs ampel verify per
-    # subject to write each VSA, bnd-signs it, and appends it to the provenance
-    # bundle — in a single process, so an unsigned VSA never sits on disk across
-    # a step boundary. The policy's common.identities verify the signer of every
-    # input attestation, so a tampered/unsigned input fails here; each VSA is
-    # signed keyless with the calling workflow's OIDC identity.
-    - name: Verify and sign the bundle
+    # subject to write each VSA, bnd-signs it, and writes one per-artifact bundle
+    # (provenance + that VSA) into the bundle-out directory — in a single
+    # process, so an unsigned VSA never sits on disk across a step boundary. The
+    # policy's common.identities verify the signer of every input attestation, so
+    # a tampered/unsigned input fails here; each VSA is signed keyless with the
+    # calling workflow's OIDC identity.
+    - name: Verify and sign the bundles
       shell: bash
       env:
         WRANGLE_ROOT: ${{ github.action_path }}/../..
@@ -133,13 +138,14 @@ runs:
       uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
       with:
         name: ${{ inputs.artifact-name }}
-        path: ${{ inputs.bundle-out }}
+        # bundle-out is a directory of per-artifact bundles; upload them all.
+        path: ${{ inputs.bundle-out }}/
         if-no-files-found: error
 
-    # Canonical bundle storage: on a tag push, attach the bundle to the GitHub
-    # release if one exists (wrangle does not create releases) — see
-    # run_verify.sh's wrangle_attach_release.
-    - name: Attach bundle to release
+    # Canonical bundle storage: on a tag push, attach every per-artifact bundle
+    # to the GitHub release if one exists (wrangle does not create releases) —
+    # see run_verify.sh's wrangle_attach_release.
+    - name: Attach bundles to release
       if: github.ref_type == 'tag' && inputs.attach-to-release == 'true'
       shell: bash
       env:

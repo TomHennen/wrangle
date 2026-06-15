@@ -299,8 +299,8 @@ jobs:
           if-no-files-found: error
 
   # Emit one signed SLSA Verification Summary Attestation (VSA) per dist artifact
-  # and append them all to the SLSA provenance, producing the single
-  # multiple.intoto.jsonl bundle. ampel evaluates the attest-build-provenance
+  # and append it to the SLSA provenance, producing one per-artifact
+  # <artifact>.intoto.jsonl bundle. ampel evaluates the attest-build-provenance
   # bundle against the wrangle-provenance-python-v1 PolicySet (which binds
   # wrangle's builder identity and verifies the bundle's Sigstore signature —
   # fail-closed) and bnd signs each VSA keyless with this workflow's OIDC
@@ -354,7 +354,7 @@ jobs:
           policy: policies/wrangle-provenance-python-v1.hjson
           collector: jsonl:provenance/provenance.jsonl
           bundle-in: provenance/provenance.jsonl
-          bundle-out: multiple.intoto.jsonl
+          bundle-out: bundles
           artifact-name: python-bundle-${{ needs.build.outputs.shortname }}
           # resourceUri names the package the VSAs cover (pkg:pypi, PEP
           # 503-normalized); the consumer/gate check pins it. Each subject

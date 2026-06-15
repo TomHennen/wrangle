@@ -1,22 +1,25 @@
 #!/bin/bash
 # actions/verify/run_verify.sh — validate inputs, run `ampel verify` per dist
-# subject, `bnd`-sign each VSA, and append every signed VSA to the provenance
-# bundle to produce one `.intoto.jsonl` consumers fetch.
+# subject, `bnd`-sign each VSA, and produce one per-artifact `.intoto.jsonl`
+# bundle per subject (provenance lines + that subject's signed VSA) consumers
+# fetch.
 #
 # Subcommands (run directly by the action):
 #   run    emit -> sign -> append for every subject in one process, then push
 #          (container) — so an unsigned VSA never lives on disk across a step
-#          boundary; the output bundle = provenance lines + one signed VSA line
-#          per subject.
-#   attach upload the bundle to the GitHub release for the current tag, if any.
+#          boundary. Each subject yields its own <artifact>.intoto.jsonl =
+#          the provenance lines plus that one subject's signed VSA line.
+#   attach upload every per-artifact bundle to the GitHub release for the
+#          current tag, if any.
 #
 # The arg-builder functions stay pure (no side effects) so the unit tests can
 # assert the exact ampel/bnd/cosign CLI shape offline; `main` runs the work on
 # direct execution. Inputs arrive as environment variables: SUBJECTS (newline-
 # separated dist subjects), POLICY, COLLECTOR, FAIL, CONTEXT, BUNDLE_IN (the
-# provenance JSONL the VSAs append to), BUNDLE_OUT (the emitted bundle), plus
-# the optional ATTESTATION, OCI_TARGET (when set, the bundle is fetched from and
-# pushed back to that registry digest as one referrer).
+# provenance JSONL the VSAs append to), BUNDLE_OUT (the directory the
+# per-artifact bundles are written into), plus the optional ATTESTATION,
+# OCI_TARGET (when set, the single bundle is fetched from and pushed back to
+# that registry digest as one referrer).
 
 set -euo pipefail
 set -f  # disable globbing — processes external input
@@ -150,19 +153,21 @@ wrangle_sign_vsa() {
     rm -f "$vsa.unsigned"
 }
 
-# Predicate type of the SLSA provenance statements the bundle seeds from. A
+# Predicate type of the SLSA provenance statements each bundle seeds from. A
 # verify re-run against the same image digest re-downloads every referrer —
 # including the VSAs this action pushed last time — so the seed filters to just
 # this type, dropping any prior VSA/bundle lines. That keeps the round-trip
-# idempotent: each run rebuilds the same one-provenance + per-subject-VSA bundle
-# instead of accumulating duplicate provenance and stale VSA lines.
+# idempotent: each run rebuilds the same one-provenance + VSA bundle instead of
+# accumulating duplicate provenance and stale VSA lines.
 WRANGLE_PROVENANCE_PREDICATE="https://slsa.dev/provenance/v1"
 
-# Seed BUNDLE_OUT with the provenance lines. For container the provenance lives
-# as an OCI referrer and is fetched with cosign; otherwise BUNDLE_IN is the
-# provenance JSONL the attest job staged. Copying keeps BUNDLE_IN intact so a
-# re-run starts from the same base.
+# Write the shared provenance seed to $1. For container the provenance lives as
+# an OCI referrer and is fetched with cosign; otherwise BUNDLE_IN is the
+# provenance JSONL the attest job staged. Each per-artifact bundle is a copy of
+# this seed plus that subject's VSA, so seeding runs once and BUNDLE_IN stays
+# intact for a re-run.
 wrangle_seed_bundle() {
+    local seed="$1"
     if [[ -n "${OCI_TARGET:-}" ]]; then
         local args downloaded
         mapfile -t args < <(wrangle_cosign_download_args "$OCI_TARGET")
@@ -173,30 +178,43 @@ wrangle_seed_bundle() {
         downloaded="$(mktemp "${RUNNER_TEMP:-/tmp}/seed.XXXXXX")"
         cosign "${args[@]}" > "$downloaded"
         if ! jq -ce "select((.dsseEnvelope.payload | @base64d | fromjson | .predicateType) == \"$WRANGLE_PROVENANCE_PREDICATE\")" \
-            "$downloaded" > "$BUNDLE_OUT"; then
+            "$downloaded" > "$seed"; then
             rm -f "$downloaded"
             printf 'wrangle: no SLSA provenance referrer found on %s (or malformed DSSE)\n' "$OCI_TARGET" >&2
             return 1
         fi
         rm -f "$downloaded"
     else
-        cp "$BUNDLE_IN" "$BUNDLE_OUT"
+        cp "$BUNDLE_IN" "$seed"
     fi
 }
 
-# Append the bundle to the registry as one referrer (container only). Under
-# set -e a push failure fails the step (fail-closed): a bundle a consumer can't
-# fetch by digest is a silent gap, indistinguishable from never producing one.
+# Map a subject to its per-artifact bundle basename. The subject is either a
+# dist path (dist/foo.tar.gz) or an OCI digest (sha256:<hex>); take the path
+# basename and replace the digest's colon so the result is a plain filename.
+# verify-vsa self-selects each artifact's VSA from <artifact-basename>.intoto.jsonl.
+wrangle_bundle_name() {
+    local subject="$1" base="${1##*/}"
+    printf '%s.intoto.jsonl\n' "${base//:/-}"
+}
+
+# Push the bundle at $1 to the registry as one referrer (container only).
+# A container build has a single image-digest subject, hence a single bundle.
+# Under set -e a push failure fails the step (fail-closed): a bundle a consumer
+# can't fetch by digest is a silent gap, indistinguishable from never producing
+# one.
 wrangle_push_bundle() {
     [[ -z "${OCI_TARGET:-}" ]] && return 0
     local args
-    mapfile -t args < <(wrangle_cosign_attach_args "$BUNDLE_OUT" "$OCI_TARGET")
+    mapfile -t args < <(wrangle_cosign_attach_args "$1" "$OCI_TARGET")
     cosign "${args[@]}"
 }
 
-# Verify every subject, sign each VSA, and append it to BUNDLE_OUT — all in one
-# process so an unsigned VSA never crosses a step boundary. The unsigned VSA and
-# the signed-then-appended line stay in $RUNNER_TEMP, never a persisted artifact.
+# Verify every subject, sign its VSA, and write one <artifact>.intoto.jsonl per
+# subject into the BUNDLE_OUT directory (the shared provenance seed plus that
+# subject's signed VSA) — all in one process so an unsigned VSA never crosses a
+# step boundary. The unsigned VSA stays in $RUNNER_TEMP, never a persisted
+# artifact.
 wrangle_run() {
     # Validate inside the script that does the work — no separate action step.
     # shellcheck source=validate_verify_inputs.sh
@@ -222,32 +240,50 @@ wrangle_run() {
             "$COLLECTOR" "$FAIL" "${CONTEXT:-}" "${ATTESTATION:-}" "${OCI_TARGET:-}"
     done
 
-    wrangle_seed_bundle
+    mkdir -p "$BUNDLE_OUT"
+    local seed tmp_vsa
+    seed="$(mktemp "${RUNNER_TEMP:-/tmp}/seed.XXXXXX")"
+    wrangle_seed_bundle "$seed"
 
-    local tmp_vsa
     tmp_vsa="$(mktemp "${RUNNER_TEMP:-/tmp}/vsa.XXXXXX")"
+    local bundle
     for subject in "${WRANGLE_SUBJECTS[@]}"; do
+        bundle="$BUNDLE_OUT/$(wrangle_bundle_name "$subject")"
+        cp "$seed" "$bundle"
         wrangle_verify_emit_vsa "$subject" "$tmp_vsa"
         wrangle_sign_vsa "$tmp_vsa"
         # bnd emits a multi-line pretty statement; jq -c flattens it to the one
         # JSON-object-per-line a JSONL bundle requires.
-        jq -c . "$tmp_vsa" >> "$BUNDLE_OUT"
+        jq -c . "$tmp_vsa" >> "$bundle"
+        # Container has a single subject, so this is the one bundle to push.
+        wrangle_push_bundle "$bundle"
     done
-    rm -f "$tmp_vsa"
-
-    wrangle_push_bundle
+    rm -f "$tmp_vsa" "$seed"
 }
 
-# Attach the bundle to the GitHub release for the current tag, IF one exists.
-# wrangle does not create releases — the adopter's release tooling owns that; on
-# a tag with no release the bundle remains available as the workflow artifact.
+# Attach every per-artifact bundle to the GitHub release for the current tag,
+# IF one exists. wrangle does not create releases — the adopter's release
+# tooling owns that; on a tag with no release the bundles remain available as
+# the workflow artifact. Enumerate via a temp file (not a process substitution,
+# whose exit status bash never observes) so a find that dies mid-traversal
+# fails closed rather than attaching a partial set.
 wrangle_attach_release() {
     local ref="$GITHUB_REF_NAME"
-    if gh release view "$ref" >/dev/null 2>&1; then
-        gh release upload "$ref" "$BUNDLE_OUT" --clobber
-    else
-        printf 'wrangle: no GitHub release for %s; the bundle is the workflow artifact only.\n' "$ref" >&2
+    if ! gh release view "$ref" >/dev/null 2>&1; then
+        printf 'wrangle: no GitHub release for %s; the bundles are the workflow artifact only.\n' "$ref" >&2
+        return 0
     fi
+    local listing bundle
+    listing="$(mktemp "${RUNNER_TEMP:-/tmp}/bundles.XXXXXX")"
+    if ! find "$BUNDLE_OUT" -type f -name '*.intoto.jsonl' -print0 | sort -z > "$listing"; then
+        rm -f "$listing"
+        printf 'wrangle: failed to enumerate bundles under %s\n' "$BUNDLE_OUT" >&2
+        return 1
+    fi
+    while IFS= read -r -d '' bundle; do
+        gh release upload "$ref" "$bundle" --clobber
+    done < "$listing"
+    rm -f "$listing"
 }
 
 main() {
