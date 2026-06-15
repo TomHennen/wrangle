@@ -21,7 +21,7 @@ jobs:
 
   # End-to-end exercise of the verify-vsa composite action itself (the
   # script's logic is bats-covered; this covers the composite wiring: the
-  # Go-built ampel install, the VSA artifact download by pattern, and the
+  # Go-built ampel install, the bundle artifact download by pattern, and the
   # verify step) against the real consumer fixtures — including the
   # fail-closed paths: tampered bytes and a wrong origin repo must fail the
   # action.
@@ -37,18 +37,20 @@ jobs:
         with:
           persist-credentials: false
 
-      # The action reads VSAs from the run's workflow artifacts, so stage
-      # the real fixture VSA under the name wrangle's verify job would use.
+      # The action reads the bundle from the run's workflow artifacts, so stage
+      # the real fixture VSA as a multiple.intoto.jsonl bundle under a
+      # <type>-bundle-<shortname> artifact name (a single-statement bundle is a
+      # valid one-line JSONL; ampel self-selects by subject).
       - name: Stage the consumer fixtures
         run: |
           mkdir -p dist vsa-upload
           cp test/consumer/fixtures/npm-package.tgz dist/
-          cp test/consumer/fixtures/npm-vsa.intoto.jsonl vsa-upload/npm-package.tgz.intoto.jsonl
+          cp test/consumer/fixtures/npm-vsa.intoto.jsonl vsa-upload/multiple.intoto.jsonl
 
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
-          name: npm-package.tgz.intoto.jsonl
-          path: vsa-upload/npm-package.tgz.intoto.jsonl
+          name: npm-bundle-fixture
+          path: vsa-upload/multiple.intoto.jsonl
 
       - name: Verify the fixture (expect pass)
         uses: ./actions/verify-vsa

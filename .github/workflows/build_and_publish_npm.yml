@@ -114,6 +114,9 @@ on:
       provenance-artifact-name:
         description: "Name of the workflow artifact containing the SLSA provenance bundle — one JSON object per line, covering all dist subjects. Empty when should-release is false."
         value: ${{ jobs.attest.outputs.bundle-artifact-name }}
+      bundle-artifact-name:
+        description: "Name of the workflow artifact containing the single in-toto JSONL bundle (SLSA provenance + one signed VSA per dist subject). Empty when should-release is false."
+        value: ${{ jobs.verify.outputs.bundle-artifact-name }}
       metadata-artifact-name:
         description: "Name of the workflow artifact (a zip of `metadata/npm/<shortname>/`'s contents) containing the SBOM. Format: `npm-metadata-<shortname>`. Adopters fetch via `actions/download-artifact` — the metadata files land at the top level of the configured `path:`, not under `metadata/npm/<shortname>/`."
         value: ${{ jobs.build.outputs.metadata-artifact-name }}
@@ -194,7 +197,7 @@ jobs:
       shortname: ${{ steps.build.outputs.shortname }}
       dist-artifact-name: ${{ steps.names.outputs.dist }}
       metadata-artifact-name: ${{ steps.names.outputs.metadata }}
-      # JSON array of dist filenames, so the verify job can fan out one VSA per artifact.
+      # JSON array of dist filenames the verify job binds one VSA to each.
       dist-files: ${{ steps.distfiles.outputs.files }}
     steps:
       - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
@@ -232,7 +235,7 @@ jobs:
           set -euo pipefail
           printf 'name=%s\n' "$(jq -r .name "$INPUT_PATH/package.json")" >> "$GITHUB_OUTPUT"
 
-      # Emit the dist filenames as a JSON array for the verify job's matrix.
+      # Emit the dist filenames as a JSON array; the verify job binds one VSA per file.
       # Derived from the build's base64 `hashes` output (the "<sha256>  <name>" lines the
       # provenance covers), reduced to basenames.
       - id: distfiles
@@ -242,11 +245,11 @@ jobs:
         run: |
           set -euo pipefail
           files="$(printf '%s' "$HASHES" | base64 -d | awk '{ sub(/^.*\//, "", $2); print $2 }' | jq -R . | jq -cs .)"
-          # Fail closed: an empty array would expand the verify matrix to zero
-          # shards, skipping the release-gating verify job — and a skipped job
-          # propagates as success. Never let the gate collapse silently.
+          # Fail closed: an empty array leaves the verify job with no subject to
+          # bind a VSA to, silently dropping the release-gating verification.
+          # Never let the gate collapse silently.
           if [[ "$files" == "[]" ]]; then
-              printf 'no dist files to attest — refusing to emit an empty VSA matrix\n' >&2
+              printf 'no dist files to attest — refusing to emit a VSA-less bundle\n' >&2
               exit 1
           fi
           printf 'files=%s\n' "$files" >> "$GITHUB_OUTPUT"
@@ -304,46 +307,61 @@ jobs:
           path: ${{ runner.temp }}/provenance.jsonl
           if-no-files-found: error
 
-  # Emit a signed SLSA Verification Summary Attestation (VSA) per dist artifact.
-  # ampel evaluates the attest-build-provenance bundle against the
-  # wrangle-provenance-npm-v1 PolicySet (which binds wrangle's builder identity
-  # and verifies the bundle's Sigstore signature — fail-closed) and bnd signs the
-  # result keyless with this workflow's OIDC identity; a FAILED policy fails the
-  # step (fail: true) and blocks the caller's publish via needs: propagation.
-  # Provenance-only for now — SBOM/OSV tenets follow once those are produced as
-  # signed attestations a registered identity covers.
+  # Emit one signed SLSA Verification Summary Attestation (VSA) per dist artifact
+  # and append them all to the SLSA provenance, producing the single
+  # multiple.intoto.jsonl bundle. ampel evaluates the attest-build-provenance
+  # bundle against the wrangle-provenance-npm-v1 PolicySet (which binds wrangle's
+  # builder identity and verifies the bundle's Sigstore signature — fail-closed)
+  # and bnd signs each VSA keyless with this workflow's OIDC identity; a FAILED
+  # policy fails the step (fail: true) and blocks the caller's publish via needs:
+  # propagation. Provenance-only for now — SBOM/OSV tenets follow once those are
+  # produced as signed attestations a registered identity covers.
   verify:
     if: ${{ needs.gate.outputs.should-release == 'true' }}
     needs: [guard, gate, build, attest]
     runs-on: ubuntu-latest
     permissions:
-      id-token: write    # bnd keyless-signs the VSA via this workflow's OIDC identity
-      contents: write    # attach the VSA to the release on tag pushes
-    strategy:
-      fail-fast: false
-      matrix:
-        artifact: ${{ fromJSON(needs.build.outputs.dist-files) }}
+      id-token: write    # bnd keyless-signs each VSA via this workflow's OIDC identity
+      contents: write    # attach the bundle to the release on tag pushes
+    outputs:
+      bundle-artifact-name: npm-bundle-${{ needs.build.outputs.shortname }}
     steps:
       - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
         with:
           name: ${{ needs.build.outputs.dist-artifact-name }}
           path: dist/
 
-      # The one multi-subject provenance bundle the attest job staged; each
-      # matrix shard reads it and self-selects its own subject digest.
+      # The one multi-subject provenance bundle the attest job staged; the VSAs
+      # append to it to form the single bundle.
       - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
         with:
           name: npm-provenance-bundle-${{ needs.build.outputs.shortname }}
           path: provenance/
 
+      # One dist/<file> subject per line for the verify action's per-subject VSA.
+      - id: subjects
+        shell: bash
+        env:
+          DIST_FILES: ${{ needs.build.outputs.dist-files }}
+        run: |
+          set -euo pipefail
+          set -f
+          {
+            printf 'subjects<<WRANGLE_EOF\n'
+            printf '%s' "$DIST_FILES" | jq -r '.[] | "dist/" + .'
+            printf 'WRANGLE_EOF\n'
+          } >> "$GITHUB_OUTPUT"
+
       # TODO: replace with $/actions/verify when GitHub ships $/ syntax (#136)
       - uses: TomHennen/wrangle/actions/verify@344eedec99a5d7ed85d6d1f7d347d32a00253548 # main 2026-06-13
         with:
-          subject: dist/${{ matrix.artifact }}
+          subjects: ${{ steps.subjects.outputs.subjects }}
           policy: policies/wrangle-provenance-npm-v1.hjson
           collector: jsonl:provenance/provenance.jsonl
-          # resourceUri is the npm purl consumers pin when verifying the VSA;
-          # the subject digest is the cryptographic bind.
+          bundle-in: provenance/provenance.jsonl
+          bundle-out: multiple.intoto.jsonl
+          artifact-name: npm-bundle-${{ needs.build.outputs.shortname }}
+          # resourceUri is the npm purl consumers pin when verifying the VSAs;
+          # each subject digest is the cryptographic bind.
           context: buildPoint:git+https://github.com/${{ github.repository }},vsa.resourceUri:${{ needs.build.outputs.resource-uri }}
-          artifact-name: ${{ matrix.artifact }}
           fail: "true"

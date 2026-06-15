@@ -5,9 +5,9 @@ description: >
   publishing them. Drops into an adopter's publish job between
   `download-artifact` and the publish step, and fails closed: a file with
   no VSA, an untrusted signer, a mismatched digest, origin repository, or
-  resource URI, or a verdict other than PASSED fails the run. Expects the VSAs where
-  wrangle's verify job puts them: same-run workflow artifacts named
-  <artifact-basename>.intoto.jsonl.
+  resource URI, or a verdict other than PASSED fails the run. Expects the bundle
+  where wrangle's verify job puts it: same-run workflow artifacts named
+  <type>-bundle-<shortname>, each holding one multiple.intoto.jsonl bundle.
 
 inputs:
   path:
@@ -57,13 +57,15 @@ runs:
         source "$WRANGLE_ROOT/lib/env.sh"
         GOBIN="$WRANGLE_BIN_DIR" go -C "$WRANGLE_ROOT/tools" install github.com/carabiner-dev/ampel/cmd/ampel
 
-    # wrangle's verify job uploads one VSA artifact per dist file, named
-    # <artifact-basename>.intoto.jsonl; merge them into one directory.
-    - name: Download VSA artifacts
+    # wrangle's verify job uploads one bundle artifact per build, named
+    # <type>-bundle-<shortname>, each holding a multiple.intoto.jsonl. Keep
+    # each in its own subdir (no merge): a multi-build run would otherwise
+    # collide on the shared multiple.intoto.jsonl filename. verify_vsa.sh
+    # concatenates every bundle found under the path.
+    - name: Download VSA bundles
       uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
       with:
-        pattern: "*.intoto.jsonl"
-        merge-multiple: true
+        pattern: "*-bundle-*"
         path: ${{ runner.temp }}/wrangle-vsas
 
     - name: Verify artifact against VSA

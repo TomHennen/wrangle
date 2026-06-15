@@ -12,8 +12,8 @@
 # Env: ARTIFACT_PATH (file, or directory verified recursively), RESOURCE_URI
 # (the purl/OCI ref the VSA's resourceUri must equal — pipe the build
 # workflow's resource-uri output), REPO (<owner>/<repo> the VSA's signing
-# cert must name as origin), VSA_DIR (directory holding
-# <artifact-basename>.intoto.jsonl files).
+# cert must name as origin), VSA_DIR (directory holding the downloaded
+# multiple.intoto.jsonl bundle(s) — one per wrangle build).
 set -euo pipefail
 set -f
 
@@ -39,22 +39,43 @@ die_verify() {
     exit 1
 }
 
+# ampel reads the JSONL bundle and self-selects the VSA whose subject matches
+# $file; a file with no matching VSA in the bundle fails the policy, so the
+# missing-VSA case is fail-closed without a separate per-file existence check.
 verify_one() {
-    local file="$1" vsa="$2"
+    local file="$1" bundle="$2"
     ampel verify --subject "$file" \
         --policy "$POLICY" \
-        --attestation "$vsa" \
+        --attestation "$bundle" \
         --context "sourceRepo:https://github.com/${REPO}" \
         --context "expectedResourceUri:${RESOURCE_URI}" \
-        || die_verify "ampel rejected $file against $vsa"
+        || die_verify "ampel rejected $file against $bundle"
 }
 
 main() {
     validate_inputs
     [[ -d "${VSA_DIR:-}" ]] \
-        || die_input "VSA_DIR is not a directory: ${VSA_DIR:-<empty>} (did the VSA artifact download fail?)"
+        || die_input "VSA_DIR is not a directory: ${VSA_DIR:-<empty>} (did the bundle download fail?)"
     command -v ampel >/dev/null 2>&1 \
         || die_input "ampel not found on PATH (did the install step run?)"
+
+    # wrangle's verify job delivers one multiple.intoto.jsonl bundle per build
+    # (provenance + one VSA per dist subject). A multi-build run downloads
+    # several, each in its own artifact subdir; concatenate every bundle into
+    # one JSONL so ampel can self-select the VSA for any subject. Enumerate via
+    # a temp file (not a process substitution, whose exit status bash never
+    # observes) so a find that dies mid-traversal fails closed.
+    local bundle_listing combined bundle_file
+    bundle_listing="$(mktemp)"
+    if ! find "$VSA_DIR" -type f -name '*.intoto.jsonl' -print0 | sort -z > "$bundle_listing"; then
+        rm -f "$bundle_listing"
+        die_input "failed to enumerate bundles under $VSA_DIR"
+    fi
+    combined="$(mktemp)"
+    while IFS= read -r -d '' bundle_file; do cat "$bundle_file" >> "$combined"; done < "$bundle_listing"
+    rm -f "$bundle_listing"
+    [[ -s "$combined" ]] \
+        || { rm -f "$combined"; die_input "no VSA bundle found under $VSA_DIR (did the bundle download fail?)"; }
 
     local -a files=()
     local f
@@ -79,14 +100,11 @@ main() {
     (( ${#files[@]} > 0 )) \
         || die_input "no files to verify under $ARTIFACT_PATH — refusing to pass an empty set"
 
-    local vsa
     for f in "${files[@]}"; do
-        vsa="$VSA_DIR/$(basename "$f").intoto.jsonl"
-        [[ -f "$vsa" ]] \
-            || die_verify "no VSA found for $f (expected $vsa) — refusing to publish unverified bytes"
-        printf 'wrangle/verify-vsa: verifying %s against %s\n' "$f" "$vsa"
-        verify_one "$f" "$vsa"
+        printf 'wrangle/verify-vsa: verifying %s against the bundle\n' "$f"
+        verify_one "$f" "$combined"
     done
+    rm -f "$combined"
     printf 'wrangle/verify-vsa: %d file(s) verified against PASSED VSAs signed for %s\n' \
         "${#files[@]}" "$REPO"
 }
