@@ -21,7 +21,7 @@
 # per-artifact bundles are written into), plus the optional ATTESTATION,
 # OCI_TARGET (when set, the provenance seed is fetched from that registry digest
 # and each per-artifact bundle is pushed back as its own referrer best-effort —
-# the file delivery is the guaranteed path).
+# the workflow-artifact upload is the guaranteed delivery).
 
 set -euo pipefail
 set -f  # disable globbing — processes external input
@@ -204,15 +204,15 @@ wrangle_bundle_name() {
 # best-effort. `cosign attach attestation` accepts a single per-artifact bundle
 # (one Sigstore-bundle line, payloadType under .dsseEnvelope) and round-trips it
 # verbatim via cosign download, preserving verificationMaterial; it rejects a
-# multi-line concatenation. The file delivery (workflow artifact + release asset)
-# is the guaranteed path, so a registry-push failure is logged and swallowed
-# rather than failing the job — the consumer can always fetch the file bundle.
+# multi-line concatenation. The workflow-artifact upload is the guaranteed
+# delivery, so a registry-push failure is logged and swallowed rather than
+# failing the job — the consumer can always fetch the file bundle.
 wrangle_push_bundle() {
     [[ -z "${OCI_TARGET:-}" ]] && return 0
     local args
     mapfile -t args < <(wrangle_cosign_attach_args "$1" "$OCI_TARGET")
     if ! cosign "${args[@]}"; then
-        printf 'wrangle: registry referrer push failed for %s (best-effort); the bundle is still delivered as the workflow artifact / release asset\n' "$1" >&2
+        printf 'wrangle: registry referrer push failed for %s (best-effort); the bundle is still delivered as the workflow artifact\n' "$1" >&2
     fi
 }
 

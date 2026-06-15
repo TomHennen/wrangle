@@ -237,9 +237,13 @@ jobs:
     if: ${{ needs.gate.outputs.should-release == 'true' }}
     needs: [guard, gate, build, attest]
     runs-on: ubuntu-latest
+    # No contents: write — unlike npm/go, the container bundle is NOT attached to
+    # a GitHub release (containers produce none); it's delivered as a workflow
+    # artifact and pushed to the registry as a best-effort OCI referrer instead.
+    # The container caller grants only contents: read, so requesting contents:
+    # write here would be a startup-failing escalation.
     permissions:
       id-token: write    # bnd keyless-signs the VSA via this workflow's OIDC identity
-      contents: write    # attach the bundle to the GitHub release for the tag, if one exists
       packages: write    # pull provenance for the bundle AND push the bundle referrer to ghcr
     steps:
       # cosign download/attach (in actions/verify) round-trips the bundle through
@@ -272,9 +276,9 @@ jobs:
           # pins when verifying the VSA; the subject digest is the cryptographic bind.
           context: buildPoint:git+https://github.com/${{ github.repository }},vsa.resourceUri:${{ needs.build.outputs.imagename }}@${{ needs.build.outputs.digest }}
           fail: "true"
-          # File delivery is guaranteed: the bundle is always the workflow
-          # artifact, and attached to the GitHub release on a tag if one exists.
-          # The registry referrer (below) is a best-effort nice-to-have on top.
           # Fetch the provenance from and push each per-artifact bundle to the
-          # registry as its own OCI referrer, best-effort.
+          # registry as its own best-effort OCI referrer (containers have no
+          # GitHub release to attach to; the workflow artifact is the guaranteed
+          # delivery).
           oci-target: ${{ needs.build.outputs.imagename }}@${{ needs.build.outputs.digest }}
+          attach-to-release: "false"

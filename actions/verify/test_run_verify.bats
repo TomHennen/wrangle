@@ -315,8 +315,8 @@ STUB
 
 @test "run_verify: push is best-effort — a cosign failure does not fail the step" {
     # The registry referrer is a nice-to-have; the guaranteed delivery is the
-    # workflow artifact / release asset. A push failure must be logged and
-    # swallowed so it never fails the verify job.
+    # workflow artifact. A push failure must be logged and swallowed so it never
+    # fails the verify job.
     cat > "$TEST_DIR/cosign" <<'STUB'
 #!/bin/bash
 exit 7
@@ -488,8 +488,8 @@ STUB
 @test "run_verify: run still succeeds and writes the bundle when the referrer push fails" {
     # Regression for the container delivery: a failing cosign attach (the
     # registry referrer is best-effort) must NOT fail the verify job. The
-    # per-artifact bundle still lands in BUNDLE_OUT for the workflow-artifact /
-    # release-asset delivery.
+    # per-artifact bundle still lands in BUNDLE_OUT for the workflow-artifact
+    # delivery.
     cat > "$TEST_DIR/ampel" <<STUB
 #!/bin/bash
 for a in "\$@"; do case "\$a" in --results-path=*) printf '{"unsigned":1}\n' > "\${a#--results-path=}";; esac; done
