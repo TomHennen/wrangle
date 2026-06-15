@@ -30,6 +30,10 @@ printf '%s\n' "\$*" >> "$AMPEL_LOG"
 exit "\${AMPEL_SHIM_EXIT:-0}"
 EOF
     chmod +x "$TMP/bin/ampel"
+    # env.sh (sourced by verify_vsa.sh) prepends WRANGLE_BIN_DIR ahead of the
+    # shim, so pin it at the shim dir — otherwise a real ampel left in the
+    # default ./.wrangle/bin by a prior integration run shadows the shim.
+    export WRANGLE_BIN_DIR="$TMP/bin"
     PATH="$TMP/bin:$PATH"
 }
 
