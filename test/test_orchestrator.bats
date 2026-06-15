@@ -400,6 +400,11 @@ setup_go_tools_mocks() {
     : > "$GO_RECORD"
     export FAKE_BIN="$TEST_DIR/fakebin"
     mkdir -p "$FAKE_BIN"
+
+    # run.sh creates this to hold installed Go binaries (GOBIN). env.sh's
+    # default is CWD-relative, which is unwritable under the read-only repo
+    # mount the unit container runs in — point it at the writable test dir.
+    export WRANGLE_BIN_DIR="$TEST_DIR/bin"
     cat > "$FAKE_BIN/go" << 'FAKEGO'
 #!/usr/bin/env bash
 set -euo pipefail
