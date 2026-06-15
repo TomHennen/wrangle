@@ -336,12 +336,13 @@ require_sigstore() {
 }
 
 # --- multi-line bundle: per-subject self-selection + missing-subject fail-close ---
-# The shipped bundle is one multiple.intoto.jsonl carrying a signed VSA per dist
-# subject. The gate no longer checks per-file existence; it relies on ampel
-# self-selecting the matching subject's VSA from the whole bundle. These build a
-# GENUINE two-statement bundle (npm VSA + python VSA, one JSON object per line)
-# from the real fixtures and prove the self-selection + fail-closed contract
-# against real ampel — the publish gate's load-bearing guarantee.
+# wrangle ships one <artifact>.intoto.jsonl per released artifact; verify-vsa
+# concatenates every bundle it finds into one JSONL stream. The gate no longer
+# checks per-file existence; it relies on ampel self-selecting the matching
+# subject's VSA from that whole stream. These build a GENUINE two-statement
+# bundle (npm VSA + python VSA, one JSON object per line) from the real fixtures
+# and prove the self-selection + fail-closed contract against real ampel — the
+# publish gate's load-bearing guarantee.
 
 # Concatenate the npm and python VSA fixtures into a real multi-line bundle, each
 # flattened to one line. ampel reads it via the jsonl: collector.
@@ -398,16 +399,19 @@ _make_multiline_bundle() {
     [[ "$status" -ne 0 ]]
 }
 
-# The gate script (actions/verify-vsa) drives the real multi-line bundle exactly
-# as the action does: one multiple.intoto.jsonl in VSA_DIR, ampel self-selecting
-# per dist file. Proves the production wrapper — not just raw ampel — verifies a
-# true multi-subject bundle.
-@test "verify-vsa: gate verifies a true multi-line bundle, self-selecting per dist file" {
+# The gate script (actions/verify-vsa) drives the real per-artifact bundles
+# exactly as the action does: separate <artifact>.intoto.jsonl files in VSA_DIR
+# that verify_vsa.sh concatenates, ampel self-selecting per dist file. Proves
+# the production wrapper — not just raw ampel — verifies across per-artifact
+# bundles.
+@test "verify-vsa: gate verifies across per-artifact bundles, self-selecting per dist file" {
     [[ -x "$AMPEL_BIN" ]] || skip_or_fail "real ampel not available"
     require_sigstore
     mkdir -p "$TMP/dist" "$TMP/vsas"
     cp "$BLOB" "$TMP/dist/npm-package.tgz"
-    _make_multiline_bundle "$TMP/vsas/multiple.intoto.jsonl"
+    # One bundle per artifact, the production layout; the gate concatenates them.
+    jq -c . "$VSA" > "$TMP/vsas/npm-package.tgz.intoto.jsonl"
+    jq -c . "$PY_VSA" > "$TMP/vsas/py-package.whl.intoto.jsonl"
     PATH="$(dirname "$AMPEL_BIN"):$PATH" \
         ARTIFACT_PATH="$TMP/dist" RESOURCE_URI="$RESOURCE_URI" REPO="$SIGNER_REPO" VSA_DIR="$TMP/vsas" \
         run "$REPO_ROOT/actions/verify-vsa/verify_vsa.sh"
@@ -415,15 +419,16 @@ _make_multiline_bundle() {
     [[ "$output" == *"verified against PASSED VSAs"* ]]
 }
 
-# The gate's fail-closed counterpart: the dist file is present, the bundle is a
-# real signed multi-line bundle, but it covers OTHER subjects — never this file.
+# The gate's fail-closed counterpart: the dist file is present, the per-artifact
+# bundles are real and signed, but they cover OTHER subjects — never this file.
 # Dropping the per-file existence check must not let an uncovered file publish.
-@test "verify-vsa: gate FAILS closed when the bundle covers no VSA for the dist file" {
+@test "verify-vsa: gate FAILS closed when no per-artifact bundle covers the dist file" {
     [[ -x "$AMPEL_BIN" ]] || skip_or_fail "real ampel not available"
     require_sigstore
     mkdir -p "$TMP/dist" "$TMP/vsas"
     printf 'bytes no VSA covers' > "$TMP/dist/uncovered.tgz"
-    _make_multiline_bundle "$TMP/vsas/multiple.intoto.jsonl"
+    jq -c . "$VSA" > "$TMP/vsas/npm-package.tgz.intoto.jsonl"
+    jq -c . "$PY_VSA" > "$TMP/vsas/py-package.whl.intoto.jsonl"
     PATH="$(dirname "$AMPEL_BIN"):$PATH" \
         ARTIFACT_PATH="$TMP/dist" RESOURCE_URI="$RESOURCE_URI" REPO="$SIGNER_REPO" VSA_DIR="$TMP/vsas" \
         run "$REPO_ROOT/actions/verify-vsa/verify_vsa.sh"

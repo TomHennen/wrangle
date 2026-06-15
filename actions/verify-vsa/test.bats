@@ -37,12 +37,12 @@ teardown() { rm -rf "$TMP"; }
 
 # The bundle only has to exist for the dispatch tests — the shim never reads
 # it; verdict/identity/resourceUri logic runs against real VSAs in the e2e
-# suites. One bundle per build, namespaced subdir (the download-artifact
-# no-merge layout).
+# suites. One per-artifact bundle per build, namespaced subdir (the
+# download-artifact no-merge layout).
 make_bundle() {
     local sub="${1:-go-bundle-_}"
     mkdir -p "$VSAS/$sub"
-    printf '{"dsseEnvelope":{"payload":""}}\n' > "$VSAS/$sub/multiple.intoto.jsonl"
+    printf '{"dsseEnvelope":{"payload":""}}\n' > "$VSAS/$sub/app-1.0.0.tgz.intoto.jsonl"
 }
 
 # --- input validation ---
@@ -220,7 +220,7 @@ EOF
 @test "contract: producer uploads the bundle under the name this action resolves" {
     # actions/verify uploads one bundle artifact per build, named
     # <type>-bundle-<shortname>; this action downloads *-bundle-* and
-    # concatenates every multiple.intoto.jsonl found. A producer-side rename
+    # concatenates every <artifact>.intoto.jsonl found. A producer-side rename
     # must fail here before it strands every adopter publish job.
     PRODUCER="$ACTION_DIR/../verify/action.yml"
     grep -q 'name: ${{ inputs.artifact-name }}' "$PRODUCER"

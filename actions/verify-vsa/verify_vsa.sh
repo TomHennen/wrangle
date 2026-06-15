@@ -13,7 +13,7 @@
 # (the purl/OCI ref the VSA's resourceUri must equal — pipe the build
 # workflow's resource-uri output), REPO (<owner>/<repo> the VSA's signing
 # cert must name as origin), VSA_DIR (directory holding the downloaded
-# multiple.intoto.jsonl bundle(s) — one per wrangle build).
+# per-artifact <artifact>.intoto.jsonl bundles — one per released artifact).
 set -euo pipefail
 set -f
 
@@ -62,8 +62,8 @@ main() {
     command -v ampel >/dev/null 2>&1 \
         || die_input "ampel not found on PATH (did the install step run?)"
 
-    # wrangle's verify job delivers one multiple.intoto.jsonl bundle per build
-    # (provenance + one VSA per dist subject). A multi-build run downloads
+    # wrangle's verify job delivers one <artifact>.intoto.jsonl bundle per
+    # released artifact (provenance + that artifact's VSA). A run downloads
     # several, each in its own artifact subdir; concatenate every bundle into
     # one JSONL so ampel can self-select the VSA for any subject. Enumerate via
     # a temp file (not a process substitution, whose exit status bash never
