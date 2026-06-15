@@ -73,7 +73,7 @@ Downstream users verify a release archive with one command. Download the archive
 ```bash
 ampel verify --subject <archive> \
   --policy git+https://github.com/TomHennen/wrangle@v0.2.2#policies/wrangle-vsa-consumer-v1.hjson \
-  --attestation multiple.intoto.jsonl \
+  --collector jsonl:multiple.intoto.jsonl \
   --context expectedResourceUri:pkg:golang/<module-path>@<version> \
   --context sourceRepo:https://github.com/<your-org>/<your-repo>
 ```

@@ -39,14 +39,17 @@ die_verify() {
     exit 1
 }
 
-# ampel reads the JSONL bundle and self-selects the VSA whose subject matches
-# $file; a file with no matching VSA in the bundle fails the policy, so the
-# missing-VSA case is fail-closed without a separate per-file existence check.
+# ampel reads the JSONL bundle via the jsonl: collector and self-selects the VSA
+# whose subject matches $file. The collector — not --attestation — is required:
+# --attestation parses its file as a single JSON object and errors on the second
+# line of a multi-statement bundle, whereas jsonl: reads one statement per line.
+# A file with no matching VSA in the bundle fails the policy, so the missing-VSA
+# case is fail-closed without a separate per-file existence check.
 verify_one() {
     local file="$1" bundle="$2"
     ampel verify --subject "$file" \
         --policy "$POLICY" \
-        --attestation "$bundle" \
+        --collector "jsonl:$bundle" \
         --context "sourceRepo:https://github.com/${REPO}" \
         --context "expectedResourceUri:${RESOURCE_URI}" \
         || die_verify "ampel rejected $file against $bundle"

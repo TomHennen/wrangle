@@ -334,3 +334,99 @@ require_sigstore() {
     [[ "$status" -eq 1 ]]
     [[ "$output" == *"ampel rejected"* ]]
 }
+
+# --- multi-line bundle: per-subject self-selection + missing-subject fail-close ---
+# The shipped bundle is one multiple.intoto.jsonl carrying a signed VSA per dist
+# subject. The gate no longer checks per-file existence; it relies on ampel
+# self-selecting the matching subject's VSA from the whole bundle. These build a
+# GENUINE two-statement bundle (npm VSA + python VSA, one JSON object per line)
+# from the real fixtures and prove the self-selection + fail-closed contract
+# against real ampel — the publish gate's load-bearing guarantee.
+
+# Concatenate the npm and python VSA fixtures into a real multi-line bundle, each
+# flattened to one line. ampel reads it via the jsonl: collector.
+_make_multiline_bundle() {
+    jq -c . "$VSA" > "$1"
+    jq -c . "$PY_VSA" >> "$1"
+}
+
+@test "consumer multi-line: ampel self-selects the matching subject's VSA from a 2-statement bundle" {
+    [[ -x "$AMPEL_BIN" ]] || skip_or_fail "real ampel not available"
+    require_sigstore
+    _make_multiline_bundle "$TMP/bundle.jsonl"
+    # The npm blob's subject is line 1; the python wheel's is line 2. Both must
+    # PASS against the SAME bundle — ampel picks the right VSA per subject.
+    run "$AMPEL_BIN" verify --subject "$BLOB" \
+        --policy "$POLICY" --collector "jsonl:$TMP/bundle.jsonl" \
+        --context "expectedResourceUri:$RESOURCE_URI" \
+        --context "sourceRepo:https://github.com/$SIGNER_REPO"
+    [[ "$status" -eq 0 ]]
+    [[ "$output" == *"PASS"* ]]
+    run "$AMPEL_BIN" verify --subject "$PY_BLOB" \
+        --policy "$POLICY" --collector "jsonl:$TMP/bundle.jsonl" \
+        --context "expectedResourceUri:$PY_RESOURCE_URI" \
+        --context "sourceRepo:https://github.com/$SIGNER_REPO"
+    [[ "$status" -eq 0 ]]
+    [[ "$output" == *"PASS"* ]]
+}
+
+@test "consumer multi-line: a file whose subject is ABSENT from the bundle FAILS closed" {
+    [[ -x "$AMPEL_BIN" ]] || skip_or_fail "real ampel not available"
+    require_sigstore
+    _make_multiline_bundle "$TMP/bundle.jsonl"
+    # The keystone of the per-subject-VSA design: dropping the per-file existence
+    # check is only safe if ampel fails closed when no VSA in the bundle covers
+    # the subject. These bytes match no subject in the bundle — must not pass.
+    printf 'no VSA covers these bytes' > "$TMP/absent.tgz"
+    run "$AMPEL_BIN" verify --subject "$TMP/absent.tgz" \
+        --policy "$POLICY" --collector "jsonl:$TMP/bundle.jsonl" \
+        --context "expectedResourceUri:$RESOURCE_URI" \
+        --context "sourceRepo:https://github.com/$SIGNER_REPO"
+    [[ "$status" -ne 0 ]]
+}
+
+@test "consumer multi-line: a bundle with only the WRONG subject's VSA does not satisfy the target file" {
+    [[ -x "$AMPEL_BIN" ]] || skip_or_fail "real ampel not available"
+    require_sigstore
+    # The npm blob is verified against a bundle holding ONLY the python wheel's
+    # VSA. ampel must not cross-apply the wrong subject's VSA.
+    jq -c . "$PY_VSA" > "$TMP/py-only.jsonl"
+    run "$AMPEL_BIN" verify --subject "$BLOB" \
+        --policy "$POLICY" --collector "jsonl:$TMP/py-only.jsonl" \
+        --context "expectedResourceUri:$RESOURCE_URI" \
+        --context "sourceRepo:https://github.com/$SIGNER_REPO"
+    [[ "$status" -ne 0 ]]
+}
+
+# The gate script (actions/verify-vsa) drives the real multi-line bundle exactly
+# as the action does: one multiple.intoto.jsonl in VSA_DIR, ampel self-selecting
+# per dist file. Proves the production wrapper — not just raw ampel — verifies a
+# true multi-subject bundle.
+@test "verify-vsa: gate verifies a true multi-line bundle, self-selecting per dist file" {
+    [[ -x "$AMPEL_BIN" ]] || skip_or_fail "real ampel not available"
+    require_sigstore
+    mkdir -p "$TMP/dist" "$TMP/vsas"
+    cp "$BLOB" "$TMP/dist/npm-package.tgz"
+    _make_multiline_bundle "$TMP/vsas/multiple.intoto.jsonl"
+    PATH="$(dirname "$AMPEL_BIN"):$PATH" \
+        ARTIFACT_PATH="$TMP/dist" RESOURCE_URI="$RESOURCE_URI" REPO="$SIGNER_REPO" VSA_DIR="$TMP/vsas" \
+        run "$REPO_ROOT/actions/verify-vsa/verify_vsa.sh"
+    [[ "$status" -eq 0 ]]
+    [[ "$output" == *"verified against PASSED VSAs"* ]]
+}
+
+# The gate's fail-closed counterpart: the dist file is present, the bundle is a
+# real signed multi-line bundle, but it covers OTHER subjects — never this file.
+# Dropping the per-file existence check must not let an uncovered file publish.
+@test "verify-vsa: gate FAILS closed when the bundle covers no VSA for the dist file" {
+    [[ -x "$AMPEL_BIN" ]] || skip_or_fail "real ampel not available"
+    require_sigstore
+    mkdir -p "$TMP/dist" "$TMP/vsas"
+    printf 'bytes no VSA covers' > "$TMP/dist/uncovered.tgz"
+    _make_multiline_bundle "$TMP/vsas/multiple.intoto.jsonl"
+    PATH="$(dirname "$AMPEL_BIN"):$PATH" \
+        ARTIFACT_PATH="$TMP/dist" RESOURCE_URI="$RESOURCE_URI" REPO="$SIGNER_REPO" VSA_DIR="$TMP/vsas" \
+        run "$REPO_ROOT/actions/verify-vsa/verify_vsa.sh"
+    [[ "$status" -eq 1 ]]
+    [[ "$output" == *"ampel rejected"* ]]
+}

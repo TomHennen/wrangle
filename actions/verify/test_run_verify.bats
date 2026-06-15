@@ -212,16 +212,66 @@ teardown() {
     [[ "$(cat "$BUNDLE_IN")" == "PROVLINE" ]]
 }
 
+# Emit a DSSE-enveloped JSONL line whose decoded payload carries $1 as its
+# predicateType — the shape cosign download returns for an OCI referrer.
+_dsse_line() {
+    local payload
+    payload="$(printf '{"predicateType":"%s","subject":[]}' "$1" | base64 | tr -d '\n')"
+    printf '{"dsseEnvelope":{"payload":"%s"}}\n' "$payload"
+}
+
 @test "run_verify: seed fetches provenance via cosign download for an OCI target" {
-    cat > "$TEST_DIR/cosign" <<STUB
-#!/bin/bash
-[[ "\$1" == "download" && "\$2" == "attestation" ]] && printf 'OCIPROVLINE\n'
-STUB
+    {
+        printf '#!/bin/bash\n'
+        printf '[[ "$1" == "download" && "$2" == "attestation" ]] || exit 1\n'
+        printf 'cat %q\n' "$TEST_DIR/referrers.jsonl"
+    } > "$TEST_DIR/cosign"
     chmod +x "$TEST_DIR/cosign"
+    _dsse_line "https://slsa.dev/provenance/v1" > "$TEST_DIR/referrers.jsonl"
     export PATH="$TEST_DIR:$PATH"
     export OCI_TARGET="ghcr.io/o/r/img@sha256:0000000000000000000000000000000000000000000000000000000000000000"
     wrangle_seed_bundle
-    [[ "$(cat "$BUNDLE_OUT")" == "OCIPROVLINE" ]]
+    # Exactly the one provenance line, with its predicateType preserved.
+    [[ "$(wc -l < "$BUNDLE_OUT")" -eq 1 ]]
+    [[ "$(jq -r '.dsseEnvelope.payload | @base64d | fromjson | .predicateType' "$BUNDLE_OUT")" == "https://slsa.dev/provenance/v1" ]]
+}
+
+@test "run_verify: seed drops a prior VSA referrer so a re-run stays idempotent" {
+    # cosign download returns ALL referrers; a prior verify run left a VSA on the
+    # digest. Seeding must keep only the provenance so the rebuilt bundle never
+    # accumulates the stale VSA (and re-appends exactly one fresh VSA per subject).
+    {
+        printf '#!/bin/bash\n'
+        printf '[[ "$1" == "download" && "$2" == "attestation" ]] || exit 1\n'
+        printf 'cat %q\n' "$TEST_DIR/referrers.jsonl"
+    } > "$TEST_DIR/cosign"
+    chmod +x "$TEST_DIR/cosign"
+    {
+        _dsse_line "https://slsa.dev/provenance/v1"
+        _dsse_line "https://slsa.dev/verification_summary/v1"
+    } > "$TEST_DIR/referrers.jsonl"
+    export PATH="$TEST_DIR:$PATH"
+    export OCI_TARGET="ghcr.io/o/r/img@sha256:0000000000000000000000000000000000000000000000000000000000000000"
+    wrangle_seed_bundle
+    [[ "$(wc -l < "$BUNDLE_OUT")" -eq 1 ]]
+    [[ "$(jq -r '.dsseEnvelope.payload | @base64d | fromjson | .predicateType' "$BUNDLE_OUT")" == "https://slsa.dev/provenance/v1" ]]
+}
+
+@test "run_verify: seed fails closed when no provenance referrer is present" {
+    # A digest that carries only VSAs (no provenance) must not seed an empty
+    # bundle — that would silently drop the provenance the VSAs append to.
+    {
+        printf '#!/bin/bash\n'
+        printf '[[ "$1" == "download" && "$2" == "attestation" ]] || exit 1\n'
+        printf 'cat %q\n' "$TEST_DIR/referrers.jsonl"
+    } > "$TEST_DIR/cosign"
+    chmod +x "$TEST_DIR/cosign"
+    _dsse_line "https://slsa.dev/verification_summary/v1" > "$TEST_DIR/referrers.jsonl"
+    export PATH="$TEST_DIR:$PATH"
+    export OCI_TARGET="ghcr.io/o/r/img@sha256:0000000000000000000000000000000000000000000000000000000000000000"
+    run wrangle_seed_bundle
+    [[ "$status" -ne 0 ]]
+    [[ "$output" == *"no SLSA provenance referrer"* ]]
 }
 
 # --- push bundle ---
@@ -392,12 +442,14 @@ STUB
 #!/bin/bash
 cat "\$2"
 STUB
-    cat > "$TEST_DIR/cosign" <<STUB
-#!/bin/bash
-printf '%s\n' "\$1" >> "$TEST_DIR/cosign-calls"
-[[ "\$1" == "download" ]] && printf '{"provenance":1}\n'
-exit 0
-STUB
+    # download returns a real provenance DSSE envelope so the seed filter keeps it.
+    _dsse_line "https://slsa.dev/provenance/v1" > "$TEST_DIR/referrers.jsonl"
+    {
+        printf '#!/bin/bash\n'
+        printf 'printf "%%s\\n" "$1" >> %q\n' "$TEST_DIR/cosign-calls"
+        printf '[[ "$1" == "download" ]] && cat %q\n' "$TEST_DIR/referrers.jsonl"
+        printf 'exit 0\n'
+    } > "$TEST_DIR/cosign"
     chmod +x "$TEST_DIR/ampel" "$TEST_DIR/bnd" "$TEST_DIR/cosign"
     export PATH="$TEST_DIR:$PATH"
     export GITHUB_STEP_SUMMARY="$TEST_DIR/summary.md"

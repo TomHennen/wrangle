@@ -149,8 +149,10 @@ EOF
     [[ "$status" -eq 0 ]]
     [[ "$(wc -l < "$AMPEL_LOG")" -eq 1 ]]
     grep -q -- "verify --subject $TMP/a.tgz" "$AMPEL_LOG"
-    # The whole bundle is passed as one --attestation; ampel self-selects the VSA.
-    grep -q -- "--attestation " "$AMPEL_LOG"
+    # The whole bundle is passed via the jsonl: collector (not --attestation,
+    # which can't parse a multi-line bundle); ampel self-selects the VSA.
+    grep -q -- "--collector jsonl:" "$AMPEL_LOG"
+    ! grep -q -- "--attestation " "$AMPEL_LOG"
     grep -q -- "--context sourceRepo:https://github.com/owner/repo" "$AMPEL_LOG"
     grep -q -- "--context expectedResourceUri:pkg:npm/a@1.0.0" "$AMPEL_LOG"
     grep -q -- "wrangle-vsa-consumer-v1.hjson" "$AMPEL_LOG"

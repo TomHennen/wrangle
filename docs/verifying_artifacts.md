@@ -44,7 +44,7 @@ and self-selects the VSA matching `--subject`:
 ```bash
 ampel verify --subject <artifact> \
   --policy git+https://github.com/TomHennen/wrangle@v0.2.2#policies/wrangle-vsa-consumer-v1.hjson \
-  --attestation multiple.intoto.jsonl \
+  --collector jsonl:multiple.intoto.jsonl \
   --context expectedResourceUri:<resourceUri from the table above> \
   --context sourceRepo:https://github.com/<your-org>/<your-repo>
 ```

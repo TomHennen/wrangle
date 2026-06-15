@@ -338,9 +338,12 @@ jobs:
         run: |
           set -euo pipefail
           set -f
+          # Run jq before the group write: a `{ …; } >> file` group returns the
+          # last command's status, so a jq failure inside it would be masked.
+          subjects="$(printf '%s' "$DIST_FILES" | jq -r '.[] | "dist/" + .')"
           {
             printf 'subjects<<WRANGLE_EOF\n'
-            printf '%s' "$DIST_FILES" | jq -r '.[] | "dist/" + .'
+            printf '%s\n' "$subjects"
             printf 'WRANGLE_EOF\n'
           } >> "$GITHUB_OUTPUT"
 

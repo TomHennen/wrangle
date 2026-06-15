@@ -150,15 +150,35 @@ wrangle_sign_vsa() {
     rm -f "$vsa.unsigned"
 }
 
+# Predicate type of the SLSA provenance statements the bundle seeds from. A
+# verify re-run against the same image digest re-downloads every referrer —
+# including the VSAs this action pushed last time — so the seed filters to just
+# this type, dropping any prior VSA/bundle lines. That keeps the round-trip
+# idempotent: each run rebuilds the same one-provenance + per-subject-VSA bundle
+# instead of accumulating duplicate provenance and stale VSA lines.
+WRANGLE_PROVENANCE_PREDICATE="https://slsa.dev/provenance/v1"
+
 # Seed BUNDLE_OUT with the provenance lines. For container the provenance lives
 # as an OCI referrer and is fetched with cosign; otherwise BUNDLE_IN is the
 # provenance JSONL the attest job staged. Copying keeps BUNDLE_IN intact so a
 # re-run starts from the same base.
 wrangle_seed_bundle() {
     if [[ -n "${OCI_TARGET:-}" ]]; then
-        local args
+        local args downloaded
         mapfile -t args < <(wrangle_cosign_download_args "$OCI_TARGET")
-        cosign "${args[@]}" > "$BUNDLE_OUT"
+        # cosign download emits ALL referrers (provenance AND any VSA bundle a
+        # prior run pushed). Keep only the SLSA provenance DSSE envelopes so a
+        # re-run seeds the same base; a jq decode failure on the registry's
+        # bytes must fail the step, not silently seed an empty bundle.
+        downloaded="$(mktemp "${RUNNER_TEMP:-/tmp}/seed.XXXXXX")"
+        cosign "${args[@]}" > "$downloaded"
+        if ! jq -ce "select((.dsseEnvelope.payload | @base64d | fromjson | .predicateType) == \"$WRANGLE_PROVENANCE_PREDICATE\")" \
+            "$downloaded" > "$BUNDLE_OUT"; then
+            rm -f "$downloaded"
+            printf 'wrangle: no SLSA provenance referrer found on %s (or malformed DSSE)\n' "$OCI_TARGET" >&2
+            return 1
+        fi
+        rm -f "$downloaded"
     else
         cp "$BUNDLE_IN" "$BUNDLE_OUT"
     fi
@@ -192,6 +212,9 @@ wrangle_run() {
 
     # One subject's value validates the same way for every subject; the rest of
     # the inputs are shared, so validate them once against the first subject.
+    # The artifact-name arg is a fixed valid placeholder, not the action's real
+    # artifact-name input: that input flows only into upload-artifact's name:,
+    # never a shell command here, so this script doesn't validate it.
     # shellcheck disable=SC2153 # env-var inputs; the sourced validate script's lowercase locals trip the misspelling heuristic
     local subject
     for subject in "${WRANGLE_SUBJECTS[@]}"; do

@@ -80,7 +80,7 @@ Downstream users verify a dist file with one command. Download the wheel (or sdi
 ```bash
 ampel verify --subject <dist-file> \
   --policy git+https://github.com/TomHennen/wrangle@v0.2.2#policies/wrangle-vsa-consumer-v1.hjson \
-  --attestation multiple.intoto.jsonl \
+  --collector jsonl:multiple.intoto.jsonl \
   --context expectedResourceUri:pkg:pypi/<name>@<version> \
   --context sourceRepo:https://github.com/<your-org>/<your-repo>
 ```

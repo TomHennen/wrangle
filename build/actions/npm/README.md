@@ -84,7 +84,7 @@ Downstream users verify the released tarball with one command. Download the tarb
 ```bash
 ampel verify --subject <tarball> \
   --policy git+https://github.com/TomHennen/wrangle@v0.2.2#policies/wrangle-vsa-consumer-v1.hjson \
-  --attestation multiple.intoto.jsonl \
+  --collector jsonl:multiple.intoto.jsonl \
   --context expectedResourceUri:pkg:npm/<name>@<version> \
   --context sourceRepo:https://github.com/<your-org>/<your-repo>
 ```
