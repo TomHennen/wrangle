@@ -9,10 +9,10 @@ Wrangle produces two attestations for every released artifact:
 - **A SLSA Verification Summary Attestation (VSA)** — *the policy verdict*:
   a signed record that the artifact passed wrangle's policy at SLSA
   Build L3. Keyless-signed by **wrangle's** reusable workflow (not the
-  adopter's). For Go, Python, and npm builds the VSA rides in a single
-  `multiple.intoto.jsonl` bundle attached to the GitHub release (a JSONL
-  in-toto bundle carrying the provenance plus one VSA per released artifact);
-  for container images the same bundle is stored in the registry as an OCI
+  adopter's). For Go, Python, and npm builds the VSA rides in a per-artifact
+  `<artifact>.intoto.jsonl` bundle attached to the GitHub release (a JSONL
+  in-toto bundle carrying the provenance plus that artifact's VSA); for
+  container images the single bundle is stored in the registry as an OCI
   referrer on the image digest (containers produce no GitHub release).
 
 A consumer's one-command check is the VSA: it carries the full verdict, so
@@ -22,9 +22,9 @@ you trust one signature instead of re-running the policy engine.
 
 | Build type | VSA location | `resourceUri` to expect | Signing workflow |
 |---|---|---|---|
-| Go | GitHub release, `multiple.intoto.jsonl` | `pkg:golang/<module-path>@<version>` (the `module` directive in `go.mod`) | `build_and_publish_go.yml` |
-| Python | GitHub release, `multiple.intoto.jsonl` | `pkg:pypi/<name>@<version>` (name [PEP 503-normalized](https://peps.python.org/pep-0503/#normalized-names)) | `build_and_publish_python.yml` |
-| npm | GitHub release, `multiple.intoto.jsonl` | `pkg:npm/<name>@<version>` (scoped names verbatim, e.g. `pkg:npm/@scope/pkg@1.2.3`) | `build_and_publish_npm.yml` |
+| Go | GitHub release, `<artifact>.intoto.jsonl` | `pkg:golang/<module-path>@<version>` (the `module` directive in `go.mod`) | `build_and_publish_go.yml` |
+| Python | GitHub release, `<artifact>.intoto.jsonl` | `pkg:pypi/<name>@<version>` (name [PEP 503-normalized](https://peps.python.org/pep-0503/#normalized-names)) | `build_and_publish_python.yml` |
+| npm | GitHub release, `<artifact>.intoto.jsonl` | `pkg:npm/<name>@<version>` (scoped names verbatim, e.g. `pkg:npm/@scope/pkg@1.2.3`) | `build_and_publish_npm.yml` |
 | Container | OCI referrer on the image digest | `<imagename>@sha256:<digest>` | `build_and_publish_container.yml` |
 
 ## Recommended: `ampel verify` (one command)
@@ -37,14 +37,14 @@ is PASSED at SLSA Build L3. The policy is wrangle-hosted and fetched by
 locator, so you author nothing. Both `--context` values are required;
 omitting one is a hard error, never a weaker check.
 
-For file artifacts (Go / Python / npm), download the artifact and the
-release's `multiple.intoto.jsonl` bundle, then — ampel reads the JSONL bundle
-and self-selects the VSA matching `--subject`:
+For file artifacts (Go / Python / npm), download the artifact and its
+`<artifact>.intoto.jsonl` bundle from the release, then — ampel reads the JSONL
+bundle and self-selects the VSA matching `--subject`:
 
 ```bash
 ampel verify --subject <artifact> \
   --policy git+https://github.com/TomHennen/wrangle@v0.2.2#policies/wrangle-vsa-consumer-v1.hjson \
-  --collector jsonl:multiple.intoto.jsonl \
+  --collector jsonl:<artifact>.intoto.jsonl \
   --context expectedResourceUri:<resourceUri from the table above> \
   --context sourceRepo:https://github.com/<your-org>/<your-repo>
 ```
@@ -71,7 +71,7 @@ cosign performs the same complete check, minus predicate-field reads — so a
 `jq` decode covers `verificationResult` / `resourceUri` / `verifiedLevels`.
 
 For file artifacts (`cosign verify-blob-attestation`). `--bundle` takes a
-single DSSE bundle, so first pull this artifact's VSA line out of the JSONL
+single DSSE bundle, so first pull the VSA line out of the artifact's JSONL
 bundle by its subject digest (`cosign verify-blob-attestation` then binds those
 bytes to `<artifact>`):
 
@@ -80,7 +80,7 @@ digest="$(sha256sum <artifact> | cut -d' ' -f1)"
 jq -c "select(.dsseEnvelope.payload | @base64d | fromjson
   | .predicateType == \"https://slsa.dev/verification_summary/v1\"
   and any(.subject[]; .digest.sha256 == \"$digest\"))" \
-  multiple.intoto.jsonl > vsa.intoto.jsonl
+  <artifact>.intoto.jsonl > vsa.intoto.jsonl
 
 cosign verify-blob-attestation --bundle vsa.intoto.jsonl --new-bundle-format \
   --certificate-oidc-issuer https://token.actions.githubusercontent.com \
