@@ -12,10 +12,11 @@ Wrangle produces two attestations for every released artifact:
   adopter's). For Go, Python, and npm builds the VSA rides in a per-artifact
   `<artifact>.intoto.jsonl` bundle attached to the GitHub release (a JSONL
   in-toto bundle carrying the provenance plus that artifact's VSA). Container
-  builds produce no GitHub release: each bundle is uploaded as a workflow
-  artifact and *additionally* pushed to the registry as a best-effort OCI
-  referrer on the image digest, so `ampel`/`cosign` can fetch it by digest
-  without a download.
+  builds produce no GitHub release: the VSA is pushed to the registry as its
+  own OCI referrer on the image digest (one VSA statement, which round-trips
+  cleanly by digest), so `ampel`/`cosign` can fetch it without a download —
+  provenance is a separate referrer. The combined `<artifact>.intoto.jsonl`
+  bundle (provenance + VSA) is also uploaded as a workflow artifact.
 
 A consumer's one-command check is the VSA: it carries the full verdict, so
 you trust one signature instead of re-running the policy engine.
@@ -27,7 +28,7 @@ you trust one signature instead of re-running the policy engine.
 | Go | GitHub release, `<artifact>.intoto.jsonl` | `pkg:golang/<module-path>@<version>` (the `module` directive in `go.mod`) | `build_and_publish_go.yml` |
 | Python | GitHub release, `<artifact>.intoto.jsonl` | `pkg:pypi/<name>@<version>` (name [PEP 503-normalized](https://peps.python.org/pep-0503/#normalized-names)) | `build_and_publish_python.yml` |
 | npm | GitHub release, `<artifact>.intoto.jsonl` | `pkg:npm/<name>@<version>` (scoped names verbatim, e.g. `pkg:npm/@scope/pkg@1.2.3`) | `build_and_publish_npm.yml` |
-| Container | OCI referrer on the image digest (best-effort), `<artifact>.intoto.jsonl` (workflow artifact) | `<imagename>@sha256:<digest>` | `build_and_publish_container.yml` |
+| Container | VSA as its own OCI referrer on the image digest; combined `<artifact>.intoto.jsonl` (workflow artifact) | `<imagename>@sha256:<digest>` | `build_and_publish_container.yml` |
 
 ## Recommended: `ampel verify` (one command)
 
@@ -62,9 +63,10 @@ ampel verify --subject sha256:<digest> \
   --context sourceRepo:https://github.com/<your-org>/<your-repo>
 ```
 
-The registry referrer is best-effort; if it is absent, download the
-`<sha256-digest>.intoto.jsonl` bundle from the workflow-run artifacts and point
-the collector at it instead: `--collector jsonl:<sha256-digest>.intoto.jsonl`.
+The VSA rides as its own by-digest referrer, so the `oci:` collector finds it
+from just the image reference. The combined `<sha256-digest>.intoto.jsonl`
+bundle (provenance + VSA) is also available from the workflow-run artifacts if
+you'd rather verify from the file: `--collector jsonl:<sha256-digest>.intoto.jsonl`.
 
 Pin the policy locator to any wrangle `v*` release tag — it does **not**
 need to match the wrangle version the adopter builds with. The `-v1` in the
@@ -112,11 +114,12 @@ release. `--type` must be the full URI — cosign rejects the
 `slsaverificationsummary` alias.
 
 For container images, a digest subject has no file blob, so the command is
-`cosign verify-attestation` (cosign v3) against the image — this reads the
-registry referrer, which is best-effort. If it is absent, verify the file
-bundle instead with `cosign verify-blob-attestation --new-bundle-format`
-against the bundle's VSA line, exactly as the file-artifact path above does. It
-prints the verified envelope to stdout, so capture and decode that:
+`cosign verify-attestation` (cosign v3) against the image — this reads the VSA
+from its by-digest registry referrer. If you'd rather verify from the file,
+pull the VSA line out of the combined `<sha256-digest>.intoto.jsonl` workflow
+artifact and use `cosign verify-blob-attestation --new-bundle-format`, exactly
+as the file-artifact path above does. `cosign verify-attestation` prints the
+verified envelope to stdout, so capture and decode that:
 
 ```bash
 cosign verify-attestation \

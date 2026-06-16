@@ -152,14 +152,15 @@ teardown() {
     [[ "${args[-1]}" == "$target" ]]
 }
 
-@test "run_verify: cosign attach args push the bundle as an attestation referrer" {
+@test "run_verify: cosign attach args push the VSA file as an attestation referrer" {
     local target="ghcr.io/o/r/img@sha256:abc"
-    mapfile -t args < <(wrangle_cosign_attach_args "$BUNDLE_OUT" "$target")
+    local vsa="$TEST_DIR/vsa-line.jsonl"
+    mapfile -t args < <(wrangle_cosign_attach_args "$vsa" "$target")
     [[ "${args[0]}" == "attach" ]]
     [[ "${args[1]}" == "attestation" ]]
-    # --attestation carries the bundle; the image ref is positional.
+    # --attestation carries the single VSA statement; the image ref is positional.
     printf '%s\n' "${args[@]}" | grep -qx -- "--attestation"
-    printf '%s\n' "${args[@]}" | grep -qx -- "$BUNDLE_OUT"
+    printf '%s\n' "${args[@]}" | grep -qx -- "$vsa"
     [[ "${args[-1]}" == "$target" ]]
     # `attach attestation` uploads verbatim (no re-sign), so no --type/--yes/key flags.
     ! printf '%s\n' "${args[@]}" | grep -qx -- "--type"
@@ -290,11 +291,11 @@ STUB
     chmod +x "$TEST_DIR/cosign"
     export PATH="$TEST_DIR:$PATH"
     export OCI_TARGET=""
-    run wrangle_push_bundle "$TEST_DIR/bundle.intoto.jsonl"
+    run wrangle_push_bundle "$TEST_DIR/vsa-line.jsonl"
     [[ "$status" -eq 0 ]]
 }
 
-@test "run_verify: push invokes cosign attach with the bundle and OCI target" {
+@test "run_verify: push invokes cosign attach with the VSA file and OCI target" {
     cat > "$TEST_DIR/cosign" <<STUB
 #!/bin/bash
 printf '%s\n' "\$@" > "$TEST_DIR/cosign-args"
@@ -302,33 +303,35 @@ STUB
     chmod +x "$TEST_DIR/cosign"
     export PATH="$TEST_DIR:$PATH"
     export OCI_TARGET="ghcr.io/o/r/img@sha256:abc"
-    local bundle="$TEST_DIR/bundle.intoto.jsonl"
-    : > "$bundle"
-    run wrangle_push_bundle "$bundle"
+    local vsa="$TEST_DIR/vsa-line.jsonl"
+    : > "$vsa"
+    run wrangle_push_bundle "$vsa"
     [[ "$status" -eq 0 ]]
     recorded="$(cat "$TEST_DIR/cosign-args")"
     [[ "$recorded" == *"attach"* ]]
     [[ "$recorded" == *"attestation"* ]]
-    [[ "$recorded" == *"$bundle"* ]]
+    [[ "$recorded" == *"$vsa"* ]]
     [[ "$recorded" == *"$OCI_TARGET"* ]]
 }
 
-@test "run_verify: push is best-effort — a cosign failure does not fail the step" {
-    # The registry referrer is a nice-to-have; the guaranteed delivery is the
-    # workflow artifact. A push failure must be logged and swallowed so it never
-    # fails the verify job.
-    cat > "$TEST_DIR/cosign" <<'STUB'
+@test "run_verify: push fails closed — a cosign failure fails the step" {
+    # The by-digest VSA referrer is the path the container consumer verifies, so
+    # a push failure is a real delivery gap and must fail the job (after the one
+    # transient-Sigstore retry, so cosign is invoked twice).
+    cat > "$TEST_DIR/cosign" <<STUB
 #!/bin/bash
+printf 'x\n' >> "$TEST_DIR/cosign-calls"
 exit 7
 STUB
     chmod +x "$TEST_DIR/cosign"
     export PATH="$TEST_DIR:$PATH"
     export OCI_TARGET="ghcr.io/o/r/img@sha256:abc"
-    local bundle="$TEST_DIR/bundle.intoto.jsonl"
-    : > "$bundle"
-    run wrangle_push_bundle "$bundle"
-    [[ "$status" -eq 0 ]]
-    [[ "$output" == *"best-effort"* ]]
+    : > "$TEST_DIR/cosign-calls"
+    local vsa="$TEST_DIR/vsa-line.jsonl"
+    : > "$vsa"
+    run wrangle_push_bundle "$vsa"
+    [[ "$status" -ne 0 ]]
+    [[ "$(wc -l < "$TEST_DIR/cosign-calls")" -eq 2 ]]
 }
 
 # --- emit path plumbing (stubbed ampel) ---
@@ -446,12 +449,14 @@ STUB
     run jq -e . "$b"; [[ "$status" -eq 0 ]]
 }
 
-@test "run_verify: run pushes each per-artifact bundle as its own referrer for an OCI target" {
-    # Container path: provenance fetched via cosign download, the per-artifact
-    # bundle pushed back as its own referrer after the VSA append.
+@test "run_verify: run pushes only the VSA statement as the referrer for an OCI target" {
+    # Container path: provenance fetched via cosign download; the combined
+    # provenance+VSA bundle is written for the workflow artifact, but only the
+    # lone signed VSA statement is pushed as the by-digest referrer (cosign
+    # attach rejects a multi-line bundle).
     cat > "$TEST_DIR/ampel" <<STUB
 #!/bin/bash
-for a in "\$@"; do case "\$a" in --results-path=*) printf '{"unsigned":1}\n' > "\${a#--results-path=}";; esac; done
+for a in "\$@"; do case "\$a" in --results-path=*) printf '{"vsa":1}\n' > "\${a#--results-path=}";; esac; done
 printf 'report\n'
 STUB
     cat > "$TEST_DIR/bnd" <<STUB
@@ -460,10 +465,15 @@ cat "\$2"
 STUB
     # download returns a real provenance DSSE envelope so the seed filter keeps it.
     _dsse_line "https://slsa.dev/provenance/v1" > "$TEST_DIR/referrers.jsonl"
+    # Record the verb plus, for attach, the file cosign was handed so the test
+    # can prove it was the single VSA statement, not the multi-line bundle.
     {
         printf '#!/bin/bash\n'
         printf 'printf "%%s\\n" "$1" >> %q\n' "$TEST_DIR/cosign-calls"
-        printf '[[ "$1" == "download" ]] && cat %q\n' "$TEST_DIR/referrers.jsonl"
+        printf '[[ "$1" == "download" ]] && { cat %q; exit 0; }\n' "$TEST_DIR/referrers.jsonl"
+        printf 'if [[ "$1" == "attach" ]]; then\n'
+        printf '  for a in "$@"; do prev="${prev:-}"; [[ "$prev" == "--attestation" ]] && cp "$a" %q; prev="$a"; done\n' "$TEST_DIR/attached"
+        printf 'fi\n'
         printf 'exit 0\n'
     } > "$TEST_DIR/cosign"
     chmod +x "$TEST_DIR/ampel" "$TEST_DIR/bnd" "$TEST_DIR/cosign"
@@ -475,24 +485,27 @@ STUB
 
     run "$SCRIPT" run
     [[ "$status" -eq 0 ]]
-    # cosign was called to download the provenance AND to attach the bundle.
+    # cosign was called to download the provenance AND to attach the VSA.
     grep -qx "download" "$TEST_DIR/cosign-calls"
     grep -qx "attach" "$TEST_DIR/cosign-calls"
-    # The single digest subject yields one bundle (colon in sha256: replaced).
+    # The combined bundle (workflow artifact) = provenance line + VSA line.
     local bundle="$BUNDLE_OUT/sha256-0000000000000000000000000000000000000000000000000000000000000000.intoto.jsonl"
     [[ -f "$bundle" ]]
-    # Bundle = fetched provenance line + the appended VSA.
     [[ "$(wc -l < "$bundle")" -eq 2 ]]
+    # The referrer push got ONLY the lone VSA statement — a single line, no
+    # provenance — so cosign attach accepts it.
+    [[ "$(wc -l < "$TEST_DIR/attached")" -eq 1 ]]
+    grep -q '"vsa":1' "$TEST_DIR/attached"
+    ! grep -q 'dsseEnvelope' "$TEST_DIR/attached"
 }
 
-@test "run_verify: run still succeeds and writes the bundle when the referrer push fails" {
-    # Regression for the container delivery: a failing cosign attach (the
-    # registry referrer is best-effort) must NOT fail the verify job. The
-    # per-artifact bundle still lands in BUNDLE_OUT for the workflow-artifact
-    # delivery.
+@test "run_verify: run fails closed when the VSA referrer push fails" {
+    # The by-digest VSA referrer is the container consumer's discovery path, so a
+    # failing cosign attach (after the one transient retry) must fail the verify
+    # job — a missing by-digest VSA is a real delivery gap, not a nice-to-have.
     cat > "$TEST_DIR/ampel" <<STUB
 #!/bin/bash
-for a in "\$@"; do case "\$a" in --results-path=*) printf '{"unsigned":1}\n' > "\${a#--results-path=}";; esac; done
+for a in "\$@"; do case "\$a" in --results-path=*) printf '{"vsa":1}\n' > "\${a#--results-path=}";; esac; done
 printf 'report\n'
 STUB
     cat > "$TEST_DIR/bnd" <<STUB
@@ -500,8 +513,7 @@ STUB
 cat "\$2"
 STUB
     _dsse_line "https://slsa.dev/provenance/v1" > "$TEST_DIR/referrers.jsonl"
-    # download succeeds (seeds the provenance); attach fails (registry rejects /
-    # auth blip) — the job must survive it.
+    # download succeeds (seeds the provenance); attach fails persistently.
     {
         printf '#!/bin/bash\n'
         printf '[[ "$1" == "download" ]] && { cat %q; exit 0; }\n' "$TEST_DIR/referrers.jsonl"
@@ -516,11 +528,7 @@ STUB
     export OCI_TARGET="ghcr.io/o/r/img@sha256:0000000000000000000000000000000000000000000000000000000000000000"
 
     run "$SCRIPT" run
-    [[ "$status" -eq 0 ]]
-    [[ "$output" == *"best-effort"* ]]
-    local bundle="$BUNDLE_OUT/sha256-0000000000000000000000000000000000000000000000000000000000000000.intoto.jsonl"
-    [[ -f "$bundle" ]]
-    [[ "$(wc -l < "$bundle")" -eq 2 ]]
+    [[ "$status" -ne 0 ]]
 }
 
 # --- attach to release (wrangle_attach_release) ---

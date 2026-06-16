@@ -355,10 +355,11 @@ teardown() {
     [[ "$status" -eq 0 ]]
 }
 
-@test "container: verify job pushes the VSA as a best-effort OCI referrer (oci-target + attach-to-release false)" {
-    # Container does NOT attach to a release (it produces none); the bundle is
-    # the workflow artifact plus a best-effort registry referrer, so the verify
-    # step turns the release attach off.
+@test "container: verify job pushes the VSA as its own by-digest OCI referrer (oci-target + attach-to-release false)" {
+    # Container does NOT attach to a release (it produces none); the combined
+    # bundle is the workflow artifact, and the VSA is pushed by image digest as
+    # its own referrer (oci-target), so the verify step turns the release attach
+    # off. The push itself is fail-closed in run_verify.sh.
     local wf="$REPO_ROOT/.github/workflows/build_and_publish_container.yml"
     run bash -c "sed -n '/^  verify:/,\$p' \"$wf\" | grep -E 'oci-target:'"
     [[ "$status" -eq 0 ]]

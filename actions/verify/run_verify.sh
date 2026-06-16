@@ -5,11 +5,15 @@
 # fetch.
 #
 # Subcommands (run directly by the action):
-#   run    emit -> sign -> append for every subject in one process, then push
-#          each bundle to the registry best-effort (container) — so an unsigned
-#          VSA never lives on disk across a step boundary. Each subject yields
-#          its own <artifact>.intoto.jsonl = the provenance lines plus that one
-#          subject's signed VSA line.
+#   run    emit -> sign -> append for every subject in one process — so an
+#          unsigned VSA never lives on disk across a step boundary. Each subject
+#          yields its own <artifact>.intoto.jsonl = the provenance lines plus
+#          that one subject's signed VSA line. For the container (OCI_TARGET set)
+#          the subject's signed VSA is also pushed by image digest as its own OCI
+#          referrer — a single VSA statement that round-trips cleanly through
+#          cosign attach/download (a multi-line provenance+VSA concatenation does
+#          not). Provenance is already its own referrer (from
+#          attest-build-provenance), so the digest carries both.
 #   attach upload every per-artifact bundle to the GitHub release for the
 #          current tag, if any.
 #
@@ -20,8 +24,8 @@
 # provenance JSONL the VSAs append to), BUNDLE_OUT (the directory the
 # per-artifact bundles are written into), plus the optional ATTESTATION,
 # OCI_TARGET (when set, the provenance seed is fetched from that registry digest
-# and each per-artifact bundle is pushed back as its own referrer best-effort —
-# the workflow-artifact upload is the guaranteed delivery).
+# and the subject's VSA is pushed back as its own referrer — the by-digest VSA
+# discovery path consumers verify, so that push fails closed).
 
 set -euo pipefail
 set -f  # disable globbing — processes external input
@@ -91,10 +95,12 @@ wrangle_cosign_download_args() {
     printf '%s\n' download attestation "$1"
 }
 
-# Build the cosign argument vector that pushes a per-artifact bundle as an OCI
-# referrer on the image digest. `attach attestation` uploads the bundle verbatim
-# — it does NOT re-sign (unlike `cosign attest`), so the provenance + bnd-minted
-# signers are preserved. $1 is the bundle file, $2 the image digest ref.
+# Build the cosign argument vector that pushes a single VSA statement as an OCI
+# referrer on the image digest. `attach attestation` uploads the file verbatim —
+# it does NOT re-sign (unlike `cosign attest`), so the bnd-minted signer and its
+# verificationMaterial are preserved. cosign accepts only a single Sigstore-bundle
+# line here (a multi-line concatenation is rejected), so $1 is the VSA-only file
+# (one statement), $2 the image digest ref.
 wrangle_cosign_attach_args() {
     printf '%s\n' attach attestation \
         --attestation "$1" \
@@ -200,20 +206,21 @@ wrangle_bundle_name() {
     printf '%s.intoto.jsonl\n' "${base//:/-}"
 }
 
-# Push the bundle at $1 to the registry as its own referrer (container only),
-# best-effort. `cosign attach attestation` accepts a single per-artifact bundle
-# (one Sigstore-bundle line, payloadType under .dsseEnvelope) and round-trips it
-# verbatim via cosign download, preserving verificationMaterial; it rejects a
-# multi-line concatenation. The workflow-artifact upload is the guaranteed
-# delivery, so a registry-push failure is logged and swallowed rather than
-# failing the job — the consumer can always fetch the file bundle.
+# Push the single signed VSA at $1 to the registry as its own referrer on the
+# image digest (container only). The container has one subject (the image digest)
+# → one VSA statement, which cosign attach accepts and round-trips verbatim via
+# cosign download with verificationMaterial intact (a multi-line provenance+VSA
+# concatenation is rejected). Provenance is already a separate referrer (from
+# attest-build-provenance), so the digest carries provenance + VSA. This is the
+# by-digest VSA discovery path the container consumer verifies, so the push fails
+# closed (a missing by-digest VSA is a real delivery gap) — through the shared
+# retry that absorbs a transient Sigstore blip. $1 is the VSA-only file ($2 in
+# wrangle_run's tmp).
 wrangle_push_bundle() {
     [[ -z "${OCI_TARGET:-}" ]] && return 0
     local args
     mapfile -t args < <(wrangle_cosign_attach_args "$1" "$OCI_TARGET")
-    if ! cosign "${args[@]}"; then
-        printf 'wrangle: registry referrer push failed for %s (best-effort); the bundle is still delivered as the workflow artifact\n' "$1" >&2
-    fi
+    wrangle_retry_once /dev/null cosign "${args[@]}"
 }
 
 # Verify every subject, sign its VSA, and write one <artifact>.intoto.jsonl per
@@ -252,6 +259,8 @@ wrangle_run() {
     wrangle_seed_bundle "$seed"
 
     tmp_vsa="$(mktemp "${RUNNER_TEMP:-/tmp}/vsa.XXXXXX")"
+    local vsa_line
+    vsa_line="$(mktemp "${RUNNER_TEMP:-/tmp}/vsaline.XXXXXX")"
     local bundle
     for subject in "${WRANGLE_SUBJECTS[@]}"; do
         bundle="$BUNDLE_OUT/$(wrangle_bundle_name "$subject")"
@@ -259,12 +268,15 @@ wrangle_run() {
         wrangle_verify_emit_vsa "$subject" "$tmp_vsa"
         wrangle_sign_vsa "$tmp_vsa"
         # bnd emits a multi-line pretty statement; jq -c flattens it to the one
-        # JSON-object-per-line a JSONL bundle requires.
-        jq -c . "$tmp_vsa" >> "$bundle"
-        # Push this per-artifact bundle to the registry best-effort (container).
-        wrangle_push_bundle "$bundle"
+        # JSON-object-per-line a JSONL bundle requires. The flattened single VSA
+        # statement is both appended to the combined bundle (the workflow-artifact
+        # delivery) and pushed on its own as the by-digest OCI referrer — cosign
+        # attach accepts a lone VSA statement but rejects the multi-line bundle.
+        jq -c . "$tmp_vsa" > "$vsa_line"
+        cat "$vsa_line" >> "$bundle"
+        wrangle_push_bundle "$vsa_line"
     done
-    rm -f "$tmp_vsa" "$seed"
+    rm -f "$tmp_vsa" "$vsa_line" "$seed"
 }
 
 # Attach every per-artifact bundle to the GitHub release for the current tag,
