@@ -109,7 +109,7 @@ jobs:
     permissions: {}    # reads env only — no workspace, no API, no secrets
     steps:
       # TODO: replace with $/actions/preflight_guard when GitHub ships $/ syntax (#136)
-      - uses: TomHennen/wrangle/actions/preflight_guard@344eedec99a5d7ed85d6d1f7d347d32a00253548 # main 2026-06-13
+      - uses: TomHennen/wrangle/actions/preflight_guard@b7eb9765639f6ffaf11e994efb63b810d69ff53f # main 2026-06-16
 
   gate:
     needs: [guard]
@@ -120,7 +120,7 @@ jobs:
     steps:
       # No checkout: release_gate resolves via ${{ github.action_path }}.
       # TODO: replace with $/actions/release_gate when GitHub ships $/ syntax (#136)
-      - uses: TomHennen/wrangle/actions/release_gate@344eedec99a5d7ed85d6d1f7d347d32a00253548 # main 2026-06-13
+      - uses: TomHennen/wrangle/actions/release_gate@b7eb9765639f6ffaf11e994efb63b810d69ff53f # main 2026-06-16
         id: gate
         with:
           events: ${{ inputs.release-events }}
@@ -142,7 +142,7 @@ jobs:
           persist-credentials: false
 
       # TODO: replace with $/actions/scan when GitHub ships $/ syntax (#136)
-      - uses: TomHennen/wrangle/actions/scan@344eedec99a5d7ed85d6d1f7d347d32a00253548 # main 2026-06-13
+      - uses: TomHennen/wrangle/actions/scan@b7eb9765639f6ffaf11e994efb63b810d69ff53f # main 2026-06-16
         if: ${{ inputs.scan-tools != '' }}
         with:
           tools: ${{ inputs.scan-tools }}
@@ -169,7 +169,7 @@ jobs:
     # TODO: replace with $/build/actions/container when GitHub ships $/ syntax (#136)
     - name: "build and publish"
       id: build
-      uses: TomHennen/wrangle/build/actions/container@344eedec99a5d7ed85d6d1f7d347d32a00253548 # main 2026-06-13
+      uses: TomHennen/wrangle/build/actions/container@b7eb9765639f6ffaf11e994efb63b810d69ff53f # main 2026-06-16
       with:
         path: ${{ inputs.path }}
         imagename: ${{ inputs.imagename }}
@@ -246,7 +246,7 @@ jobs:
           password: ${{ secrets.GITHUB_TOKEN }}
 
       # TODO: replace with $/actions/verify when GitHub ships $/ syntax (#136)
-      - uses: TomHennen/wrangle/actions/verify@af98635202c7f54e86413fe6b8d7a5cece6d3b41 # feat/bundle-single-intoto-181 2026-06-16 (bootstrap PR HEAD; bump after merge)
+      - uses: TomHennen/wrangle/actions/verify@b7eb9765639f6ffaf11e994efb63b810d69ff53f # main 2026-06-16
         with:
           subjects: ${{ needs.build.outputs.digest }}
           policy: policies/wrangle-provenance-container-v1.hjson
