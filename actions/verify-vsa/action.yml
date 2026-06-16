@@ -58,11 +58,9 @@ runs:
         source "$WRANGLE_ROOT/lib/env.sh"
         GOBIN="$WRANGLE_BIN_DIR" go -C "$WRANGLE_ROOT/tools" install github.com/carabiner-dev/ampel/cmd/ampel
 
-    # wrangle's verify job uploads one bundle artifact per build, named
-    # <type>-bundle-<shortname>, each holding the per-artifact
-    # <artifact>.intoto.jsonl bundles for that build. Keep each in its own
-    # subdir so artifacts that share a basename across builds don't clobber.
-    # verify_vsa.sh concatenates every bundle found under the path.
+    # Each bundle artifact lands in its own subdir (no merge-multiple), so
+    # artifacts sharing a basename across builds don't clobber; verify_vsa.sh
+    # concatenates every bundle under the path.
     - name: Download VSA bundles
       uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
       with:

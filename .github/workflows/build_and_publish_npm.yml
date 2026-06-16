@@ -338,27 +338,10 @@ jobs:
           name: npm-provenance-bundle-${{ needs.build.outputs.shortname }}
           path: provenance/
 
-      # One dist/<file> subject per line for the verify action's per-subject VSA.
-      - id: subjects
-        shell: bash
-        env:
-          DIST_FILES: ${{ needs.build.outputs.dist-files }}
-        run: |
-          set -euo pipefail
-          set -f
-          # Run jq before the group write: a `{ …; } >> file` group returns the
-          # last command's status, so a jq failure inside it would be masked.
-          subjects="$(printf '%s' "$DIST_FILES" | jq -r '.[] | "dist/" + .')"
-          {
-            printf 'subjects<<WRANGLE_EOF\n'
-            printf '%s\n' "$subjects"
-            printf 'WRANGLE_EOF\n'
-          } >> "$GITHUB_OUTPUT"
-
       # TODO: replace with $/actions/verify when GitHub ships $/ syntax (#136)
       - uses: TomHennen/wrangle/actions/verify@bf889f9f5499d1e06d10e87c7e4b489fae5ab2d3 # feat/bundle-single-intoto-181 2026-06-15 (bootstrap PR HEAD; bump after merge)
         with:
-          subjects: ${{ steps.subjects.outputs.subjects }}
+          dist-files: ${{ needs.build.outputs.dist-files }}
           policy: policies/wrangle-provenance-npm-v1.hjson
           collector: jsonl:provenance/provenance.jsonl
           bundle-in: provenance/provenance.jsonl

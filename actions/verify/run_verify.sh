@@ -1,31 +1,16 @@
 #!/bin/bash
-# actions/verify/run_verify.sh — validate inputs, run `ampel verify` per dist
-# subject, `bnd`-sign each VSA, and produce one per-artifact `.intoto.jsonl`
-# bundle per subject (provenance lines + that subject's signed VSA) consumers
-# fetch.
+# Verify each subject, sign its VSA, and emit one <artifact>.intoto.jsonl bundle
+# per subject (provenance lines + that subject's signed VSA).
 #
-# Subcommands (run directly by the action):
-#   run    emit -> sign -> append for every subject in one process — so an
-#          unsigned VSA never lives on disk across a step boundary. Each subject
-#          yields its own <artifact>.intoto.jsonl = the provenance lines plus
-#          that one subject's signed VSA line. For the container (OCI_TARGET set)
-#          the subject's signed VSA is also pushed by image digest as its own OCI
-#          referrer — a single VSA statement that round-trips cleanly through
-#          cosign attach/download (a multi-line provenance+VSA concatenation does
-#          not). Provenance is already its own referrer (from
-#          attest-build-provenance), so the digest carries both.
-#   attach upload every per-artifact bundle to the GitHub release for the
-#          current tag, if any.
+# Subcommands:
+#   run    emit -> sign -> append per subject in one process, so an unsigned VSA
+#          never lives on disk across a step boundary. With OCI_TARGET set, each
+#          signed VSA is also pushed by image digest as its own OCI referrer.
+#   attach upload every bundle to the GitHub release for the current tag, if any.
 #
-# The arg-builder functions stay pure (no side effects) so the unit tests can
-# assert the exact ampel/bnd/cosign CLI shape offline; `main` runs the work on
-# direct execution. Inputs arrive as environment variables: SUBJECTS (newline-
-# separated dist subjects), POLICY, COLLECTOR, FAIL, CONTEXT, BUNDLE_IN (the
-# provenance JSONL the VSAs append to), BUNDLE_OUT (the directory the
-# per-artifact bundles are written into), plus the optional ATTESTATION,
-# OCI_TARGET (when set, the provenance seed is fetched from that registry digest
-# and the subject's VSA is pushed back as its own referrer — the by-digest VSA
-# discovery path consumers verify, so that push fails closed).
+# Arg-builder functions are pure so unit tests can assert the CLI shape offline.
+# Inputs arrive as env vars: SUBJECTS (newline-separated), POLICY, COLLECTOR,
+# FAIL, CONTEXT, BUNDLE_IN, BUNDLE_OUT, and optional ATTESTATION, OCI_TARGET.
 
 set -euo pipefail
 set -f  # disable globbing — processes external input
@@ -34,11 +19,9 @@ VERIFY_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 LIB_DIR="$(cd "$VERIFY_DIR/../../lib" && pwd)"
 REPO_ROOT="$(cd "$VERIFY_DIR/../.." && pwd)"
 
-# Resolve a relative policy path against the action's own checkout: the wrangle
-# PolicySets ship with this action, not in the caller's workspace, and ampel
-# would otherwise resolve a bare "policies/..." against the caller's CWD.
-# Absolute paths and ampel locators (git+https://…, oci:…, anything with ://)
-# pass through unchanged.
+# Resolve a relative policy path against the action's checkout (where the
+# PolicySets ship), not the caller's CWD. Absolute paths and ampel locators
+# (anything with ://) pass through unchanged.
 wrangle_resolve_policy() {
     case "$1" in
         /*|*://*) printf '%s\n' "$1" ;;
@@ -46,15 +29,10 @@ wrangle_resolve_policy() {
     esac
 }
 
-# Run a command and, on failure, run it once more. Sigstore I/O inside ampel
-# and bnd fails intermittently (an identity check on one tenet, the DSSE
-# signing stream) on runs that pass identically seconds later; re-evaluating
-# the same attestations against the same policy is deterministic, so a retry
-# can only flip a transient failure, never a real verdict. $1 is the stdout
-# capture file, truncated per attempt so a retry can't append to a partial
-# report. WRANGLE_RETRY_DELAY (seconds) spaces the attempts so a brief
-# Sigstore blip has time to clear; an immediate retry tends to hit the same
-# failing connection. Tests set it to 0.
+# Run a command, retrying once on failure to absorb transient Sigstore I/O.
+# Re-evaluation is deterministic, so a retry can only flip a transient failure.
+# $1 is the stdout capture, truncated per attempt. WRANGLE_RETRY_DELAY spaces
+# the attempts (tests set it to 0).
 wrangle_retry_once() {
     local out="$1"; shift
     "$@" > "$out" && return 0
@@ -64,9 +42,8 @@ wrangle_retry_once() {
     "$@" > "$out"
 }
 
-# Build the ampel verify argument vector for one subject. One argument per line
-# so callers (and tests) read it into an array with mapfile. $1 is the subject
-# to bind the VSA to; $2 the path ampel writes the unsigned VSA to.
+# Build the ampel verify arg vector for one subject, one arg per line for
+# mapfile. $1 is the subject; $2 the unsigned-VSA output path.
 wrangle_ampel_verify_args() {
     local subject="$1" results_path="$2"
     local args=(verify
@@ -88,34 +65,28 @@ wrangle_bnd_sign_args() {
     printf '%s\n' statement "$1"
 }
 
-# Build the cosign argument vector that downloads the image's existing
-# attestation referrers (the signed provenance) as newline-delimited DSSE
-# envelopes — the JSONL bundle the VSAs append to. $1 is the image digest ref.
+# Build the cosign arg vector that downloads the image's attestation referrers
+# as newline-delimited DSSE envelopes. $1 is the image digest ref.
 wrangle_cosign_download_args() {
     printf '%s\n' download attestation "$1"
 }
 
-# Build the cosign argument vector that pushes a single VSA statement as an OCI
-# referrer on the image digest. `attach attestation` uploads the file verbatim —
-# it does NOT re-sign (unlike `cosign attest`), so the bnd-minted signer and its
-# verificationMaterial are preserved. cosign accepts only a single Sigstore-bundle
-# line here (a multi-line concatenation is rejected), so $1 is the VSA-only file
-# (one statement), $2 the image digest ref.
+# Build the cosign arg vector that pushes a single VSA statement as an OCI
+# referrer. `attach attestation` uploads verbatim (no re-sign), preserving the
+# bnd signer; it accepts only one bundle line. $1 is the VSA-only file, $2 the
+# image digest ref.
 wrangle_cosign_attach_args() {
     printf '%s\n' attach attestation \
         --attestation "$1" \
         "$2"
 }
 
-# Split the newline-separated SUBJECTS env into an array. Fail closed on an
-# empty set: zero subjects would emit a provenance-only bundle with no VSA,
-# silently dropping the release-gating verification.
+# Split SUBJECTS into an array, dropping blank lines. Fail closed on an empty
+# set: zero subjects would emit a provenance-only bundle with no VSA.
 wrangle_read_subjects() {
     mapfile -t WRANGLE_SUBJECTS <<< "$SUBJECTS"
     local s kept=()
     for s in "${WRANGLE_SUBJECTS[@]}"; do
-        # Drop blank/whitespace-only lines (trailing newline of the heredoc,
-        # stray indentation) so they don't become bogus subjects.
         [[ "$s" =~ ^[[:space:]]*$ ]] || kept+=("$s")
     done
     WRANGLE_SUBJECTS=("${kept[@]}")
@@ -125,24 +96,20 @@ wrangle_read_subjects() {
     fi
 }
 
-# ampel verify one subject -> unsigned VSA, streaming the HTML report to the
-# step summary. $1 is the subject, $2 the unsigned-VSA path. Mirrors the
-# single-process emit the signed-VSA guarantee depends on.
+# ampel verify one subject -> unsigned VSA at $2, streaming the report to the
+# step summary. $1 is the subject.
 wrangle_verify_emit_vsa() {
     local subject="$1" results_path="$2"
     local args report rc=0
     mapfile -t args < <(wrangle_ampel_verify_args "$subject" "$results_path")
 
-    # ampel's --exit-code carries the policy verdict, so it must reach the
-    # caller untouched. Capture the report to a file first; piping ampel
-    # straight into the truncating sanitizer would let a >MAX_SUMMARY report
-    # SIGPIPE the pipeline and flip a PASS into a blocked release.
+    # Capture the report to a file before sanitizing: ampel's --exit-code carries
+    # the policy verdict, and piping straight into the truncating sanitizer could
+    # SIGPIPE ampel and flip a PASS into a blocked release.
     report="$(mktemp)"
     wrangle_retry_once "$report" ampel "${args[@]}" || rc=$?
     wrangle_sanitize_output < "$report" >> "$GITHUB_STEP_SUMMARY"
-    # On a FAILED verdict the report (which tenet failed, missing attestation,
-    # etc.) is the operator's only signal for why the release was blocked, and
-    # the step summary is easy to miss — echo it to the job log too.
+    # The step summary is easy to miss, so echo a failed report to the job log.
     if [[ "$rc" -ne 0 ]]; then
         printf 'wrangle: ampel verification failed for %s (exit %s):\n' "$subject" "$rc" >&2
         cat "$report" >&2
@@ -161,28 +128,19 @@ wrangle_sign_vsa() {
     rm -f "$vsa.unsigned"
 }
 
-# Predicate type of the SLSA provenance statements each bundle seeds from. A
-# verify re-run against the same image digest re-downloads every referrer —
-# including the VSAs this action pushed last time — so the seed filters to just
-# this type, dropping any prior VSA/bundle lines. That keeps the round-trip
-# idempotent: each run rebuilds the same one-provenance + VSA bundle instead of
-# accumulating duplicate provenance and stale VSA lines.
+# Predicate the seed filters to, so a re-run drops prior VSA referrers and
+# rebuilds the same bundle (idempotent round-trip).
 WRANGLE_PROVENANCE_PREDICATE="https://slsa.dev/provenance/v1"
 
-# Write the shared provenance seed to $1. For container the provenance lives as
-# an OCI referrer and is fetched with cosign; otherwise BUNDLE_IN is the
-# provenance JSONL the attest job staged. Each per-artifact bundle is a copy of
-# this seed plus that subject's VSA, so seeding runs once and BUNDLE_IN stays
-# intact for a re-run.
+# Write the shared provenance seed to $1: from the OCI referrer (container) or
+# BUNDLE_IN (otherwise). Each bundle copies this seed, so it runs once.
 wrangle_seed_bundle() {
     local seed="$1"
     if [[ -n "${OCI_TARGET:-}" ]]; then
         local args downloaded
         mapfile -t args < <(wrangle_cosign_download_args "$OCI_TARGET")
-        # cosign download emits ALL referrers (provenance AND any VSA bundle a
-        # prior run pushed). Keep only the SLSA provenance DSSE envelopes so a
-        # re-run seeds the same base; a jq decode failure on the registry's
-        # bytes must fail the step, not silently seed an empty bundle.
+        # Keep only the SLSA provenance envelopes (download emits all referrers,
+        # including prior VSAs); a jq decode failure must fail, not seed empty.
         downloaded="$(mktemp "${RUNNER_TEMP:-/tmp}/seed.XXXXXX")"
         cosign "${args[@]}" > "$downloaded"
         if ! jq -ce "select((.dsseEnvelope.payload | @base64d | fromjson | .predicateType) == \"$WRANGLE_PROVENANCE_PREDICATE\")" \
@@ -197,25 +155,15 @@ wrangle_seed_bundle() {
     fi
 }
 
-# Map a subject to its per-artifact bundle basename. The subject is either a
-# dist path (dist/foo.tar.gz) or an OCI digest (sha256:<hex>); take the path
-# basename and replace the digest's colon so the result is a plain filename.
-# verify-vsa self-selects each artifact's VSA from <artifact-basename>.intoto.jsonl.
+# Map a subject (dist path or sha256: digest) to its bundle filename: basename
+# with the digest's colon replaced.
 wrangle_bundle_name() {
     local subject="$1" base="${1##*/}"
     printf '%s.intoto.jsonl\n' "${base//:/-}"
 }
 
-# Push the single signed VSA at $1 to the registry as its own referrer on the
-# image digest (container only). The container has one subject (the image digest)
-# → one VSA statement, which cosign attach accepts and round-trips verbatim via
-# cosign download with verificationMaterial intact (a multi-line provenance+VSA
-# concatenation is rejected). Provenance is already a separate referrer (from
-# attest-build-provenance), so the digest carries provenance + VSA. This is the
-# by-digest VSA discovery path the container consumer verifies, so the push fails
-# closed (a missing by-digest VSA is a real delivery gap) — through the shared
-# retry that absorbs a transient Sigstore blip. $1 is the VSA-only file ($2 in
-# wrangle_run's tmp).
+# Push the signed VSA at $1 as its own OCI referrer (container only). Fails
+# closed: a missing by-digest VSA is a real delivery gap. No-op without OCI_TARGET.
 wrangle_push_bundle() {
     [[ -z "${OCI_TARGET:-}" ]] && return 0
     local args
@@ -223,13 +171,9 @@ wrangle_push_bundle() {
     wrangle_retry_once /dev/null cosign "${args[@]}"
 }
 
-# Verify every subject, sign its VSA, and write one <artifact>.intoto.jsonl per
-# subject into the BUNDLE_OUT directory (the shared provenance seed plus that
-# subject's signed VSA) — all in one process so an unsigned VSA never crosses a
-# step boundary. The unsigned VSA stays in $RUNNER_TEMP, never a persisted
-# artifact.
+# Verify every subject, sign its VSA, and write one bundle per subject into
+# BUNDLE_OUT — all in one process so an unsigned VSA never crosses a boundary.
 wrangle_run() {
-    # Validate inside the script that does the work — no separate action step.
     # shellcheck source=validate_verify_inputs.sh
     source "$VERIFY_DIR/validate_verify_inputs.sh"
 
@@ -241,11 +185,8 @@ wrangle_run() {
     local -a WRANGLE_SUBJECTS
     wrangle_read_subjects
 
-    # One subject's value validates the same way for every subject; the rest of
-    # the inputs are shared, so validate them once against the first subject.
-    # The artifact-name arg is a fixed valid placeholder, not the action's real
-    # artifact-name input: that input flows only into upload-artifact's name:,
-    # never a shell command here, so this script doesn't validate it.
+    # Validate each subject; shared inputs revalidate identically. The artifact-
+    # name arg is a fixed placeholder — that input never reaches a shell command.
     # shellcheck disable=SC2153 # env-var inputs; the sourced validate script's lowercase locals trip the misspelling heuristic
     local subject
     for subject in "${WRANGLE_SUBJECTS[@]}"; do
@@ -267,11 +208,8 @@ wrangle_run() {
         cp "$seed" "$bundle"
         wrangle_verify_emit_vsa "$subject" "$tmp_vsa"
         wrangle_sign_vsa "$tmp_vsa"
-        # bnd emits a multi-line pretty statement; jq -c flattens it to the one
-        # JSON-object-per-line a JSONL bundle requires. The flattened single VSA
-        # statement is both appended to the combined bundle (the workflow-artifact
-        # delivery) and pushed on its own as the by-digest OCI referrer — cosign
-        # attach accepts a lone VSA statement but rejects the multi-line bundle.
+        # Flatten bnd's pretty statement to one JSON line: appended to the bundle
+        # and pushed alone as the referrer (cosign attach rejects multi-line).
         jq -c . "$tmp_vsa" > "$vsa_line"
         cat "$vsa_line" >> "$bundle"
         wrangle_push_bundle "$vsa_line"
@@ -279,12 +217,9 @@ wrangle_run() {
     rm -f "$tmp_vsa" "$vsa_line" "$seed"
 }
 
-# Attach every per-artifact bundle to the GitHub release for the current tag,
-# IF one exists. wrangle does not create releases — the adopter's release
-# tooling owns that; on a tag with no release the bundles remain available as
-# the workflow artifact. Enumerate via a temp file (not a process substitution,
-# whose exit status bash never observes) so a find that dies mid-traversal
-# fails closed rather than attaching a partial set.
+# Attach every bundle to the current tag's GitHub release, if one exists
+# (wrangle never creates releases). Enumerate via a temp file, not a process
+# substitution, so a find that dies mid-traversal fails closed.
 wrangle_attach_release() {
     local ref="$GITHUB_REF_NAME"
     if ! gh release view "$ref" >/dev/null 2>&1; then

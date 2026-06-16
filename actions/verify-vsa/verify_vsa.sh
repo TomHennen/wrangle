@@ -39,12 +39,9 @@ die_verify() {
     exit 1
 }
 
-# ampel reads the JSONL bundle via the jsonl: collector and self-selects the VSA
-# whose subject matches $file. The collector — not --attestation — is required:
-# --attestation parses its file as a single JSON object and errors on the second
-# line of a multi-statement bundle, whereas jsonl: reads one statement per line.
-# A file with no matching VSA in the bundle fails the policy, so the missing-VSA
-# case is fail-closed without a separate per-file existence check.
+# Read the bundle via the jsonl: collector (not --attestation, which errors on a
+# multi-statement file); ampel self-selects the VSA matching $file and fails the
+# policy when none matches — so the missing-VSA case is fail-closed.
 verify_one() {
     local file="$1" bundle="$2"
     ampel verify --subject "$file" \
@@ -62,12 +59,9 @@ main() {
     command -v ampel >/dev/null 2>&1 \
         || die_input "ampel not found on PATH (did the install step run?)"
 
-    # wrangle's verify job delivers one <artifact>.intoto.jsonl bundle per
-    # released artifact (provenance + that artifact's VSA). A run downloads
-    # several, each in its own artifact subdir; concatenate every bundle into
-    # one JSONL so ampel can self-select the VSA for any subject. Enumerate via
-    # a temp file (not a process substitution, whose exit status bash never
-    # observes) so a find that dies mid-traversal fails closed.
+    # Concatenate every downloaded bundle into one JSONL so ampel can self-select
+    # the VSA for any subject. Enumerate via a temp file, not a process
+    # substitution, so a find that dies mid-traversal fails closed.
     local bundle_listing combined bundle_file
     bundle_listing="$(mktemp)"
     if ! find "$VSA_DIR" -type f -name '*.intoto.jsonl' -print0 | sort -z > "$bundle_listing"; then
