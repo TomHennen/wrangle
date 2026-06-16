@@ -44,6 +44,7 @@ on:
 
 jobs:
   build:
+    # Maximum the caller grants; wrangle's internal jobs each drop to the subset they actually need.
     permissions:
       contents: write   # wrangle's verify job attaches the VSA to the release on tags; GitHub validates at startup even on non-tag runs
       id-token: write   # OIDC for Sigstore signing

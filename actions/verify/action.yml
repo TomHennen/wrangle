@@ -1,8 +1,9 @@
-# ampel and bnd are built from tools/go.mod (`go install`); the runner needs a
-# Go toolchain. The PolicySet mandates the signer identities of every input
-# attestation (common.identities), so verification is fail-closed with no
-# --signer flag to forget. bnd signs each VSA keyless via the CALLING workflow's
-# OIDC identity; consumers verify with cosign --certificate-identity-regexp.
+# ampel and bnd are built from tools/go.mod (`go install`); cosign too, but only
+# for the container (oci-target) build. The runner needs a Go toolchain. The
+# PolicySet mandates the signer identities of every input attestation
+# (common.identities), so verification is fail-closed with no --signer flag to
+# forget. bnd signs each VSA keyless via the CALLING workflow's OIDC identity;
+# consumers verify with cosign --certificate-identity-regexp.
 #
 # Caller permissions: id-token: write (sign); contents: write only on the
 # tag/publish job (attach to release); packages: write only with oci-target.
@@ -86,17 +87,15 @@ inputs:
 runs:
   using: composite
   steps:
-    # Build ampel + bnd from the pinned tool manifest into WRANGLE_BIN_DIR.
-    # Downstream steps re-source lib/env.sh to find them on PATH, so there is
-    # no write to $GITHUB_PATH.
-    - name: Install ampel and bnd
+    # Build the verify tools into WRANGLE_BIN_DIR. Downstream steps re-source
+    # lib/env.sh to find them on PATH, so there is no write to $GITHUB_PATH.
+    # cosign is built only for the container (oci-target) build — see the script.
+    - name: Install verify tools
       shell: bash
       env:
-        WRANGLE_ROOT: ${{ github.action_path }}/../..
+        OCI_TARGET: ${{ inputs.oci-target }}
       run: |
-        # shellcheck source=../../lib/env.sh
-        source "$WRANGLE_ROOT/lib/env.sh"
-        GOBIN="$WRANGLE_BIN_DIR" go -C "$WRANGLE_ROOT/tools" install tool
+        "${{ github.action_path }}/install_tools.sh"
 
     # Pass through subjects, or expand the dist-files JSON array into them.
     - name: Resolve subjects

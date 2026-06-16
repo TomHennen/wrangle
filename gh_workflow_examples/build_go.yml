@@ -30,6 +30,7 @@ on:
 
 jobs:
   build:
+    # Maximum the caller grants; wrangle's internal jobs each drop to the subset they actually need.
     permissions:
       contents: write   # goreleaser creates the Release + wrangle's verify job attaches the VSA
       id-token: write   # OIDC for Sigstore signing

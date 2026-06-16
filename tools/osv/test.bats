@@ -390,7 +390,7 @@ SARIF
         export PATH="${PATH#"$MOCK_BIN":}"
     fi
     if ! command -v osv-scanner >/dev/null 2>&1; then
-        skip_or_fail "osv-scanner not on PATH; install via tools/osv/install.sh first"
+        skip_or_fail "osv-scanner not on PATH; build it first (./test.sh integration)"
     fi
 
     cp "$ORIG_DIR/tools/osv/testdata/vulnerable_go.mod" "$TMP_DIR/src/go.mod"
@@ -431,12 +431,17 @@ SARIF
 }
 
 # --- install: tools/go.mod ---------------------------------------------------
-# osv-scanner has no install script: run.sh installs every tools/go.mod
-# tool directive upfront (go.sum integrity, Dependabot freshness). Real
-# installs run in ./test.sh integration and the dogfooded shell build.
+# osv-scanner has no install script: it is a tools/go.mod tool directive
+# (go.sum integrity, Dependabot freshness), declared in tools/osv/go-tools so
+# run.sh builds it when osv is requested. Real installs run in ./test.sh
+# integration and the dogfooded shell build.
 
 @test "osv install: osv-scanner is a tools/go.mod tool directive" {
     grep -q 'github.com/google/osv-scanner/v2/cmd/osv-scanner' "$ORIG_DIR/tools/go.mod"
+}
+
+@test "osv install: go-tools declares the osv-scanner package for run.sh" {
+    grep -Fxq 'github.com/google/osv-scanner/v2/cmd/osv-scanner' "$ORIG_DIR/tools/osv/go-tools"
 }
 
 @test "osv install: no bespoke install.sh (the go.mod path is canonical)" {
@@ -456,7 +461,7 @@ SARIF
         export PATH="${PATH#"$MOCK_BIN":}"
     fi
     if ! command -v osv-scanner >/dev/null 2>&1; then
-        skip_or_fail "osv-scanner not on PATH; install via tools/osv/install.sh first"
+        skip_or_fail "osv-scanner not on PATH; build it first (./test.sh integration)"
     fi
 
     : > "$TMP_DIR/empty.toml"
