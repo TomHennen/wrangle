@@ -90,9 +90,7 @@ lineup is the only right one.
 Yes, it does. Using wrangle's reusable workflow means trusting wrangle, the
 same as any action you pull in. And right now wrangle is one person's hobby
 project with no external security review, so the honest answer is: probably
-don't depend on it yet. Immutable release tags and the signed VSA are there to
-bound that trust, but they don't turn a proof-of-concept into something to put
-under a production release.
+don't depend on it yet.
 
 ## Why GitHub Actions only?
 
