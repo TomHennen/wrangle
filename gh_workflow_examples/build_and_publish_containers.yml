@@ -16,6 +16,7 @@ concurrency:
 
 jobs:
   build-and-publish:
+    # Maximum the caller grants; wrangle's internal jobs each drop to the subset they actually need.
     permissions:
       contents: read       # checkout
       id-token: write      # OIDC for keyless Cosign signing
