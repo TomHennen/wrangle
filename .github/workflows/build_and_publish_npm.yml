@@ -139,7 +139,7 @@ jobs:
     permissions: {}    # reads env only — no workspace, no API, no secrets
     steps:
       # TODO: replace with $/actions/preflight_guard when GitHub ships $/ syntax (#136)
-      - uses: TomHennen/wrangle/actions/preflight_guard@344eedec99a5d7ed85d6d1f7d347d32a00253548 # main 2026-06-13
+      - uses: TomHennen/wrangle/actions/preflight_guard@b7eb9765639f6ffaf11e994efb63b810d69ff53f # main 2026-06-16
 
   gate:
     needs: [guard]
@@ -150,7 +150,7 @@ jobs:
     steps:
       # No checkout: release_gate resolves via ${{ github.action_path }}.
       # TODO: replace with $/actions/release_gate when GitHub ships $/ syntax (#136)
-      - uses: TomHennen/wrangle/actions/release_gate@344eedec99a5d7ed85d6d1f7d347d32a00253548 # main 2026-06-13
+      - uses: TomHennen/wrangle/actions/release_gate@b7eb9765639f6ffaf11e994efb63b810d69ff53f # main 2026-06-16
         id: gate
         with:
           events: ${{ inputs.release-events }}
@@ -173,7 +173,7 @@ jobs:
           ref: ${{ inputs.ref || '' }}
 
       # TODO: replace with $/actions/scan when GitHub ships $/ syntax (#136)
-      - uses: TomHennen/wrangle/actions/scan@344eedec99a5d7ed85d6d1f7d347d32a00253548 # main 2026-06-13
+      - uses: TomHennen/wrangle/actions/scan@b7eb9765639f6ffaf11e994efb63b810d69ff53f # main 2026-06-16
         if: ${{ inputs.scan-tools != '' }}
         with:
           tools: ${{ inputs.scan-tools }}
@@ -206,7 +206,7 @@ jobs:
           ref: ${{ inputs.ref || '' }}
 
       # TODO: replace with $/build/actions/npm when GitHub ships $/ syntax (#136)
-      - uses: TomHennen/wrangle/build/actions/npm@344eedec99a5d7ed85d6d1f7d347d32a00253548 # main 2026-06-13
+      - uses: TomHennen/wrangle/build/actions/npm@b7eb9765639f6ffaf11e994efb63b810d69ff53f # main 2026-06-16
         id: build
         with:
           path: ${{ inputs.path }}
@@ -337,7 +337,7 @@ jobs:
           path: provenance/
 
       # TODO: replace with $/actions/verify when GitHub ships $/ syntax (#136)
-      - uses: TomHennen/wrangle/actions/verify@af98635202c7f54e86413fe6b8d7a5cece6d3b41 # feat/bundle-single-intoto-181 2026-06-16 (bootstrap PR HEAD; bump after merge)
+      - uses: TomHennen/wrangle/actions/verify@b7eb9765639f6ffaf11e994efb63b810d69ff53f # main 2026-06-16
         with:
           dist-files: ${{ needs.build.outputs.dist-files }}
           policy: policies/wrangle-provenance-npm-v1.hjson
