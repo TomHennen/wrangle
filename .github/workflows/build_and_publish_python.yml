@@ -329,7 +329,7 @@ jobs:
           path: provenance/
 
       # TODO: replace with $/actions/verify when GitHub ships $/ syntax (#136)
-      - uses: TomHennen/wrangle/actions/verify@af98635202c7f54e86413fe6b8d7a5cece6d3b41 # feat/bundle-single-intoto-181 2026-06-16 (bootstrap PR HEAD; bump after merge)
+      - uses: TomHennen/wrangle/actions/verify@d051550ae788c89dd08b9d00a5127c5601b2f756 # feat/store-vsa-372 2026-06-16 (bootstrap PR HEAD; bump after merge)
         with:
           dist-files: ${{ needs.build.outputs.dist-files }}
           policy: policies/wrangle-provenance-python-v1.hjson
