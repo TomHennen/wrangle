@@ -28,7 +28,7 @@ Then check the diff against the conventions in the rest of this file.
 
 ## Comments
 
-Comments explain *why*, not *what*. Explain hidden constraints or non-obvious decisions; don't restate the code, narrate history, or reference PR numbers, review threads, comment URLs, or policy docs (CLAUDE.md, SPEC.md, DEP_MGMT.md) — the rule lives in the doc, the comment states the constraint. Delete obvious comments that just paraphrase the line below them. One line max unless a hidden constraint really requires more.
+**Default to no comment.** Add one only for a genuinely non-obvious constraint, and keep it to one short line. Never restate what the code does, narrate rationale or history, or reference PR numbers, review threads, comment URLs, or policy docs (CLAUDE.md, SPEC.md, DEP_MGMT.md) — the rule lives in the doc, the comment states the constraint. A multi-line explanatory paragraph is a review burden and is rejected: cut it to one line or delete it. Delete any comment that just paraphrases the line below it.
 
 **Describe what the code does now, not what it used to do.** When you change or remove something, rewrite the comment to stand on its own describing current behavior — never "replaces the old X", "previously the generator…", "this is the new path", or "X now does Y instead of Z". A reader who never saw the prior version is the audience. Migration rationale and "what changed and why" belong in the PR description or an inline PR comment to the reviewer — not in the committed code.
 

@@ -12,7 +12,7 @@
 #     silently drop the env passthrough, the pinned installer/download
 #     steps, or the script delegation.
 #   - Contract: divergence-fail guard tying this consumer to its producer
-#     (the VSA artifact-name convention in actions/verify).
+#     (the bundle artifact-name convention in actions/verify).
 
 setup() {
     ACTION_DIR="$(cd "$(dirname "$BATS_TEST_FILENAME")" && pwd)"
@@ -39,11 +39,14 @@ EOF
 
 teardown() { rm -rf "$TMP"; }
 
-# A VSA file only has to exist for the dispatch tests — the shim never reads
+# The bundle only has to exist for the dispatch tests — the shim never reads
 # it; verdict/identity/resourceUri logic runs against real VSAs in the e2e
-# suites.
-make_vsa() {
-    printf '{"dsseEnvelope":{"payload":""}}\n' > "$VSAS/$1.intoto.jsonl"
+# suites. One per-artifact bundle per build, namespaced subdir (the
+# download-artifact no-merge layout).
+make_bundle() {
+    local sub="${1:-go-bundle-_}"
+    mkdir -p "$VSAS/$sub"
+    printf '{"dsseEnvelope":{"payload":""}}\n' > "$VSAS/$sub/app-1.0.0.tgz.intoto.jsonl"
 }
 
 # --- input validation ---
@@ -76,7 +79,7 @@ make_vsa() {
 
 @test "behavior: rejects a RESOURCE_URI carrying an injected context pair (fail-closed)" {
     touch "$TMP/a.tgz"
-    make_vsa "a.tgz"
+    make_bundle
     # A comma would let a second --context pair ride in and override the
     # sourceRepo binding; reject before any ampel call.
     ARTIFACT_PATH="$TMP/a.tgz" VSA_DIR="$VSAS" REPO="owner/repo" \
@@ -95,7 +98,7 @@ make_vsa() {
 
 @test "behavior: fails when ampel is not on PATH" {
     touch "$TMP/a.tgz"
-    make_vsa "a.tgz"
+    make_bundle
     # PATH pinned to system dirs only: the dev machine may carry a real ampel
     # somewhere on PATH, and env.sh re-adds only WRANGLE_BIN_DIR (empty here).
     PATH="/usr/bin:/bin" WRANGLE_BIN_DIR="$TMP/nobin" \
@@ -107,15 +110,26 @@ make_vsa() {
 
 @test "behavior: refuses an empty directory" {
     mkdir "$TMP/empty"
+    make_bundle
     ARTIFACT_PATH="$TMP/empty" RESOURCE_URI="pkg:npm/a@1" REPO="owner/repo" VSA_DIR="$VSAS" run "$SCRIPT"
     [[ "$status" -eq 2 ]]
     [[ "$output" == *"refusing to pass an empty set"* ]]
 }
 
+@test "behavior: fails closed when no bundle was downloaded" {
+    # An empty VSA_DIR means the bundle download produced nothing; refuse to
+    # publish rather than verify against an empty attestation set.
+    touch "$TMP/a.tgz"
+    ARTIFACT_PATH="$TMP/a.tgz" RESOURCE_URI="pkg:npm/a@1" REPO="owner/repo" VSA_DIR="$VSAS" run "$SCRIPT"
+    [[ "$status" -eq 2 ]]
+    [[ "$output" == *"no VSA bundle found"* ]]
+    [[ ! -f "$AMPEL_LOG" ]]
+}
+
 @test "behavior: enumeration failure fails closed, not silent-subset" {
     mkdir "$TMP/dist"
     touch "$TMP/dist/a.tgz"
-    make_vsa "a.tgz"
+    make_bundle
     # A find that emits some entries and then dies (unreadable subdir,
     # I/O error) must fail the run, not verify the readable subset.
     cat > "$TMP/bin/find" <<EOF
@@ -132,22 +146,17 @@ EOF
 
 # --- verification dispatch ---
 
-@test "behavior: file with no VSA fails closed before any ampel call" {
-    touch "$TMP/a.tgz"
-    ARTIFACT_PATH="$TMP/a.tgz" RESOURCE_URI="pkg:npm/a@1" REPO="owner/repo" VSA_DIR="$VSAS" run "$SCRIPT"
-    [[ "$status" -eq 1 ]]
-    [[ "$output" == *"no VSA found for"* ]]
-    [[ ! -f "$AMPEL_LOG" ]]
-}
-
 @test "behavior: verifies via the consumer policy, binding subject, repo, and resource URI" {
     touch "$TMP/a.tgz"
-    make_vsa "a.tgz"
+    make_bundle
     ARTIFACT_PATH="$TMP/a.tgz" RESOURCE_URI="pkg:npm/a@1.0.0" REPO="owner/repo" VSA_DIR="$VSAS" run "$SCRIPT"
     [[ "$status" -eq 0 ]]
     [[ "$(wc -l < "$AMPEL_LOG")" -eq 1 ]]
     grep -q -- "verify --subject $TMP/a.tgz" "$AMPEL_LOG"
-    grep -q -- "--attestation $VSAS/a.tgz.intoto.jsonl" "$AMPEL_LOG"
+    # The whole bundle is passed via the jsonl: collector (not --attestation,
+    # which can't parse a multi-line bundle); ampel self-selects the VSA.
+    grep -q -- "--collector jsonl:" "$AMPEL_LOG"
+    ! grep -q -- "--attestation " "$AMPEL_LOG"
     grep -q -- "--context sourceRepo:https://github.com/owner/repo" "$AMPEL_LOG"
     grep -q -- "--context expectedResourceUri:pkg:npm/a@1.0.0" "$AMPEL_LOG"
     grep -q -- "wrangle-vsa-consumer-v1.hjson" "$AMPEL_LOG"
@@ -159,7 +168,7 @@ EOF
 # the real admit/reject behavior is exercised in test/consumer with real ampel.
 @test "behavior: WRANGLE_VSA_NON_STRICT=1 selects the non-strict consumer policy" {
     touch "$TMP/a.tgz"
-    make_vsa "a.tgz"
+    make_bundle
     WRANGLE_VSA_NON_STRICT=1 \
         ARTIFACT_PATH="$TMP/a.tgz" RESOURCE_URI="pkg:npm/a@1.0.0" REPO="owner/repo" VSA_DIR="$VSAS" run "$SCRIPT"
     [[ "$status" -eq 0 ]]
@@ -168,17 +177,31 @@ EOF
 
 @test "behavior: fails closed when ampel rejects the VSA" {
     touch "$TMP/a.tgz"
-    make_vsa "a.tgz"
+    make_bundle
     AMPEL_SHIM_EXIT=1 ARTIFACT_PATH="$TMP/a.tgz" RESOURCE_URI="pkg:npm/a@1" REPO="owner/repo" VSA_DIR="$VSAS" \
         run "$SCRIPT"
     [[ "$status" -eq 1 ]]
     [[ "$output" == *"ampel rejected"* ]]
 }
 
+@test "behavior: concatenates every per-build bundle so any subject resolves" {
+    # A multi-build run downloads several namespaced bundles; verify_vsa.sh
+    # combines them into one JSONL ampel reads. Two builds, two files — both
+    # verify against the combined bundle.
+    touch "$TMP/a.tgz" "$TMP/b.whl"
+    make_bundle "go-bundle-_"
+    make_bundle "python-bundle-pkg"
+    mkdir "$TMP/dist"; mv "$TMP/a.tgz" "$TMP/b.whl" "$TMP/dist/"
+    ARTIFACT_PATH="$TMP/dist" RESOURCE_URI="pkg:generic/a@1" REPO="owner/repo" VSA_DIR="$VSAS" run "$SCRIPT"
+    [[ "$status" -eq 0 ]]
+    [[ "$(wc -l < "$AMPEL_LOG")" -eq 2 ]]
+    [[ "$output" == *"2 file(s) verified"* ]]
+}
+
 @test "behavior: verifies every file under a directory recursively, spaces included" {
     mkdir -p "$TMP/dist/nested"
     touch "$TMP/dist/a.whl" "$TMP/dist/b file.tar.gz" "$TMP/dist/nested/c.txt"
-    make_vsa "a.whl"; make_vsa "b file.tar.gz"; make_vsa "c.txt"
+    make_bundle
     ARTIFACT_PATH="$TMP/dist" RESOURCE_URI="pkg:generic/a@1" REPO="owner/repo" VSA_DIR="$VSAS" run "$SCRIPT"
     [[ "$status" -eq 0 ]]
     [[ "$(wc -l < "$AMPEL_LOG")" -eq 3 ]]
@@ -189,7 +212,7 @@ EOF
 @test "behavior: stops at the first failing file" {
     mkdir "$TMP/dist"
     touch "$TMP/dist/a.tgz" "$TMP/dist/b.tgz"
-    make_vsa "a.tgz"; make_vsa "b.tgz"
+    make_bundle
     AMPEL_SHIM_EXIT=1 ARTIFACT_PATH="$TMP/dist" RESOURCE_URI="pkg:npm/a@1" REPO="owner/repo" VSA_DIR="$VSAS" \
         run "$SCRIPT"
     [[ "$status" -eq 1 ]]
@@ -198,19 +221,18 @@ EOF
 
 # --- contract (divergence-fail guards across producer/consumer files) ---
 
-@test "contract: producer uploads VSAs under the name this action resolves" {
-    # actions/verify uploads one artifact per dist file, named
-    # <artifact-name>.intoto.jsonl with artifact-name = the dist basename
-    # (matrix.artifact in the build workflows); this action downloads
-    # *.intoto.jsonl and resolves per file by basename. A producer-side
-    # rename must fail here before it strands every adopter publish job.
+@test "contract: producer uploads the bundle under the name this action resolves" {
+    # actions/verify uploads one bundle artifact per build, named
+    # <type>-bundle-<shortname>; this action downloads *-bundle-* and
+    # concatenates every <artifact>.intoto.jsonl found. A producer-side rename
+    # must fail here before it strands every adopter publish job.
     PRODUCER="$ACTION_DIR/../verify/action.yml"
-    grep -q 'name: ${{ inputs.artifact-name }}.intoto.jsonl' "$PRODUCER"
-    grep -q 'pattern: "\*.intoto.jsonl"' "$ACTION"
+    grep -q 'name: ${{ inputs.artifact-name }}' "$PRODUCER"
+    grep -q 'pattern: "\*-bundle-\*"' "$ACTION"
     grep -q '.intoto.jsonl' "$SCRIPT"
     WF_DIR="$ACTION_DIR/../../.github/workflows"
-    grep -q 'artifact-name: ${{ matrix.artifact }}' "$WF_DIR/build_and_publish_npm.yml"
-    grep -q 'artifact-name: ${{ matrix.artifact }}' "$WF_DIR/build_and_publish_python.yml"
+    grep -q 'artifact-name: npm-bundle-' "$WF_DIR/build_and_publish_npm.yml"
+    grep -q 'artifact-name: python-bundle-' "$WF_DIR/build_and_publish_python.yml"
 }
 
 @test "contract: the build workflows export the resource-uri this action expects" {
@@ -233,12 +255,12 @@ EOF
     grep -q 'REPO: ${{ inputs.repo }}' "$ACTION"
 }
 
-@test "structure: action.yml provisions Go, builds ampel from the tool manifest, and downloads VSAs via pinned steps" {
+@test "structure: action.yml provisions Go, builds ampel from the tool manifest, and downloads the bundle via pinned steps" {
     grep -Eq 'uses: actions/setup-go@[0-9a-f]{40}' "$ACTION"
     grep -q 'go-version-file: ${{ github.action_path }}/../../tools/go.mod' "$ACTION"
     grep -q 'install github.com/carabiner-dev/ampel/cmd/ampel' "$ACTION"
     grep -Eq 'uses: actions/download-artifact@[0-9a-f]{40}' "$ACTION"
-    grep -q 'pattern: "\*.intoto.jsonl"' "$ACTION"
+    grep -q 'pattern: "\*-bundle-\*"' "$ACTION"
 }
 
 @test "structure: action.yml delegates to verify_vsa.sh" {

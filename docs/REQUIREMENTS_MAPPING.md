@@ -250,7 +250,9 @@ These fall on the adopter (the *producer*); wrangle exists to satisfy them.
   **VSA** is delivered as: a GitHub release asset for **Go** (goreleaser creates
   the release inline); a release asset for **Python/npm** *only if the adopter's
   tooling created a release for the tag*, otherwise the run-scoped workflow
-  artifact; an OCI referrer for **container**. **Enabled, not executed:** for
+  artifact; for **container** the VSA pushed as its own OCI referrer on the
+  image digest, plus the combined bundle as a run-scoped workflow artifact.
+  **Enabled, not executed:** for
   Python/npm wrangle stops before publish (publishing is the adopter's caller via
   Trusted Publishing), so whether the *registry* redistributes provenance is the
   adopter's step — wrangle enables it but does not perform it.

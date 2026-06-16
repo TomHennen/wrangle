@@ -18,7 +18,7 @@ Copy [`build_and_publish_containers.yml`](../../../gh_workflow_examples/build_an
 - **Source scan** built in — vulnerable dependencies (OSV), unsafe workflow patterns (Zizmor), and more ([details](../../../actions/scan/README.md)); a load-bearing finding blocks the build and push.
 - **A BuildKit-native SBOM**, attached to the image as an OCI attestation and uploaded as a workflow artifact (SPDX JSON).
 - **SLSA Build L3 provenance** for the image digest ([the requirements it meets](../../../docs/REQUIREMENTS_MAPPING.md)).
-- **A signed VSA** stored in the registry as an OCI referrer on the image digest, so consumers can verify the image with one command.
+- **A signed VSA** pushed to the registry as its own OCI referrer on the image digest — so consumers can verify the image with one command — and also delivered in the per-artifact `.intoto.jsonl` bundle (provenance + VSA) as a workflow artifact. The provenance is a separate referrer (from `attest-build-provenance`).
 
 ## Good to know
 

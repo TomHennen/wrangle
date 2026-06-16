@@ -79,12 +79,12 @@ Skip the gate and you publish on every non-PR event; skip verify-vsa and you may
 
 ## Verifying what you shipped
 
-Downstream users verify the released tarball with one command. Download the tarball and its VSA (`<tarball>.intoto.jsonl`) from the release, then ([ampel](https://github.com/carabiner-dev/ampel) ≥ v1.3.0):
+Downstream users verify the released tarball with one command. Download the tarball and its `<tarball>.intoto.jsonl` bundle from the release (it carries the tarball's VSA; ampel self-selects the one matching `--subject`), then ([ampel](https://github.com/carabiner-dev/ampel) ≥ v1.3.0):
 
 ```bash
 ampel verify --subject <tarball> \
   --policy git+https://github.com/TomHennen/wrangle@v0.2.2#policies/wrangle-vsa-consumer-v1.hjson \
-  --attestation <tarball>.intoto.jsonl \
+  --collector jsonl:<tarball>.intoto.jsonl \
   --context expectedResourceUri:pkg:npm/<name>@<version> \
   --context sourceRepo:https://github.com/<your-org>/<your-repo>
 ```

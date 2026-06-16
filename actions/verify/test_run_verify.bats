@@ -2,11 +2,11 @@
 
 # Tests for actions/verify/run_verify.sh
 #
-# The arg-builder functions are validated against the shape the real ampel/bnd
-# CLIs accept. Full keyless bnd signing needs OIDC and cannot run offline, so
-# the sign path is checked at the argument-vector level only; the emit path is
-# exercised end-to-end with a tiny ampel stub on PATH to confirm the
-# HTML-sanitize-to-summary plumbing.
+# The arg-builder functions are validated against the shape the real
+# ampel/bnd/cosign CLIs accept. Full keyless bnd signing needs OIDC and cannot
+# run offline, so the sign path is checked at the argument-vector level only;
+# the emit and run paths are exercised end-to-end with tiny ampel/bnd/cosign
+# stubs on PATH to confirm the per-subject emit -> sign -> append plumbing.
 #
 # skip_or_fail (fail-not-skip under CI) lives in a shared bats helper. The real
 # ampel/bnd/cosign are installed only in the `integration (real binaries)` job,
@@ -25,20 +25,28 @@ setup() {
     BND_BIN="$(command -v bnd || echo "${WRANGLE_BIN_DIR:-/nonexistent}/bnd")"
     COSIGN_BIN="$(command -v cosign || echo "${WRANGLE_BIN_DIR:-/nonexistent}/cosign")"
 
-    export ARTIFACT_NAME="app-1.2.3.tgz"
-    export SUBJECT="sha256:abc123"
+    export SUBJECTS=$'dist/app-1.2.3.tgz'
     export POLICY="policies/release.json"
     export COLLECTOR="jsonl:./atts"
     export FAIL="true"
-    export VSA="$TEST_DIR/app.intoto.jsonl"
     export CONTEXT=""
     export ATTESTATION=""
     export OCI_TARGET=""
+    export BUNDLE_IN="$TEST_DIR/provenance.jsonl"
+    # bundle-out is the directory the per-artifact bundles are written into.
+    export BUNDLE_OUT="$TEST_DIR/bundles"
+    export RUNNER_TEMP="$TEST_DIR"
+    # The unsigned-VSA path the arg-vector tests reference.
+    VSA="$TEST_DIR/vsa.intoto.jsonl"
     # No real Sigstore here, so the inter-attempt backoff is pure dead time.
     export WRANGLE_RETRY_DELAY=0
 
     # shellcheck source=run_verify.sh
     source "$SCRIPT"
+    # wrangle_verify_emit_vsa uses wrangle_sanitize_output, which run() sources
+    # at runtime; load it here so the direct-call emit tests have it too.
+    # shellcheck source=../../lib/sanitize.sh
+    source "$(cd "$(dirname "$BATS_TEST_FILENAME")/../../lib" && pwd)/sanitize.sh"
 }
 
 teardown() {
@@ -51,7 +59,7 @@ teardown() {
 
 @test "run_verify: a policy locator passes through unresolved" {
     export POLICY="git+https://github.com/o/r@abc123#policies/x.hjson"
-    mapfile -t args < <(wrangle_ampel_verify_args)
+    mapfile -t args < <(wrangle_ampel_verify_args "sha256:abc" "$VSA")
     printf '%s\n' "${args[@]}" | grep -qx -- "--policy=git+https://github.com/o/r@abc123#policies/x.hjson"
 }
 
@@ -60,14 +68,14 @@ teardown() {
     # double-prefixed to $REPO_ROOT/abs/… and ampel would read the wrong file),
     # so it gets its own guard distinct from the locator case.
     export POLICY="/etc/wrangle/policy.hjson"
-    mapfile -t args < <(wrangle_ampel_verify_args)
+    mapfile -t args < <(wrangle_ampel_verify_args "sha256:abc" "$VSA")
     printf '%s\n' "${args[@]}" | grep -qx -- "--policy=/etc/wrangle/policy.hjson"
 }
 
 # --- ampel arg vector ---
 
-@test "run_verify: ampel args carry the core verify flags" {
-    mapfile -t args < <(wrangle_ampel_verify_args)
+@test "run_verify: ampel args carry the core verify flags for the given subject" {
+    mapfile -t args < <(wrangle_ampel_verify_args "sha256:abc123" "$VSA")
     [[ "${args[0]}" == "verify" ]]
     printf '%s\n' "${args[@]}" | grep -qx -- "--subject=sha256:abc123"
     printf '%s\n' "${args[@]}" | grep -qx -- "--collector=jsonl:./atts"
@@ -81,7 +89,7 @@ teardown() {
 }
 
 @test "run_verify: ampel args omit context and attestation when empty" {
-    mapfile -t args < <(wrangle_ampel_verify_args)
+    mapfile -t args < <(wrangle_ampel_verify_args "sha256:abc" "$VSA")
     if printf '%s\n' "${args[@]}" | grep -qx -- "--context"; then return 1; fi
     if printf '%s\n' "${args[@]}" | grep -qx -- "--attestation"; then return 1; fi
 }
@@ -89,7 +97,7 @@ teardown() {
 @test "run_verify: ampel args include context and attestation when set" {
     export CONTEXT="buildPoint:git+https://github.com/o/r"
     export ATTESTATION="att.intoto.json"
-    mapfile -t args < <(wrangle_ampel_verify_args)
+    mapfile -t args < <(wrangle_ampel_verify_args "sha256:abc" "$VSA")
     # --context is followed by its value as a separate argument
     found_ctx=0
     for i in "${!args[@]}"; do
@@ -109,7 +117,7 @@ teardown() {
     # subject means every flag in our vector parsed. Confirms the flag names
     # match the installed CLI without needing real attestations.
     if [[ ! -x "$AMPEL_BIN" ]]; then skip_or_fail "real ampel not available"; fi
-    mapfile -t args < <(wrangle_ampel_verify_args)
+    mapfile -t args < <(wrangle_ampel_verify_args "sha256:abc" "$VSA")
     run "$AMPEL_BIN" "${args[@]}"
     [[ "$status" -ne 0 ]]
     [[ "$output" != *"unknown flag"* ]]
@@ -134,16 +142,25 @@ teardown() {
     [[ "$output" == *"in-toto attestation"* ]]
 }
 
-# --- cosign attach arg vector (OCI VSA push) ---
+# --- cosign arg vectors (OCI bundle round-trip) ---
 
-@test "run_verify: cosign attach args push the VSA as an attestation referrer" {
+@test "run_verify: cosign download args fetch the image's attestation referrers" {
     local target="ghcr.io/o/r/img@sha256:abc"
-    mapfile -t args < <(wrangle_cosign_attach_args "$VSA" "$target")
+    mapfile -t args < <(wrangle_cosign_download_args "$target")
+    [[ "${args[0]}" == "download" ]]
+    [[ "${args[1]}" == "attestation" ]]
+    [[ "${args[-1]}" == "$target" ]]
+}
+
+@test "run_verify: cosign attach args push the VSA file as an attestation referrer" {
+    local target="ghcr.io/o/r/img@sha256:abc"
+    local vsa="$TEST_DIR/vsa-line.jsonl"
+    mapfile -t args < <(wrangle_cosign_attach_args "$vsa" "$target")
     [[ "${args[0]}" == "attach" ]]
     [[ "${args[1]}" == "attestation" ]]
-    # --attestation carries the signed VSA bundle; the image ref is positional.
+    # --attestation carries the single VSA statement; the image ref is positional.
     printf '%s\n' "${args[@]}" | grep -qx -- "--attestation"
-    printf '%s\n' "${args[@]}" | grep -qx -- "$VSA"
+    printf '%s\n' "${args[@]}" | grep -qx -- "$vsa"
     [[ "${args[-1]}" == "$target" ]]
     # `attach attestation` uploads verbatim (no re-sign), so no --type/--yes/key flags.
     ! printf '%s\n' "${args[@]}" | grep -qx -- "--type"
@@ -159,6 +176,111 @@ teardown() {
     [[ "$output" == *"attach attestation"* ]]
 }
 
+@test "run_verify: cosign download arg vector names a real cosign subcommand" {
+    if [[ ! -x "$COSIGN_BIN" ]]; then skip_or_fail "real cosign not available"; fi
+    run "$COSIGN_BIN" download attestation --help
+    [[ "$status" -eq 0 ]]
+    [[ "$output" == *"download attestation"* ]]
+}
+
+# --- subject parsing ---
+
+@test "run_verify: read_subjects splits the newline list and drops blanks" {
+    export SUBJECTS=$'dist/a.tgz\n\ndist/b.whl\n'
+    local -a WRANGLE_SUBJECTS
+    wrangle_read_subjects
+    [[ "${#WRANGLE_SUBJECTS[@]}" -eq 2 ]]
+    [[ "${WRANGLE_SUBJECTS[0]}" == "dist/a.tgz" ]]
+    [[ "${WRANGLE_SUBJECTS[1]}" == "dist/b.whl" ]]
+}
+
+@test "run_verify: read_subjects fails closed on an empty subject set" {
+    # A VSA-less bundle would silently drop the release-gating verification.
+    export SUBJECTS=$'\n  \n'
+    local -a WRANGLE_SUBJECTS
+    run wrangle_read_subjects
+    [[ "$status" -ne 0 ]]
+    [[ "$output" == *"no subjects"* ]]
+}
+
+# --- bundle seeding ---
+
+@test "run_verify: seed copies the provenance JSONL when no OCI target" {
+    printf 'PROVLINE\n' > "$BUNDLE_IN"
+    export OCI_TARGET=""
+    local seed="$TEST_DIR/seed.jsonl"
+    wrangle_seed_bundle "$seed"
+    [[ "$(cat "$seed")" == "PROVLINE" ]]
+    # BUNDLE_IN stays intact so a re-run starts from the same base.
+    [[ "$(cat "$BUNDLE_IN")" == "PROVLINE" ]]
+}
+
+# Emit a DSSE-enveloped JSONL line whose decoded payload carries $1 as its
+# predicateType — the shape cosign download returns for an OCI referrer.
+_dsse_line() {
+    local payload
+    payload="$(printf '{"predicateType":"%s","subject":[]}' "$1" | base64 | tr -d '\n')"
+    printf '{"dsseEnvelope":{"payload":"%s"}}\n' "$payload"
+}
+
+@test "run_verify: seed fetches provenance via cosign download for an OCI target" {
+    {
+        printf '#!/bin/bash\n'
+        printf '[[ "$1" == "download" && "$2" == "attestation" ]] || exit 1\n'
+        printf 'cat %q\n' "$TEST_DIR/referrers.jsonl"
+    } > "$TEST_DIR/cosign"
+    chmod +x "$TEST_DIR/cosign"
+    _dsse_line "https://slsa.dev/provenance/v1" > "$TEST_DIR/referrers.jsonl"
+    export PATH="$TEST_DIR:$PATH"
+    export OCI_TARGET="ghcr.io/o/r/img@sha256:0000000000000000000000000000000000000000000000000000000000000000"
+    local seed="$TEST_DIR/seed.jsonl"
+    wrangle_seed_bundle "$seed"
+    # Exactly the one provenance line, with its predicateType preserved.
+    [[ "$(wc -l < "$seed")" -eq 1 ]]
+    [[ "$(jq -r '.dsseEnvelope.payload | @base64d | fromjson | .predicateType' "$seed")" == "https://slsa.dev/provenance/v1" ]]
+}
+
+@test "run_verify: seed drops a prior VSA referrer so a re-run stays idempotent" {
+    # cosign download returns ALL referrers; a prior verify run left a VSA on the
+    # digest. Seeding must keep only the provenance so the rebuilt bundle never
+    # accumulates the stale VSA (and re-appends exactly one fresh VSA per subject).
+    {
+        printf '#!/bin/bash\n'
+        printf '[[ "$1" == "download" && "$2" == "attestation" ]] || exit 1\n'
+        printf 'cat %q\n' "$TEST_DIR/referrers.jsonl"
+    } > "$TEST_DIR/cosign"
+    chmod +x "$TEST_DIR/cosign"
+    {
+        _dsse_line "https://slsa.dev/provenance/v1"
+        _dsse_line "https://slsa.dev/verification_summary/v1"
+    } > "$TEST_DIR/referrers.jsonl"
+    export PATH="$TEST_DIR:$PATH"
+    export OCI_TARGET="ghcr.io/o/r/img@sha256:0000000000000000000000000000000000000000000000000000000000000000"
+    local seed="$TEST_DIR/seed.jsonl"
+    wrangle_seed_bundle "$seed"
+    [[ "$(wc -l < "$seed")" -eq 1 ]]
+    [[ "$(jq -r '.dsseEnvelope.payload | @base64d | fromjson | .predicateType' "$seed")" == "https://slsa.dev/provenance/v1" ]]
+}
+
+@test "run_verify: seed fails closed when no provenance referrer is present" {
+    # A digest that carries only VSAs (no provenance) must not seed an empty
+    # bundle — that would silently drop the provenance the VSAs append to.
+    {
+        printf '#!/bin/bash\n'
+        printf '[[ "$1" == "download" && "$2" == "attestation" ]] || exit 1\n'
+        printf 'cat %q\n' "$TEST_DIR/referrers.jsonl"
+    } > "$TEST_DIR/cosign"
+    chmod +x "$TEST_DIR/cosign"
+    _dsse_line "https://slsa.dev/verification_summary/v1" > "$TEST_DIR/referrers.jsonl"
+    export PATH="$TEST_DIR:$PATH"
+    export OCI_TARGET="ghcr.io/o/r/img@sha256:0000000000000000000000000000000000000000000000000000000000000000"
+    run wrangle_seed_bundle "$TEST_DIR/seed.jsonl"
+    [[ "$status" -ne 0 ]]
+    [[ "$output" == *"no SLSA provenance referrer"* ]]
+}
+
+# --- push bundle ---
+
 @test "run_verify: push is a no-op when OCI_TARGET is empty" {
     # npm/go/python path: nothing on PATH should be invoked. A cosign stub that
     # fails proves push returns 0 without calling it.
@@ -167,45 +289,49 @@ teardown() {
 exit 1
 STUB
     chmod +x "$TEST_DIR/cosign"
-    export WRANGLE_BIN_DIR="$TEST_DIR"
     export PATH="$TEST_DIR:$PATH"
     export OCI_TARGET=""
-    run wrangle_push_vsa
+    run wrangle_push_bundle "$TEST_DIR/vsa-line.jsonl"
     [[ "$status" -eq 0 ]]
 }
 
-@test "run_verify: push invokes cosign attach with the OCI target" {
-    # Stub cosign records its args so we confirm the VSA + target reach it.
+@test "run_verify: push invokes cosign attach with the VSA file and OCI target" {
     cat > "$TEST_DIR/cosign" <<STUB
 #!/bin/bash
 printf '%s\n' "\$@" > "$TEST_DIR/cosign-args"
 STUB
     chmod +x "$TEST_DIR/cosign"
-    export WRANGLE_BIN_DIR="$TEST_DIR"
     export PATH="$TEST_DIR:$PATH"
     export OCI_TARGET="ghcr.io/o/r/img@sha256:abc"
-    : > "$VSA"
-    run wrangle_push_vsa
+    local vsa="$TEST_DIR/vsa-line.jsonl"
+    : > "$vsa"
+    run wrangle_push_bundle "$vsa"
     [[ "$status" -eq 0 ]]
     recorded="$(cat "$TEST_DIR/cosign-args")"
     [[ "$recorded" == *"attach"* ]]
     [[ "$recorded" == *"attestation"* ]]
-    [[ "$recorded" == *"$VSA"* ]]
+    [[ "$recorded" == *"$vsa"* ]]
     [[ "$recorded" == *"$OCI_TARGET"* ]]
 }
 
-@test "run_verify: push fails the step when cosign fails (fail-closed)" {
-    cat > "$TEST_DIR/cosign" <<'STUB'
+@test "run_verify: push fails closed — a cosign failure fails the step" {
+    # The by-digest VSA referrer is the path the container consumer verifies, so
+    # a push failure is a real delivery gap and must fail the job (after the one
+    # transient-Sigstore retry, so cosign is invoked twice).
+    cat > "$TEST_DIR/cosign" <<STUB
 #!/bin/bash
+printf 'x\n' >> "$TEST_DIR/cosign-calls"
 exit 7
 STUB
     chmod +x "$TEST_DIR/cosign"
-    export WRANGLE_BIN_DIR="$TEST_DIR"
     export PATH="$TEST_DIR:$PATH"
     export OCI_TARGET="ghcr.io/o/r/img@sha256:abc"
-    : > "$VSA"
-    run wrangle_push_vsa
+    : > "$TEST_DIR/cosign-calls"
+    local vsa="$TEST_DIR/vsa-line.jsonl"
+    : > "$vsa"
+    run wrangle_push_bundle "$vsa"
     [[ "$status" -ne 0 ]]
+    [[ "$(wc -l < "$TEST_DIR/cosign-calls")" -eq 2 ]]
 }
 
 # --- emit path plumbing (stubbed ampel) ---
@@ -218,12 +344,11 @@ STUB
 printf '<h1>PASS</h1><script>x</script>RESULT\n'
 STUB
     chmod +x "$TEST_DIR/ampel"
-    export WRANGLE_BIN_DIR="$TEST_DIR"
     export PATH="$TEST_DIR:$PATH"
     export GITHUB_STEP_SUMMARY="$TEST_DIR/summary.md"
     : > "$GITHUB_STEP_SUMMARY"
 
-    run wrangle_verify_emit_vsa
+    run wrangle_verify_emit_vsa "sha256:abc" "$VSA"
     [[ "$status" -eq 0 ]]
     summary="$(cat "$GITHUB_STEP_SUMMARY")"
     [[ "$summary" == *"PASS"* ]]
@@ -241,12 +366,11 @@ head -c 200000 /dev/zero | tr '\0' 'a'
 exit 0
 STUB
     chmod +x "$TEST_DIR/ampel"
-    export WRANGLE_BIN_DIR="$TEST_DIR"
     export PATH="$TEST_DIR:$PATH"
     export GITHUB_STEP_SUMMARY="$TEST_DIR/summary.md"
     : > "$GITHUB_STEP_SUMMARY"
 
-    run wrangle_verify_emit_vsa
+    run wrangle_verify_emit_vsa "sha256:abc" "$VSA"
     [[ "$status" -eq 0 ]]
     # Summary is truncated to the cap, but the verdict still passed.
     [[ "$(wc -c < "$GITHUB_STEP_SUMMARY")" -le 65536 ]]
@@ -259,68 +383,159 @@ printf 'FAILED\n'
 exit 1
 STUB
     chmod +x "$TEST_DIR/ampel"
-    export WRANGLE_BIN_DIR="$TEST_DIR"
     export PATH="$TEST_DIR:$PATH"
     export GITHUB_STEP_SUMMARY="$TEST_DIR/summary.md"
     : > "$GITHUB_STEP_SUMMARY"
 
-    run wrangle_verify_emit_vsa
+    run wrangle_verify_emit_vsa "sha256:abc" "$VSA"
     [[ "$status" -ne 0 ]]
 }
 
-@test "run_verify: emit rejects an input that fails validation (fail-closed)" {
+@test "run_verify: run rejects an input that fails validation (fail-closed)" {
     # Run the SCRIPT (set -e active) so a bad input hard-fails at validation
     # before ampel — `run <function>` would disable errexit and fall through.
-    export SUBJECT='bad;rm -rf /'
+    export SUBJECTS='bad;rm -rf /'
     export GITHUB_STEP_SUMMARY="$TEST_DIR/summary.md"
     : > "$GITHUB_STEP_SUMMARY"
-    run "$SCRIPT" emit
+    : > "$BUNDLE_IN"
+    run "$SCRIPT" run
     [[ "$status" -ne 0 ]]
     [[ "$output" == *"invalid subject"* ]]
     [[ "$output" != *"command not found"* ]]
 }
 
-# --- run ordering: emit -> sign -> push ---
+# --- run composition: per-subject emit -> sign -> append ---
 
-@test "run_verify: run executes emit, then sign, then push in order" {
-    # Stub ampel/bnd/cosign so each records its turn. ampel writes the unsigned
-    # VSA, bnd "signs" it (mv-in-place shape preserved), cosign pushes — the
-    # order file proves the composition matches the documented contract.
+@test "run_verify: run emits, signs, and appends one VSA line per subject" {
+    # Stub ampel/bnd so each subject produces a deterministic signed line; the
+    # bundle = the seeded provenance lines plus one appended VSA per subject.
     cat > "$TEST_DIR/ampel" <<STUB
 #!/bin/bash
-printf 'emit\n' >> "$TEST_DIR/order"
-# Emit the unsigned VSA where --results-path points (last token after =).
-for a in "\$@"; do case "\$a" in --results-path=*) printf 'vsa\n' > "\${a#--results-path=}";; esac; done
+# Emit a one-line JSON unsigned VSA naming the subject, where --results-path points.
+subj=""
+for a in "\$@"; do case "\$a" in --subject=*) subj="\${a#--subject=}";; esac; done
+for a in "\$@"; do case "\$a" in --results-path=*) printf '{"unsigned":"%s"}\n' "\$subj" > "\${a#--results-path=}";; esac; done
+printf 'report\n'
+STUB
+    # bnd "signs" by wrapping the unsigned statement (pretty-printed over two
+    # lines, so the jq -c flatten in run is load-bearing).
+    cat > "$TEST_DIR/bnd" <<STUB
+#!/bin/bash
+printf '{\n  "signed": '; cat "\$2"; printf '}\n'
+STUB
+    chmod +x "$TEST_DIR/ampel" "$TEST_DIR/bnd"
+    export PATH="$TEST_DIR:$PATH"
+    export GITHUB_STEP_SUMMARY="$TEST_DIR/summary.md"
+    : > "$GITHUB_STEP_SUMMARY"
+    printf '{"provenance":1}\n' > "$BUNDLE_IN"
+    export SUBJECTS=$'dist/a.tgz\ndist/b.whl'
+
+    run "$SCRIPT" run
+    [[ "$status" -eq 0 ]]
+    # One per-artifact bundle per subject, named <artifact-basename>.intoto.jsonl.
+    local a="$BUNDLE_OUT/a.tgz.intoto.jsonl" b="$BUNDLE_OUT/b.whl.intoto.jsonl"
+    [[ -f "$a" && -f "$b" ]]
+    # Each bundle is the seeded provenance line plus exactly that subject's VSA.
+    [[ "$(wc -l < "$a")" -eq 2 ]]
+    [[ "$(wc -l < "$b")" -eq 2 ]]
+    run head -n1 "$a"; [[ "$output" == '{"provenance":1}' ]]
+    grep -q '"signed":{"unsigned":"dist/a.tgz"}' "$a"
+    grep -q '"signed":{"unsigned":"dist/b.whl"}' "$b"
+    # A subject's bundle carries only its own VSA, not the other's.
+    ! grep -q '"unsigned":"dist/b.whl"' "$a"
+    ! grep -q '"unsigned":"dist/a.tgz"' "$b"
+    # Every line is one JSON object (valid JSONL).
+    run jq -e . "$a"; [[ "$status" -eq 0 ]]
+    run jq -e . "$b"; [[ "$status" -eq 0 ]]
+}
+
+@test "run_verify: run pushes only the VSA statement as the referrer for an OCI target" {
+    # Container path: provenance fetched via cosign download; the combined
+    # provenance+VSA bundle is written for the workflow artifact, but only the
+    # lone signed VSA statement is pushed as the by-digest referrer (cosign
+    # attach rejects a multi-line bundle).
+    cat > "$TEST_DIR/ampel" <<STUB
+#!/bin/bash
+for a in "\$@"; do case "\$a" in --results-path=*) printf '{"vsa":1}\n' > "\${a#--results-path=}";; esac; done
 printf 'report\n'
 STUB
     cat > "$TEST_DIR/bnd" <<STUB
 #!/bin/bash
-printf 'sign\n' >> "$TEST_DIR/order"
 cat "\$2"
 STUB
-    cat > "$TEST_DIR/cosign" <<STUB
-#!/bin/bash
-printf 'push\n' >> "$TEST_DIR/order"
-STUB
+    # download returns a real provenance DSSE envelope so the seed filter keeps it.
+    _dsse_line "https://slsa.dev/provenance/v1" > "$TEST_DIR/referrers.jsonl"
+    # Record the verb plus, for attach, the file cosign was handed so the test
+    # can prove it was the single VSA statement, not the multi-line bundle.
+    {
+        printf '#!/bin/bash\n'
+        printf 'printf "%%s\\n" "$1" >> %q\n' "$TEST_DIR/cosign-calls"
+        printf '[[ "$1" == "download" ]] && { cat %q; exit 0; }\n' "$TEST_DIR/referrers.jsonl"
+        printf 'if [[ "$1" == "attach" ]]; then\n'
+        printf '  for a in "$@"; do prev="${prev:-}"; [[ "$prev" == "--attestation" ]] && cp "$a" %q; prev="$a"; done\n' "$TEST_DIR/attached"
+        printf 'fi\n'
+        printf 'exit 0\n'
+    } > "$TEST_DIR/cosign"
     chmod +x "$TEST_DIR/ampel" "$TEST_DIR/bnd" "$TEST_DIR/cosign"
-    export WRANGLE_BIN_DIR="$TEST_DIR"
     export PATH="$TEST_DIR:$PATH"
     export GITHUB_STEP_SUMMARY="$TEST_DIR/summary.md"
     : > "$GITHUB_STEP_SUMMARY"
-    # Must be digest-pinned with a full 64-hex sha256 — `run` validates inputs
-    # before ampel, so a short digest would fail at the gate, not the ordering.
+    export SUBJECTS="sha256:0000000000000000000000000000000000000000000000000000000000000000"
     export OCI_TARGET="ghcr.io/o/r/img@sha256:0000000000000000000000000000000000000000000000000000000000000000"
 
     run "$SCRIPT" run
     [[ "$status" -eq 0 ]]
-    [[ "$(cat "$TEST_DIR/order")" == $'emit\nsign\npush' ]]
+    # cosign was called to download the provenance AND to attach the VSA.
+    grep -qx "download" "$TEST_DIR/cosign-calls"
+    grep -qx "attach" "$TEST_DIR/cosign-calls"
+    # The combined bundle (workflow artifact) = provenance line + VSA line.
+    local bundle="$BUNDLE_OUT/sha256-0000000000000000000000000000000000000000000000000000000000000000.intoto.jsonl"
+    [[ -f "$bundle" ]]
+    [[ "$(wc -l < "$bundle")" -eq 2 ]]
+    # The referrer push got ONLY the lone VSA statement — a single line, no
+    # provenance — so cosign attach accepts it.
+    [[ "$(wc -l < "$TEST_DIR/attached")" -eq 1 ]]
+    grep -q '"vsa":1' "$TEST_DIR/attached"
+    ! grep -q 'dsseEnvelope' "$TEST_DIR/attached"
+}
+
+@test "run_verify: run fails closed when the VSA referrer push fails" {
+    # The by-digest VSA referrer is the container consumer's discovery path, so a
+    # failing cosign attach (after the one transient retry) must fail the verify
+    # job — a missing by-digest VSA is a real delivery gap, not a nice-to-have.
+    cat > "$TEST_DIR/ampel" <<STUB
+#!/bin/bash
+for a in "\$@"; do case "\$a" in --results-path=*) printf '{"vsa":1}\n' > "\${a#--results-path=}";; esac; done
+printf 'report\n'
+STUB
+    cat > "$TEST_DIR/bnd" <<STUB
+#!/bin/bash
+cat "\$2"
+STUB
+    _dsse_line "https://slsa.dev/provenance/v1" > "$TEST_DIR/referrers.jsonl"
+    # download succeeds (seeds the provenance); attach fails persistently.
+    {
+        printf '#!/bin/bash\n'
+        printf '[[ "$1" == "download" ]] && { cat %q; exit 0; }\n' "$TEST_DIR/referrers.jsonl"
+        printf '[[ "$1" == "attach" ]] && exit 7\n'
+        printf 'exit 0\n'
+    } > "$TEST_DIR/cosign"
+    chmod +x "$TEST_DIR/ampel" "$TEST_DIR/bnd" "$TEST_DIR/cosign"
+    export PATH="$TEST_DIR:$PATH"
+    export GITHUB_STEP_SUMMARY="$TEST_DIR/summary.md"
+    : > "$GITHUB_STEP_SUMMARY"
+    export SUBJECTS="sha256:0000000000000000000000000000000000000000000000000000000000000000"
+    export OCI_TARGET="ghcr.io/o/r/img@sha256:0000000000000000000000000000000000000000000000000000000000000000"
+
+    run "$SCRIPT" run
+    [[ "$status" -ne 0 ]]
 }
 
 # --- attach to release (wrangle_attach_release) ---
 #
-# wrangle attaches the VSA only when a release already exists; it never creates
-# one. These tests drive a `gh` shim whose `release view` exit code follows
-# GH_VIEW_SEQ so both branches (release present / absent) are exercised.
+# wrangle attaches the bundle only when a release already exists; it never
+# creates one. These tests drive a `gh` shim whose `release view` exit code
+# follows GH_VIEW_SEQ so both branches (release present / absent) are exercised.
 
 # Install a gh shim on PATH that logs calls and returns scripted exit codes.
 _install_gh_shim() {
@@ -343,20 +558,26 @@ SHIM
     export GITHUB_REF_NAME="v1.2.3"
 }
 
-@test "run_verify attach: existing release is uploaded to without create" {
+@test "run_verify attach: every per-artifact bundle is uploaded to the existing release" {
     _install_gh_shim
+    mkdir -p "$BUNDLE_OUT"
+    : > "$BUNDLE_OUT/a.tgz.intoto.jsonl"
+    : > "$BUNDLE_OUT/b.whl.intoto.jsonl"
     export GH_VIEW_SEQ="0"            # first view succeeds (release exists)
     run "$SCRIPT" attach
     [[ "$status" -eq 0 ]]
-    grep -qx "release upload v1.2.3 $VSA --clobber" "$GH_LOG"
+    grep -qx "release upload v1.2.3 $BUNDLE_OUT/a.tgz.intoto.jsonl --clobber" "$GH_LOG"
+    grep -qx "release upload v1.2.3 $BUNDLE_OUT/b.whl.intoto.jsonl --clobber" "$GH_LOG"
     ! grep -q "release create" "$GH_LOG"   # create must be skipped
 }
 
 @test "run_verify attach: missing release skips create and upload, exits 0" {
     _install_gh_shim
+    mkdir -p "$BUNDLE_OUT"
+    : > "$BUNDLE_OUT/a.tgz.intoto.jsonl"
     export GH_VIEW_SEQ="1"            # view fails (no release)
     run "$SCRIPT" attach
-    [[ "$status" -eq 0 ]]            # no release is not an error — VSA stays the artifact
+    [[ "$status" -eq 0 ]]            # no release is not an error — bundle stays the artifact
     [[ "$output" == *"workflow artifact only"* ]]
     if grep -q "release create" "$GH_LOG"; then return 1; fi
     if grep -q "release upload" "$GH_LOG"; then return 1; fi
@@ -413,5 +634,5 @@ SHIM
 
 @test "retry: ampel and bnd invocations both route through wrangle_retry_once" {
     grep -q 'wrangle_retry_once "$report" ampel' "$SCRIPT"
-    grep -q 'wrangle_retry_once "$VSA" bnd' "$SCRIPT"
+    grep -q 'wrangle_retry_once "$vsa" bnd' "$SCRIPT"
 }

@@ -162,6 +162,7 @@ jobs:
     outputs:
       digest: ${{ steps.build.outputs.digest }}
       imagename: ${{ steps.build.outputs.imagename }}
+      shortname: ${{ steps.build.outputs.shortname }}
       metadata-artifact-name: container-metadata-${{ steps.build.outputs.shortname }}
     runs-on: ubuntu-latest
     steps:
@@ -212,46 +213,23 @@ jobs:
           subject-digest: ${{ needs.build.outputs.digest }}
           push-to-registry: true   # store the provenance as an OCI referrer on the image
 
-  # Emit a signed SLSA Verification Summary Attestation (VSA) for the image.
-  # ampel evaluates the image's SLSA provenance against the container PolicySet
-  # (verifying the bundle's Sigstore signature against the PolicySet's identity
-  # binding — fail-closed) and bnd signs the result keyless with this workflow's
-  # OIDC identity, emitting the single signed VSA a downstream consumer trusts.
-  #
-  # Like go/container's other post-build checks this runs AFTER the docker push,
-  # so the image is already live; fail: true still fails the workflow conclusion
-  # (blocking downstream caller jobs) and surfaces a policy/tooling regression.
-  #
-  # Collector: oci: lists the image's OCI 1.1 referrers and selects the signed
-  # attest-build-provenance bundle (predicate slsa.dev/provenance/v1) the attest
-  # job pushed (push-to-registry). The unsigned BuildKit attestation is an
-  # index platform entry, NOT a referrer, so oci: never sees it. Needs `attest`
-  # so the referrer exists before the collector reads it. Exercised only by the
-  # integration dispatch.
+  # Emit a signed VSA per subject and push each as its own by-digest OCI referrer.
+  # Runs after the push, so fail: true fails the workflow conclusion (blocking
+  # downstream caller jobs) rather than rolling back the live image. Needs
+  # `attest` so the provenance referrer the collector reads already exists.
   verify:
     if: ${{ needs.gate.outputs.should-release == 'true' }}
     needs: [guard, gate, build, attest]
     runs-on: ubuntu-latest
-    # No contents: write — unlike npm/go, the container VSA is NOT attached to a
-    # GitHub release (containers produce none); it's pushed to the registry as an
-    # OCI referrer instead. The container caller grants only contents: read, so
-    # requesting contents: write here would be a startup-failing escalation.
+    # No contents: write — the container caller grants only contents: read, so
+    # requesting it here would be a startup-failing escalation; the bundle ships
+    # as a workflow artifact and an OCI referrer, not a release asset.
     permissions:
       id-token: write    # bnd keyless-signs the VSA via this workflow's OIDC identity
-      packages: write    # pull provenance for the collector AND push the VSA referrer to ghcr
+      packages: write    # pull provenance and push the bundle referrer to ghcr
     steps:
-      - id: vsaname
-        shell: bash
-        env:
-          IMAGENAME: ${{ needs.build.outputs.imagename }}
-          DIGEST: ${{ needs.build.outputs.digest }}
-        run: |
-          set -euo pipefail
-          printf 'name=%s-%s\n' "${IMAGENAME##*/}" "${DIGEST#sha256:}" >> "$GITHUB_OUTPUT"
-
-      # cosign attach (in actions/verify) pushes the VSA referrer to ghcr, which
-      # needs registry auth. Same pin as the verify job's cosign-installer — bump
-      # in lockstep.
+      # Round-tripping the bundle through ghcr needs registry auth. Same pin as
+      # the attest job's cosign-installer — bump in lockstep.
       - uses: sigstore/cosign-installer@6f9f17788090df1f26f669e9d70d6ae9567deba6 # v4.1.2
         with:
           # Must match the cosign built from tools/go.mod — the version the suite tests.
@@ -260,7 +238,7 @@ jobs:
       # Use the job's own GITHUB_TOKEN (packages: write above), like the build
       # job — not the passed gh_token, which zizmor's secrets-outside-env flags
       # for use without a dedicated environment.
-      - name: Log in to ghcr for the VSA push
+      - name: Log in to ghcr for the bundle round-trip
         uses: docker/login-action@650006c6eb7dba73a995cc03b0b2d7f5ca915bee # v4.2.0
         with:
           registry: ${{ inputs.registry }}
@@ -268,17 +246,18 @@ jobs:
           password: ${{ secrets.GITHUB_TOKEN }}
 
       # TODO: replace with $/actions/verify when GitHub ships $/ syntax (#136)
-      - uses: TomHennen/wrangle/actions/verify@344eedec99a5d7ed85d6d1f7d347d32a00253548 # main 2026-06-13
+      - uses: TomHennen/wrangle/actions/verify@af98635202c7f54e86413fe6b8d7a5cece6d3b41 # feat/bundle-single-intoto-181 2026-06-16 (bootstrap PR HEAD; bump after merge)
         with:
-          subject: ${{ needs.build.outputs.digest }}
+          subjects: ${{ needs.build.outputs.digest }}
           policy: policies/wrangle-provenance-container-v1.hjson
           collector: oci:${{ needs.build.outputs.imagename }}@${{ needs.build.outputs.digest }}
+          bundle-out: bundles
+          artifact-name: container-bundle-${{ needs.build.outputs.shortname }}
           # resourceUri is the OCI image ref a container consumer fetches and
           # pins when verifying the VSA; the subject digest is the cryptographic bind.
           context: buildPoint:git+https://github.com/${{ github.repository }},vsa.resourceUri:${{ needs.build.outputs.imagename }}@${{ needs.build.outputs.digest }}
-          artifact-name: ${{ steps.vsaname.outputs.name }}
           fail: "true"
-          # Push the signed VSA to the registry as an OCI referrer (containers
-          # have no GitHub release to attach it to).
+          # Seed each bundle from this digest's provenance referrer and push the
+          # bundle back as its own by-digest referrer (fail-closed).
           oci-target: ${{ needs.build.outputs.imagename }}@${{ needs.build.outputs.digest }}
           attach-to-release: "false"

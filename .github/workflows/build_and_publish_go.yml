@@ -138,6 +138,9 @@ on:
       provenance-artifact-name:
         description: "Name of the workflow artifact containing the SLSA provenance bundle — one JSON object per line, covering all dist subjects. Empty when should-release is false."
         value: ${{ jobs.attest.outputs.bundle-artifact-name }}
+      bundle-artifact-name:
+        description: "Name of the workflow artifact containing the single in-toto JSONL bundle (SLSA provenance + one signed VSA per dist subject). Empty when should-release is false."
+        value: ${{ jobs.verify.outputs.bundle-artifact-name }}
       metadata-artifact-name:
         description: "Name of the workflow artifact containing sbom.spdx.json. Format: `go-metadata-<shortname>`."
         value: ${{ jobs.release.outputs.metadata-artifact-name }}
@@ -272,7 +275,7 @@ jobs:
       shortname: ${{ steps.release.outputs.shortname }}
       dist-artifact-name: go-dist-${{ steps.release.outputs.shortname }}
       metadata-artifact-name: go-metadata-${{ steps.release.outputs.shortname }}
-      # JSON array of dist filenames, so the verify job can fan out one VSA per artifact.
+      # JSON array of dist filenames the verify job binds one VSA to each.
       dist-files: ${{ steps.distfiles.outputs.files }}
     steps:
       - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
@@ -307,7 +310,7 @@ jobs:
           set -euo pipefail
           printf 'module=%s\n' "$(go -C "$INPUT_PATH" list -m | head -n1)" >> "$GITHUB_OUTPUT"
 
-      # Emit the dist filenames as a JSON array for the verify job's matrix.
+      # Emit the dist filenames as a JSON array; the verify job binds one VSA per file.
       # Derived from the build's base64 `hashes` output (the "<sha256>  <name>" lines the
       # provenance covers, from dist/checksums.txt), reduced to basenames.
       - id: distfiles
@@ -317,11 +320,11 @@ jobs:
         run: |
           set -euo pipefail
           files="$(printf '%s' "$HASHES" | base64 -d | awk '{ sub(/^.*\//, "", $2); print $2 }' | jq -R . | jq -cs .)"
-          # Fail closed: an empty array would expand the verify matrix to zero
-          # shards, skipping the release-gating verify job — and a skipped job
-          # propagates as success. Never let the gate collapse silently.
+          # Fail closed: an empty array leaves the verify job with no subject to
+          # bind a VSA to, silently dropping the release-gating verification.
+          # Never let the gate collapse silently.
           if [[ "$files" == "[]" ]]; then
-              printf 'no dist files to attest — refusing to emit an empty VSA matrix\n' >&2
+              printf 'no dist files to attest — refusing to emit a VSA-less bundle\n' >&2
               exit 1
           fi
           printf 'files=%s\n' "$files" >> "$GITHUB_OUTPUT"
@@ -368,7 +371,7 @@ jobs:
 
       # Stage the signed provenance bundle as a workflow artifact for the verify
       # job; jq -c normalizes it to one JSON object per line for ampel's jsonl:
-      # collector. One multi-subject bundle (the matrix shards == checksums entries).
+      # collector. One multi-subject bundle, covering every checksums entry.
       - name: Stage the provenance bundle for the VSA
         env:
           BUNDLE_PATH: ${{ steps.attest.outputs.bundle-path }}
@@ -383,12 +386,10 @@ jobs:
           path: ${{ runner.temp }}/provenance.jsonl
           if-no-files-found: error
 
-  # Emit a signed SLSA Verification Summary Attestation (VSA) per dist archive.
-  # ampel evaluates the attest-build-provenance bundle against the
-  # wrangle-provenance-go-v1 PolicySet (which binds wrangle's builder identity and
-  # verifies the bundle's Sigstore signature — fail-closed) and bnd signs the
-  # result keyless with this workflow's OIDC identity; the per-binary VSA is
-  # attached to the release on tag via the verify action's attach step.
+  # Emit one signed SLSA Verification Summary Attestation (VSA) per dist archive
+  # and append it to the SLSA provenance, producing one per-artifact
+  # <archive>.intoto.jsonl bundle consumers fetch. bnd signs each VSA keyless with
+  # this workflow's OIDC identity; the bundle is attached to the release on tag.
   #
   # goreleaser publishes INLINE in the `release` job, so by the time this runs
   # the release is already live. fail: true therefore does NOT block goreleaser's
@@ -400,33 +401,33 @@ jobs:
     needs: [guard, gate, release, attest]
     runs-on: ubuntu-latest
     permissions:
-      id-token: write    # bnd keyless-signs the VSA via this workflow's OIDC identity
-      contents: write    # attach the VSA to the release on tag pushes
-    strategy:
-      fail-fast: false
-      matrix:
-        artifact: ${{ fromJSON(needs.release.outputs.dist-files) }}
+      id-token: write    # bnd keyless-signs each VSA via this workflow's OIDC identity
+      contents: write    # attach the bundle to the release on tag pushes
+    outputs:
+      bundle-artifact-name: go-bundle-${{ needs.release.outputs.shortname }}
     steps:
       - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
         with:
           name: ${{ needs.release.outputs.dist-artifact-name }}
           path: dist/
 
-      # The one multi-subject provenance bundle the attest job staged; each
-      # matrix shard reads it and self-selects its own subject digest.
+      # The one multi-subject provenance bundle the attest job staged; the VSAs
+      # append to it to form the single bundle.
       - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
         with:
           name: go-provenance-bundle-${{ needs.release.outputs.shortname }}
           path: provenance/
 
       # TODO: replace with $/actions/verify when GitHub ships $/ syntax (#136)
-      - uses: TomHennen/wrangle/actions/verify@344eedec99a5d7ed85d6d1f7d347d32a00253548 # main 2026-06-13
+      - uses: TomHennen/wrangle/actions/verify@af98635202c7f54e86413fe6b8d7a5cece6d3b41 # feat/bundle-single-intoto-181 2026-06-16 (bootstrap PR HEAD; bump after merge)
         with:
-          subject: dist/${{ matrix.artifact }}
+          dist-files: ${{ needs.release.outputs.dist-files }}
           policy: policies/wrangle-provenance-go-v1.hjson
           collector: jsonl:provenance/provenance.jsonl
+          bundle-in: provenance/provenance.jsonl
+          bundle-out: bundles
+          artifact-name: go-bundle-${{ needs.release.outputs.shortname }}
           # resourceUri is the golang module purl consumers pin when verifying;
-          # the subject digest is the cryptographic bind.
+          # each subject digest is the cryptographic bind.
           context: buildPoint:git+https://github.com/${{ github.repository }},vsa.resourceUri:pkg:golang/${{ needs.release.outputs.module }}@${{ needs.release.outputs.version }}
-          artifact-name: ${{ matrix.artifact }}
           fail: "true"
