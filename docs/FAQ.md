@@ -75,3 +75,27 @@ scan-tools: "osv zizmor scorecard:info wrangle-lint"
 ```
 
 `osv`, `zizmor`, and `wrangle-lint` stay blocking on real findings.
+
+## Why these tools and not others?
+
+They seemed good for the job. wrangle isn't a ranking of every scanner or
+policy engine, it's a working composition of solid, open-source ones.
+
+The choice isn't load-bearing: tools can be replaced, and new ones added as
+they come up. That's the point of the framework, not a claim that today's
+lineup is the only right one.
+
+## Doesn't depending on wrangle just add another supply chain risk?
+
+Yes, it does. Using wrangle's reusable workflow means trusting wrangle, the
+same as any action you pull in. And right now wrangle is one person's hobby
+project with no external security review, so the honest answer is: probably
+don't depend on it yet. Immutable release tags and the signed VSA are there to
+bound that trust, but they don't turn a proof-of-concept into something to put
+under a production release.
+
+## Why GitHub Actions only?
+
+You have to start somewhere, and this is where most developers already are, and
+where a lot of the recent supply chain incidents have landed. Walk, then run.
+Other CI systems could follow if the idea proves out.
