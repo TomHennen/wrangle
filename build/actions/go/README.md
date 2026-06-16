@@ -80,6 +80,8 @@ ampel verify --subject <archive> \
 
 That single command checks — fail-closed — the signature, wrangle's signer identity, that the build ran in *your* repo, and that policy passed at SLSA Build L3. The module path is the `module` directive in your `go.mod`. No ampel? See the [artifact verification guide](../../../docs/verifying_artifacts.md) for an equivalent cosign recipe and the full trust model.
 
+The VSA is also posted to your repo's GitHub attestation store, so consumers can fetch it by digest with no download via ampel's `--collector github:<your-org>/<your-repo>` — see the [by-digest path](../../../docs/verifying_artifacts.md#by-digest-from-the-github-attestation-store).
+
 ## Further reading
 
 - [`SPEC.md`](./SPEC.md) — design rationale: tool choices, permissions architecture, cache isolation.

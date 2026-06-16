@@ -225,8 +225,9 @@ jobs:
     # requesting it here would be a startup-failing escalation; the bundle ships
     # as a workflow artifact and an OCI referrer, not a release asset.
     permissions:
-      id-token: write    # bnd keyless-signs the VSA via this workflow's OIDC identity
-      packages: write    # pull provenance and push the bundle referrer to ghcr
+      id-token: write       # bnd keyless-signs the VSA via this workflow's OIDC identity
+      attestations: write   # post the VSA to the GitHub attestation store
+      packages: write       # pull provenance and push the bundle referrer to ghcr
     steps:
       # Round-tripping the bundle through ghcr needs registry auth. Same pin as
       # the attest job's cosign-installer — bump in lockstep.

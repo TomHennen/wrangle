@@ -4,13 +4,16 @@
 #
 # Subcommands:
 #   run    emit -> sign -> append per subject in one process, so an unsigned VSA
-#          never lives on disk across a step boundary. With OCI_TARGET set, each
-#          signed VSA is also pushed by image digest as its own OCI referrer.
+#          never lives on disk across a step boundary. Each signed VSA is also
+#          posted to the GitHub attestation store (by-digest discovery); with
+#          OCI_TARGET set it is additionally pushed as its own OCI referrer.
 #   attach upload every bundle to the GitHub release for the current tag, if any.
 #
 # Arg-builder functions are pure so unit tests can assert the CLI shape offline.
 # Inputs arrive as env vars: SUBJECTS (newline-separated), POLICY, COLLECTOR,
-# FAIL, CONTEXT, BUNDLE_IN, BUNDLE_OUT, and optional ATTESTATION, OCI_TARGET.
+# FAIL, CONTEXT, BUNDLE_IN, BUNDLE_OUT, GITHUB_REPOSITORY (store push target),
+# GITHUB_TOKEN (bnd reads it to auth the store push), and optional ATTESTATION,
+# OCI_TARGET.
 
 set -euo pipefail
 set -f  # disable globbing — processes external input
@@ -79,6 +82,14 @@ wrangle_cosign_attach_args() {
     printf '%s\n' attach attestation \
         --attestation "$1" \
         "$2"
+}
+
+# Build the bnd arg vector that posts a signed VSA to the GitHub attestation
+# store. $1 is <owner>/<repo>; $2 the bnd-signed VSA file. The store is keyed
+# by subject digest, giving consumers by-digest discovery via ampel's github:
+# collector.
+wrangle_bnd_push_args() {
+    printf '%s\n' push github "$1" "$2"
 }
 
 # Split SUBJECTS into an array, dropping blank lines. Fail closed on an empty
@@ -171,6 +182,15 @@ wrangle_push_bundle() {
     wrangle_retry_once /dev/null cosign "${args[@]}"
 }
 
+# Post the signed VSA at $1 to the GitHub attestation store (all build types).
+# Provenance is already in the store from attest-build-provenance, so only the
+# VSA is pushed. Fails closed: a missing by-digest VSA is a real delivery gap.
+wrangle_push_store() {
+    local args
+    mapfile -t args < <(wrangle_bnd_push_args "$GITHUB_REPOSITORY" "$1")
+    wrangle_retry_once /dev/null bnd "${args[@]}"
+}
+
 # Verify every subject, sign its VSA, and write one bundle per subject into
 # BUNDLE_OUT — all in one process so an unsigned VSA never crosses a boundary.
 wrangle_run() {
@@ -208,10 +228,12 @@ wrangle_run() {
         cp "$seed" "$bundle"
         wrangle_verify_emit_vsa "$subject" "$tmp_vsa"
         wrangle_sign_vsa "$tmp_vsa"
-        # Flatten bnd's pretty statement to one JSON line: appended to the bundle
-        # and pushed alone as the referrer (cosign attach rejects multi-line).
+        # Flatten bnd's pretty statement to one JSON line: appended to the bundle,
+        # posted to the store, and pushed alone as the OCI referrer (cosign attach
+        # rejects multi-line).
         jq -c . "$tmp_vsa" > "$vsa_line"
         cat "$vsa_line" >> "$bundle"
+        wrangle_push_store "$vsa_line"
         wrangle_push_bundle "$vsa_line"
     done
     rm -f "$tmp_vsa" "$vsa_line" "$seed"

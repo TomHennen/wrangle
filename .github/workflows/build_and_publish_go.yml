@@ -401,8 +401,9 @@ jobs:
     needs: [guard, gate, release, attest]
     runs-on: ubuntu-latest
     permissions:
-      id-token: write    # bnd keyless-signs each VSA via this workflow's OIDC identity
-      contents: write    # attach the bundle to the release on tag pushes
+      id-token: write       # bnd keyless-signs each VSA via this workflow's OIDC identity
+      attestations: write   # post each VSA to the GitHub attestation store
+      contents: write       # attach the bundle to the release on tag pushes
     outputs:
       bundle-artifact-name: go-bundle-${{ needs.release.outputs.shortname }}
     steps:
