@@ -300,14 +300,11 @@ jobs:
 
   # Emit one signed SLSA Verification Summary Attestation (VSA) per dist artifact
   # and append it to the SLSA provenance, producing one per-artifact
-  # <artifact>.intoto.jsonl bundle. ampel evaluates the attest-build-provenance
-  # bundle against the wrangle-provenance-python-v1 PolicySet (which binds
-  # wrangle's builder identity and verifies the bundle's Sigstore signature —
-  # fail-closed) and bnd signs each VSA keyless with this workflow's OIDC
-  # identity; a FAILED policy fails the step (fail: true) and blocks the caller's
-  # publish via needs: propagation. Provenance-only for now — SBOM/OSV tenets
-  # follow once those are produced as signed attestations a registered identity
-  # covers.
+  # <artifact>.intoto.jsonl bundle. bnd signs each VSA keyless with this workflow's
+  # OIDC identity; a FAILED policy fails the step (fail: true) and blocks the
+  # caller's publish via needs: propagation. Provenance-only for now — SBOM/OSV
+  # tenets follow once those are produced as signed attestations a registered
+  # identity covers.
   verify:
     if: ${{ needs.gate.outputs.should-release == 'true' }}
     needs: [guard, gate, build, attest]
