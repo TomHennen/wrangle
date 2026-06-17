@@ -21,6 +21,21 @@ Wrangle produces two attestations for every released artifact:
 A consumer's one-command check is the VSA: it carries the full verdict, so
 you trust one signature instead of re-running the policy engine.
 
+## Where each output is stored
+
+Every build produces the same outputs; this is where each one lands.
+
+| Output | Go | Python | npm | Container |
+|---|---|---|---|---|
+| Built artifact | GitHub release | PyPI | npmjs.org | image in `ghcr.io` |
+| SBOM (SPDX) | workflow artifact | workflow artifact | workflow artifact | OCI attestation on the image, and a workflow artifact |
+| Provenance + VSA (`<artifact>.intoto.jsonl` bundle) | GitHub release + workflow artifact | GitHub release (when one exists) + workflow artifact | GitHub release (when one exists) + workflow artifact | OCI referrers on the image digest + workflow artifact |
+| Scan findings (SARIF) | Security tab | Security tab | Security tab | Security tab |
+
+Provenance and VSA travel together in one per-artifact JSONL [in-toto bundle](https://github.com/in-toto/attestation/blob/main/spec/v1/bundle.md); the provenance also lands in [GitHub's attestation store](https://docs.github.com/actions/security-guides/using-artifact-attestations). Python and npm carry an extra ecosystem-native attestation beside it — PEP 740 on PyPI, an L2 provenance attestation on the npm registry.
+
+wrangle attaches the bundle to a GitHub release but never creates one: a Python or npm project that publishes only to PyPI/npm and cuts no release keeps just the workflow-artifact copy (retained ~90 days). Go always has a goreleaser-created release, and container bundles are fetched by digest from the registry. Workflow-artifact names and the on-disk `metadata/<type>/<shortname>/` layout are documented in each reusable workflow's outputs and [`SPEC.md`](SPEC.md).
+
 ## What to plug in, per ecosystem
 
 | Build type | VSA location | `resourceUri` to expect | Signing workflow |

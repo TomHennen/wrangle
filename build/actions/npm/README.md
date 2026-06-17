@@ -43,6 +43,17 @@ These steps set up [npm Trusted Publishing](https://docs.npmjs.com/trusted-publi
 - **SLSA Build L3 provenance** ([the requirements it meets](../../../docs/REQUIREMENTS_MAPPING.md)), in addition to the L2 attestation `npm publish --provenance` writes to the registry.
 - **A signed VSA** attached to the release on tag pushes, so downstream users can verify the tarball with one command.
 
+## Where's my stuff?
+
+After a release run:
+
+- **Tarball** — published to npmjs.org; also kept as a workflow artifact.
+- **Provenance + VSA** — together in a per-artifact `<tarball>.intoto.jsonl` bundle, attached to your GitHub release when you cut one and always kept as a workflow artifact. The npm registry also carries an L2 provenance attestation.
+- **SBOM** — a workflow artifact.
+- **Scan findings** — the Security tab.
+
+The [cross-ecosystem map](../../../docs/verifying_artifacts.md#where-each-output-is-stored) lays all four build types out side by side.
+
 ## Your publish job
 
 Publishing happens in your workflow, so two things there are load-bearing — both already wired in the example:

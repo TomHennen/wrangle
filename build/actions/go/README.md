@@ -46,6 +46,17 @@ Push a `v`-prefixed semver tag (e.g. `v1.2.3`) and wrangle runs the full pipelin
 - **SLSA Build L3 provenance** tying each artifact to the workflow that built it ([the requirements it meets](../../../docs/REQUIREMENTS_MAPPING.md)).
 - **A signed VSA** attached to the release, so downstream users can verify your artifacts with one command.
 
+## Where's my stuff?
+
+After a release run:
+
+- **Binaries + `checksums.txt`** — the GitHub release goreleaser cut.
+- **Provenance + VSA** — together in a per-artifact `<archive>.intoto.jsonl` bundle, attached to that release and kept as a workflow artifact.
+- **SBOM** — a workflow artifact.
+- **Scan findings** — the Security tab.
+
+The [cross-ecosystem map](../../../docs/verifying_artifacts.md#where-each-output-is-stored) lays all four build types out side by side.
+
 ## Good to know
 
 - **Tags must be `v`-prefixed semver** (`v1.2.3`) — goreleaser derives the version from the nearest `v*` tag. No `v*` tags yet? Use the [example config](../../../gh_workflow_examples/build_go.goreleaser.yml)'s snapshot template, which doesn't depend on tag history.

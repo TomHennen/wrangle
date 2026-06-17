@@ -20,6 +20,17 @@ Copy [`build_and_publish_containers.yml`](../../../gh_workflow_examples/build_an
 - **SLSA Build L3 provenance** for the image digest ([the requirements it meets](../../../docs/REQUIREMENTS_MAPPING.md)).
 - **A signed VSA** pushed to the registry as its own OCI referrer on the image digest — so consumers can verify the image with one command — and also delivered in the per-artifact `.intoto.jsonl` bundle (provenance + VSA) as a workflow artifact. The provenance is a separate referrer (from `attest-build-provenance`).
 
+## Where's my stuff?
+
+After a build:
+
+- **Image** — pushed to `ghcr.io`.
+- **Provenance + VSA** — OCI referrers on the image digest (containers cut no GitHub release), and together in a per-artifact `sha256-<digest>.intoto.jsonl` bundle kept as a workflow artifact.
+- **SBOM** — an OCI attestation on the image, and a workflow artifact.
+- **Scan findings** — the Security tab.
+
+The [cross-ecosystem map](../../../docs/verifying_artifacts.md#where-each-output-is-stored) lays all four build types out side by side.
+
 ## Good to know
 
 - **`release-events`** (default: `non-pull-request`) gates provenance generation and verification — see [`docs/SPEC.md`](../../../docs/SPEC.md) "Release-events gating". The docker push itself happens earlier and is gated by your workflow's own `on:` triggers.
