@@ -23,14 +23,27 @@ inputs:
     required: false
     default: ""
 
+outputs:
+  metadata-dir:
+    description: >
+      Filesystem path to the metadata directory holding each tool's
+      output.sarif and scan results — the same directory uploaded as the
+      wrangle-scan-results artifact.
+    value: ${{ steps.setup.outputs.metadata-dir }}
+
 runs:
   using: "composite"
   steps:
     - name: Set up wrangle
+      id: setup
       shell: bash
       env:
         WRANGLE_ROOT: ${{ github.action_path }}/../..
-      run: "$WRANGLE_ROOT/lib/setup.sh"
+      run: |
+        "$WRANGLE_ROOT/lib/setup.sh"
+        # shellcheck source=../../lib/env.sh
+        source "$WRANGLE_ROOT/lib/env.sh"
+        printf 'metadata-dir=%s\n' "$WRANGLE_METADATA_DIR" >> "$GITHUB_OUTPUT"
 
     # Stage the tool manifest's go.sum as a cache key under a non-lockfile
     # name: the osv adapter scans $GITHUB_WORKSPACE recursively, so a file
