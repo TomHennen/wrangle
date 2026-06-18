@@ -246,11 +246,13 @@ wrangle_attest_args() {
 wrangle_emit_metadata_statements() {
     [[ -z "${METADATA_ROOT:-}" || ! -d "${METADATA_ROOT:-}" ]] && return 0
     local subject="$1" bundle="$2" subj_sha
-    subj_sha="$(wrangle_subject_sha256 "$subject")"
+    subj_sha="$(wrangle_subject_sha256 "$subject")" || return 1
     local stmts args
     stmts="$(mktemp "${RUNNER_TEMP:-/tmp}/attest.XXXXXX")"
     mapfile -t args < <(wrangle_attest_args "$subj_sha" "$stmts")
-    wrangle-attest "${args[@]}"
+    # A malformed/missing manifest aborts here — never ship a bundle silently
+    # missing its SBOM statement.
+    wrangle-attest "${args[@]}" || { rm -f "$stmts"; return 1; }
     # Sign and deliver each unsigned statement line in the same trusted process
     # as the VSA, so an unsigned statement never crosses a step boundary. Flatten
     # bnd's pretty statement to one line: appended to the bundle, posted to the
