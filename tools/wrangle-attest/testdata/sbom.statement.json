@@ -1,0 +1,22 @@
+{
+  "_type": "https://in-toto.io/Statement/v1",
+  "predicate": {
+    "SPDXID": "SPDXRef-DOCUMENT",
+    "name": "test",
+    "packages": [
+      {
+        "SPDXID": "SPDXRef-pkg",
+        "name": "pkg"
+      }
+    ],
+    "spdxVersion": "SPDX-2.3"
+  },
+  "predicateType": "https://spdx.dev/Document",
+  "subject": [
+    {
+      "digest": {
+        "sha256": "011b95c8e47c538646a2c01df5373fe703381cd415c847357b3d563563eb1d95"
+      }
+    }
+  ]
+}

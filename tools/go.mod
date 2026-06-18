@@ -3,6 +3,7 @@ module github.com/TomHennen/wrangle/tools
 go 1.26.4
 
 tool (
+	github.com/TomHennen/wrangle/tools/wrangle-attest
 	github.com/TomHennen/wrangle/tools/wrangle-lint
 	github.com/carabiner-dev/ampel/cmd/ampel
 	github.com/carabiner-dev/bnd
@@ -12,7 +13,9 @@ tool (
 )
 
 require (
+	github.com/in-toto/attestation v1.2.0
 	github.com/owenrumney/go-sarif/v3 v3.3.0
+	google.golang.org/protobuf v1.36.11
 	gopkg.in/yaml.v3 v3.0.1
 )
 
@@ -272,7 +275,6 @@ require (
 	github.com/hjson/hjson-go/v4 v4.6.0 // indirect
 	github.com/ianlancetaylor/demangle v0.0.0-20251118225945-96ee0021ea0f // indirect
 	github.com/icholy/digest v1.1.0 // indirect
-	github.com/in-toto/attestation v1.2.0 // indirect
 	github.com/in-toto/in-toto-golang v0.11.0 // indirect
 	github.com/inconshreveable/mousetrap v1.1.0 // indirect
 	github.com/jbenet/go-context v0.0.0-20150711004518-d14ea06fba99 // indirect
@@ -469,7 +471,6 @@ require (
 	google.golang.org/genproto/googleapis/api v0.0.0-20260608224507-4308a22a1bab // indirect
 	google.golang.org/genproto/googleapis/rpc v0.0.0-20260608224507-4308a22a1bab // indirect
 	google.golang.org/grpc v1.81.1 // indirect
-	google.golang.org/protobuf v1.36.11 // indirect
 	gopkg.in/evanphx/json-patch.v4 v4.13.0 // indirect
 	gopkg.in/inf.v0 v0.9.1 // indirect
 	gopkg.in/ini.v1 v1.67.2 // indirect
