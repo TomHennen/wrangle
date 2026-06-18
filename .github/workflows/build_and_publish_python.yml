@@ -346,7 +346,7 @@ jobs:
           path: scan-metadata/
 
       # TODO: replace with $/actions/verify when GitHub ships $/ syntax (#136)
-      - uses: TomHennen/wrangle/actions/verify@d48f3f4afee459fc272fdbbd67dc29c90da11d79 # feat/wrangle-attest-sbom 2026-06-18 (bootstrap PR HEAD; bump after merge)
+      - uses: TomHennen/wrangle/actions/verify@4035b0e3e9aa96972d8d759d321eba6f7871ddc2 # feat/osv-attestation 2026-06-18 (bootstrap PR HEAD; bump after merge)
         with:
           dist-files: ${{ needs.build.outputs.dist-files }}
           policy: policies/wrangle-provenance-python-v1.hjson
