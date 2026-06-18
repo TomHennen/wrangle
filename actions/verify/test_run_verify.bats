@@ -73,6 +73,32 @@ teardown() {
     printf '%s\n' "${args[@]}" | grep -qx -- "--policy=/etc/wrangle/policy.hjson"
 }
 
+# --- subject arg (single-sha256 subject) ---
+
+@test "run_verify: subject_arg hashes a file subject to a single sha256 --subject-hash" {
+    # The store rejects a multi-digest subject; passing the file as a precomputed
+    # sha256 hash keeps the VSA subject single-digest (ampel's file hasher would
+    # otherwise add sha512).
+    printf 'CONTENT\n' > "$TEST_DIR/blob"
+    local want; want="$(sha256sum "$TEST_DIR/blob" | cut -d' ' -f1)"
+    run wrangle_subject_arg "$TEST_DIR/blob"
+    [[ "$status" -eq 0 ]]
+    [[ "$output" == "--subject-hash=sha256:$want" ]]
+}
+
+@test "run_verify: subject_arg passes a digest subject through as --subject" {
+    # A container subject is already a digest; ampel synthesizes a single-digest
+    # descriptor from it, so it needs no re-hashing.
+    run wrangle_subject_arg "sha256:0000000000000000000000000000000000000000000000000000000000000000"
+    [[ "$status" -eq 0 ]]
+    [[ "$output" == "--subject=sha256:0000000000000000000000000000000000000000000000000000000000000000" ]]
+}
+
+@test "run_verify: subject_arg fails closed on an unreadable file subject" {
+    run wrangle_subject_arg "$TEST_DIR/does-not-exist.tgz"
+    [[ "$status" -ne 0 ]]
+}
+
 # --- ampel arg vector ---
 
 @test "run_verify: ampel args carry the core verify flags for the given subject" {
@@ -471,8 +497,10 @@ STUB
     cat > "$TEST_DIR/ampel" <<STUB
 #!/bin/bash
 # Emit a one-line JSON unsigned VSA naming the subject, where --results-path points.
+# File subjects are hashed by run_verify to --subject-hash; echo that back so the
+# test can prove the per-subject VSA reached the bundle and the store.
 subj=""
-for a in "\$@"; do case "\$a" in --subject=*) subj="\${a#--subject=}";; esac; done
+for a in "\$@"; do case "\$a" in --subject-hash=*) subj="\${a#--subject-hash=}";; --subject=*) subj="\${a#--subject=}";; esac; done
 for a in "\$@"; do case "\$a" in --results-path=*) printf '{"unsigned":"%s"}\n' "\$subj" > "\${a#--results-path=}";; esac; done
 printf 'report\n'
 STUB
@@ -490,25 +518,34 @@ STUB
     : > "$GITHUB_STEP_SUMMARY"
     : > "$TEST_DIR/pushed"
     printf '{"provenance":1}\n' > "$BUNDLE_IN"
-    export SUBJECTS=$'dist/a.tgz\ndist/b.whl'
+    # Real file subjects: run_verify sha256-hashes each into a single-digest
+    # --subject-hash, so the VSA's subject can't carry two digests (the store
+    # rejects that). Distinct bytes -> distinct digests the assertions key on.
+    mkdir -p "$TEST_DIR/dist"
+    printf 'AAA\n' > "$TEST_DIR/dist/a.tgz"
+    printf 'BBB\n' > "$TEST_DIR/dist/b.whl"
+    local ha hb
+    ha="sha256:$(sha256sum "$TEST_DIR/dist/a.tgz" | cut -d' ' -f1)"
+    hb="sha256:$(sha256sum "$TEST_DIR/dist/b.whl" | cut -d' ' -f1)"
+    export SUBJECTS="$TEST_DIR/dist/a.tgz"$'\n'"$TEST_DIR/dist/b.whl"
 
     run "$SCRIPT" run
     [[ "$status" -eq 0 ]]
     # One per-artifact bundle per subject, named <artifact-basename>.intoto.jsonl.
     local a="$BUNDLE_OUT/a.tgz.intoto.jsonl" b="$BUNDLE_OUT/b.whl.intoto.jsonl"
     [[ -f "$a" && -f "$b" ]]
-    # Each subject's signed VSA was posted to the store (one push per subject).
-    grep -q '"signed":{"unsigned":"dist/a.tgz"}' "$TEST_DIR/pushed"
-    grep -q '"signed":{"unsigned":"dist/b.whl"}' "$TEST_DIR/pushed"
+    # Each subject's signed VSA (keyed by its sha256) was posted to the store.
+    grep -q "\"signed\":{\"unsigned\":\"$ha\"}" "$TEST_DIR/pushed"
+    grep -q "\"signed\":{\"unsigned\":\"$hb\"}" "$TEST_DIR/pushed"
     # Each bundle is the seeded provenance line plus exactly that subject's VSA.
     [[ "$(wc -l < "$a")" -eq 2 ]]
     [[ "$(wc -l < "$b")" -eq 2 ]]
     run head -n1 "$a"; [[ "$output" == '{"provenance":1}' ]]
-    grep -q '"signed":{"unsigned":"dist/a.tgz"}' "$a"
-    grep -q '"signed":{"unsigned":"dist/b.whl"}' "$b"
+    grep -q "\"signed\":{\"unsigned\":\"$ha\"}" "$a"
+    grep -q "\"signed\":{\"unsigned\":\"$hb\"}" "$b"
     # A subject's bundle carries only its own VSA, not the other's.
-    ! grep -q '"unsigned":"dist/b.whl"' "$a"
-    ! grep -q '"unsigned":"dist/a.tgz"' "$b"
+    ! grep -q "$hb" "$a"
+    ! grep -q "$ha" "$b"
     # Every line is one JSON object (valid JSONL).
     run jq -e . "$a"; [[ "$status" -eq 0 ]]
     run jq -e . "$b"; [[ "$status" -eq 0 ]]

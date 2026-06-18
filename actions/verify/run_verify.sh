@@ -45,12 +45,30 @@ wrangle_retry_once() {
     "$@" > "$out"
 }
 
+# Emit the ampel subject flag for one subject, one arg per line. A digest-form
+# subject (algo:hex, e.g. a container) passes through; a file subject is hashed
+# to sha256 ourselves and passed as --subject-hash so the VSA subject carries a
+# single sha256 digest — ampel's file hasher emits sha256+sha512, but the GitHub
+# attestation store rejects a multi-digest subject.
+wrangle_subject_arg() {
+    local subject="$1" digest
+    if [[ "$subject" =~ ^[a-z0-9]+:[a-f0-9]+$ ]]; then
+        printf -- '--subject=%s\n' "$subject"
+        return 0
+    fi
+    # A missing/unreadable subject file must fail closed, not yield an empty hash.
+    digest="$(sha256sum "$subject")" || return 1
+    printf -- '--subject-hash=sha256:%s\n' "${digest%% *}"
+}
+
 # Build the ampel verify arg vector for one subject, one arg per line for
 # mapfile. $1 is the subject; $2 the unsigned-VSA output path.
 wrangle_ampel_verify_args() {
     local subject="$1" results_path="$2"
-    local args=(verify
-        --subject="$subject"
+    # Capture (not process-substitute) so a subject-hashing failure aborts.
+    local subject_arg
+    subject_arg="$(wrangle_subject_arg "$subject")"
+    local args=(verify "$subject_arg"
         --collector="$COLLECTOR"
         --policy="$(wrangle_resolve_policy "$POLICY")"
         --exit-code="$FAIL"
@@ -113,6 +131,12 @@ wrangle_verify_emit_vsa() {
     local subject="$1" results_path="$2"
     local args report rc=0
     mapfile -t args < <(wrangle_ampel_verify_args "$subject" "$results_path")
+    # Fail closed: an aborted arg builder (e.g. a subject file we couldn't hash)
+    # yields a short/empty vector, never a silently mis-verified subject.
+    if [[ "${args[0]:-}" != "verify" || "${args[1]:-}" != --subject* ]]; then
+        printf 'wrangle: could not build ampel args for %s\n' "$subject" >&2
+        return 2
+    fi
 
     # Capture the report to a file before sanitizing: ampel's --exit-code carries
     # the policy verdict, and piping straight into the truncating sanitizer could
