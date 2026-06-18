@@ -706,7 +706,8 @@ if [[ "\$1" == "push" ]]; then cat "\$4" >> "$TEST_DIR/pushed"; exit 0; fi
 printf '{\n  "signed": '; cat "\$2"; printf '}\n'
 STUB
     chmod +x "$TEST_DIR/bnd"
-    export PATH="$(dirname "$ATTEST_BIN"):$TEST_DIR:$PATH"
+    local attest_dir; attest_dir="$(dirname "$ATTEST_BIN")"
+    export PATH="$attest_dir:$TEST_DIR:$PATH"
     export METADATA_ROOT="$TEST_DIR/meta"
     export GITHUB_REPOSITORY="o/r"
     export OCI_TARGET=""
@@ -729,7 +730,8 @@ STUB
     if [[ ! -x "$ATTEST_BIN" ]]; then skip_or_fail "real wrangle-attest not available"; fi
     mkdir -p "$TEST_DIR/meta"
     printf '{"predicate-type":"https://spdx.dev/Document"}\n' > "$TEST_DIR/meta/manifest.json"
-    export PATH="$(dirname "$ATTEST_BIN"):$PATH"
+    local attest_dir; attest_dir="$(dirname "$ATTEST_BIN")"
+    export PATH="$attest_dir:$PATH"
     export METADATA_ROOT="$TEST_DIR/meta"
     local bundle="$TEST_DIR/bundle.jsonl"; : > "$bundle"
     run wrangle_emit_metadata_statements "sha256:$(printf '0%.0s' {1..64})" "$bundle"
