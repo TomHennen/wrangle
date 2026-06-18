@@ -71,6 +71,8 @@ case "${OSV_MOCK_MODE:-clean}" in
   "runs": [{"tool": {"driver": {"name": "osv-scanner", "version": "2.3.5"}}, "results": []}]
 }
 SARIF
+        elif [[ "$format" == "json" ]]; then
+            printf '{"results": []}\n' > "$output_file"
         fi
         exit 0
         ;;
@@ -83,12 +85,18 @@ SARIF
   "runs": [{"tool": {"driver": {"name": "osv-scanner", "version": "2.3.5", "rules": [{"id": "GHSA-1234-5678-abcd", "shortDescription": {"text": "Test vulnerability"}}]}}, "results": [{"ruleId": "GHSA-1234-5678-abcd", "level": "error", "message": {"text": "Package 'foo@1.0.0' is vulnerable to 'GHSA-1234-5678-abcd'."}, "locations": [{"physicalLocation": {"artifactLocation": {"uri": "package-lock.json"}, "region": {"startLine": 1}}}]}]}]
 }
 SARIF
+        elif [[ "$format" == "json" ]]; then
+            cat > "$output_file" << 'JSON'
+{"results": [{"source": {"path": "package-lock.json"}, "packages": [{"package": {"name": "foo", "version": "1.0.0"}, "vulnerabilities": [{"id": "GHSA-1234-5678-abcd"}]}]}]}
+JSON
         fi
         exit 1
         ;;
     real-findings)
         if [[ "$format" == "sarif" ]]; then
             cp "$OSV_REAL_SARIF" "$output_file"
+        elif [[ "$format" == "json" ]]; then
+            printf '{"results": [{"packages": [{"vulnerabilities": [{"id": "CVE-2021-3121"}]}]}]}\n' > "$output_file"
         fi
         exit 1
         ;;
@@ -100,6 +108,18 @@ SARIF
         ;;
     bad-json)
         if [[ "$format" == "sarif" ]]; then
+            printf 'not valid json{{{\n' > "$output_file"
+        elif [[ "$format" == "json" ]]; then
+            printf '{"results": []}\n' > "$output_file"
+        fi
+        exit 0
+        ;;
+    bad-json-results)
+        if [[ "$format" == "sarif" ]]; then
+            cat > "$output_file" << 'SARIF'
+{"version": "2.1.0", "runs": [{"tool": {"driver": {"name": "osv-scanner"}}, "results": []}]}
+SARIF
+        elif [[ "$format" == "json" ]]; then
             printf 'not valid json{{{\n' > "$output_file"
         fi
         exit 0
@@ -355,6 +375,41 @@ SARIF
     [ "$status" -eq 0 ]
     [ -s "$TMP_DIR/output/output.md" ]
     grep -qi "no known vulnerabilities" "$TMP_DIR/output/output.md"
+}
+
+# --- adapter.sh: OSV JSON results + attestation manifest ------------------
+
+@test "osv adapter: emits OSV JSON results + manifest (clean)" {
+    export OSV_MOCK_MODE="clean"
+    run "$ADAPTER" "$TMP_DIR/src" "$TMP_DIR/output"
+    [ "$status" -eq 0 ]
+    [ -f "$TMP_DIR/output/results.json" ]
+    jq -e '.results' "$TMP_DIR/output/results.json"
+    [ -f "$TMP_DIR/output/manifest.json" ]
+    [ "$(jq -r '."predicate-type"' "$TMP_DIR/output/manifest.json")" = "https://ossf.github.io/osv-schema/results" ]
+    [ "$(jq -r '."result-file"' "$TMP_DIR/output/manifest.json")" = "results.json" ]
+}
+
+@test "osv adapter: JSON results carry vulnerability ids the tenet reads (findings)" {
+    export OSV_MOCK_MODE="findings"
+    run "$ADAPTER" "$TMP_DIR/src" "$TMP_DIR/output"
+    [ "$status" -eq 1 ]
+    # The no-exploitable-vulns tenet's CEL reads data.results[].packages[].vulnerabilities[].id.
+    [ "$(jq -r '.results[0].packages[0].vulnerabilities[0].id' "$TMP_DIR/output/results.json")" = "GHSA-1234-5678-abcd" ]
+}
+
+@test "osv adapter: no package sources still writes empty JSON results + manifest" {
+    export OSV_MOCK_MODE="no-sources"
+    run "$ADAPTER" "$TMP_DIR/src" "$TMP_DIR/output"
+    [ "$status" -eq 0 ]
+    [ "$(jq '.results | length' "$TMP_DIR/output/results.json")" -eq 0 ]
+    [ -f "$TMP_DIR/output/manifest.json" ]
+}
+
+@test "osv adapter: invalid JSON results produces exit 2" {
+    export OSV_MOCK_MODE="bad-json-results"
+    run "$ADAPTER" "$TMP_DIR/src" "$TMP_DIR/output"
+    [ "$status" -eq 2 ]
 }
 
 # Regression test for #197: SARIF and the markdown summary must agree.

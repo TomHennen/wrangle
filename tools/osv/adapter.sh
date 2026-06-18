@@ -9,6 +9,12 @@ set -f  # disable globbing — adapter processes external input paths
 # Exit: 0 = no findings, 1 = findings found, 2 = tool error
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+WRANGLE_ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)"
+
+# Unversioned osv-schema predicate: the attestation engine passes the OSV JSON
+# results through as the predicate verbatim, and the upstream no-exploitable-vulns
+# tenet (+ its internal:vex transformer) reads data.results[]...vulnerabilities[].id.
+OSV_PREDICATE_TYPE="https://ossf.github.io/osv-schema/results"
 
 if [[ $# -ne 2 ]]; then
     printf 'Usage: adapter.sh <src_dir> <output_dir>\n' >&2
@@ -30,6 +36,7 @@ fi
 
 SARIF_FILE="${OUTPUT_DIR}/output.sarif"
 MD_FILE="${OUTPUT_DIR}/output.md"
+RESULTS_FILE="${OUTPUT_DIR}/results.json"
 
 # Run OSV-Scanner for SARIF output
 osv_exit=0
@@ -62,6 +69,29 @@ if ! jq empty "$SARIF_FILE" 2>/dev/null; then
     printf 'wrangle/osv: produced invalid JSON in SARIF output\n' >&2
     exit 2
 fi
+
+# Emit the OSV JSON results too: this is the shape the attestation engine binds
+# as the osv-schema predicate, and the no-exploitable-vulns tenet reads from it.
+# A second scan invocation (osv-scanner has no SARIF->JSON conversion); its exit
+# code mirrors the SARIF run (0 clean / 1 findings / 128 no-sources) so we accept
+# those and reject anything else as a tool error.
+json_exit=0
+osv-scanner scan --format json --output "$RESULTS_FILE" -r "$SRC_DIR" || json_exit=$?
+if [[ "$json_exit" -eq 128 ]]; then
+    # No package sources: match the SARIF path with an empty results object.
+    jq -n '{"results": []}' > "$RESULTS_FILE"
+elif [[ "$json_exit" -ge 2 ]] && [[ "$json_exit" -ne 1 ]]; then
+    printf 'wrangle/osv: osv-scanner --format json exited with unexpected code %d\n' "$json_exit" >&2
+    exit 2
+fi
+if ! jq empty "$RESULTS_FILE" 2>/dev/null; then
+    printf 'wrangle/osv: produced invalid JSON in results output\n' >&2
+    exit 2
+fi
+
+# Declare the results file to the attestation engine via the standard manifest.
+"$WRANGLE_ROOT/lib/write_attest_manifest.sh" \
+    "$OUTPUT_DIR" "$OSV_PREDICATE_TYPE" "results.json"
 
 # Generate markdown summary from the SARIF we just produced. Using a local
 # render_md.sh (rather than a second osv-scanner invocation with
