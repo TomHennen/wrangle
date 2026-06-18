@@ -286,7 +286,7 @@ jobs:
 
       # TODO: replace with $/build/actions/go/release when GitHub ships $/ syntax (#136)
       # Self-pinned to PR HEAD until merge.
-      - uses: TomHennen/wrangle/build/actions/go/release@b7eb9765639f6ffaf11e994efb63b810d69ff53f # main 2026-06-16
+      - uses: TomHennen/wrangle/build/actions/go/release@de84ed85bc2da0eb62ef089fd9b6fc9332beee1a # bootstrap pin: claude/trusting-fermi-c63gdp (#463); bump to main after merge
         id: release
         with:
           path: ${{ inputs.path }}
@@ -457,7 +457,7 @@ jobs:
 
       # TODO: replace with $/build/actions/go/publish when GitHub ships $/ syntax (#136)
       # Self-pinned to PR HEAD until merge (bootstrap pin — new action not on main).
-      - uses: TomHennen/wrangle/build/actions/go/publish@b7eb9765639f6ffaf11e994efb63b810d69ff53f # main 2026-06-16
+      - uses: TomHennen/wrangle/build/actions/go/publish@de84ed85bc2da0eb62ef089fd9b6fc9332beee1a # bootstrap pin: claude/trusting-fermi-c63gdp (#463); bump to main after merge
         with:
           tag: ${{ needs.release.outputs.version }}
           dist-dir: dist
