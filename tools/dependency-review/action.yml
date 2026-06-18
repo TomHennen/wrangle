@@ -52,7 +52,7 @@ runs:
       # action exits non-zero on findings. lib/check_results.sh is the
       # actual pass/fail gate via the SARIF we produce below — keeping
       # behavior consistent with how zizmor/osv are gated.
-      uses: actions/dependency-review-action@2031cfc080254a8a887f58cffee85186f0e49e48 # v4.9.0
+      uses: actions/dependency-review-action@a1d282b36b6f3519aa1f3fc636f609c47dddb294 # v5.0.0
       continue-on-error: true
       with:
         # Inline inputs take precedence over config-file keys (upstream
