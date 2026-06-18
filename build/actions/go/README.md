@@ -1,6 +1,8 @@
 # Wrangle Build Go
 
-Wrangle wraps your existing `.goreleaser.yml` — it doesn't replace it. You keep your goreleaser config and everything it already does (Docker pushes, Homebrew taps, deb/rpm, announcements). Wrangle adds the security drudgery around it: gofmt/vet/test/govulncheck, an SPDX SBOM, SLSA Build L3 provenance, and a signed VSA your users can verify with one command.
+Wrangle drives your existing `.goreleaser.yml` to build your binaries, then adds the security drudgery around it: gofmt/vet/test/govulncheck, an SPDX SBOM, SLSA Build L3 provenance, and a signed VSA your users can verify with one command. Wrangle owns the publish — it creates the GitHub Release and uploads only the artifacts it attested.
+
+Goreleaser runs with `--skip=publish`, so its downstream verbs (Docker pushes, Homebrew taps, deb/rpm, announcements) do **not** run under wrangle. Those would ship bytes wrangle can't cover with provenance, which is exactly what an adopter who came here to "do the right thing" doesn't want silently mixed in. Keep them in your config and run them from a separate job, or — for attested images — use wrangle's [container build type](../container/README.md).
 
 This build type is for Go projects that ship binaries: it builds them with goreleaser and publishes downloadable archives to a GitHub Release. Ship a CLI people `go install` today? Adopting wrangle additionally gets your users attested, downloadable binaries — and `go install` keeps working unchanged. Library-only modules (no binary to build) aren't supported ([#239](https://github.com/TomHennen/wrangle/issues/239)).
 
@@ -12,7 +14,7 @@ Copy [`build_go.yml`](../../../gh_workflow_examples/build_go.yml) into `.github/
 jobs:
   build:
     permissions:
-      contents: write         # goreleaser creates the Release; verify attaches the VSA
+      contents: write         # wrangle's publish job creates the Release + uploads the attested artifacts
       id-token: write         # Sigstore keyless signing
       attestations: write     # GitHub-issued SLSA provenance
       actions: read           # source scan
@@ -49,7 +51,7 @@ Push a `v`-prefixed semver tag (e.g. `v1.2.3`) and wrangle runs the full pipelin
 ## Good to know
 
 - **Tags must be `v`-prefixed semver** (`v1.2.3`) — goreleaser derives the version from the nearest `v*` tag. No `v*` tags yet? Use the [example config](../../../gh_workflow_examples/build_go.goreleaser.yml)'s snapshot template, which doesn't depend on tag history.
-- **Provenance covers everything in `checksums.txt`.** Docker images and Homebrew taps goreleaser pushes are *not* covered — pair with wrangle's [container build type](../container/README.md) for images.
+- **Wrangle publishes only what it attests.** The Release carries the archives in `checksums.txt` plus their VSA bundles — nothing else. Docker images, Homebrew taps, and deb/rpm in your `.goreleaser.yml` are *not* pushed by wrangle (it runs goreleaser with `--skip=publish`); run those yourself, or use wrangle's [container build type](../container/README.md) for attested images.
 - **`pull_request_target` can't trigger this workflow** — that trigger (and `workflow_run` chained from it) is a common exploit vector, so wrangle blocks both at startup.
 - **`release-events`** (default: `tag-only`) controls which events run the full pipeline — see [`docs/SPEC.md`](../../../docs/SPEC.md) "Release-events gating".
 - **Workflow outputs** are documented in [`build_and_publish_go.yml`](../../../.github/workflows/build_and_publish_go.yml) itself.

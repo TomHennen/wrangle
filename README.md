@@ -51,7 +51,7 @@ on:
 jobs:
   build:
     permissions:
-      contents: write         # goreleaser creates the Release; verify job attaches the VSA
+      contents: write         # wrangle's publish job creates the Release + uploads the attested artifacts
       id-token: write         # OIDC for Sigstore signing
       attestations: write     # GitHub-issued SLSA provenance
       actions: read           # source scan: Scorecard reads the Actions API

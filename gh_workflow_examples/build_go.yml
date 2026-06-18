@@ -3,17 +3,19 @@
 # Before first use:
 # 1. Copy `gh_workflow_examples/build_go.goreleaser.yml` to your
 #    repo root as `.goreleaser.yml` and adjust to your project
-#    (binary name, GOOS/GOARCH matrix, downstream verbs).
+#    (binary name, GOOS/GOARCH matrix).
 # 2. Make sure your release tags match `v*` — goreleaser uses the
 #    tag name as the version.
 #
 # Wrangle's reusable workflow handles build, tests, SBOM, SLSA L3
-# provenance generation, its `verify` job's provenance verification (fail-
-# closed, via ampel against the wrangle PolicySet) plus signed-VSA
-# emission, and dispatch of every downstream goreleaser verb (Docker
-# pushes, Homebrew taps, deb/rpm/snap, announcements). Goreleaser
-# publishes natively on tag push; this caller workflow just gates which
-# events trigger that.
+# provenance generation, its `verify` job's provenance verification
+# (fail-closed, via ampel against the wrangle PolicySet) plus signed-VSA
+# emission. goreleaser builds with --skip=publish, then wrangle creates
+# the Release and uploads ONLY the attested artifacts. Downstream
+# goreleaser verbs (Docker pushes, Homebrew taps, deb/rpm/snap,
+# announcements) are NOT run — they'd ship bytes without provenance;
+# run them from your own job, or use wrangle's container build type for
+# attested images. This caller workflow gates which events publish.
 #
 # Trigger note: `release-events: tag-only` means only tag pushes
 # publish a release. PR builds run the full pipeline (build → tests
@@ -32,7 +34,7 @@ jobs:
   build:
     # Maximum the caller grants; wrangle's internal jobs each drop to the subset they actually need.
     permissions:
-      contents: write   # goreleaser creates the Release + wrangle's verify job attaches the VSA
+      contents: write   # wrangle's publish job creates the Release + uploads the attested artifacts
       id-token: write   # OIDC for Sigstore signing
       attestations: write   # wrangle's attest job writes GitHub-issued SLSA provenance
       actions: read  # source scan: Scorecard reads the Actions API

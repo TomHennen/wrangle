@@ -51,8 +51,11 @@ archives:
 snapshot:
   version_template: "{{ .ShortCommit }}-snapshot"
 
-# (Optional) Goreleaser's downstream verbs — wrangle preserves all of
-# these. Add what your project needs:
+# (Optional) Goreleaser's downstream verbs. wrangle runs goreleaser with
+# --skip=publish, so it does NOT execute these — they'd ship bytes wrangle
+# can't attest. Keep them here and run `goreleaser release` from a separate
+# job if you want them, or use wrangle's container build type for attested
+# images. Listed for reference:
 #
 # brews:                    # update a Homebrew tap
 #   - repository:

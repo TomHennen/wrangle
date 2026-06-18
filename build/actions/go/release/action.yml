@@ -1,19 +1,18 @@
 name: Wrangle Go Release
 description: |
-  Invoke goreleaser to build (and on tag pushes, publish) a Go
-  project; generate the SBOM via syft; compute artifact hashes for
-  SLSA provenance. Sister composite to `build/actions/go/checks` —
-  the calling reusable workflow runs checks first (with
-  `contents: read`), then this composite (with `contents: write`,
-  since goreleaser publishes inline). See build/actions/go/SPEC.md
+  Invoke goreleaser to build a Go project with --skip=publish;
+  generate the SBOM via syft; compute artifact hashes for SLSA
+  provenance. Sister composite to `build/actions/go/checks` — the
+  calling reusable workflow runs checks first, then this composite,
+  both with `contents: read`. See build/actions/go/SPEC.md
   "Permissions architecture."
 
-  Goreleaser owns its native publish on tag pushes: it creates the
-  GitHub Release, attaches archives + checksums, and runs whatever
-  downstream verbs the adopter's .goreleaser.yml configures (Docker
-  pushes, Homebrew taps, deb/rpm/snap, announce, etc.). wrangle's
-  attest job in the reusable workflow produces the provenance
-  shortly after.
+  goreleaser only builds here: --skip=publish means it does NOT
+  create the GitHub Release or run any downstream verb (Docker
+  pushes, Homebrew taps, deb/rpm/snap, announce). wrangle's attest
+  and verify jobs produce the provenance and signed VSA, then the
+  publish job creates the Release and uploads only the attested
+  artifacts.
 
 inputs:
   path:
@@ -39,20 +38,17 @@ inputs:
     default: "enabled"
   publish:
     description: |
-      Whether goreleaser publishes the release inline. The calling
-      reusable workflow sets this to the AND of `should-release`
-      (from the gate job) and `startsWith(github.ref, 'refs/tags/')`
-      — both conditions must hold for a publish to actually be
-      possible (gh release requires a tag, and the adopter's
-      release-events input controls whether wrangle's pipeline
-      treats this event as a release at all).
+      Whether this run publishes a release. The calling reusable
+      workflow sets this to the AND of `should-release` (from the
+      gate job) and `startsWith(github.ref, 'refs/tags/')`. goreleaser
+      never uploads here (always --skip=publish); this input only
+      selects the build mode so the artifacts carry the right version.
 
-      true  -> goreleaser runs `release --clean` (full publish,
-               creates the GitHub Release, runs Docker pushes,
-               Homebrew taps, etc. per the adopter's config).
+      true  -> goreleaser runs `release --clean --skip=publish`
+               (real tagged build; the publish job ships it).
       false -> goreleaser runs `release --clean --snapshot --skip=publish`
-               (builds locally, no upload). PR builds use this so
-               the pipeline is exercised without publishing.
+               (snapshot build, no version tag). PR and non-release
+               builds use this to exercise the pipeline.
     required: false
     default: "false"
   install-zig:
@@ -163,22 +159,14 @@ runs:
         # binary version below is bumped by hand on the 7-day delay.
         version: "2.15.4"
         workdir: ${{ inputs.path }}
-        # publish == 'true' → full release (native goreleaser publish).
-        # publish != 'true' → snapshot + skip-publish (build only).
-        # Caller sets publish from `should-release && startsWith(refs/tags/)`,
-        # so the false branch covers both PR builds and main-pushes
-        # under tag-only release-events.
-        args: ${{ inputs.publish == 'true' && 'release --clean' || 'release --clean --snapshot --skip=publish' }}
+        # Always --skip=publish: goreleaser builds, wrangle's publish
+        # job ships the attested artifacts. publish == 'true' → real
+        # tagged build; else snapshot.
+        args: ${{ inputs.publish == 'true' && 'release --clean --skip=publish' || 'release --clean --snapshot --skip=publish' }}
       env:
-        # goreleaser's publish path needs GITHUB_TOKEN for the GitHub
-        # Release create + upload. The caller of the reusable workflow
-        # grants contents: write at startup. Harmless when not
-        # publishing.
-        GITHUB_TOKEN: ${{ github.token }}
-        # Pin goreleaser to the tag that triggered this run. When several
-        # tags point at the same commit, goreleaser's own resolution picks
-        # an arbitrary one and re-targets that tag's existing Release,
-        # failing the upload with 422 already_exists. Empty on non-tag
+        # Pin goreleaser to the tag that triggered this run so the build
+        # carries the right version. When several tags point at one commit,
+        # goreleaser otherwise picks an arbitrary one. Empty on non-tag
         # (snapshot) builds, which goreleaser treats as unset.
         GORELEASER_CURRENT_TAG: ${{ startsWith(github.ref, 'refs/tags/') && github.ref_name || '' }}
 

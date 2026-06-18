@@ -160,12 +160,16 @@ reusable workflow signed the provenance. For container images, wrangle's own
 `verify` job checks the provenance referrer in the registry before the VSA
 is emitted; consumers use the VSA path above.
 
-## The timing model: publish first, attest second
+## The timing model
 
-Go and container builds publish inline (goreleaser / `docker push`) and the
-attest + verify jobs complete shortly after — typically 30s–2min. This is
-fine because the SLSA contract is "consumer runs the verifier", not
-"consumer trusts that an attestation exists":
+**Go** publishes *after* verify: goreleaser builds with `--skip=publish`,
+wrangle attests and verifies, then the publish job creates the Release — so a
+Go Release only ever goes live with already-verified artifacts.
+
+**Container** still publishes inline (`docker push`) and the attest + verify
+jobs complete shortly after — typically 30s–2min. That gap is fine because
+the SLSA contract is "consumer runs the verifier", not "consumer trusts that
+an attestation exists":
 
 - Download during the gap and verify → "no attestation found" → treat as
   untrusted, retry later.

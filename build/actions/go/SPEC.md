@@ -32,11 +32,13 @@ For repos with no binary at all, see "Validation-only sub-shape" below — wrang
 
 The stale `cyclonedx-gomod` reference in [`docs/docker_best_practices.md`](../../../docs/docker_best_practices.md) predates python's syft adoption and should be treated as informational, not a contract.
 
-### Publish target — GitHub Releases
+### Publish target — GitHub Releases (wrangle owns the publish)
 
-**Pick:** GitHub Releases. Goreleaser handles the upload natively given a `GITHUB_TOKEN` with `contents: write`.
+**Pick:** GitHub Releases. goreleaser builds with `--skip=publish`; wrangle's `publish:` job creates the Release and uploads the attested artifacts via `gh` with `contents: write`.
 
 **Why:** This is what `slsa-verifier`, `cosign`, `oras`, the goreleaser-example project, and goreleaser itself all do. There is no separate Go binary registry. `pkg.go.dev` is a documentation index that auto-discovers tagged versions from `proxy.golang.org` — no publish action, no token required for module consumers.
+
+wrangle does the upload itself (rather than letting goreleaser publish) so the Release carries **only** artifacts wrangle has attested — see "Build, attest, then publish" below.
 
 ### Attestation — `actions/attest-build-provenance`
 
@@ -55,19 +57,18 @@ The stale `cyclonedx-gomod` reference in [`docs/docker_best_practices.md`](../..
 
 Goreleaser's own release pipeline runs `cosign sign-blob` against each artifact in addition to producing SLSA provenance, and an earlier draft of this doc recommended the same. On second look the case doesn't hold up: SLSA provenance already attests the artifact's SHA-256 as the in-toto subject, so `gh attestation verify` is the strictly stronger check — it confirms "the bytes I'm holding match what the provenance signed" *and* binds workflow identity, commit, and builder. `cosign verify-blob` would give a downstream verifier the bytes claim only, and would do so via a separate signature, separate verification command, and separate failure mode. The only argument for shipping it is verifier-tool familiarity — a sigstore-literate consumer who runs `cosign verify` on container images can `cosign verify-blob` a Go binary without reaching for `gh attestation verify`. That is a UX argument, not a security argument; it does not justify the extra signing step, the extra signature artifact, or the second verifier surface to document. If adopters request `cosign verify-blob` ergonomics later, expose it as an opt-in input on the Go build action — but don't make it the default. Same posture as wrangle's other build types: one strong signature path, not two.
 
-#### Publish-first, attest-second (the picked sequence)
+#### Build, attest, then publish — wrangle owns the publish (#463)
 
-Wrangle does NOT force goreleaser into `--skip=publish`. Doing so would neuter every downstream goreleaser verb — Docker pushes, Homebrew taps, deb/rpm/snap, AUR, Slack/Discord announcements, all the post-build distribution the adopter put in their `.goreleaser.yml`. For most adopters, those features are most of why they reach for goreleaser; wrangle taking over the publish would be a major UX regression.
+goreleaser always runs with `--skip=publish`: it builds the archives and `dist/checksums.txt`, but it does **not** create the GitHub Release and does **not** run any downstream verb (Docker pushes, Homebrew taps, deb/rpm/snap, AUR, announcements). wrangle creates the Release and uploads only the artifacts it has attested.
+
+**Why not let goreleaser publish?** goreleaser's native publish would push Docker images, Homebrew formulae, and OS packages that wrangle does **not** cover with SLSA provenance or a VSA. An adopter who reaches for wrangle to "do the right thing" would reasonably assume everything on the Release is attested; quietly shipping un-attested bytes alongside the attested ones defeats that expectation. Restricting the published set to the attested archives keeps the promise honest. The cost is that goreleaser's downstream distribution no longer happens under wrangle — adopters who want it run those verbs from their own job (their `.goreleaser.yml` is unchanged), or use wrangle's container build type for attested images.
 
 The sequence is therefore:
 
-1. **Goreleaser publishes natively** on tag push (`release --clean`, no `--skip=publish`). It creates the GitHub Release, attaches archives + checksums, and runs every adopter-configured downstream verb.
-2. **Wrangle attests** by handing `dist/checksums.txt` to `actions/attest-build-provenance` (`subject-checksums: dist/checksums.txt`) in the `attest:` job, producing a signed Sigstore bundle.
-3. **Wrangle verifies and attaches** in the `verify:` job: ampel verifies the provenance against the wrangle PolicySet (fail-closed against `common.identities` + the SLSA tenets), emits the signed per-binary VSA, and attaches it to the same release on tag pushes — surfacing any mismatch loudly even though the bytes are already live. The provenance bundle itself is exposed as a workflow artifact.
-
-This is the same shape wrangle's container build type uses (`docker push` then `actions/attest-build-provenance`). The small window between goreleaser's publish and the provenance arriving is acceptable: the provenance attests content-addressed hashes, so consumers who download in the window can verify once the attestation lands, and hashes don't change in transit. Adopters who want a stronger "no naked window" guarantee can opt out by setting up their own release pipeline; wrangle's posture matches the established container path.
-
-On non-tag events goreleaser runs `release --clean --snapshot --skip=publish` — `--snapshot` because `release` refuses to run off a tag, `--skip=publish` because there's no release to publish to. PR builds exercise the goreleaser pipeline without publishing.
+1. **goreleaser builds** (`release --clean --skip=publish`; `--snapshot` added on non-tag events, where `release` refuses to run off a tag). PR and non-release builds stop here — the pipeline is exercised without publishing.
+2. **wrangle attests** by handing `dist/checksums.txt` to `actions/attest-build-provenance` (`subject-checksums: dist/checksums.txt`) in the `attest:` job, producing a signed Sigstore bundle.
+3. **wrangle verifies** in the `verify:` job: ampel verifies the provenance against the wrangle PolicySet (fail-closed against `common.identities` + the SLSA tenets) and emits the signed per-binary VSA, uploaded as a workflow artifact.
+4. **wrangle publishes** in the `publish:` job (tag push + `should-release` only): it creates the GitHub Release and uploads the archives, `checksums.txt`, and the per-archive VSA bundles. Gating publish on `attest`+`verify` success means the Release never goes live with bytes that failed verification — closing the window the container build type's publish-first shape leaves open.
 
 **Predicate version (v1).** `actions/attest-build-provenance` emits `slsa.dev/provenance/v1` with buildType `https://actions.github.io/buildtypes/workflow/v1`. The Go build type uses the same producer as wrangle's container, python, and npm types (all moved to it in #316), so all four emit v1 predicates with a wrangle-workflow `builder.id`. The old generic generator emitted `v0.2` and named itself as `builder.id`; #316 closed both gaps at once.
 
@@ -100,12 +101,14 @@ Under the picked approach wrangle's test step and the attest step both run again
 
 ### Permissions architecture — checks and release as separate jobs
 
-The reusable workflow splits the build into two jobs with different permissions:
+The reusable workflow splits the work across jobs with different permissions:
 
 - `checks` (`contents: read`) — `gofmt`, `go vet`, `go test`, `govulncheck`.
-- `release` (`contents: write`) — `goreleaser` (which publishes inline on tag pushes), `syft`, hash computation.
+- `release` (`contents: read`) — `goreleaser` (`--skip=publish`, build only), `syft`, hash computation.
+- `attest` / `verify` (`contents: read`, `id-token: write`, `attestations: write` on attest) — provenance + VSA.
+- `publish` (`contents: write`) — creates the GitHub Release and uploads the attested artifacts via `gh`.
 
-The split exists because `go test` executes arbitrary adopter test code (and `govulncheck` walks the full callgraph). Composite actions inherit their calling job's permissions; if those two steps lived in the same composite as the `goreleaser` invocation, `go test` would run with `contents: write` — meaning a compromised dependency or hostile test could use `$GITHUB_TOKEN` to push to the repo. Splitting denies that capability.
+The split exists because `go test` and `goreleaser` both execute arbitrary adopter code (test bodies, build hooks, and `govulncheck`'s callgraph walk). Composite actions inherit their calling job's permissions; isolating the single step that needs `contents: write` (the `publish` job, which runs no adopter code — just `gh release create`/`upload`) means a compromised dependency or hostile test/build hook never runs with write access to the repo. Letting goreleaser publish would have forced `contents: write` onto the job that runs those hooks.
 
 The split costs ~30s of extra latency (a second checkout + setup-go). The L3 audit pattern from #226 (release-vs-PR cache asymmetry) is preserved on both sides: both composites accept the `cache` input and disable caching on release builds.
 
@@ -126,9 +129,9 @@ This adds Go alongside python-uv and container as the third release-cache-disabl
 
 ### Authentication — `GITHUB_TOKEN` only
 
-Publishing to GitHub Releases requires `contents: write` (goreleaser creates the release; the `verify:` job also needs it to attach the per-binary VSA, and python's caller already grants it). No external registry credentials, no Trusted Publisher to configure, no API tokens. This is the simplest auth model of any artifact-producing build type.
+Publishing to GitHub Releases requires `contents: write` — held only by the `publish:` job, which creates the Release and uploads the attested artifacts via `gh`. No external registry credentials, no Trusted Publisher to configure, no API tokens. This is the simplest auth model of any artifact-producing build type.
 
-The permission cascade lesson from python ([HOW_TO_ADD_A_BUILD_TYPE.md "Permission cascade through nested reusable workflows"](../../../docs/HOW_TO_ADD_A_BUILD_TYPE.md)) applies: callers must grant the union of every job's declared permissions. For the picked path the union is `id-token: write` (Sigstore signing in the `attest`/`verify` jobs), `contents: write` (goreleaser publish + VSA attach), and `attestations: write` (the `attest` job writes to GitHub's attestation store). Note the absence of `actions: read` — that was the former generator's requirement; `actions/attest-build-provenance` does not need it.
+The permission cascade lesson from python ([HOW_TO_ADD_A_BUILD_TYPE.md "Permission cascade through nested reusable workflows"](../../../docs/HOW_TO_ADD_A_BUILD_TYPE.md)) applies: callers must grant the union of every job's declared permissions. For the picked path the union is `id-token: write` (Sigstore signing in the `attest`/`verify` jobs), `contents: write` (the `publish` job's Release create + upload), and `attestations: write` (the `attest` job writes to GitHub's attestation store). Note the absence of `actions: read` — that was the former generator's requirement; `actions/attest-build-provenance` does not need it.
 
 `pkg.go.dev` indexing is automatic — `proxy.golang.org` discovers tags within minutes of `git push --tags`. No publish step, no auth.
 
@@ -170,7 +173,7 @@ The build artifact differs across the two modes (release binaries vs. nothing), 
 Practical notes for whoever picks up the implementation PR.
 
 - **Match python's reusable-workflow shape.** `build_and_publish_go.yml` mirrors `build_and_publish_python.yml`: a `checks`/`release` build pair, a `gate` job (`actions/release_gate`), an `attest` job (`actions/attest-build-provenance`, gated on `should-release`), and a `verify` job (`actions/verify` verifying the provenance against the wrangle PolicySet and emitting the signed VSA, gated on `should-release`). Outputs follow the unified naming: `metadata-artifact-name`, `dist-artifact-name`, `provenance-artifact-name`, `should-release`.
-- **Goreleaser invocation.** Use `goreleaser/goreleaser-action` SHA-pinned, with `args: release --clean`. Set `-trimpath` and `-buildvcs=false` defaults via `.goreleaser.yml` template the action ships, or document them as a hard requirement on the adopter's config.
+- **Goreleaser invocation.** Use `goreleaser/goreleaser-action` SHA-pinned, with `args: release --clean --skip=publish` (plus `--snapshot` on non-tag events). goreleaser never publishes; the `publish:` job ships the attested artifacts. Set `-trimpath` and `-buildvcs=false` defaults via `.goreleaser.yml` template the action ships, or document them as a hard requirement on the adopter's config.
 - **Subjects.** Pass `subject-checksums: dist/checksums.txt` to `actions/attest-build-provenance` — not a `dist/*` glob: goreleaser writes non-artifact bookkeeping (`artifacts.json`, `config.yaml`, `metadata.json`) and per-target build subdirs into `dist/` that are not released artifacts. The checksums file is the canonical released-artifact set, and the same set the VSA binds to.
 - **`::stop-commands::` guard around build/test invocations.** The ecosystem-specific Go builder wraps the compile step in a `::stop-commands::` directive so workflow-command injection via build-tool stdout is neutralized. Wrangle adopted this for its existing build types in #230 via the shared `lib/stop_commands_guard.sh` helper; the Go build action MUST use the same helper around `goreleaser` and `go test` invocations. See npm's `build/actions/npm/build_and_pack.sh` and python's `build/actions/python/run_tests.sh` for the invocation pattern.
 - **Cache gating on release status.** Goreleaser caches the Go module cache and build cache by default. Per the release-vs-PR build asymmetry pattern established in #226 (see [`docs/SLSA_L3_AUDIT.md`](../../../docs/SLSA_L3_AUDIT.md) §"Release-vs-PR build asymmetry"), the Go build action should leave caches enabled for non-release events and disable them on release events — caches that are unsafe to use for an L3-attested build are safe for a PR build because no provenance is produced.
