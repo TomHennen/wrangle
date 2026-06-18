@@ -126,12 +126,32 @@ teardown() {
 
 # --- wrangle-attest arg vector ---
 
-@test "run_verify: attest args carry the metadata-root, subject, and out" {
-    export METADATA_ROOT="$TEST_DIR/meta"
-    mapfile -t args < <(wrangle_attest_args "sha256:abc" "$TEST_DIR/out.jsonl")
+@test "run_verify: attest args carry each metadata-root, subject, and out" {
+    mapfile -t args < <(wrangle_attest_args "sha256:abc" "$TEST_DIR/out.jsonl" \
+        "$TEST_DIR/meta" "$TEST_DIR/scan-meta")
     printf '%s\n' "${args[@]}" | grep -qx -- "--metadata-root=$TEST_DIR/meta"
+    printf '%s\n' "${args[@]}" | grep -qx -- "--metadata-root=$TEST_DIR/scan-meta"
     printf '%s\n' "${args[@]}" | grep -qx -- "--subject=sha256:abc"
     printf '%s\n' "${args[@]}" | grep -qx -- "--out=$TEST_DIR/out.jsonl"
+}
+
+@test "run_verify: metadata roots include only existing build + scan dirs" {
+    mkdir -p "$TEST_DIR/build-meta" "$TEST_DIR/scan-meta"
+    export METADATA_ROOT="$TEST_DIR/build-meta"
+    export SCAN_METADATA_ROOT="$TEST_DIR/scan-meta"
+    mapfile -t roots < <(wrangle_metadata_roots)
+    [ "${#roots[@]}" -eq 2 ]
+    printf '%s\n' "${roots[@]}" | grep -qx -- "$TEST_DIR/build-meta"
+    printf '%s\n' "${roots[@]}" | grep -qx -- "$TEST_DIR/scan-meta"
+}
+
+@test "run_verify: a metadata root naming a missing dir is dropped" {
+    mkdir -p "$TEST_DIR/scan-meta"
+    export METADATA_ROOT="$TEST_DIR/absent-build"
+    export SCAN_METADATA_ROOT="$TEST_DIR/scan-meta"
+    mapfile -t roots < <(wrangle_metadata_roots)
+    [ "${#roots[@]}" -eq 1 ]
+    [ "${roots[0]}" = "$TEST_DIR/scan-meta" ]
 }
 
 # --- ampel arg vector ---
@@ -681,7 +701,7 @@ exit 1
 STUB
     chmod +x "$TEST_DIR/bnd"
     export PATH="$TEST_DIR:$PATH"
-    unset METADATA_ROOT
+    unset METADATA_ROOT SCAN_METADATA_ROOT
     local bundle="$TEST_DIR/bundle.jsonl"
     printf '{"provenance":1}\n' > "$bundle"
     run wrangle_emit_metadata_statements "sha256:$(printf '0%.0s' {1..64})" "$bundle"
@@ -725,6 +745,38 @@ STUB
     [[ "$(tail -1 "$bundle" | jq -r '.signed.predicateType')" == "https://spdx.dev/Document" ]]
     # The signed statement reached the store, bound to the single sha256 subject.
     [[ "$(jq -r '.signed.subject[0].digest.sha256' "$TEST_DIR/pushed")" == "$(printf '0%.0s' {1..64})" ]]
+}
+
+@test "run_verify: emit_metadata wraps the OSV scan-results from SCAN_METADATA_ROOT" {
+    # The inert OSV results.json + manifest in SCAN_METADATA_ROOT becomes a signed
+    # osv-schema statement bound to the same single sha256 subject — the shape the
+    # no-exploitable-vulns tenet reads (data.results[]...vulnerabilities[].id).
+    if [[ ! -x "$ATTEST_BIN" ]]; then skip_or_fail "real wrangle-attest not available"; fi
+    mkdir -p "$TEST_DIR/scan-meta/osv"
+    printf '{"results":[{"packages":[{"vulnerabilities":[{"id":"CVE-2021-3121"}]}]}]}\n' \
+        > "$TEST_DIR/scan-meta/osv/results.json"
+    printf '{"predicate-type":"https://ossf.github.io/osv-schema/results","result-file":"results.json"}\n' \
+        > "$TEST_DIR/scan-meta/osv/manifest.json"
+    cat > "$TEST_DIR/bnd" <<STUB
+#!/bin/bash
+if [[ "\$1" == "push" ]]; then exit 0; fi
+printf '{\n  "signed": '; cat "\$2"; printf '}\n'
+STUB
+    chmod +x "$TEST_DIR/bnd"
+    local attest_dir; attest_dir="$(dirname "$ATTEST_BIN")"
+    export PATH="$TEST_DIR:$attest_dir:$PATH"
+    unset METADATA_ROOT
+    export SCAN_METADATA_ROOT="$TEST_DIR/scan-meta"
+    export GITHUB_REPOSITORY="o/r"
+    export OCI_TARGET=""
+    local bundle="$TEST_DIR/bundle.jsonl"
+    printf '{"provenance":1}\n' > "$bundle"
+    run wrangle_emit_metadata_statements "sha256:$(printf '0%.0s' {1..64})" "$bundle"
+    [[ "$status" -eq 0 ]]
+    [[ "$(wc -l < "$bundle")" -eq 2 ]]
+    [[ "$(tail -1 "$bundle" | jq -r '.signed.predicateType')" == "https://ossf.github.io/osv-schema/results" ]]
+    # The tenet's CEL path resolves on the wrapped predicate.
+    [[ "$(tail -1 "$bundle" | jq -r '.signed.predicate.results[0].packages[0].vulnerabilities[0].id')" == "CVE-2021-3121" ]]
 }
 
 @test "run_verify: emit_metadata fails closed on a malformed manifest" {

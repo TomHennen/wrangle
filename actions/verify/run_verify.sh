@@ -13,8 +13,9 @@
 # Inputs arrive as env vars: SUBJECTS (newline-separated), POLICY, COLLECTOR,
 # FAIL, CONTEXT, BUNDLE_IN, BUNDLE_OUT, GITHUB_REPOSITORY (store push target),
 # GITHUB_TOKEN (bnd reads it to auth the store push), and optional ATTESTATION,
-# OCI_TARGET, METADATA_ROOT (the build metadata dir wrangle-attest walks for the
-# SBOM manifest, appended as a signed statement per subject).
+# OCI_TARGET, METADATA_ROOT (the build metadata dir — SBOM manifest) and
+# SCAN_METADATA_ROOT (the inert scan-results dir — OSV manifest), both walked by
+# wrangle-attest and appended as signed statements per subject.
 
 set -euo pipefail
 set -f  # disable globbing — processes external input
@@ -226,30 +227,42 @@ wrangle_push_bundle() {
     wrangle_retry_once /dev/null cosign "${args[@]}"
 }
 
-# Build the wrangle-attest arg vector that turns the build metadata into unsigned
-# in-toto statements, one per line for mapfile. $1 is the single sha256 subject;
-# $2 the JSONL output path. METADATA_ROOT holds the build's manifest.json files
-# (sbom.spdx.json + its manifest); --commit is woven into the scan/v1 envelope
-# only, ignored by the SBOM passthrough.
-wrangle_attest_args() {
-    printf '%s\n' \
-        --metadata-root="$METADATA_ROOT" \
-        --subject="$1" \
-        --out="$2"
+# Collect the metadata roots wrangle-attest walks, one per line. METADATA_ROOT
+# is the build's metadata (sbom.spdx.json + manifest); SCAN_METADATA_ROOT is the
+# inert scan-results metadata (osv results.json + manifest) produced in the
+# untrusted scan job — wrapping + signing it here keeps the statement minted in
+# the trusted context. A root is included only when it names an existing dir.
+wrangle_metadata_roots() {
+    [[ -n "${METADATA_ROOT:-}" && -d "${METADATA_ROOT:-}" ]] && printf '%s\n' "$METADATA_ROOT"
+    [[ -n "${SCAN_METADATA_ROOT:-}" && -d "${SCAN_METADATA_ROOT:-}" ]] && printf '%s\n' "$SCAN_METADATA_ROOT"
 }
 
-# For one subject, build the SBOM (and any other build-metadata) statement(s),
-# sign each, append each to the bundle, and post each to the store. No-op when
-# METADATA_ROOT is unset/empty (a build that produced no metadata). $1 is the
-# subject, $2 the bundle file. wrangle-attest fails closed on a malformed
-# manifest, so an absent statement is a real gap, not a silent skip.
+# Build the wrangle-attest arg vector that turns the metadata roots into unsigned
+# in-toto statements, one per line for mapfile. $1 is the single sha256 subject;
+# $2 the JSONL output path; the remaining args are the metadata roots. --commit
+# is woven into the scan/v1 envelope only, ignored by the OSV/SBOM passthrough.
+wrangle_attest_args() {
+    local subj_sha="$1" out="$2"; shift 2
+    local root
+    for root in "$@"; do
+        printf -- '--metadata-root=%s\n' "$root"
+    done
+    printf '%s\n' --subject="$subj_sha" --out="$out"
+}
+
+# For one subject, build the metadata statement(s) (SBOM, OSV, …), sign each,
+# append each to the bundle, and post each to the store. No-op when no metadata
+# root exists (a build that produced none). $1 is the subject, $2 the bundle
+# file. wrangle-attest fails closed on a malformed manifest, so an absent
+# statement is a real gap, not a silent skip.
 wrangle_emit_metadata_statements() {
-    [[ -z "${METADATA_ROOT:-}" || ! -d "${METADATA_ROOT:-}" ]] && return 0
-    local subject="$1" bundle="$2" subj_sha
+    local subject="$1" bundle="$2" subj_sha roots
+    mapfile -t roots < <(wrangle_metadata_roots)
+    [[ "${#roots[@]}" -eq 0 ]] && return 0
     subj_sha="$(wrangle_subject_sha256 "$subject")" || return 1
     local stmts args
     stmts="$(mktemp "${RUNNER_TEMP:-/tmp}/attest.XXXXXX")"
-    mapfile -t args < <(wrangle_attest_args "$subj_sha" "$stmts")
+    mapfile -t args < <(wrangle_attest_args "$subj_sha" "$stmts" "${roots[@]}")
     # A malformed/missing manifest aborts here — never ship a bundle silently
     # missing its SBOM statement.
     wrangle-attest "${args[@]}" || { rm -f "$stmts"; return 1; }

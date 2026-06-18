@@ -86,6 +86,15 @@ inputs:
       the attestation store. Leave empty to emit VSA-only bundles.
     required: false
     default: ""
+  scan-metadata-dir:
+    description: >
+      Directory holding the inert scan-results metadata (the scan job's
+      wrangle-scan-results artifact: OSV results.json + manifest.json). The
+      results are produced in the untrusted scan job; wrangle-attest wraps and
+      signs them here in the trusted context, appending one signed scan statement
+      per subject. Leave empty for builds that ran no scan.
+    required: false
+    default: ""
   oci-target:
     description: >
       When set, fetch the provenance from and push the bundle to this OCI image
@@ -134,6 +143,7 @@ runs:
         BUNDLE_OUT: ${{ inputs.bundle-out }}
         OCI_TARGET: ${{ inputs.oci-target }}
         METADATA_ROOT: ${{ inputs.metadata-dir }}
+        SCAN_METADATA_ROOT: ${{ inputs.scan-metadata-dir }}
         GITHUB_REPOSITORY: ${{ github.repository }}
         # bnd push github authenticates to the attestation store with this token;
         # the attestations: write permission rides on it.
