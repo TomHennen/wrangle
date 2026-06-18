@@ -706,8 +706,10 @@ if [[ "\$1" == "push" ]]; then cat "\$4" >> "$TEST_DIR/pushed"; exit 0; fi
 printf '{\n  "signed": '; cat "\$2"; printf '}\n'
 STUB
     chmod +x "$TEST_DIR/bnd"
+    # TEST_DIR first so the stub bnd wins; the real bnd is co-located with
+    # wrangle-attest in WRANGLE_BIN_DIR and would otherwise shadow the stub.
     local attest_dir; attest_dir="$(dirname "$ATTEST_BIN")"
-    export PATH="$attest_dir:$TEST_DIR:$PATH"
+    export PATH="$TEST_DIR:$attest_dir:$PATH"
     export METADATA_ROOT="$TEST_DIR/meta"
     export GITHUB_REPOSITORY="o/r"
     export OCI_TARGET=""
@@ -716,9 +718,10 @@ STUB
     printf '{"provenance":1}\n' > "$bundle"
     run wrangle_emit_metadata_statements "sha256:$(printf '0%.0s' {1..64})" "$bundle"
     [[ "$status" -eq 0 ]]
-    # The SBOM statement was appended to the bundle (provenance line + SBOM line).
-    # The stub bnd wraps the signed statement under .signed.
+    # The seeded provenance line plus exactly one appended SPDX statement; the
+    # stub bnd wraps the signed statement under .signed.
     [[ "$(wc -l < "$bundle")" -eq 2 ]]
+    [[ "$(grep -c '"https://spdx.dev/Document"' "$bundle")" -eq 1 ]]
     [[ "$(tail -1 "$bundle" | jq -r '.signed.predicateType')" == "https://spdx.dev/Document" ]]
     # The signed statement reached the store, bound to the single sha256 subject.
     [[ "$(jq -r '.signed.subject[0].digest.sha256' "$TEST_DIR/pushed")" == "$(printf '0%.0s' {1..64})" ]]
