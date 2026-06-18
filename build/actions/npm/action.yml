@@ -188,6 +188,7 @@ runs:
       env:
         INPUT_PATH: ${{ inputs.path }}
         METADATA_DIR: ${{ steps.metadata.outputs.metadata-dir }}
+        WRANGLE_ROOT: ${{ github.action_path }}/../../..
       # syft over the project source. Same tool wrangle's python build
       # type uses; OWASP-known-conformant for SPDX. (Earlier SPEC drafts
       # picked the npm-CLI's in-tree SBOM command, but its conformance
@@ -202,6 +203,8 @@ runs:
         SBOM_PATH="${METADATA_DIR}/sbom.spdx.json"
         BIN_DIR="${WRANGLE_BIN_DIR:-${RUNNER_TEMP:-.}/.wrangle/bin}"
         "$BIN_DIR/syft" dir:"$INPUT_PATH" -o spdx-json > "$SBOM_PATH"
+        "$WRANGLE_ROOT/lib/write_attest_manifest.sh" \
+            "$METADATA_DIR" "https://spdx.dev/Document" "sbom.spdx.json"
         printf 'SBOM written to %s\n' "$SBOM_PATH"
 
     - name: Generate summary

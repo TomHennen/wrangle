@@ -219,11 +219,14 @@ runs:
       env:
         INPUT_PATH: ${{ inputs.path }}
         METADATA_DIR: ${{ steps.metadata.outputs.metadata-dir }}
+        WRANGLE_ROOT: ${{ github.action_path }}/../../../..
       run: |
         set -euo pipefail
         mkdir -p "$METADATA_DIR"
-        "${{ github.action_path }}/../../../../tools/syft/generate_sbom.sh" \
+        "$WRANGLE_ROOT/tools/syft/generate_sbom.sh" \
             "$INPUT_PATH" "$METADATA_DIR/sbom.spdx.json"
+        "$WRANGLE_ROOT/lib/write_attest_manifest.sh" \
+            "$METADATA_DIR" "https://spdx.dev/Document" "sbom.spdx.json"
 
     - name: Generate summary
       if: always()
