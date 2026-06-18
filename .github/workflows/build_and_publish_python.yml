@@ -328,6 +328,13 @@ jobs:
           name: python-provenance-bundle-${{ needs.build.outputs.shortname }}
           path: provenance/
 
+      # The build metadata (sbom.spdx.json + its attest manifest); wrangle-attest
+      # turns it into one signed SBOM statement per subject.
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: ${{ needs.build.outputs.metadata-artifact-name }}
+          path: metadata/
+
       # TODO: replace with $/actions/verify when GitHub ships $/ syntax (#136)
       - uses: TomHennen/wrangle/actions/verify@0a91dfc4fbaae75585c1596f1f602fe8d7fc52e2 # feat/store-vsa-372 2026-06-18 (bootstrap PR HEAD; bump after merge)
         with:
@@ -336,6 +343,7 @@ jobs:
           collector: jsonl:provenance/provenance.jsonl
           bundle-in: provenance/provenance.jsonl
           bundle-out: bundles
+          metadata-dir: metadata
           artifact-name: python-bundle-${{ needs.build.outputs.shortname }}
           # resourceUri names the package the VSAs cover (pkg:pypi, PEP
           # 503-normalized); the consumer/gate check pins it. Each subject

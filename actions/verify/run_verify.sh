@@ -13,7 +13,8 @@
 # Inputs arrive as env vars: SUBJECTS (newline-separated), POLICY, COLLECTOR,
 # FAIL, CONTEXT, BUNDLE_IN, BUNDLE_OUT, GITHUB_REPOSITORY (store push target),
 # GITHUB_TOKEN (bnd reads it to auth the store push), and optional ATTESTATION,
-# OCI_TARGET.
+# OCI_TARGET, METADATA_ROOT (the build metadata dir wrangle-attest walks for the
+# SBOM manifest, appended as a signed statement per subject).
 
 set -euo pipefail
 set -f  # disable globbing — processes external input
@@ -59,6 +60,25 @@ wrangle_subject_arg() {
     # A missing/unreadable subject file must fail closed, not yield an empty hash.
     digest="$(sha256sum "$subject")" || return 1
     printf -- '--subject-hash=sha256:%s\n' "${digest%% *}"
+}
+
+# Resolve a subject to the single sha256:<hex> the attestation engine binds to.
+# A sha256 digest subject (container) passes through; any other digest algorithm
+# is rejected (the store accepts only sha256); a file subject is hashed. The SBOM
+# statement thus shares the VSA's single-sha256 subject, so a policy resolving by
+# artifact digest finds both.
+wrangle_subject_sha256() {
+    local subject="$1" digest
+    if [[ "$subject" =~ ^sha256:[a-f0-9]{64}$ ]]; then
+        printf '%s\n' "$subject"
+        return 0
+    fi
+    if [[ "$subject" =~ ^[a-z0-9]+:[a-f0-9]+$ ]]; then
+        printf 'wrangle: subject %s is not sha256 — the attestation store accepts only sha256\n' "$subject" >&2
+        return 1
+    fi
+    digest="$(sha256sum "$subject")" || return 1
+    printf 'sha256:%s\n' "${digest%% *}"
 }
 
 # Build the ampel verify arg vector for one subject, one arg per line for
@@ -206,6 +226,50 @@ wrangle_push_bundle() {
     wrangle_retry_once /dev/null cosign "${args[@]}"
 }
 
+# Build the wrangle-attest arg vector that turns the build metadata into unsigned
+# in-toto statements, one per line for mapfile. $1 is the single sha256 subject;
+# $2 the JSONL output path. METADATA_ROOT holds the build's manifest.json files
+# (sbom.spdx.json + its manifest); --commit is woven into the scan/v1 envelope
+# only, ignored by the SBOM passthrough.
+wrangle_attest_args() {
+    printf '%s\n' \
+        --metadata-root="$METADATA_ROOT" \
+        --subject="$1" \
+        --out="$2"
+}
+
+# For one subject, build the SBOM (and any other build-metadata) statement(s),
+# sign each, append each to the bundle, and post each to the store. No-op when
+# METADATA_ROOT is unset/empty (a build that produced no metadata). $1 is the
+# subject, $2 the bundle file. wrangle-attest fails closed on a malformed
+# manifest, so an absent statement is a real gap, not a silent skip.
+wrangle_emit_metadata_statements() {
+    [[ -z "${METADATA_ROOT:-}" || ! -d "${METADATA_ROOT:-}" ]] && return 0
+    local subject="$1" bundle="$2" subj_sha
+    subj_sha="$(wrangle_subject_sha256 "$subject")"
+    local stmts args
+    stmts="$(mktemp "${RUNNER_TEMP:-/tmp}/attest.XXXXXX")"
+    mapfile -t args < <(wrangle_attest_args "$subj_sha" "$stmts")
+    wrangle-attest "${args[@]}"
+    # Sign and deliver each unsigned statement line in the same trusted process
+    # as the VSA, so an unsigned statement never crosses a step boundary. Flatten
+    # bnd's pretty statement to one line: appended to the bundle, posted to the
+    # store, and pushed alone as the OCI referrer (cosign attach rejects multi-line).
+    local signed line_file
+    signed="$(mktemp "${RUNNER_TEMP:-/tmp}/attestsigned.XXXXXX")"
+    line_file="$(mktemp "${RUNNER_TEMP:-/tmp}/attestline.XXXXXX")"
+    while IFS= read -r line; do
+        [[ -z "$line" ]] && continue
+        printf '%s\n' "$line" > "$signed.unsigned"
+        wrangle_retry_once "$signed" bnd statement "$signed.unsigned"
+        jq -c . "$signed" > "$line_file"
+        cat "$line_file" >> "$bundle"
+        wrangle_push_store "$line_file"
+        wrangle_push_bundle "$line_file"
+    done < "$stmts"
+    rm -f "$stmts" "$signed" "$signed.unsigned" "$line_file"
+}
+
 # Post the signed VSA at $1 to the GitHub attestation store (all build types).
 # Provenance is already in the store from attest-build-provenance, so only the
 # VSA is pushed. Fails closed: a missing by-digest VSA is a real delivery gap.
@@ -259,6 +323,9 @@ wrangle_run() {
         cat "$vsa_line" >> "$bundle"
         wrangle_push_store "$vsa_line"
         wrangle_push_bundle "$vsa_line"
+        # Append the build-metadata statements (SBOM, …) bound to this same
+        # single-sha256 subject, signed and delivered alongside the VSA.
+        wrangle_emit_metadata_statements "$subject" "$bundle"
     done
     rm -f "$tmp_vsa" "$vsa_line" "$seed"
 }
