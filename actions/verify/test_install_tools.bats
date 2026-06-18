@@ -1,8 +1,8 @@
 #!/usr/bin/env bats
 
-# Behavioral test for install_tools.sh: ampel + bnd are always built; cosign is
-# built only when OCI_TARGET is set (the container build pushes the VSA
-# referrer). A fake `go` records the packages it was asked to install.
+# Behavioral test for install_tools.sh: ampel + bnd + wrangle-attest are always
+# built; cosign is built only when OCI_TARGET is set (the container build pushes
+# the VSA referrer). A fake `go` records the packages it was asked to install.
 
 setup() {
     DIR="$(cd "$(dirname "$BATS_TEST_FILENAME")" && pwd)"
@@ -39,11 +39,12 @@ teardown() {
     rm -rf "$TEST_DIR"
 }
 
-@test "install_tools.sh: without OCI_TARGET builds ampel+bnd, not cosign" {
+@test "install_tools.sh: without OCI_TARGET builds ampel+bnd+wrangle-attest, not cosign" {
     PATH="$FAKE_BIN:$PATH" run "$DIR/install_tools.sh"
     [ "$status" -eq 0 ]
     grep -Fq 'github.com/carabiner-dev/ampel/cmd/ampel' "$GO_RECORD"
     grep -Fq 'github.com/carabiner-dev/bnd' "$GO_RECORD"
+    grep -Fq 'github.com/TomHennen/wrangle/tools/wrangle-attest' "$GO_RECORD"
     ! grep -Fq 'cosign' "$GO_RECORD"
 }
 
@@ -52,5 +53,6 @@ teardown() {
     [ "$status" -eq 0 ]
     grep -Fq 'github.com/carabiner-dev/ampel/cmd/ampel' "$GO_RECORD"
     grep -Fq 'github.com/carabiner-dev/bnd' "$GO_RECORD"
+    grep -Fq 'github.com/TomHennen/wrangle/tools/wrangle-attest' "$GO_RECORD"
     grep -Fq 'github.com/sigstore/cosign/v3/cmd/cosign' "$GO_RECORD"
 }

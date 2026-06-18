@@ -1,0 +1,33 @@
+{
+  "_type": "https://in-toto.io/Statement/v1",
+  "predicate": {
+    "result": "findings",
+    "sarif": {
+      "$schema": "https://json.schemastore.org/sarif-2.1.0.json",
+      "runs": [
+        {
+          "results": [],
+          "tool": {
+            "driver": {
+              "name": "zizmor"
+            }
+          }
+        }
+      ],
+      "version": "2.1.0"
+    },
+    "scannedCommit": "5741a1afbdffa5eb9ab95dd212ce8c310631e355",
+    "tool": {
+      "name": "zizmor",
+      "version": "1.13.0"
+    }
+  },
+  "predicateType": "https://github.com/TomHennen/wrangle/attestation/scan/v1",
+  "subject": [
+    {
+      "digest": {
+        "sha256": "011b95c8e47c538646a2c01df5373fe703381cd415c847357b3d563563eb1d95"
+      }
+    }
+  ]
+}
