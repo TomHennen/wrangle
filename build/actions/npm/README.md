@@ -45,14 +45,15 @@ These steps set up [npm Trusted Publishing](https://docs.npmjs.com/trusted-publi
 
 ## Where's my stuff?
 
-After a release run:
+Every run uploads its full output set as workflow artifacts on the run summary — the metadata (SBOM, scan results, build info), the tarball, and the provenance + VSA bundle — kept ~90 days, downloadable when you're signed in. Their names are [workflow outputs](../../../.github/workflows/build_and_publish_npm.yml).
 
-- **Tarball** — published to npmjs.org; also kept as a workflow artifact.
-- **Provenance + VSA** — together in a per-artifact `<tarball>.intoto.jsonl` bundle, attached to your GitHub release when you cut one and always kept as a workflow artifact. The npm registry also carries an L2 provenance attestation.
-- **SBOM** — a workflow artifact.
+The copies that ship somewhere durable:
+
+- **Tarball** — npmjs.org, with an L2 provenance attestation.
+- **Provenance + VSA** (`<tarball>.intoto.jsonl`) — attached to your GitHub release, when you cut one.
 - **Scan findings** — the Security tab.
 
-The [cross-ecosystem map](../../../docs/verifying_artifacts.md#where-each-output-is-stored) lays all four build types out side by side.
+For the cross-ecosystem view, see [where each output is stored](../../../docs/verifying_artifacts.md#where-each-output-is-stored).
 
 ## Your publish job
 

@@ -22,14 +22,16 @@ Copy [`build_and_publish_containers.yml`](../../../gh_workflow_examples/build_an
 
 ## Where's my stuff?
 
-After a build:
+Every run uploads its full output set as workflow artifacts on the run summary — the metadata (SBOM, scan results, build info) and the provenance + VSA `sha256-<digest>.intoto.jsonl` bundle — kept ~90 days, downloadable when you're signed in. Their names are [workflow outputs](../../../.github/workflows/build_and_publish_container.yml).
+
+The copies that ship somewhere durable:
 
 - **Image** — pushed to `ghcr.io`.
-- **Provenance + VSA** — OCI referrers on the image digest (containers cut no GitHub release), and together in a per-artifact `sha256-<digest>.intoto.jsonl` bundle kept as a workflow artifact.
-- **SBOM** — an OCI attestation on the image, and a workflow artifact.
+- **SBOM** — an OCI attestation on the image.
+- **Provenance + VSA** — OCI referrers on the image digest (containers cut no GitHub release).
 - **Scan findings** — the Security tab.
 
-The [cross-ecosystem map](../../../docs/verifying_artifacts.md#where-each-output-is-stored) lays all four build types out side by side.
+For the cross-ecosystem view, see [where each output is stored](../../../docs/verifying_artifacts.md#where-each-output-is-stored).
 
 ## Good to know
 

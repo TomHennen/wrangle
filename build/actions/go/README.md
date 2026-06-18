@@ -48,14 +48,15 @@ Push a `v`-prefixed semver tag (e.g. `v1.2.3`) and wrangle runs the full pipelin
 
 ## Where's my stuff?
 
-After a release run:
+Every run uploads its full output set as workflow artifacts on the run summary — the metadata (SBOM, scan results, build info), the archives, and the provenance + VSA bundle — kept ~90 days, downloadable when you're signed in. Their names are [workflow outputs](../../../.github/workflows/build_and_publish_go.yml).
+
+The copies that ship somewhere durable:
 
 - **Binaries + `checksums.txt`** — the GitHub release goreleaser cut.
-- **Provenance + VSA** — together in a per-artifact `<archive>.intoto.jsonl` bundle, attached to that release and kept as a workflow artifact.
-- **SBOM** — a workflow artifact.
+- **Provenance + VSA** (`<archive>.intoto.jsonl`) — attached to that release.
 - **Scan findings** — the Security tab.
 
-The [cross-ecosystem map](../../../docs/verifying_artifacts.md#where-each-output-is-stored) lays all four build types out side by side.
+For the cross-ecosystem view, see [where each output is stored](../../../docs/verifying_artifacts.md#where-each-output-is-stored).
 
 ## Good to know
 

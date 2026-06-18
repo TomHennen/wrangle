@@ -45,14 +45,15 @@ These steps set up [PyPI Trusted Publishing](https://docs.pypi.org/trusted-publi
 
 ## Where's my stuff?
 
-After a release run:
+Every run uploads its full output set as workflow artifacts on the run summary — the metadata (SBOM, scan results, build info), the wheel + sdist, and the provenance + VSA bundle — kept ~90 days, downloadable when you're signed in. Their names are [workflow outputs](../../../.github/workflows/build_and_publish_python.yml).
 
-- **Wheel + sdist** — published to PyPI; also kept as workflow artifacts.
-- **Provenance + VSA** — together in a per-artifact `<dist-file>.intoto.jsonl` bundle, attached to your GitHub release when you cut one and always kept as a workflow artifact. PyPI also carries a PEP 740 attestation.
-- **SBOM** — a workflow artifact.
+The copies that ship somewhere durable:
+
+- **Wheel + sdist** — PyPI, with a PEP 740 attestation.
+- **Provenance + VSA** (`<dist-file>.intoto.jsonl`) — attached to your GitHub release, when you cut one.
 - **Scan findings** — the Security tab.
 
-The [cross-ecosystem map](../../../docs/verifying_artifacts.md#where-each-output-is-stored) lays all four build types out side by side.
+For the cross-ecosystem view, see [where each output is stored](../../../docs/verifying_artifacts.md#where-each-output-is-stored).
 
 ## Your publish job
 

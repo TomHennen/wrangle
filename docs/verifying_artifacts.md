@@ -23,18 +23,18 @@ you trust one signature instead of re-running the policy engine.
 
 ## Where each output is stored
 
-Every build produces the same outputs; this is where each one lands.
+Every run uploads its full output set as workflow artifacts on the run summary — the metadata (SBOM, scan results, build info), the built artifact, and the provenance + VSA bundle — kept ~90 days, downloadable when you're signed in to GitHub. That's the complete set; the table below shows the durable copies each build type publishes on top of it.
 
 | Output | Go | Python | npm | Container |
 |---|---|---|---|---|
 | Built artifact | GitHub release | PyPI | npmjs.org | image in `ghcr.io` |
-| SBOM (SPDX) | workflow artifact | workflow artifact | workflow artifact | OCI attestation on the image, and a workflow artifact |
-| Provenance + VSA (`<artifact>.intoto.jsonl` bundle) | GitHub release + workflow artifact | GitHub release (when one exists) + workflow artifact | GitHub release (when one exists) + workflow artifact | OCI referrers on the image digest + workflow artifact |
+| SBOM (SPDX) | run artifact only | run artifact only | run artifact only | OCI attestation on the image |
+| Provenance + VSA (`<artifact>.intoto.jsonl` bundle) | GitHub release | GitHub release (when one exists) | GitHub release (when one exists) | OCI referrers on the image digest |
 | Scan findings (SARIF) | Security tab | Security tab | Security tab | Security tab |
 
 Provenance and VSA travel together in one per-artifact JSONL [in-toto bundle](https://github.com/in-toto/attestation/blob/main/spec/v1/bundle.md); the provenance also lands in [GitHub's attestation store](https://docs.github.com/actions/security-guides/using-artifact-attestations). Python and npm carry an extra ecosystem-native attestation beside it — PEP 740 on PyPI, an L2 provenance attestation on the npm registry.
 
-wrangle attaches the bundle to a GitHub release but never creates one: a Python or npm project that publishes only to PyPI/npm and cuts no release keeps just the workflow-artifact copy (retained ~90 days). Go always has a goreleaser-created release, and container bundles are fetched by digest from the registry. Workflow-artifact names and the on-disk `metadata/<type>/<shortname>/` layout are documented in each reusable workflow's outputs and [`SPEC.md`](SPEC.md).
+wrangle attaches the bundle to a GitHub release but never creates one: a Python or npm project that publishes only to PyPI/npm and cuts no release has only the ~90-day run-artifact copy. Go always has a goreleaser-created release, and container bundles are fetched by digest from the registry. The `metadata/<type>/<shortname>/` on-disk layout and the run-artifact names are documented in [`SPEC.md`](SPEC.md) and each reusable workflow's outputs.
 
 ## What to plug in, per ecosystem
 
