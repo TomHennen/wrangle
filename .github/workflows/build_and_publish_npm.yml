@@ -139,7 +139,7 @@ jobs:
     permissions: {}    # reads env only — no workspace, no API, no secrets
     steps:
       # TODO: replace with $/actions/preflight_guard when GitHub ships $/ syntax (#136)
-      - uses: TomHennen/wrangle/actions/preflight_guard@e5936f0dfb78c4899c84bac8ad4d3922112d669e # feat/wrangle-attest-sbom-on-469 2026-06-19
+      - uses: TomHennen/wrangle/actions/preflight_guard@2a1ef9006c71461d61e0f1be8561d7fb875e3cc5 # feat/attest-provenance-composite-on-469 2026-06-19
 
   gate:
     needs: [guard]
@@ -150,7 +150,7 @@ jobs:
     steps:
       # No checkout: release_gate resolves via ${{ github.action_path }}.
       # TODO: replace with $/actions/release_gate when GitHub ships $/ syntax (#136)
-      - uses: TomHennen/wrangle/actions/release_gate@e5936f0dfb78c4899c84bac8ad4d3922112d669e # feat/wrangle-attest-sbom-on-469 2026-06-19
+      - uses: TomHennen/wrangle/actions/release_gate@2a1ef9006c71461d61e0f1be8561d7fb875e3cc5 # feat/attest-provenance-composite-on-469 2026-06-19
         id: gate
         with:
           events: ${{ inputs.release-events }}
@@ -174,7 +174,7 @@ jobs:
 
       # Shared name derivation so the scan and build jobs can't drift.
       # TODO: replace with $/actions/package_metadata when GitHub ships $/ syntax (#136)
-      - uses: TomHennen/wrangle/actions/package_metadata@e5936f0dfb78c4899c84bac8ad4d3922112d669e # feat/wrangle-attest-sbom-on-469 2026-06-19
+      - uses: TomHennen/wrangle/actions/package_metadata@2a1ef9006c71461d61e0f1be8561d7fb875e3cc5 # feat/attest-provenance-composite-on-469 2026-06-19
         id: names
         if: ${{ inputs.scan-tools != '' }}
         with:
@@ -182,7 +182,7 @@ jobs:
           path: ${{ inputs.path }}
 
       # TODO: replace with $/actions/scan when GitHub ships $/ syntax (#136)
-      - uses: TomHennen/wrangle/actions/scan@e5936f0dfb78c4899c84bac8ad4d3922112d669e # feat/wrangle-attest-sbom-on-469 2026-06-19
+      - uses: TomHennen/wrangle/actions/scan@2a1ef9006c71461d61e0f1be8561d7fb875e3cc5 # feat/attest-provenance-composite-on-469 2026-06-19
         if: ${{ inputs.scan-tools != '' }}
         with:
           tools: ${{ inputs.scan-tools }}
@@ -221,7 +221,7 @@ jobs:
           ref: ${{ inputs.ref || '' }}
 
       # TODO: replace with $/build/actions/npm when GitHub ships $/ syntax (#136)
-      - uses: TomHennen/wrangle/build/actions/npm@e5936f0dfb78c4899c84bac8ad4d3922112d669e # feat/wrangle-attest-sbom-on-469 2026-06-19
+      - uses: TomHennen/wrangle/build/actions/npm@2a1ef9006c71461d61e0f1be8561d7fb875e3cc5 # feat/attest-provenance-composite-on-469 2026-06-19
         id: build
         with:
           path: ${{ inputs.path }}
@@ -230,7 +230,7 @@ jobs:
           ignore-scripts: ${{ inputs.ignore-scripts }}
 
       # TODO: replace with $/actions/package_metadata when GitHub ships $/ syntax (#136)
-      - uses: TomHennen/wrangle/actions/package_metadata@e5936f0dfb78c4899c84bac8ad4d3922112d669e # feat/wrangle-attest-sbom-on-469 2026-06-19
+      - uses: TomHennen/wrangle/actions/package_metadata@2a1ef9006c71461d61e0f1be8561d7fb875e3cc5 # feat/attest-provenance-composite-on-469 2026-06-19
         id: names
         with:
           build-type: npm
@@ -302,7 +302,7 @@ jobs:
       bundle-artifact-name: ${{ steps.attest.outputs.bundle-artifact-name }}
     steps:
       # TODO: replace with $/actions/attest_provenance when GitHub ships $/ syntax (#136)
-      - uses: TomHennen/wrangle/actions/attest_provenance@720c44bcd275740f0c232f4d64dc0eec7c05f7a2 # feat/469-unify-metadata-artifact 2026-06-19
+      - uses: TomHennen/wrangle/actions/attest_provenance@2a1ef9006c71461d61e0f1be8561d7fb875e3cc5 # feat/attest-provenance-composite-on-469 2026-06-19
         id: attest
         with:
           build-type: npm
@@ -328,7 +328,7 @@ jobs:
       attestation-bundle-name: ${{ needs.build.outputs.metadata-artifact-name }}
     steps:
       # TODO: replace with $/actions/verify_release when GitHub ships $/ syntax (#136)
-      - uses: TomHennen/wrangle/actions/verify_release@e5936f0dfb78c4899c84bac8ad4d3922112d669e # feat/wrangle-attest-sbom-on-469 2026-06-19
+      - uses: TomHennen/wrangle/actions/verify_release@2a1ef9006c71461d61e0f1be8561d7fb875e3cc5 # feat/attest-provenance-composite-on-469 2026-06-19
         with:
           build-type: npm
           shortname: ${{ needs.build.outputs.shortname }}
