@@ -168,7 +168,7 @@ jobs:
           printf 'name=%s\n' "python-scan${sn:+-$sn}" >> "$GITHUB_OUTPUT"
 
       # TODO: replace with $/actions/scan when GitHub ships $/ syntax (#136)
-      - uses: TomHennen/wrangle/actions/scan@66e4f664bfc0297f63b6f1f506b62d5cf601e4da # feat/469-unify-metadata-artifact 2026-06-18
+      - uses: TomHennen/wrangle/actions/scan@e8ebd93aead78c858211a2d445e269a779b094a5 # feat/469-unify-metadata-artifact 2026-06-19
         if: ${{ inputs.scan-tools != '' }}
         with:
           tools: ${{ inputs.scan-tools }}
