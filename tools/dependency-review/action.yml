@@ -109,3 +109,19 @@ runs:
         VULNERABLE_CHANGES: ${{ steps.depreview.outputs.vulnerable-changes }}
       run: |
         "$TOOL_DIR/mark_error.sh"
+
+    # Leave the scan/v1 manifest the trusted verify job's wrangle-attest engine
+    # wraps + signs. Runs after mark_error.sh so write_scan_manifest.sh sees the
+    # marker and skips on a tool error; the action is PR-only, so off-PR runs
+    # never reach here and no manifest is written for a skipped tool.
+    - name: Write scan manifest
+      if: always()
+      shell: bash
+      env:
+        WRANGLE_ROOT: ${{ github.action_path }}/../..
+      run: |
+        set -euo pipefail
+        SARIF="${GITHUB_WORKSPACE}/.wrangle/metadata/dependency-review/output.sarif"
+        if [[ -f "$SARIF" ]]; then
+          "$WRANGLE_ROOT/lib/write_scan_manifest.sh" dependency-review "$SARIF"
+        fi
