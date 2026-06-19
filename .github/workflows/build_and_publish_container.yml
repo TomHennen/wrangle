@@ -158,7 +158,7 @@ jobs:
           printf 'name=%s\n' "container-scan${sn:+-$sn}" >> "$GITHUB_OUTPUT"
 
       # TODO: replace with $/actions/scan when GitHub ships $/ syntax (#136)
-      - uses: TomHennen/wrangle/actions/scan@aa9361e38f662373cd88ba1951279d19b0459289 # bootstrap PR-head until merge (#469)
+      - uses: TomHennen/wrangle/actions/scan@aa9361e38f662373cd88ba1951279d19b0459289 # feat/469-unify-metadata-artifact 2026-06-18
         if: ${{ inputs.scan-tools != '' }}
         with:
           tools: ${{ inputs.scan-tools }}
@@ -189,7 +189,7 @@ jobs:
     # TODO: replace with $/build/actions/container when GitHub ships $/ syntax (#136)
     - name: "build and publish"
       id: build
-      uses: TomHennen/wrangle/build/actions/container@aa9361e38f662373cd88ba1951279d19b0459289 # bootstrap PR-head until merge (#469)
+      uses: TomHennen/wrangle/build/actions/container@aa9361e38f662373cd88ba1951279d19b0459289 # feat/469-unify-metadata-artifact 2026-06-18
       with:
         path: ${{ inputs.path }}
         imagename: ${{ inputs.imagename }}
