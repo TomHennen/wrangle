@@ -84,6 +84,25 @@ Go, Python, npm, and Container each run the full pipeline and produce an atteste
 | Shell | — | [build_shell.yml](gh_workflow_examples/build_shell.yml) |
 | Source-only — no build, scan only | [README](actions/scan/README.md) | [check_source_change.yml](gh_workflow_examples/check_source_change.yml) |
 
+## Where's my stuff?
+
+Each build produces two workflow artifacts you can download from the run's Actions page (or by name with `actions/download-artifact`):
+
+- **`<type>-dist-<sn>`** — your built product (wheels/sdist for python, the npm tarball, goreleaser's `dist/` for go). Container builds push the image to the registry instead.
+- **`<type>-metadata-<sn>`** — everything else, in one place:
+
+  ```
+  sbom.spdx.json                       # SPDX SBOM
+  scan/<tool>/output.sarif             # per-tool scan findings (osv, zizmor, scorecard, wrangle-lint, dependency-review)
+  scan/<tool>/output.md                # human-readable version of the same
+  scan/govulncheck/govulncheck.json    # go only
+  <artifact>.intoto.jsonl              # SLSA provenance + signed VSA, one per released artifact (release runs)
+  ```
+
+`<type>` is your build type and `<sn>` is a shortname derived from the `path` input (`/` → `_`; a single root build is the common case). The reusable workflow exposes the names as the `dist-artifact-name` and `metadata-artifact-name` outputs so you don't have to hardcode them; the [source-only scan workflow](actions/scan/README.md) uploads just `scan/` as `scan-<sn>`.
+
+For a live example, open any run of [wrangle's own release-showcase workflow](https://github.com/TomHennen/wrangle/actions/workflows/release-showcase.yml) and look at its Artifacts list. Per-ecosystem details are in the [ecosystem READMEs](#ecosystems) above.
+
 ## How Wrangle Works
 
 Behind that one workflow call, wrangle runs your code through a pipeline of well-known security

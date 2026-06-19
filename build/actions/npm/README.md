@@ -39,7 +39,7 @@ These steps set up [npm Trusted Publishing](https://docs.npmjs.com/trusted-publi
 - **npm or pnpm, auto-detected** from the lockfile; for pnpm, Corepack honors `package.json`'s `packageManager` field — set it for deterministic builds.
 - **Your scripts run as usual** — `scripts.build` if present, `scripts.test` unless it's npm's default placeholder, then `npm pack` / `pnpm pack`.
 - **Source scan** built in — vulnerable dependencies (OSV), unsafe workflow patterns (Zizmor), and more ([details](../../../actions/scan/README.md)); a load-bearing finding blocks publish.
-- **An SPDX SBOM**, uploaded as a workflow artifact.
+- **An SPDX SBOM, scan findings, and the signed bundle** in one `npm-metadata-<sn>` workflow artifact ([what's in it](../../../README.md#wheres-my-stuff)).
 - **SLSA Build L3 provenance** ([the requirements it meets](../../../docs/REQUIREMENTS_MAPPING.md)), in addition to the L2 attestation `npm publish --provenance` writes to the registry.
 - **A signed VSA** attached to the release on tag pushes, so downstream users can verify the tarball with one command.
 

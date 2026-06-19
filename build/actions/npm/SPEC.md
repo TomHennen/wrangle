@@ -10,7 +10,7 @@ The npm ecosystem in 2026 is large, mature, and structurally well-suited to a wr
 
 1. Wrangle invokes the build (`npm ci` → optional `npm run build` → optional `npm test` → `npm pack`).
 2. Wrangle runs `actions/attest-build-provenance` (`subject-path: dist/*`) in an `attest:` job inside its reusable workflow. The action emits an L3 Sigstore-signed in-toto bundle, uploaded as a separate workflow artifact; the per-artifact VSA is attached as a GitHub Release asset on tag pushes.
-3. Wrangle's metadata artifact (`npm-metadata-<shortname>`) holds the SBOM, OSV-Scanner output, and build summary per the unified metadata layout. The L3 bundle artifact is exposed via the reusable workflow's `provenance-artifact-name` output so adopters can find it without reconstructing the filename.
+3. Wrangle's metadata artifact (`npm-metadata-<shortname>`) holds the SBOM, the `scan/` tool output, and (on release) the per-subject `.intoto.jsonl` bundle, per the unified metadata layout. The raw provenance is additionally exposed via the reusable workflow's `provenance-artifact-name` output for consumers who want it independently.
 4. Wrangle's `verify` job verifies the provenance (ampel against the wrangle PolicySet, fail-closed) and emits the signed VSA before publish — closing the pre-publish verification gap.
 5. The adopter's caller workflow publishes the hash-pinned `.tgz` with `npm publish --provenance`. That populates the npm registry's attestation slot with an additional **L2 in-CLI attestation** that `npm audit signatures` can verify.
 
@@ -64,7 +64,7 @@ This is the load-bearing decision and where the npm spec aligns to the python an
 
 - Wrangle runs `actions/attest-build-provenance` (`subject-path: dist/*`) over the `.tgz` produced by `npm pack`, in an `attest:` job *inside* its reusable workflow — the isolated trusted builder. The action emits a Sigstore-signed in-toto bundle carrying a `predicateType: https://slsa.dev/provenance/v1` predicate, naming `build_and_publish_npm.yml` as the `builder.id`.
 - The bundle is uploaded as a separate workflow artifact named per the reusable workflow's `provenance-artifact-name` output (`npm-provenance-bundle-<shortname>`, namespaced by shortname so multiple npm builds in one workflow don't collide). The provenance is *also* written to GitHub's attestation store (against the caller's repo) for any `should-release` build, so it stays externally verifiable via `gh attestation verify` regardless of trigger. On tag pushes the per-artifact VSA is additionally attached as a GitHub Release asset by the `verify:` job; non-tag publishes have no release-attached VSA.
-- Wrangle's `npm-metadata-<shortname>` artifact (the unified metadata layout — see [`docs/SPEC.md`](../../../docs/SPEC.md)) holds the SBOM, OSV-Scanner output, build summary, and any other per-build artifacts. The L3 bundle is *parallel* to it, not inside it.
+- Wrangle's `npm-metadata-<shortname>` artifact (the unified metadata layout — see [`docs/SPEC.md`](../../../docs/SPEC.md)) holds the SBOM, the `scan/` tool output, and the per-subject `.intoto.jsonl` bundle. The verify job folds the bundle *into* this artifact rather than shipping a separate one.
 - Verifiable via `gh attestation verify <tgz> --repo <owner>/<repo> --signer-workflow TomHennen/wrangle/.github/workflows/build_and_publish_npm.yml`, which reads the attestation from GitHub's store (scoped by `--repo`).
 - `actions/attest-build-provenance` is a plain action, SHA-pinnable like any other — there is no tag-pin exception (the former generic generator required tag invocation for its OIDC model; that no longer applies).
 
@@ -108,7 +108,7 @@ Wrangle generates and owns its own L3 SLSA provenance regardless of what the npm
 - **Wrangle-owned L3 provenance.** Generated via `actions/attest-build-provenance` (run inside wrangle's reusable workflow) over the packed `.tgz`, exposed as a separate workflow artifact; the per-artifact VSA is attached as a GitHub Release asset on tag pushes. Same pattern as python and container; cross-ecosystem audit tooling reads the same shape regardless of build type.
 - **Pre-publish verification.** Wrangle has its own offline-verifiable bundle. The `verify` job verifies the provenance (ampel against the wrangle PolicySet, fail-closed) between build and publish. If the dist is tampered with between wrangle's build and the adopter's publish, verification fails and publish is blocked — caught as a wrangle-owned guarantee rather than per-adopter boilerplate.
 - **Private registry coverage.** GitHub Packages, Verdaccio, Artifactory, and Nexus do not accept the npm `--provenance` flow, but consumers downloading from those registries can still verify wrangle's L3 against the bundle in wrangle's metadata directory or attached to GitHub Releases. Wrangle's L3 does not live in the npm registry slot, so it survives the choice of registry.
-- **Multiple attestations per artifact.** Wrangle's metadata directory holds the L3 bundle alongside the SBOM, OSV-Scanner SARIF, build summary, and other per-build artifacts. The npm registry's "one slot per `(package, version)`" rule is a registry concern that wrangle's metadata layout simply does not have.
+- **Multiple attestations per artifact.** Wrangle's metadata directory holds the L3 bundle alongside the SBOM and the `scan/` tool output. The npm registry's "one slot per `(package, version)`" rule is a registry concern that wrangle's metadata layout simply does not have.
 - **SBOM generation** — `--provenance` does not emit an SBOM. Wrangle produces SPDX (`metadata/npm/<shortname>/sbom.spdx.json`).
 - **Vulnerability scanning** of the dependency tree using OSV-Scanner against the lockfile.
 - **Test gating** — `--provenance` does not enforce test pass; wrangle does.
@@ -156,7 +156,7 @@ Practical things the implementer will hit. Not contract-design speculation; that
   6. SHA-256 the tarball; emit base64 `sha256:HASH FILENAME` hashes as the `hashes` output. The reusable workflow derives the per-artifact VSA matrix from it; the provenance subjects themselves come from `actions/attest-build-provenance`'s `subject-path dist/*`.
   7. `syft dir:<path> -o spdx-json` to produce `sbom.spdx.json` (Cosign-keyless-verified install via `tools/syft/install.sh`, same as python).
   8. OSV-Scanner against the lockfile.
-  9. Write the unified `metadata/npm/<shortname>/` directory: `sbom.spdx.json`, `vuln-scan.json`, `summary.md`, `outputs.txt`.
+  9. Write `sbom.spdx.json` into the unified `metadata/npm/<shortname>/` directory; the scan job's `scan/` output and (on release) the verify job's `.intoto.jsonl` bundle are folded into the same directory.
 - **Reusable workflow shape mirrors python's:**
   1. `build` job runs the composite (steps above), uploads `npm-dist-<shortname>` and `npm-metadata-<shortname>` artifacts.
   2. `gate` job runs `actions/release_gate` and exposes `should-release`.

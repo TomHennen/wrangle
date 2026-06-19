@@ -16,9 +16,9 @@ Copy [`build_and_publish_containers.yml`](../../../gh_workflow_examples/build_an
 
 - **Build + push to ghcr.io** (other registries are out of scope — see [`SPEC.md`](./SPEC.md#current-scope-ghcrio-only)).
 - **Source scan** built in — vulnerable dependencies (OSV), unsafe workflow patterns (Zizmor), and more ([details](../../../actions/scan/README.md)); a load-bearing finding blocks the build and push.
-- **A BuildKit-native SBOM**, attached to the image as an OCI attestation and uploaded as a workflow artifact (SPDX JSON).
+- **A BuildKit-native SBOM**, attached to the image as an OCI attestation and also folded — with the scan findings and the signed bundle — into one `container-metadata-<sn>` workflow artifact ([what's in it](../../../README.md#wheres-my-stuff)).
 - **SLSA Build L3 provenance** for the image digest ([the requirements it meets](../../../docs/REQUIREMENTS_MAPPING.md)).
-- **A signed VSA** pushed to the registry as its own OCI referrer on the image digest — so consumers can verify the image with one command — and also delivered in the per-artifact `.intoto.jsonl` bundle (provenance + VSA) as a workflow artifact. The provenance is a separate referrer (from `attest-build-provenance`).
+- **A signed VSA** pushed to the registry as its own OCI referrer on the image digest — so consumers can verify the image with one command — and also delivered in the per-artifact `.intoto.jsonl` bundle (provenance + VSA) inside that metadata artifact. The provenance is a separate referrer (from `attest-build-provenance`).
 
 ## Good to know
 
