@@ -1339,10 +1339,10 @@ func TestFails(t *testing.T) {
 
 # --- attest-build-provenance (wrangle builder identity, #316) ---
 
-@test "go: workflow has attest job producing GitHub attest-build-provenance" {
-    run grep -E '^  attest:' "$WORKFLOW"
+@test "go: attest job delegates to attest_provenance with go checksums subject" {
+    run bash -c "sed -n '/^  attest:/,/^  [a-z]/p' \"$WORKFLOW\" | grep -F 'TomHennen/wrangle/actions/attest_provenance@'"
     [[ "$status" -eq 0 ]]
-    run grep 'actions/attest-build-provenance@' "$WORKFLOW"
+    run bash -c "sed -n '/^  attest:/,/^  [a-z]/p' \"$WORKFLOW\" | grep -F 'subject-checksums: dist/checksums.txt'"
     [[ "$status" -eq 0 ]]
 }
 
@@ -1379,10 +1379,10 @@ func TestFails(t *testing.T) {
     [[ "$status" -eq 0 ]]
 }
 
-@test "go: attest job uploads the provenance bundle the verify job needs" {
-    # The verify job depends on attest and reads its uploaded bundle artifact.
-    # The bundle name is the release job's lib-derived provenance-bundle output.
-    run bash -c "sed -n '/^  attest:/,/^  [a-z]/p' \"$WORKFLOW\" | grep -E 'name: \\\$\\{\\{ needs.release.outputs.provenance-bundle-artifact-name \\}\\}'"
+@test "go: attest job exposes the bundle name the verify job needs" {
+    # attest_provenance uploads the bundle; the job re-exports its name and the
+    # verify job depends on attest.
+    run bash -c "sed -n '/^  attest:/,/^  [a-z]/p' \"$WORKFLOW\" | grep -F 'bundle-artifact-name: \${{ steps.attest.outputs.bundle-artifact-name }}'"
     [[ "$status" -eq 0 ]]
     run bash -c "sed -n '/^  verify:/,\$p' \"$WORKFLOW\" | grep -E 'needs:.*attest'"
     [[ "$status" -eq 0 ]]
