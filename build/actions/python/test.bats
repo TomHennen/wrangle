@@ -499,6 +499,38 @@ write_pyproject() {
     [[ "$status" -eq 0 ]]
 }
 
+@test "python: scan job passes a per-build artifact-name to the scan action" {
+    # The scan action no longer owns wrangle-scan-results; the build job folds
+    # this artifact into the unified metadata (#469).
+    run bash -c "sed -n '/^  scan:/,/^  [a-z]/p' \"$WORKFLOW\" | grep -E 'artifact-name: \\\$\\{\\{ steps.sn.outputs.name \\}\\}'"
+    [[ "$status" -eq 0 ]]
+}
+
+@test "python: build job folds the scan output into the metadata dir" {
+    # download-artifact of the scan output into <metadata-dir>/scan/ before upload.
+    run bash -c "sed -n '/^  build:/,/^  attest:/p' \"$WORKFLOW\" | grep -E 'path: \\\$\\{\\{ steps.build.outputs.metadata-dir \\}\\}/scan/'"
+    [[ "$status" -eq 0 ]]
+}
+
+@test "python: build job needs scan so scan output is foldable" {
+    run bash -c "sed -n '/^  build:/,/^  attest:/p' \"$WORKFLOW\" | grep -E 'needs:.*scan'"
+    [[ "$status" -eq 0 ]]
+}
+
+@test "python: verify job writes the bundle into the metadata dir and uploads it as metadata" {
+    # bundle-out is the metadata dir (not a throwaway bundles/ dir) and the
+    # upload name is the unified python-metadata-<sn> (#469).
+    run bash -c "sed -n '/^  verify:/,\$p' \"$WORKFLOW\" | grep -E 'bundle-out: \\\$\\{\\{ needs.build.outputs.metadata-dir \\}\\}'"
+    [[ "$status" -eq 0 ]]
+    run bash -c "sed -n '/^  verify:/,\$p' \"$WORKFLOW\" | grep -E 'artifact-name: \\\$\\{\\{ needs.build.outputs.metadata-artifact-name \\}\\}'"
+    [[ "$status" -eq 0 ]]
+}
+
+@test "python: no standalone python-bundle-* artifact (folded into metadata)" {
+    run grep 'python-bundle-' "$WORKFLOW"
+    [[ "$status" -ne 0 ]]
+}
+
 @test "python: action installs syft via tools/syft (not curl | sh)" {
     run grep -E 'curl[^|]*\| *sh|/usr/local/bin' "$ACTION"
     [[ "$status" -ne 0 ]]

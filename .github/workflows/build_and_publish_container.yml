@@ -216,7 +216,7 @@ jobs:
     - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
       if: always()
       with:
-        name: ${{ needs.gate.outputs.should-release == 'true' && format('container-metadata-pre-{0}', steps.build.outputs.shortname) || format('container-metadata-{0}', steps.build.outputs.shortname) }}
+        name: ${{ needs.gate.outputs.should-release == 'true' && format('container-premeta-{0}', steps.build.outputs.shortname) || format('container-metadata-{0}', steps.build.outputs.shortname) }}
         path: ${{ steps.build.outputs.metadata-dir }}/
         if-no-files-found: warn
 

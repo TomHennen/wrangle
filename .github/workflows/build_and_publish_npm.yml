@@ -244,7 +244,7 @@ jobs:
             printf 'dist=npm-dist-%s\n' "$SHORTNAME"
             printf 'metadata=npm-metadata-%s\n' "$SHORTNAME"
             printf 'scan=npm-scan-%s\n' "$SHORTNAME"
-            printf 'metadata-pre=npm-metadata-pre-%s\n' "$SHORTNAME"
+            printf 'metadata-pre=npm-premeta-%s\n' "$SHORTNAME"
           } >> "$GITHUB_OUTPUT"
 
       # The npm composite doesn't emit the package name; read it from

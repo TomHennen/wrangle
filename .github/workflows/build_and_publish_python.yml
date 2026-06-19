@@ -246,7 +246,7 @@ jobs:
             printf 'dist=python-dist-%s\n' "$SHORTNAME"
             printf 'metadata=python-metadata-%s\n' "$SHORTNAME"
             printf 'scan=python-scan-%s\n' "$SHORTNAME"
-            printf 'metadata-pre=python-metadata-pre-%s\n' "$SHORTNAME"
+            printf 'metadata-pre=python-premeta-%s\n' "$SHORTNAME"
           } >> "$GITHUB_OUTPUT"
 
       # Emit the dist filenames as a JSON array; the verify job binds one VSA per file.

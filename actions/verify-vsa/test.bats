@@ -222,17 +222,19 @@ EOF
 # --- contract (divergence-fail guards across producer/consumer files) ---
 
 @test "contract: producer uploads the bundle under the name this action resolves" {
-    # actions/verify uploads one bundle artifact per build, named
-    # <type>-bundle-<shortname>; this action downloads *-bundle-* and
-    # concatenates every <artifact>.intoto.jsonl found. A producer-side rename
-    # must fail here before it strands every adopter publish job.
+    # The verify job folds each build's <artifact>.intoto.jsonl bundles into
+    # the unified <type>-metadata-<shortname> artifact; this action downloads
+    # *-metadata-* and concatenates every <artifact>.intoto.jsonl found. A
+    # producer-side rename must fail here before it strands every adopter
+    # publish job (#469).
     PRODUCER="$ACTION_DIR/../verify/action.yml"
     grep -q 'name: ${{ inputs.artifact-name }}' "$PRODUCER"
-    grep -q 'pattern: "\*-bundle-\*"' "$ACTION"
+    grep -q 'pattern: "\*-metadata-\*"' "$ACTION"
     grep -q '.intoto.jsonl' "$SCRIPT"
     WF_DIR="$ACTION_DIR/../../.github/workflows"
-    grep -q 'artifact-name: npm-bundle-' "$WF_DIR/build_and_publish_npm.yml"
-    grep -q 'artifact-name: python-bundle-' "$WF_DIR/build_and_publish_python.yml"
+    # Both build workflows route the verify job's bundle into the metadata artifact.
+    grep -q 'artifact-name: ${{ needs.build.outputs.metadata-artifact-name }}' "$WF_DIR/build_and_publish_npm.yml"
+    grep -q 'artifact-name: ${{ needs.build.outputs.metadata-artifact-name }}' "$WF_DIR/build_and_publish_python.yml"
 }
 
 @test "contract: the build workflows export the resource-uri this action expects" {
@@ -260,7 +262,7 @@ EOF
     grep -q 'go-version-file: ${{ github.action_path }}/../../tools/go.mod' "$ACTION"
     grep -q 'install github.com/carabiner-dev/ampel/cmd/ampel' "$ACTION"
     grep -Eq 'uses: actions/download-artifact@[0-9a-f]{40}' "$ACTION"
-    grep -q 'pattern: "\*-bundle-\*"' "$ACTION"
+    grep -q 'pattern: "\*-metadata-\*"' "$ACTION"
 }
 
 @test "structure: action.yml delegates to verify_vsa.sh" {

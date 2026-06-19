@@ -373,7 +373,7 @@ jobs:
       # release the verify job appends the bundle and owns the final upload.
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
-          name: ${{ needs.gate.outputs.should-release == 'true' && format('go-metadata-pre-{0}', steps.release.outputs.shortname) || format('go-metadata-{0}', steps.release.outputs.shortname) }}
+          name: ${{ needs.gate.outputs.should-release == 'true' && format('go-premeta-{0}', steps.release.outputs.shortname) || format('go-metadata-{0}', steps.release.outputs.shortname) }}
           path: ${{ steps.release.outputs.metadata-dir }}/
           if-no-files-found: error
 
