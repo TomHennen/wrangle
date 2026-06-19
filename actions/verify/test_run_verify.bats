@@ -100,39 +100,21 @@ teardown() {
     [[ "$status" -ne 0 ]]
 }
 
-# --- subject sha256 (the bare digest wrangle-attest binds the SBOM to) ---
-
-@test "run_verify: subject_sha256 passes a sha256 digest subject through" {
-    run wrangle_subject_sha256 "sha256:$(printf '0%.0s' {1..64})"
-    [[ "$status" -eq 0 ]]
-    [[ "$output" == "sha256:$(printf '0%.0s' {1..64})" ]]
-}
-
-@test "run_verify: subject_sha256 hashes a file subject to its sha256" {
-    printf 'CONTENT\n' > "$TEST_DIR/blob"
-    local want; want="$(sha256sum "$TEST_DIR/blob" | cut -d' ' -f1)"
-    run wrangle_subject_sha256 "$TEST_DIR/blob"
-    [[ "$status" -eq 0 ]]
-    [[ "$output" == "sha256:$want" ]]
-}
-
-@test "run_verify: subject_sha256 rejects a non-sha256 digest the store can't take" {
-    # The attestation store keys by sha256; a sha512 digest subject must fail
-    # closed, not silently produce an unstorable statement.
-    run wrangle_subject_sha256 "sha512:$(printf 'a%.0s' {1..128})"
-    [[ "$status" -ne 0 ]]
-    [[ "$output" == *"not sha256"* ]]
-}
-
 # --- wrangle-attest arg vector ---
 
-@test "run_verify: attest args carry the metadata-root, subject, sign, and out" {
+@test "run_verify: attest args carry the metadata-root, subject arg, sign, and out" {
     export METADATA_ROOT="$TEST_DIR/meta"
-    mapfile -t args < <(wrangle_attest_args "sha256:abc" "$TEST_DIR/out.jsonl")
+    mapfile -t args < <(wrangle_attest_args "--subject=sha256:abc" "$TEST_DIR/out.jsonl")
     printf '%s\n' "${args[@]}" | grep -qx -- "--metadata-root=$TEST_DIR/meta"
     printf '%s\n' "${args[@]}" | grep -qx -- "--subject=sha256:abc"
     printf '%s\n' "${args[@]}" | grep -qx -- "--sign"
     printf '%s\n' "${args[@]}" | grep -qx -- "--out=$TEST_DIR/out.jsonl"
+}
+
+@test "run_verify: attest args pass an --artifact subject arg through verbatim" {
+    export METADATA_ROOT="$TEST_DIR/meta"
+    mapfile -t args < <(wrangle_attest_args "--artifact=$TEST_DIR/dist/a.tgz" "$TEST_DIR/out.jsonl")
+    printf '%s\n' "${args[@]}" | grep -qx -- "--artifact=$TEST_DIR/dist/a.tgz"
 }
 
 @test "run_verify: attest arg vector is accepted by the real wrangle-attest parser" {
@@ -140,7 +122,7 @@ teardown() {
     # (failing later on the bogus subject/root) proves every flag name matches.
     if [[ ! -x "$ATTEST_BIN" ]]; then skip_or_fail "real wrangle-attest not available"; fi
     export METADATA_ROOT="$TEST_DIR/meta"
-    mapfile -t args < <(wrangle_attest_args "sha256:abc" "$TEST_DIR/out.jsonl")
+    mapfile -t args < <(wrangle_attest_args "--subject=sha256:abc" "$TEST_DIR/out.jsonl")
     run "$ATTEST_BIN" "${args[@]}"
     [[ "$status" -ne 0 ]]
     [[ "$output" != *"flag provided but not defined"* ]]
@@ -736,20 +718,48 @@ STUB
     [[ "$(jq -r '.signedStatement.subject[0].digest.sha256' "$TEST_DIR/pushed")" == "$sha" ]]
 }
 
-@test "run_verify: emit_metadata fails closed when the engine fails" {
-    # The engine fails closed on a malformed manifest or a signing failure; the
-    # verify step must surface that rather than shipping an SBOM-less bundle.
-    cat > "$TEST_DIR/wrangle-attest" <<'STUB'
+@test "run_verify: emit_metadata hands a file subject to the engine via --artifact" {
+    # go/npm/python subjects are dist files: the engine self-digests them via
+    # --artifact, so the shell passes the path, never a precomputed digest.
+    cat > "$TEST_DIR/wrangle-attest" <<STUB
 #!/bin/bash
-exit 2
+for a in "\$@"; do case "\$a" in --out=*) out="\${a#--out=}";; esac; done
+printf '%s\n' "\$@" > "$TEST_DIR/attest-args"
+printf '{"signedStatement":1}\n' > "\$out"
 STUB
     chmod +x "$TEST_DIR/wrangle-attest"
     export PATH="$TEST_DIR:$PATH"
     export METADATA_ROOT="$TEST_DIR/meta"; mkdir -p "$METADATA_ROOT"
+    export OCI_TARGET=""
+    cat > "$TEST_DIR/bnd" <<'STUB'
+#!/bin/bash
+exit 0
+STUB
+    chmod +x "$TEST_DIR/bnd"
+    mkdir -p "$TEST_DIR/dist"; printf 'AAA\n' > "$TEST_DIR/dist/a.tgz"
+    local bundle="$TEST_DIR/bundle.jsonl"; printf '{"provenance":1}\n' > "$bundle"
+    run wrangle_emit_metadata_statements "$TEST_DIR/dist/a.tgz" "$bundle"
+    [[ "$status" -eq 0 ]]
+    grep -qx -- "--artifact=$TEST_DIR/dist/a.tgz" "$TEST_DIR/attest-args"
+    ! grep -q -- "--subject=" "$TEST_DIR/attest-args"
+}
+
+@test "run_verify: emit_metadata fails closed when the real engine sees a malformed manifest" {
+    # The real engine fails closed at discoverManifests — before newSigner — so a
+    # malformed top-level manifest aborts hermetically (no OIDC/network). Drive
+    # the real binary to prove genuine engine fail-closed, not a stubbed exit.
+    if [[ ! -x "$ATTEST_BIN" ]]; then skip_or_fail "real wrangle-attest not available"; fi
+    local dir="$TEST_DIR/wrangle-attest-bin"; mkdir -p "$dir"
+    ln -sf "$ATTEST_BIN" "$dir/wrangle-attest"
+    export PATH="$dir:$PATH"
+    export METADATA_ROOT="$TEST_DIR/meta"; mkdir -p "$METADATA_ROOT"
     export WRANGLE_RETRY_DELAY=0
-    local bundle="$TEST_DIR/bundle.jsonl"; : > "$bundle"
+    printf 'not json\n' > "$METADATA_ROOT/wrangle_attestation_metadata.json"
+    local bundle="$TEST_DIR/bundle.jsonl"; printf '{"provenance":1}\n' > "$bundle"
     run wrangle_emit_metadata_statements "sha256:$(printf '0%.0s' {1..64})" "$bundle"
     [[ "$status" -ne 0 ]]
+    # Nothing appended: the seeded provenance line is untouched.
+    [[ "$(wc -l < "$bundle")" -eq 1 ]]
 }
 
 # --- attach to release (wrangle_attach_release) ---

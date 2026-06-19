@@ -62,25 +62,6 @@ wrangle_subject_arg() {
     printf -- '--subject-hash=sha256:%s\n' "${digest%% *}"
 }
 
-# Resolve a subject to the single sha256:<hex> the attestation engine binds to.
-# A sha256 digest subject (container) passes through; any other digest algorithm
-# is rejected (the store accepts only sha256); a file subject is hashed. The SBOM
-# statement thus shares the VSA's single-sha256 subject, so a policy resolving by
-# artifact digest finds both.
-wrangle_subject_sha256() {
-    local subject="$1" digest
-    if [[ "$subject" =~ ^sha256:[a-f0-9]{64}$ ]]; then
-        printf '%s\n' "$subject"
-        return 0
-    fi
-    if [[ "$subject" =~ ^[a-z0-9]+:[a-f0-9]+$ ]]; then
-        printf 'wrangle: subject %s is not sha256 — the attestation store accepts only sha256\n' "$subject" >&2
-        return 1
-    fi
-    digest="$(sha256sum "$subject")" || return 1
-    printf 'sha256:%s\n' "${digest%% *}"
-}
-
 # Build the ampel verify arg vector for one subject, one arg per line for
 # mapfile. $1 is the subject; $2 the unsigned-VSA output path.
 wrangle_ampel_verify_args() {
@@ -228,14 +209,15 @@ wrangle_push_bundle() {
 
 # Build the wrangle-attest arg vector that turns the build metadata into signed
 # in-toto statements (one signed Sigstore-bundle JSONL line per statement), one
-# arg per line for mapfile. $1 is the single sha256 subject; $2 the JSONL output
-# path. METADATA_ROOT holds the build's wrangle_attestation_metadata.json files
-# (sbom.spdx.json + its manifest); --commit is woven into the scan/v1 envelope
-# only, ignored by the SBOM passthrough.
+# arg per line for mapfile. $1 is the pre-formed subject arg (--subject=<digest>
+# or --artifact=<file>); $2 the JSONL output path. METADATA_ROOT holds the
+# build's wrangle_attestation_metadata.json files (sbom.spdx.json + its
+# manifest); --commit is woven into the scan/v1 envelope only, ignored by the
+# SBOM passthrough.
 wrangle_attest_args() {
     printf '%s\n' \
         --metadata-root="$METADATA_ROOT" \
-        --subject="$1" \
+        "$1" \
         --sign \
         --out="$2"
 }
@@ -243,17 +225,23 @@ wrangle_attest_args() {
 # For one subject, build and sign the SBOM (and any other build-metadata)
 # statement(s) via the engine, then append each signed line to the bundle and
 # post each to the store. No-op when METADATA_ROOT is unset/empty (a build that
-# produced no metadata). $1 is the subject, $2 the bundle file. The engine signs
-# in the same trusted process as the VSA and fails closed on a malformed
-# manifest or signing failure (no partial bundle), so an absent statement is a
-# real gap, not a silent skip.
+# produced no metadata). $1 is the subject, $2 the bundle file. A digest subject
+# (container) passes through as --subject; a file subject is handed to the
+# engine via --artifact, which self-digests it to the same sha256 the VSA binds
+# to. The engine signs in the same trusted process as the VSA and fails closed
+# on a malformed manifest, an unreadable artifact, or a signing failure (no
+# partial bundle), so an absent statement is a real gap, not a silent skip.
 wrangle_emit_metadata_statements() {
     [[ -z "${METADATA_ROOT:-}" || ! -d "${METADATA_ROOT:-}" ]] && return 0
-    local subject="$1" bundle="$2" subj_sha
-    subj_sha="$(wrangle_subject_sha256 "$subject")" || return 1
+    local subject="$1" bundle="$2" subject_arg
+    if [[ "$subject" =~ ^[a-z0-9]+:[a-f0-9]+$ ]]; then
+        subject_arg="--subject=$subject"
+    else
+        subject_arg="--artifact=$subject"
+    fi
     local stmts args
     stmts="$(mktemp "${RUNNER_TEMP:-/tmp}/attest.XXXXXX")"
-    mapfile -t args < <(wrangle_attest_args "$subj_sha" "$stmts")
+    mapfile -t args < <(wrangle_attest_args "$subject_arg" "$stmts")
     wrangle_retry_once /dev/null wrangle-attest "${args[@]}" || { rm -f "$stmts"; return 1; }
     # Each line is one signed Sigstore bundle (compact JSONL): appended to the
     # bundle, posted to the store, and pushed alone as the OCI referrer (cosign
