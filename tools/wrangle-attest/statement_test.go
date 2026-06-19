@@ -38,9 +38,9 @@ func TestBuildStatementGolden(t *testing.T) {
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
 			dir := t.TempDir()
-			writeFile(t, dir, "manifest.json", tc.manifest)
+			writeFile(t, dir, "wrangle_attestation_metadata.json", tc.manifest)
 			writeFile(t, dir, tc.resultName, tc.result)
-			m, err := parseManifest(filepath.Join(dir, "manifest.json"))
+			m, err := parseManifest(filepath.Join(dir, "wrangle_attestation_metadata.json"))
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -63,8 +63,8 @@ func TestBuildStatementGolden(t *testing.T) {
 
 func TestBuildStatementFailClosed(t *testing.T) {
 	dir := t.TempDir()
-	writeFile(t, dir, "manifest.json", `{"predicate-type":"https://spdx.dev/Document","result-file":"sbom.spdx.json"}`)
-	m, err := parseManifest(filepath.Join(dir, "manifest.json"))
+	writeFile(t, dir, "wrangle_attestation_metadata.json", `{"predicate-type":"https://spdx.dev/Document","result-file":"sbom.spdx.json"}`)
+	m, err := parseManifest(filepath.Join(dir, "wrangle_attestation_metadata.json"))
 	if err != nil {
 		t.Fatal(err)
 	}

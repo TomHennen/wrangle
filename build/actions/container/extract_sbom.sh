@@ -6,7 +6,7 @@ set -f  # disable globbing — handles image refs and paths
 #
 # Usage: extract_sbom.sh <image-ref> <metadata-dir> <github-output>
 #   <image-ref>     image referenced by digest (tag-only refs miss non-main builds)
-#   <metadata-dir>  dir the SBOM + manifest.json are written to
+#   <metadata-dir>  dir the SBOM + wrangle_attestation_metadata.json are written to
 #   <github-output> $GITHUB_OUTPUT to record the sbom path on
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"

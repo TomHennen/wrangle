@@ -292,9 +292,9 @@ FAKE
     [[ "$status" -eq 0 ]]
     run jq -e '.spdxVersion' "$meta/sbom.spdx.json"
     [[ "$status" -eq 0 ]]
-    run jq -r '."predicate-type"' "$meta/manifest.json"
+    run jq -r '."predicate-type"' "$meta/wrangle_attestation_metadata.json"
     [[ "$output" == "https://spdx.dev/Document" ]]
-    run jq -r '."result-file"' "$meta/manifest.json"
+    run jq -r '."result-file"' "$meta/wrangle_attestation_metadata.json"
     [[ "$output" == "sbom.spdx.json" ]]
     grep -Fq "sbom=$meta/sbom.spdx.json" "$out"
     rm -rf "$fakebin" "$meta" "$out"

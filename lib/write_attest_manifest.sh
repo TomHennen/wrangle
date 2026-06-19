@@ -1,8 +1,9 @@
 #!/bin/bash
 set -euo pipefail
 set -f  # disable globbing — handles path arguments
-# lib/write_attest_manifest.sh — write the manifest.json a producer leaves for
-# the wrangle-attest engine to discover, next to its native result file.
+# lib/write_attest_manifest.sh — write the wrangle_attestation_metadata.json a
+# producer leaves for the wrangle-attest engine to discover, next to its native
+# result file.
 #
 # The manifest is the tool↔engine contract: predicate-type implies the result
 # format, result-file is relative to the manifest's own dir. Tools never set
@@ -29,7 +30,7 @@ main() {
         --arg pt "$predicate_type" \
         --arg rf "$result_file" \
         '{"predicate-type": $pt, "result-file": $rf}' \
-        > "$metadata_dir/manifest.json"
+        > "$metadata_dir/wrangle_attestation_metadata.json"
 }
 
 if [[ "${BASH_SOURCE[0]}" == "${0}" ]]; then

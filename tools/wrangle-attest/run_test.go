@@ -14,7 +14,7 @@ var update = flag.Bool("update", false, "regenerate golden files")
 
 func TestRunWritesSBOMStatement(t *testing.T) {
 	dir := t.TempDir()
-	writeFile(t, dir, "meta/manifest.json",
+	writeFile(t, dir, "meta/wrangle_attestation_metadata.json",
 		`{"predicate-type":"https://spdx.dev/Document","result-file":"sbom.spdx.json"}`)
 	writeFile(t, dir, "meta/sbom.spdx.json", `{"spdxVersion":"SPDX-2.3","name":"x"}`)
 	out := filepath.Join(dir, "sbom.intoto.jsonl")
@@ -60,7 +60,7 @@ func TestRunWritesSBOMStatement(t *testing.T) {
 
 func TestRunFlagValidation(t *testing.T) {
 	dir := t.TempDir()
-	writeFile(t, dir, "meta/manifest.json",
+	writeFile(t, dir, "meta/wrangle_attestation_metadata.json",
 		`{"predicate-type":"https://spdx.dev/Document","result-file":"sbom.spdx.json"}`)
 	writeFile(t, dir, "meta/sbom.spdx.json", `{"spdxVersion":"SPDX-2.3"}`)
 	meta := filepath.Join(dir, "meta")
@@ -88,11 +88,11 @@ func TestRunFlagValidation(t *testing.T) {
 // A failure on any manifest must not leave a partially-written --out file.
 func TestRunFailClosedNoOutput(t *testing.T) {
 	dir := t.TempDir()
-	writeFile(t, dir, "ok/manifest.json",
+	writeFile(t, dir, "ok/wrangle_attestation_metadata.json",
 		`{"predicate-type":"https://spdx.dev/Document","result-file":"sbom.spdx.json"}`)
 	writeFile(t, dir, "ok/sbom.spdx.json", `{"spdxVersion":"SPDX-2.3"}`)
 	// Second root's canonical manifest names a result file that does not exist -> build fails.
-	writeFile(t, dir, "broken/manifest.json",
+	writeFile(t, dir, "broken/wrangle_attestation_metadata.json",
 		`{"predicate-type":"https://spdx.dev/Document","result-file":"missing.json"}`)
 	out := filepath.Join(dir, "out.jsonl")
 

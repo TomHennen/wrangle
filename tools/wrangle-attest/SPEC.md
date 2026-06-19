@@ -8,7 +8,7 @@ shape) a new case here, never new signing code.
 
 ## Tools declare, the engine decides
 
-A producer writes a `manifest.json` next to its native result file. The manifest
+A producer writes a `wrangle_attestation_metadata.json` next to its native result file. The manifest
 is the only tool↔engine contract:
 
 ```jsonc
@@ -56,8 +56,8 @@ wrangle-attest --metadata-root <dir>... --subject sha256:<hex> \
     [--commit <hex-sha>] --out <file>
 ```
 
-Honors only the canonical top-level `<root>/manifest.json` for each
-`--metadata-root`; any other `manifest.json` deeper in the tree is ignored (a
+Honors only the canonical top-level `<root>/wrangle_attestation_metadata.json` for each
+`--metadata-root`; any other `wrangle_attestation_metadata.json` deeper in the tree is ignored (a
 build-time dependency could plant one to forge a wrangle-signed attestation).
 Builds one unsigned Statement per honored manifest bound to `--subject`, and
 writes them all to `--out` as JSONL.

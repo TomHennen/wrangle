@@ -228,7 +228,7 @@ wrangle_push_bundle() {
 
 # Build the wrangle-attest arg vector that turns the build metadata into unsigned
 # in-toto statements, one per line for mapfile. $1 is the single sha256 subject;
-# $2 the JSONL output path. METADATA_ROOT holds the build's manifest.json files
+# $2 the JSONL output path. METADATA_ROOT holds the build's wrangle_attestation_metadata.json files
 # (sbom.spdx.json + its manifest); --commit is woven into the scan/v1 envelope
 # only, ignored by the SBOM passthrough.
 wrangle_attest_args() {

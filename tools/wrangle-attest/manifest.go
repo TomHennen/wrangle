@@ -81,8 +81,9 @@ func (m *manifest) resultPath() string {
 	return filepath.Join(m.dir, m.ResultFile)
 }
 
-// discoverManifests honors only the canonical top-level <root>/manifest.json
-// for each root; any other manifest.json in the tree is ignored, not signed,
+// discoverManifests honors only the canonical top-level
+// <root>/wrangle_attestation_metadata.json for each root; any other such file
+// in the tree is ignored, not signed,
 // since a build-time dependency could plant one to forge a wrangle-signed
 // attestation. Results are sorted by dir for deterministic output. A missing
 // canonical manifest is not an error — a build may legitimately produce none;
@@ -97,7 +98,7 @@ func discoverManifests(roots []string) ([]manifest, error) {
 		if !info.IsDir() {
 			return nil, fmt.Errorf("metadata-root %q is not a directory", root)
 		}
-		path := filepath.Join(root, "manifest.json")
+		path := filepath.Join(root, "wrangle_attestation_metadata.json")
 		if _, err := os.Stat(path); err != nil {
 			if errors.Is(err, fs.ErrNotExist) {
 				continue

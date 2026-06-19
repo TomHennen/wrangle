@@ -84,8 +84,8 @@ func TestParseManifestFailClosed(t *testing.T) {
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
 			dir := t.TempDir()
-			writeFile(t, dir, "manifest.json", tc.content)
-			_, err := parseManifest(filepath.Join(dir, "manifest.json"))
+			writeFile(t, dir, "wrangle_attestation_metadata.json", tc.content)
+			_, err := parseManifest(filepath.Join(dir, "wrangle_attestation_metadata.json"))
 			if tc.wantErr && err == nil {
 				t.Fatalf("expected error, got nil")
 			}
@@ -99,8 +99,8 @@ func TestParseManifestFailClosed(t *testing.T) {
 func TestDiscoverManifestsCanonicalOnly(t *testing.T) {
 	rootA := t.TempDir()
 	rootB := t.TempDir()
-	writeFile(t, rootA, "manifest.json", `{"predicate-type":"https://spdx.dev/Document","result-file":"sbom.spdx.json"}`)
-	writeFile(t, rootB, "manifest.json", `{"predicate-type":"https://ossf.github.io/osv-schema/results","result-file":"results.json"}`)
+	writeFile(t, rootA, "wrangle_attestation_metadata.json", `{"predicate-type":"https://spdx.dev/Document","result-file":"sbom.spdx.json"}`)
+	writeFile(t, rootB, "wrangle_attestation_metadata.json", `{"predicate-type":"https://ossf.github.io/osv-schema/results","result-file":"results.json"}`)
 	got, err := discoverManifests([]string{rootB, rootA})
 	if err != nil {
 		t.Fatal(err)
@@ -114,14 +114,14 @@ func TestDiscoverManifestsCanonicalOnly(t *testing.T) {
 	}
 }
 
-// A manifest.json planted below the root (e.g. by a build-time dependency) is
+// A wrangle_attestation_metadata.json planted below the root (e.g. by a build-time dependency) is
 // ignored — not signed and not an error — while the canonical top-level
 // manifest is still honored.
 func TestDiscoverManifestsIgnoresStrays(t *testing.T) {
 	root := t.TempDir()
-	writeFile(t, root, "manifest.json", `{"predicate-type":"https://spdx.dev/Document","result-file":"sbom.spdx.json"}`)
-	writeFile(t, root, "sub/manifest.json", `{"predicate-type":"https://evil.example/x","result-file":"r.json"}`)
-	writeFile(t, root, "other/manifest.json", `{"predicate-type":"https://evil.example/y","result-file":"r.json"}`)
+	writeFile(t, root, "wrangle_attestation_metadata.json", `{"predicate-type":"https://spdx.dev/Document","result-file":"sbom.spdx.json"}`)
+	writeFile(t, root, "sub/wrangle_attestation_metadata.json", `{"predicate-type":"https://evil.example/x","result-file":"r.json"}`)
+	writeFile(t, root, "other/wrangle_attestation_metadata.json", `{"predicate-type":"https://evil.example/y","result-file":"r.json"}`)
 	got, err := discoverManifests([]string{root})
 	if err != nil {
 		t.Fatalf("strays must not cause an error: %v", err)
@@ -137,7 +137,7 @@ func TestDiscoverManifestsIgnoresStrays(t *testing.T) {
 // A malformed canonical manifest fails the whole run (fail closed).
 func TestDiscoverManifestsFailClosed(t *testing.T) {
 	root := t.TempDir()
-	writeFile(t, root, "manifest.json", `{"bad`)
+	writeFile(t, root, "wrangle_attestation_metadata.json", `{"bad`)
 	if _, err := discoverManifests([]string{root}); err == nil {
 		t.Fatal("expected discovery to fail closed on a malformed canonical manifest")
 	}
@@ -146,7 +146,7 @@ func TestDiscoverManifestsFailClosed(t *testing.T) {
 // A root with no canonical manifest contributes none and is not an error.
 func TestDiscoverManifestsEmptyRoot(t *testing.T) {
 	root := t.TempDir()
-	writeFile(t, root, "sub/manifest.json", `{"predicate-type":"https://spdx.dev/Document","result-file":"sbom.spdx.json"}`)
+	writeFile(t, root, "sub/wrangle_attestation_metadata.json", `{"predicate-type":"https://spdx.dev/Document","result-file":"sbom.spdx.json"}`)
 	got, err := discoverManifests([]string{root})
 	if err != nil {
 		t.Fatal(err)

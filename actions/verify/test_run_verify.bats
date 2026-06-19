@@ -697,7 +697,7 @@ STUB
     mkdir -p "$TEST_DIR/meta"
     printf '{"spdxVersion":"SPDX-2.3","name":"x"}\n' > "$TEST_DIR/meta/sbom.spdx.json"
     printf '{"predicate-type":"https://spdx.dev/Document","result-file":"sbom.spdx.json"}\n' \
-        > "$TEST_DIR/meta/manifest.json"
+        > "$TEST_DIR/meta/wrangle_attestation_metadata.json"
     # bnd statement wraps the unsigned line so the jq -c flatten is load-bearing;
     # bnd push records the file it was handed so the store delivery is provable.
     cat > "$TEST_DIR/bnd" <<STUB
@@ -732,7 +732,7 @@ STUB
     # that rather than silently shipping a bundle with no SBOM statement.
     if [[ ! -x "$ATTEST_BIN" ]]; then skip_or_fail "real wrangle-attest not available"; fi
     mkdir -p "$TEST_DIR/meta"
-    printf '{"predicate-type":"https://spdx.dev/Document"}\n' > "$TEST_DIR/meta/manifest.json"
+    printf '{"predicate-type":"https://spdx.dev/Document"}\n' > "$TEST_DIR/meta/wrangle_attestation_metadata.json"
     local attest_dir; attest_dir="$(dirname "$ATTEST_BIN")"
     export PATH="$attest_dir:$PATH"
     export METADATA_ROOT="$TEST_DIR/meta"

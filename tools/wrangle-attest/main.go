@@ -5,8 +5,9 @@
 // attestation type is a new manifest + (for a novel predicate shape) a new case
 // here, never new signing code.
 //
-// Tools declare, the engine decides. Each producer writes a manifest.json next
-// to its native result (sbom.spdx.json, results.json, output.sarif, …):
+// Tools declare, the engine decides. Each producer writes a
+// wrangle_attestation_metadata.json next to its native result (sbom.spdx.json,
+// results.json, output.sarif, …):
 //
 //	{
 //	  "predicate-type": "<URI>",           // required; implies the result format
@@ -15,7 +16,7 @@
 //	  "result": "clean" | "findings"                    // .../scan/v1 only
 //	}
 //
-// The engine walks --metadata-root for manifest.json files and builds one
+// The engine walks --metadata-root for wrangle_attestation_metadata.json files and builds one
 // Statement per manifest:
 //   - passthrough predicates (SPDX, OSV, scorecard) embed the result file
 //     verbatim as the predicate;
