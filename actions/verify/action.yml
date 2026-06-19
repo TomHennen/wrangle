@@ -81,8 +81,9 @@ inputs:
   metadata-dir:
     description: >
       Directory holding the build's metadata (the build job's metadata artifact:
-      sbom.spdx.json + its manifest.json). wrangle-attest walks it to build one
-      signed SBOM statement per subject, appended to each bundle and posted to
+      sbom.spdx.json + its top-level manifest.json). wrangle-attest reads that
+      manifest to build one signed SBOM statement per subject, appended to each
+      bundle and posted to
       the attestation store. Leave empty to emit VSA-only bundles.
     required: false
     default: ""

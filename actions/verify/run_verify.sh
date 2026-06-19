@@ -13,8 +13,8 @@
 # Inputs arrive as env vars: SUBJECTS (newline-separated), POLICY, COLLECTOR,
 # FAIL, CONTEXT, BUNDLE_IN, BUNDLE_OUT, GITHUB_REPOSITORY (store push target),
 # GITHUB_TOKEN (bnd reads it to auth the store push), and optional ATTESTATION,
-# OCI_TARGET, METADATA_ROOT (the build metadata dir wrangle-attest walks for the
-# SBOM manifest, appended as a signed statement per subject).
+# OCI_TARGET, METADATA_ROOT (the build metadata dir holding the top-level SBOM
+# manifest wrangle-attest reads, appended as a signed statement per subject).
 
 set -euo pipefail
 set -f  # disable globbing — processes external input

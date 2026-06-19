@@ -96,26 +96,63 @@ func TestParseManifestFailClosed(t *testing.T) {
 	}
 }
 
-func TestDiscoverManifestsSortedAndFailClosed(t *testing.T) {
-	root := t.TempDir()
-	writeFile(t, root, "go/b/manifest.json", `{"predicate-type":"https://spdx.dev/Document","result-file":"sbom.spdx.json"}`)
-	writeFile(t, root, "go/a/manifest.json", `{"predicate-type":"https://ossf.github.io/osv-schema/results","result-file":"results.json"}`)
-	got, err := discoverManifests([]string{root})
+func TestDiscoverManifestsCanonicalOnly(t *testing.T) {
+	rootA := t.TempDir()
+	rootB := t.TempDir()
+	writeFile(t, rootA, "manifest.json", `{"predicate-type":"https://spdx.dev/Document","result-file":"sbom.spdx.json"}`)
+	writeFile(t, rootB, "manifest.json", `{"predicate-type":"https://ossf.github.io/osv-schema/results","result-file":"results.json"}`)
+	got, err := discoverManifests([]string{rootB, rootA})
 	if err != nil {
 		t.Fatal(err)
 	}
 	if len(got) != 2 {
 		t.Fatalf("expected 2 manifests, got %d", len(got))
 	}
-	// Deterministic order: a before b.
-	if filepath.Base(got[0].dir) != "a" || filepath.Base(got[1].dir) != "b" {
+	// Deterministic order by dir regardless of root order.
+	if got[0].dir > got[1].dir {
 		t.Fatalf("manifests not sorted by dir: %s, %s", got[0].dir, got[1].dir)
 	}
+}
 
-	// A second malformed manifest fails the whole walk.
-	writeFile(t, root, "go/c/manifest.json", `{"bad`)
+// A manifest.json planted below the root (e.g. by a build-time dependency) is
+// ignored — not signed and not an error — while the canonical top-level
+// manifest is still honored.
+func TestDiscoverManifestsIgnoresStrays(t *testing.T) {
+	root := t.TempDir()
+	writeFile(t, root, "manifest.json", `{"predicate-type":"https://spdx.dev/Document","result-file":"sbom.spdx.json"}`)
+	writeFile(t, root, "sub/manifest.json", `{"predicate-type":"https://evil.example/x","result-file":"r.json"}`)
+	writeFile(t, root, "other/manifest.json", `{"predicate-type":"https://evil.example/y","result-file":"r.json"}`)
+	got, err := discoverManifests([]string{root})
+	if err != nil {
+		t.Fatalf("strays must not cause an error: %v", err)
+	}
+	if len(got) != 1 {
+		t.Fatalf("expected only the canonical manifest, got %d", len(got))
+	}
+	if got[0].PredicateType != predicateSPDX {
+		t.Fatalf("expected canonical SPDX manifest, got %q", got[0].PredicateType)
+	}
+}
+
+// A malformed canonical manifest fails the whole run (fail closed).
+func TestDiscoverManifestsFailClosed(t *testing.T) {
+	root := t.TempDir()
+	writeFile(t, root, "manifest.json", `{"bad`)
 	if _, err := discoverManifests([]string{root}); err == nil {
-		t.Fatal("expected discovery to fail closed on a malformed manifest")
+		t.Fatal("expected discovery to fail closed on a malformed canonical manifest")
+	}
+}
+
+// A root with no canonical manifest contributes none and is not an error.
+func TestDiscoverManifestsEmptyRoot(t *testing.T) {
+	root := t.TempDir()
+	writeFile(t, root, "sub/manifest.json", `{"predicate-type":"https://spdx.dev/Document","result-file":"sbom.spdx.json"}`)
+	got, err := discoverManifests([]string{root})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != 0 {
+		t.Fatalf("expected no manifests, got %d", len(got))
 	}
 }
 

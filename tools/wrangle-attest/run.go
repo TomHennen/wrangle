@@ -27,7 +27,7 @@ func run(args []string, stderr io.Writer) int {
 	fs.SetOutput(stderr)
 
 	var roots metadataRoots
-	fs.Var(&roots, "metadata-root", "directory to walk for manifest.json (repeatable)")
+	fs.Var(&roots, "metadata-root", "directory holding a top-level manifest.json (repeatable)")
 	subject := fs.String("subject", "", "artifact subject digest sha256:<hex> every statement binds to")
 	commit := fs.String("commit", "", "scanned git commit, woven into the scan/v1 envelope only")
 	out := fs.String("out", "", "file the UNSIGNED in-toto JSONL statements are written to")

@@ -56,8 +56,11 @@ wrangle-attest --metadata-root <dir>... --subject sha256:<hex> \
     [--commit <hex-sha>] --out <file>
 ```
 
-Walks each `--metadata-root` for `manifest.json`, builds one unsigned Statement
-per manifest bound to `--subject`, and writes them all to `--out` as JSONL.
+Honors only the canonical top-level `<root>/manifest.json` for each
+`--metadata-root`; any other `manifest.json` deeper in the tree is ignored (a
+build-time dependency could plant one to forge a wrangle-signed attestation).
+Builds one unsigned Statement per honored manifest bound to `--subject`, and
+writes them all to `--out` as JSONL.
 `--commit` is woven into the `scan/v1` envelope only; passthrough predicates
 ignore it. All statements are built into a buffer before `--out` is touched, so a
 failure on the Nth manifest never leaves a partially-written file. Exit 0 on

@@ -81,10 +81,12 @@ func (m *manifest) resultPath() string {
 	return filepath.Join(m.dir, m.ResultFile)
 }
 
-// discoverManifests walks each root for manifest.json files, parses and
-// validates each, and returns them sorted by path for deterministic output.
-// Any malformed manifest fails the whole run (fail closed). A root with no
-// manifests is not an error — a build may legitimately produce none.
+// discoverManifests honors only the canonical top-level <root>/manifest.json
+// for each root; any other manifest.json in the tree is ignored, not signed,
+// since a build-time dependency could plant one to forge a wrangle-signed
+// attestation. Results are sorted by dir for deterministic output. A missing
+// canonical manifest is not an error — a build may legitimately produce none;
+// a malformed canonical manifest fails the whole run (fail closed).
 func discoverManifests(roots []string) ([]manifest, error) {
 	var found []manifest
 	for _, root := range roots {
@@ -95,23 +97,18 @@ func discoverManifests(roots []string) ([]manifest, error) {
 		if !info.IsDir() {
 			return nil, fmt.Errorf("metadata-root %q is not a directory", root)
 		}
-		err = filepath.WalkDir(root, func(path string, d fs.DirEntry, err error) error {
-			if err != nil {
-				return err
+		path := filepath.Join(root, "manifest.json")
+		if _, err := os.Stat(path); err != nil {
+			if errors.Is(err, fs.ErrNotExist) {
+				continue
 			}
-			if d.IsDir() || d.Name() != "manifest.json" {
-				return nil
-			}
-			m, err := parseManifest(path)
-			if err != nil {
-				return fmt.Errorf("%s: %w", path, err)
-			}
-			found = append(found, m)
-			return nil
-		})
-		if err != nil {
-			return nil, err
+			return nil, fmt.Errorf("%s: %w", path, err)
 		}
+		m, err := parseManifest(path)
+		if err != nil {
+			return nil, fmt.Errorf("%s: %w", path, err)
+		}
+		found = append(found, m)
 	}
 	sort.Slice(found, func(i, j int) bool { return found[i].dir < found[j].dir })
 	return found, nil
