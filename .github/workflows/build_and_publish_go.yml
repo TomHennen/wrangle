@@ -195,7 +195,7 @@ jobs:
 
       # Shortname must match the release job's (compute_metadata.sh: path with
       # '/'→'_', root '.'→''), so the release job downloads the right artifact.
-      - id: sn
+      - id: shortname
         if: ${{ inputs.scan-tools != '' }}
         shell: bash
         env:
@@ -204,16 +204,16 @@ jobs:
           set -euo pipefail
           # Derive the shortname inline (root '.' -> '', else '/'->'_'): this
           # job checks out the ADOPTER repo, where lib/shortname.sh is absent.
-          sn=""; [[ "$INPUT_PATH" != "." ]] && sn="${INPUT_PATH//\//_}"
-          printf 'name=%s\n' "go-scan${sn:+-$sn}" >> "$GITHUB_OUTPUT"
+          shortname=""; [[ "$INPUT_PATH" != "." ]] && shortname="${INPUT_PATH//\//_}"
+          printf 'name=%s\n' "go-scan${shortname:+-$shortname}" >> "$GITHUB_OUTPUT"
 
       # TODO: replace with $/actions/scan when GitHub ships $/ syntax (#136)
       - uses: TomHennen/wrangle/actions/scan@e8ebd93aead78c858211a2d445e269a779b094a5 # feat/469-unify-metadata-artifact 2026-06-19
         if: ${{ inputs.scan-tools != '' }}
         with:
           tools: ${{ inputs.scan-tools }}
-          # The release job folds this into the unified go-metadata-<sn>.
-          artifact-name: ${{ steps.sn.outputs.name }}
+          # The release job folds this into the unified go-metadata.
+          artifact-name: ${{ steps.shortname.outputs.name }}
           # Cold on release: the scan gates an attested build, so a
           # poisoned tool cache must not be able to forge a passing scan.
           go-cache: ${{ needs.gate.outputs.should-release == 'true' && '' || inputs.go-cache }}
@@ -331,21 +331,15 @@ jobs:
           set -euo pipefail
           printf 'module=%s\n' "$(go -C "$INPUT_PATH" list -m | head -n1)" >> "$GITHUB_OUTPUT"
 
-      # Namespace artifact names by the path-derived shortname so multiple go
-      # builds in one workflow don't collide; the root build gets clean names.
-      - id: names
-        shell: bash
-        env:
-          SHORTNAME: ${{ steps.release.outputs.shortname }}
-        run: |
-          set -euo pipefail
-          # Suffix-less at root; the adopter checkout has no lib/shortname.sh.
-          sfx="${SHORTNAME:+-$SHORTNAME}"
-          for p in dist:go-dist scan:go-scan checks:go-checks \
-                   metadata:go-metadata metadata-pre:go-premeta \
-                   provenance-bundle:go-provenance-bundle; do
-            printf '%s=%s%s\n' "${p%%:*}" "${p#*:}" "$sfx"
-          done >> "$GITHUB_OUTPUT"
+      # Derive the packaging artifact names from the build's shortname. The
+      # composite runs from the wrangle checkout (lib/shortname.sh), so this
+      # job needn't read that file from the adopter workspace it checked out.
+      # TODO: replace with $/actions/package_metadata when GitHub ships $/ syntax (#136)
+      - uses: TomHennen/wrangle/actions/package_metadata@e8ebd93aead78c858211a2d445e269a779b094a5 # feat/469-unify-metadata-artifact 2026-06-19
+        id: names
+        with:
+          build-type: go
+          shortname: ${{ steps.release.outputs.shortname }}
 
       # Emit the dist filenames as a JSON array; the verify job binds one VSA per file.
       # Derived from the build's base64 `hashes` output (the "<sha256>  <name>" lines the

@@ -136,7 +136,7 @@ jobs:
       contents: read
       security-events: write
     outputs:
-      artifact-name: ${{ steps.sn.outputs.name }}
+      artifact-name: ${{ steps.shortname.outputs.name }}
     steps:
       - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
         if: ${{ inputs.scan-tools != '' }}
@@ -145,7 +145,7 @@ jobs:
 
       # Shortname must match the build composite's (validate_inputs.sh: path
       # with '/'→'_', root '.'→''), so the build job downloads the right scan artifact.
-      - id: sn
+      - id: shortname
         if: ${{ inputs.scan-tools != '' }}
         shell: bash
         env:
@@ -154,16 +154,16 @@ jobs:
           set -euo pipefail
           # Derive the shortname inline (root '.' -> '', else '/'->'_'): this
           # job checks out the ADOPTER repo, where lib/shortname.sh is absent.
-          sn=""; [[ "$INPUT_PATH" != "." ]] && sn="${INPUT_PATH//\//_}"
-          printf 'name=%s\n' "container-scan${sn:+-$sn}" >> "$GITHUB_OUTPUT"
+          shortname=""; [[ "$INPUT_PATH" != "." ]] && shortname="${INPUT_PATH//\//_}"
+          printf 'name=%s\n' "container-scan${shortname:+-$shortname}" >> "$GITHUB_OUTPUT"
 
       # TODO: replace with $/actions/scan when GitHub ships $/ syntax (#136)
       - uses: TomHennen/wrangle/actions/scan@e8ebd93aead78c858211a2d445e269a779b094a5 # feat/469-unify-metadata-artifact 2026-06-19
         if: ${{ inputs.scan-tools != '' }}
         with:
           tools: ${{ inputs.scan-tools }}
-          # The build job folds this into the unified container-metadata-<sn>.
-          artifact-name: ${{ steps.sn.outputs.name }}
+          # The build job folds this into the unified container-metadata.
+          artifact-name: ${{ steps.shortname.outputs.name }}
           # Cold on release: the scan gates an attested build, so a
           # poisoned tool cache must not be able to forge a passing scan.
           go-cache: ${{ needs.gate.outputs.should-release == 'true' && '' || inputs.go-cache }}

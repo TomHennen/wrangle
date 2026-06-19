@@ -174,7 +174,7 @@ jobs:
 
       # Shortname must match the build job's (extract_metadata: path with
       # '/'→'_', root '.'→''), so the build job downloads the right scan artifact.
-      - id: sn
+      - id: shortname
         if: ${{ inputs.scan-tools != '' }}
         shell: bash
         env:
@@ -183,16 +183,16 @@ jobs:
           set -euo pipefail
           # Derive the shortname inline (root '.' -> '', else '/'->'_'): this
           # job checks out the ADOPTER repo, where lib/shortname.sh is absent.
-          sn=""; [[ "$INPUT_PATH" != "." ]] && sn="${INPUT_PATH//\//_}"
-          printf 'name=%s\n' "npm-scan${sn:+-$sn}" >> "$GITHUB_OUTPUT"
+          shortname=""; [[ "$INPUT_PATH" != "." ]] && shortname="${INPUT_PATH//\//_}"
+          printf 'name=%s\n' "npm-scan${shortname:+-$shortname}" >> "$GITHUB_OUTPUT"
 
       # TODO: replace with $/actions/scan when GitHub ships $/ syntax (#136)
       - uses: TomHennen/wrangle/actions/scan@e8ebd93aead78c858211a2d445e269a779b094a5 # feat/469-unify-metadata-artifact 2026-06-19
         if: ${{ inputs.scan-tools != '' }}
         with:
           tools: ${{ inputs.scan-tools }}
-          # The build job folds this into the unified npm-metadata-<sn>.
-          artifact-name: ${{ steps.sn.outputs.name }}
+          # The build job folds this into the unified npm-metadata.
+          artifact-name: ${{ steps.shortname.outputs.name }}
           # Cold on release: the scan gates an attested build, so a
           # poisoned tool cache must not be able to forge a passing scan.
           go-cache: ${{ needs.gate.outputs.should-release == 'true' && '' || inputs.go-cache }}
@@ -235,22 +235,15 @@ jobs:
           run-tests: ${{ inputs.run-tests }}
           ignore-scripts: ${{ inputs.ignore-scripts }}
 
-      # Namespace artifact names by the path-derived shortname so multiple
-      # npm builds in one workflow don't collide. `metadata` is the single
-      # unified artifact; `scan`/`metadata-pre` are job-passing transients.
-      - id: names
-        shell: bash
-        env:
-          SHORTNAME: ${{ steps.build.outputs.shortname }}
-        run: |
-          set -euo pipefail
-          # Suffix-less at root; the adopter checkout has no lib/shortname.sh.
-          sfx="${SHORTNAME:+-$SHORTNAME}"
-          for p in dist:npm-dist metadata:npm-metadata scan:npm-scan \
-                   metadata-pre:npm-premeta \
-                   provenance-bundle:npm-provenance-bundle; do
-            printf '%s=%s%s\n' "${p%%:*}" "${p#*:}" "$sfx"
-          done >> "$GITHUB_OUTPUT"
+      # Derive the packaging artifact names from the build's shortname. The
+      # composite runs from the wrangle checkout (lib/shortname.sh), so this
+      # job needn't read that file from the adopter workspace it checked out.
+      # TODO: replace with $/actions/package_metadata when GitHub ships $/ syntax (#136)
+      - uses: TomHennen/wrangle/actions/package_metadata@e8ebd93aead78c858211a2d445e269a779b094a5 # feat/469-unify-metadata-artifact 2026-06-19
+        id: names
+        with:
+          build-type: npm
+          shortname: ${{ steps.build.outputs.shortname }}
 
       # The npm composite doesn't emit the package name; read it from
       # package.json for the VSA resourceUri purl. Scoped names (@scope/pkg) pass through.
