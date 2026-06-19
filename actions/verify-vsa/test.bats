@@ -224,12 +224,12 @@ EOF
 @test "contract: producer uploads the bundle under the name this action resolves" {
     # The verify job folds each build's <artifact>.intoto.jsonl bundles into
     # the unified <type>-metadata-<shortname> artifact; this action downloads
-    # *-metadata-* and concatenates every <artifact>.intoto.jsonl found. A
+    # *-metadata* and concatenates every <artifact>.intoto.jsonl found. A
     # producer-side rename must fail here before it strands every adopter
     # publish job (#469).
     PRODUCER="$ACTION_DIR/../verify/action.yml"
     grep -q 'name: ${{ inputs.artifact-name }}' "$PRODUCER"
-    grep -q 'pattern: "\*-metadata-\*"' "$ACTION"
+    grep -q 'pattern: "\*-metadata\*"' "$ACTION"
     grep -q '.intoto.jsonl' "$SCRIPT"
     WF_DIR="$ACTION_DIR/../../.github/workflows"
     # Both build workflows route the verify job's bundle into the metadata artifact.
@@ -262,7 +262,22 @@ EOF
     grep -q 'go-version-file: ${{ github.action_path }}/../../tools/go.mod' "$ACTION"
     grep -q 'install github.com/carabiner-dev/ampel/cmd/ampel' "$ACTION"
     grep -Eq 'uses: actions/download-artifact@[0-9a-f]{40}' "$ACTION"
-    grep -q 'pattern: "\*-metadata-\*"' "$ACTION"
+    grep -q 'pattern: "\*-metadata\*"' "$ACTION"
+}
+
+@test "structure: the download glob matches root (suffix-less) and namespaced metadata, not premeta transients" {
+    # Mirror the action's pattern: a root build's artifact is <type>-metadata
+    # (no -<shortname>), which the old "*-metadata-*" missed → root adopters
+    # downloaded zero bundles and verify-vsa failed closed (#469). The
+    # '-premeta'/'-premeta-' transients must still not match.
+    glob='*-metadata*'
+    for name in go-metadata python-metadata container-metadata-cmd_foo npm-metadata-pkg; do
+        [[ "$name" == $glob ]] || { printf 'expected %s to match\n' "$name"; return 1; }
+    done
+    for name in go-premeta python-premeta-pkg go-dist go-scan; do
+        [[ "$name" == $glob ]] && { printf 'expected %s NOT to match\n' "$name"; return 1; }
+    done
+    return 0
 }
 
 @test "structure: action.yml delegates to verify_vsa.sh" {
