@@ -161,7 +161,7 @@ jobs:
     permissions: {}    # reads env only — no workspace, no API, no secrets
     steps:
       # TODO: replace with $/actions/preflight_guard when GitHub ships $/ syntax (#136)
-      - uses: TomHennen/wrangle/actions/preflight_guard@d6e681577cf88a4596db4a502c4498dc30c6eb67 # main 2026-06-19
+      - uses: TomHennen/wrangle/actions/preflight_guard@86a4848607f685cd129890ae73b07df101a1be9b # feat/phase2-scan-attest-420 2026-06-19
 
   gate:
     needs: [guard]
@@ -171,7 +171,7 @@ jobs:
       should-release: ${{ steps.gate.outputs.should-release }}
     steps:
       # TODO: replace with $/actions/release_gate when GitHub ships $/ syntax (#136)
-      - uses: TomHennen/wrangle/actions/release_gate@d6e681577cf88a4596db4a502c4498dc30c6eb67 # main 2026-06-19
+      - uses: TomHennen/wrangle/actions/release_gate@86a4848607f685cd129890ae73b07df101a1be9b # feat/phase2-scan-attest-420 2026-06-19
         id: gate
         with:
           events: ${{ inputs.release-events }}
@@ -195,7 +195,7 @@ jobs:
 
       # Shared name derivation so the scan and release jobs can't drift.
       # TODO: replace with $/actions/package_metadata when GitHub ships $/ syntax (#136)
-      - uses: TomHennen/wrangle/actions/package_metadata@d6e681577cf88a4596db4a502c4498dc30c6eb67 # main 2026-06-19
+      - uses: TomHennen/wrangle/actions/package_metadata@86a4848607f685cd129890ae73b07df101a1be9b # feat/phase2-scan-attest-420 2026-06-19
         id: names
         if: ${{ inputs.scan-tools != '' }}
         with:
@@ -203,7 +203,7 @@ jobs:
           path: ${{ inputs.path }}
 
       # TODO: replace with $/actions/scan when GitHub ships $/ syntax (#136)
-      - uses: TomHennen/wrangle/actions/scan@d6e681577cf88a4596db4a502c4498dc30c6eb67 # main 2026-06-19
+      - uses: TomHennen/wrangle/actions/scan@86a4848607f685cd129890ae73b07df101a1be9b # feat/phase2-scan-attest-420 2026-06-19
         if: ${{ inputs.scan-tools != '' }}
         with:
           tools: ${{ inputs.scan-tools }}
@@ -236,7 +236,7 @@ jobs:
       # TODO: replace with $/build/actions/go/checks when GitHub ships $/ syntax (#136)
       # Self-pinned to PR HEAD until merge — bump-self-refs follow-up
       # repoints to the squashed merge SHA after this lands.
-      - uses: TomHennen/wrangle/build/actions/go/checks@d6e681577cf88a4596db4a502c4498dc30c6eb67 # main 2026-06-19
+      - uses: TomHennen/wrangle/build/actions/go/checks@86a4848607f685cd129890ae73b07df101a1be9b # feat/phase2-scan-attest-420 2026-06-19
         id: checks
         with:
           path: ${{ inputs.path }}
@@ -302,7 +302,7 @@ jobs:
 
       # TODO: replace with $/build/actions/go/release when GitHub ships $/ syntax (#136)
       # Self-pinned to PR HEAD until merge.
-      - uses: TomHennen/wrangle/build/actions/go/release@d6e681577cf88a4596db4a502c4498dc30c6eb67 # main 2026-06-19
+      - uses: TomHennen/wrangle/build/actions/go/release@86a4848607f685cd129890ae73b07df101a1be9b # feat/phase2-scan-attest-420 2026-06-19
         id: release
         with:
           path: ${{ inputs.path }}
@@ -326,7 +326,7 @@ jobs:
           printf 'module=%s\n' "$(go -C "$INPUT_PATH" list -m | head -n1)" >> "$GITHUB_OUTPUT"
 
       # TODO: replace with $/actions/package_metadata when GitHub ships $/ syntax (#136)
-      - uses: TomHennen/wrangle/actions/package_metadata@d6e681577cf88a4596db4a502c4498dc30c6eb67 # main 2026-06-19
+      - uses: TomHennen/wrangle/actions/package_metadata@86a4848607f685cd129890ae73b07df101a1be9b # feat/phase2-scan-attest-420 2026-06-19
         id: names
         with:
           build-type: go
@@ -400,7 +400,7 @@ jobs:
       # writes non-artifact bookkeeping into dist/ that is not released. This is
       # the same canonical subject set the VSA binds to.
       # TODO: replace with $/actions/attest_provenance when GitHub ships $/ syntax (#136)
-      - uses: TomHennen/wrangle/actions/attest_provenance@d6e681577cf88a4596db4a502c4498dc30c6eb67 # main 2026-06-19
+      - uses: TomHennen/wrangle/actions/attest_provenance@86a4848607f685cd129890ae73b07df101a1be9b # feat/phase2-scan-attest-420 2026-06-19
         id: attest
         with:
           build-type: go
@@ -429,7 +429,7 @@ jobs:
       attestation-bundle-name: ${{ needs.release.outputs.metadata-artifact-name }}
     steps:
       # TODO: replace with $/actions/verify_release when GitHub ships $/ syntax (#136)
-      - uses: TomHennen/wrangle/actions/verify_release@d6e681577cf88a4596db4a502c4498dc30c6eb67 # main 2026-06-19
+      - uses: TomHennen/wrangle/actions/verify_release@86a4848607f685cd129890ae73b07df101a1be9b # feat/phase2-scan-attest-420 2026-06-19
         with:
           build-type: go
           shortname: ${{ needs.release.outputs.shortname }}
