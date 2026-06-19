@@ -202,9 +202,10 @@ jobs:
           INPUT_PATH: ${{ inputs.path }}
         run: |
           set -euo pipefail
-          source lib/shortname.sh
-          sn="$(derive_shortname "$INPUT_PATH")"
-          printf 'name=%s\n' "$(artifact_name go-scan "$sn")" >> "$GITHUB_OUTPUT"
+          # Derive the shortname inline (root '.' -> '', else '/'->'_'): this
+          # job checks out the ADOPTER repo, where lib/shortname.sh is absent.
+          sn=""; [[ "$INPUT_PATH" != "." ]] && sn="${INPUT_PATH//\//_}"
+          printf 'name=%s\n' "go-scan${sn:+-$sn}" >> "$GITHUB_OUTPUT"
 
       # TODO: replace with $/actions/scan when GitHub ships $/ syntax (#136)
       - uses: TomHennen/wrangle/actions/scan@66e4f664bfc0297f63b6f1f506b62d5cf601e4da # bootstrap PR-head until merge (#469)
@@ -228,8 +229,9 @@ jobs:
       contents: read
     outputs:
       # Internal transient: the release job folds govulncheck.json into the
-      # unified go-metadata under scan/govulncheck/.
-      checks-artifact-name: ${{ steps.names.outputs.checks }}
+      # unified go-metadata under scan/govulncheck/. Root build ('.') has an
+      # empty shortname, so the name stays suffix-less.
+      checks-artifact-name: ${{ steps.checks.outputs.shortname && format('go-checks-{0}', steps.checks.outputs.shortname) || 'go-checks' }}
     steps:
       - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
         with:
@@ -253,20 +255,11 @@ jobs:
           # iteration; no provenance is produced.
           cache: ${{ needs.gate.outputs.should-release == 'true' && 'disabled' || 'enabled' }}
 
-      - id: names
-        shell: bash
-        env:
-          SHORTNAME: ${{ steps.checks.outputs.shortname }}
-        run: |
-          set -euo pipefail
-          source lib/shortname.sh
-          printf 'checks=%s\n' "$(artifact_name go-checks "$SHORTNAME")" >> "$GITHUB_OUTPUT"
-
       # Transient handoff to the release job, which folds govulncheck.json into
       # the unified metadata under scan/govulncheck/.
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
-          name: ${{ steps.names.outputs.checks }}
+          name: ${{ steps.checks.outputs.shortname && format('go-checks-{0}', steps.checks.outputs.shortname) || 'go-checks' }}
           path: ${{ steps.checks.outputs.metadata-dir }}/
           if-no-files-found: warn   # govulncheck JSON is informational; not having it is OK
 
@@ -346,14 +339,16 @@ jobs:
           SHORTNAME: ${{ steps.release.outputs.shortname }}
         run: |
           set -euo pipefail
-          source lib/shortname.sh
+          # Join prefix-shortname inline (suffix-less at root): this job checks
+          # out the ADOPTER repo, where lib/shortname.sh is absent.
+          sfx="${SHORTNAME:+-$SHORTNAME}"
           {
-            printf 'dist=%s\n' "$(artifact_name go-dist "$SHORTNAME")"
-            printf 'scan=%s\n' "$(artifact_name go-scan "$SHORTNAME")"
-            printf 'checks=%s\n' "$(artifact_name go-checks "$SHORTNAME")"
-            printf 'metadata=%s\n' "$(artifact_name go-metadata "$SHORTNAME")"
-            printf 'metadata-pre=%s\n' "$(artifact_name go-premeta "$SHORTNAME")"
-            printf 'provenance-bundle=%s\n' "$(artifact_name go-provenance-bundle "$SHORTNAME")"
+            printf 'dist=go-dist%s\n' "$sfx"
+            printf 'scan=go-scan%s\n' "$sfx"
+            printf 'checks=go-checks%s\n' "$sfx"
+            printf 'metadata=go-metadata%s\n' "$sfx"
+            printf 'metadata-pre=go-premeta%s\n' "$sfx"
+            printf 'provenance-bundle=go-provenance-bundle%s\n' "$sfx"
           } >> "$GITHUB_OUTPUT"
 
       # Emit the dist filenames as a JSON array; the verify job binds one VSA per file.
