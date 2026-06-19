@@ -542,7 +542,7 @@ FAKEGO
 @test "orchestrator: writes a wrangle-lint scan/v1 manifest next to output.sarif" {
     run_orchestrator -s "$TEST_DIR/src" -o "$TEST_DIR/output" "wrangle-lint"
     [ "$status" -eq 0 ]
-    manifest="$TEST_DIR/output/wrangle-lint/manifest.json"
+    manifest="$TEST_DIR/output/wrangle-lint/wrangle_attestation_metadata.json"
     [ -f "$manifest" ]
     run jq -r '.tool.name' "$manifest"
     [[ "$output" == "wrangle-lint" ]]
