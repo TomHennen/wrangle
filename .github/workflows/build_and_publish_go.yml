@@ -138,9 +138,9 @@ on:
       provenance-artifact-name:
         description: "Name of the workflow artifact containing the SLSA provenance bundle — one JSON object per line, covering all dist subjects. Empty when should-release is false."
         value: ${{ jobs.attest.outputs.bundle-artifact-name }}
-      bundle-artifact-name:
+      attestation-bundle-name:
         description: "Name of the workflow artifact the per-subject in-toto JSONL bundles ship in. They live inside the unified metadata artifact, so this equals metadata-artifact-name on release runs. Empty when should-release is false."
-        value: ${{ jobs.verify.outputs.bundle-artifact-name }}
+        value: ${{ jobs.verify.outputs.attestation-bundle-name }}
       metadata-artifact-name:
         description: "Name of the unified metadata workflow artifact (a zip of `metadata/go[/<shortname>]/`'s contents): SBOM, the `scan/` tool output (incl. `scan/govulncheck/govulncheck.json`), and on release the `<artifact>.intoto.jsonl` bundles. Format: `go-metadata[-<shortname>]`. See docs/SPEC.md \"Unified metadata layout\"."
         value: ${{ jobs.release.outputs.metadata-artifact-name }}
@@ -456,7 +456,7 @@ jobs:
       contents: write       # attach the bundle to the release on tag pushes
     outputs:
       # The bundle ships inside the unified metadata artifact (no separate role).
-      bundle-artifact-name: ${{ needs.release.outputs.metadata-artifact-name }}
+      attestation-bundle-name: ${{ needs.release.outputs.metadata-artifact-name }}
     steps:
       - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
         with:
