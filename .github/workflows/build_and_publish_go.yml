@@ -395,38 +395,18 @@ jobs:
       attestations: write   # write the attestation to GitHub's store
       contents: read        # download-artifact reads the same-run dist
     outputs:
-      bundle-artifact-name: ${{ needs.release.outputs.provenance-bundle-artifact-name }}
+      bundle-artifact-name: ${{ steps.attest.outputs.bundle-artifact-name }}
     steps:
-      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
-        with:
-          name: ${{ needs.release.outputs.dist-artifact-name }}
-          path: dist/
-
       # Subjects come from dist/checksums.txt, not a dist/* glob: goreleaser
-      # writes non-artifact bookkeeping (artifacts.json/config.yaml/metadata.json)
-      # and per-target build subdirs into dist/, which are not released artifacts.
-      # This is the same canonical subject set the VSA binds to.
-      - uses: actions/attest-build-provenance@a2bbfa25375fe432b6a289bc6b6cd05ecd0c4c32 # v4.1.0
+      # writes non-artifact bookkeeping into dist/ that is not released. This is
+      # the same canonical subject set the VSA binds to.
+      # TODO: replace with $/actions/attest_provenance when GitHub ships $/ syntax (#136)
+      - uses: TomHennen/wrangle/actions/attest_provenance@720c44bcd275740f0c232f4d64dc0eec7c05f7a2 # feat/469-unify-metadata-artifact 2026-06-19
         id: attest
         with:
+          build-type: go
+          shortname: ${{ needs.release.outputs.shortname }}
           subject-checksums: dist/checksums.txt
-
-      # Stage the signed provenance bundle as a workflow artifact for the verify
-      # job; jq -c normalizes it to one JSON object per line for ampel's jsonl:
-      # collector. One multi-subject bundle, covering every checksums entry.
-      - name: Stage the provenance bundle for the VSA
-        env:
-          BUNDLE_PATH: ${{ steps.attest.outputs.bundle-path }}
-        run: |
-          set -euo pipefail
-          set -f
-          jq -c . "$BUNDLE_PATH" > "$RUNNER_TEMP/provenance.jsonl"
-
-      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
-        with:
-          name: ${{ needs.release.outputs.provenance-bundle-artifact-name }}
-          path: ${{ runner.temp }}/provenance.jsonl
-          if-no-files-found: error
 
   # Emit one signed SLSA Verification Summary Attestation (VSA) per dist archive
   # and append it to the SLSA provenance, producing one per-artifact
