@@ -613,13 +613,17 @@ func main() {}
     grep -qE "needs\\.gate\\.result == 'success'" <<<"$section"
 }
 
-@test "go: workflow does not inline-duplicate shortname derivation (shared lib owns it)" {
-    # Shortname/artifact-name derivation is centralized in lib/shortname.sh;
-    # the workflow must source it, never open-code `${INPUT_PATH////_}` or a
-    # bespoke root-normalization branch that could drift from the lib.
-    run grep -E 'INPUT_PATH////_' "$WORKFLOW"
+@test "go: workflow derives shortname inline, never sourcing the lib from the adopter workspace" {
+    # The scan/checks/release jobs check out the ADOPTER repo, where
+    # lib/shortname.sh does not exist — sourcing it there only worked when
+    # the adopter was wrangle itself (#469). The workflow derives the
+    # shortname inline (composite output joined in pure YAML, or a 2-line
+    # bash derivation), never `source lib/shortname.sh`.
+    run grep -F 'source lib/shortname.sh' "$WORKFLOW"
     [[ "$status" -ne 0 ]]
-    run grep -qE 'source lib/shortname\.sh' "$WORKFLOW"
+    # Root build ('.') must stay suffix-less, so the inline join is
+    # conditional on a non-empty shortname.
+    run grep -F 'go-scan${sn:+-$sn}' "$WORKFLOW"
     [[ "$status" -eq 0 ]]
 }
 
@@ -714,10 +718,10 @@ func main() {}
 @test "go: workflow checks + release jobs use namespaced metadata artifact names" {
     # The checks job's govulncheck output is an internal transient
     # (go-checks[-<sn>]) folded into the unified go-metadata[-<sn>] (#469).
-    # Names come from the shared lib so the root build gets clean names.
-    run grep -E 'artifact_name go-checks' "$WORKFLOW"
+    # Derived inline (no adopter-workspace lib source); root stays clean.
+    run grep -F "format('go-checks-{0}'" "$WORKFLOW"
     [[ "$status" -eq 0 ]]
-    run grep -E 'artifact_name go-metadata' "$WORKFLOW"
+    run grep -F 'metadata=go-metadata%s' "$WORKFLOW"
     [[ "$status" -eq 0 ]]
 }
 

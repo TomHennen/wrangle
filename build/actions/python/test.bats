@@ -494,12 +494,14 @@ write_pyproject() {
     [[ "$status" -eq 0 ]]
 }
 
-@test "python: workflow namespaces artifacts by shortname via shared lib" {
-    run grep -E 'artifact_name python-dist' "$WORKFLOW"
-    [[ "$status" -eq 0 ]]
-    # No open-coded derivation that could drift from lib/shortname.sh.
-    run grep -E 'INPUT_PATH////_' "$WORKFLOW"
+@test "python: workflow namespaces artifacts by shortname, suffix-less at root" {
+    # The scan/build jobs check out the ADOPTER repo, where lib/shortname.sh
+    # is absent — the workflow must derive the shortname inline, never source
+    # the lib (#469). Root build ('.') stays suffix-less via a conditional join.
+    run grep -F 'source lib/shortname.sh' "$WORKFLOW"
     [[ "$status" -ne 0 ]]
+    run grep -F 'dist=python-dist%s' "$WORKFLOW"
+    [[ "$status" -eq 0 ]]
 }
 
 @test "python: extract_metadata.sh at root emits empty shortname and clean dir" {
@@ -685,7 +687,9 @@ write_pyproject() {
 
 @test "python: attest job uploads the provenance bundle the verify job needs" {
     # The verify job depends on attest and reads its uploaded bundle artifact.
-    run bash -c "sed -n '/^  attest:/,/^  [a-z]/p' \"$WORKFLOW\" | grep -E 'name: python-provenance-bundle-'"
+    # The name is the build job's provenance-bundle output (suffix-less at
+    # root, not a trailing-dash python-provenance-bundle- — #469).
+    run bash -c "sed -n '/^  attest:/,/^  [a-z]/p' \"$WORKFLOW\" | grep -F 'name: \${{ needs.build.outputs.provenance-bundle-artifact-name }}'"
     [[ "$status" -eq 0 ]]
     run bash -c "sed -n '/^  verify:/,\$p' \"$WORKFLOW\" | grep -E 'needs:.*attest'"
     [[ "$status" -eq 0 ]]

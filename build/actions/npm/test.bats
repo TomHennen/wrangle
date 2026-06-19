@@ -795,11 +795,14 @@ write_pkg_json() {
     [[ "$status" -eq 0 ]]
 }
 
-@test "npm: workflow namespaces artifacts by shortname via shared lib" {
-    run grep -E 'artifact_name npm-dist' "$WORKFLOW"
-    [[ "$status" -eq 0 ]]
-    run grep -E 'INPUT_PATH////_' "$WORKFLOW"
+@test "npm: workflow namespaces artifacts by shortname, suffix-less at root" {
+    # The scan/build jobs check out the ADOPTER repo, where lib/shortname.sh
+    # is absent — the workflow must derive the shortname inline, never source
+    # the lib (#469). Root build ('.') stays suffix-less via a conditional join.
+    run grep -F 'source lib/shortname.sh' "$WORKFLOW"
     [[ "$status" -ne 0 ]]
+    run grep -F 'dist=npm-dist%s' "$WORKFLOW"
+    [[ "$status" -eq 0 ]]
 }
 
 @test "npm: extract_metadata.sh at root emits empty shortname and clean dir" {
@@ -927,7 +930,9 @@ write_pkg_json() {
 
 @test "npm: attest job uploads the provenance bundle the verify job needs" {
     # The verify job depends on attest and reads its uploaded bundle artifact.
-    run bash -c "sed -n '/^  attest:/,/^  [a-z]/p' \"$WORKFLOW\" | grep -E 'name: npm-provenance-bundle-'"
+    # The name is the build job's provenance-bundle output (suffix-less at
+    # root, not a trailing-dash npm-provenance-bundle- — #469).
+    run bash -c "sed -n '/^  attest:/,/^  [a-z]/p' \"$WORKFLOW\" | grep -F 'name: \${{ needs.build.outputs.provenance-bundle-artifact-name }}'"
     [[ "$status" -eq 0 ]]
     run bash -c "sed -n '/^  verify:/,\$p' \"$WORKFLOW\" | grep -E 'needs:.*attest'"
     [[ "$status" -eq 0 ]]
