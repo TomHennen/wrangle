@@ -206,7 +206,7 @@ jobs:
           printf 'name=go-scan-%s\n' "$sn" >> "$GITHUB_OUTPUT"
 
       # TODO: replace with $/actions/scan when GitHub ships $/ syntax (#136)
-      - uses: TomHennen/wrangle/actions/scan@fe07882c487bb44d97414c828a5a94acf1016351 # bootstrap PR-head until merge (#469)
+      - uses: TomHennen/wrangle/actions/scan@66e4f664bfc0297f63b6f1f506b62d5cf601e4da # bootstrap PR-head until merge (#469)
         if: ${{ inputs.scan-tools != '' }}
         with:
           tools: ${{ inputs.scan-tools }}
