@@ -1,10 +1,10 @@
 # wrangle-attest — shared attestation engine
 
 `wrangle-attest` turns the inert result files scan/build tools leave behind into
-**unsigned** in-toto v1 Statements, ready for `bnd` to sign in the trusted
-post-build context (`actions/verify`). It is the single producer-side engine:
-adding the Nth attestation type is a new manifest + (for a novel predicate
-shape) a new case here, never new signing code.
+in-toto v1 Statements and, with `--sign`, keyless-signs each into a Sigstore
+bundle in the trusted post-build context (`actions/verify`). It is the single
+producer-side engine: adding the Nth attestation type is a new manifest + (for a
+novel predicate shape) a new case here, never new signing code.
 
 ## Tools declare, the engine decides
 
@@ -21,7 +21,7 @@ is the only tool↔engine contract:
 ```
 
 There is **no `format`** field (the predicate-type implies it) and tools **never
-set subjects** — the engine owns the subject. A malformed manifest, an unknown
+set subjects** — the engine owns the subject (see Engine-owned subject). A malformed manifest, an unknown
 predicate-type, a missing/absolute/`..` result-file, or an unknown field fails
 the whole run closed; scan output is untrusted input.
 
@@ -42,8 +42,9 @@ later producer PRs are manifest-only.
 
 ## Engine-owned subject
 
-Every statement is bound to the **single sha256 artifact subject** passed via
-`--subject`. The GitHub attestation store (`bnd push github`) keys by subject
+Every statement is bound to the **single sha256 artifact subject**, given as a
+digest via `--subject` (e.g. a container image) or self-digested from a file via
+`--artifact`. The GitHub attestation store (`bnd push github`) keys by subject
 digest and rejects a multi-digest subject, so a single sha256 is the only shape
 that round-trips through the store — and it is the same digest `run_verify.sh`
 binds the VSA to, so a policy resolving by artifact digest finds both. Binding
@@ -52,28 +53,31 @@ the scanned git commit as a second subject is deferred to the source-scan PRs.
 ## CLI
 
 ```
-wrangle-attest --metadata-root <dir>... --subject sha256:<hex> \
-    [--commit <hex-sha>] --out <file>
+wrangle-attest --metadata-root <dir>... (--subject sha256:<hex> | --artifact <file>) \
+    [--commit <hex-sha>] [--sign] --out <file>
 ```
 
 Honors only the canonical top-level `<root>/wrangle_attestation_metadata.json` for each
 `--metadata-root`; any other `wrangle_attestation_metadata.json` deeper in the tree is ignored (a
 build-time dependency could plant one to forge a wrangle-signed attestation).
-Builds one unsigned Statement per honored manifest bound to `--subject`, and
-writes them all to `--out` as JSONL.
-`--commit` is woven into the `scan/v1` envelope only; passthrough predicates
-ignore it. All statements are built into a buffer before `--out` is touched, so a
-failure on the Nth manifest never leaves a partially-written file. Exit 0 on
-success; non-zero (fail closed) on any error.
+Builds one Statement per honored manifest bound to the subject and writes them
+all to `--out` as JSONL. `--commit` is woven into the `scan/v1` envelope only;
+passthrough predicates ignore it.
 
-Signing is **not** here: `run_verify.sh` bnd-signs each emitted statement in the
-same trusted process as the VSA, so the engine has no Sigstore code and is fully
-offline-unit-testable.
+With `--sign` each statement is keyless-signed (one shared signer — ambient
+GitHub OIDC → Fulcio → Rekor; the bundle is byte-identical to `bnd statement`)
+and the compact Sigstore bundle is emitted; without it the statements are
+emitted unsigned (fully offline-unit-testable). Statements are built and signed
+into a buffer before `--out` is touched, so a failure on the Nth manifest — a
+malformed manifest or a signing failure — never leaves a partial/unsigned file.
+Exit 0 on success; non-zero (fail closed) on any error.
 
 ## Testing
 
 `go test ./wrangle-attest/` — table-driven manifest parse/validate (fail-closed
-cases), subject parsing (single sha256, fail-closed on multi/short/wrong-algo),
-and golden Statements (`testdata/`) for the SBOM passthrough and the SARIF
-thin-envelope shapes. Regenerate goldens with `go test ./wrangle-attest/
--update`. The `actions/verify` bats cover the `run_verify.sh` glue.
+cases), subject parsing (single sha256, fail-closed on multi/short/wrong-algo;
+`--artifact` self-digest), golden Statements (`testdata/`) for the SBOM
+passthrough and the SARIF thin-envelope shapes, and hermetic `--sign` (local
+ephemeral key: DSSE shape + signature + fail-closed). Regenerate goldens with
+`go test ./wrangle-attest/ -update`. The real keyless path is covered by the
+dispatch e2e (`actions/verify` bats cover the `run_verify.sh` glue).

@@ -126,12 +126,24 @@ teardown() {
 
 # --- wrangle-attest arg vector ---
 
-@test "run_verify: attest args carry the metadata-root, subject, and out" {
+@test "run_verify: attest args carry the metadata-root, subject, sign, and out" {
     export METADATA_ROOT="$TEST_DIR/meta"
     mapfile -t args < <(wrangle_attest_args "sha256:abc" "$TEST_DIR/out.jsonl")
     printf '%s\n' "${args[@]}" | grep -qx -- "--metadata-root=$TEST_DIR/meta"
     printf '%s\n' "${args[@]}" | grep -qx -- "--subject=sha256:abc"
+    printf '%s\n' "${args[@]}" | grep -qx -- "--sign"
     printf '%s\n' "${args[@]}" | grep -qx -- "--out=$TEST_DIR/out.jsonl"
+}
+
+@test "run_verify: attest arg vector is accepted by the real wrangle-attest parser" {
+    # The real engine rejects an unknown flag; a run that gets past flag parsing
+    # (failing later on the bogus subject/root) proves every flag name matches.
+    if [[ ! -x "$ATTEST_BIN" ]]; then skip_or_fail "real wrangle-attest not available"; fi
+    export METADATA_ROOT="$TEST_DIR/meta"
+    mapfile -t args < <(wrangle_attest_args "sha256:abc" "$TEST_DIR/out.jsonl")
+    run "$ATTEST_BIN" "${args[@]}"
+    [[ "$status" -ne 0 ]]
+    [[ "$output" != *"flag provided but not defined"* ]]
 }
 
 # --- ampel arg vector ---
@@ -673,13 +685,14 @@ STUB
 # --- build-metadata (SBOM) statement emission ---
 
 @test "run_verify: emit_metadata is a no-op when METADATA_ROOT is unset" {
-    # npm/go/python/container without a metadata dir: nothing is appended and no
-    # signer is invoked. A bnd stub that fails proves the path returns 0 untouched.
-    cat > "$TEST_DIR/bnd" <<'STUB'
+    # npm/go/python/container without a metadata dir: nothing is appended and the
+    # engine isn't invoked. A wrangle-attest stub that fails proves the path
+    # returns 0 untouched.
+    cat > "$TEST_DIR/wrangle-attest" <<'STUB'
 #!/bin/bash
 exit 1
 STUB
-    chmod +x "$TEST_DIR/bnd"
+    chmod +x "$TEST_DIR/wrangle-attest"
     export PATH="$TEST_DIR:$PATH"
     unset METADATA_ROOT
     local bundle="$TEST_DIR/bundle.jsonl"
@@ -689,53 +702,51 @@ STUB
     [[ "$(wc -l < "$bundle")" -eq 1 ]]
 }
 
-@test "run_verify: emit_metadata builds, signs, appends, and pushes the SBOM statement" {
-    # End-to-end with the real wrangle-attest (offline) and a stub bnd/cosign:
-    # an SBOM manifest + sbom.spdx.json in METADATA_ROOT becomes a signed SPDX
-    # statement appended to the bundle and posted to the store.
-    if [[ ! -x "$ATTEST_BIN" ]]; then skip_or_fail "real wrangle-attest not available"; fi
-    mkdir -p "$TEST_DIR/meta"
-    printf '{"spdxVersion":"SPDX-2.3","name":"x"}\n' > "$TEST_DIR/meta/sbom.spdx.json"
-    printf '{"predicate-type":"https://spdx.dev/Document","result-file":"sbom.spdx.json"}\n' \
-        > "$TEST_DIR/meta/wrangle_attestation_metadata.json"
-    # bnd statement wraps the unsigned line so the jq -c flatten is load-bearing;
-    # bnd push records the file it was handed so the store delivery is provable.
+@test "run_verify: emit_metadata appends and pushes the engine's signed statement" {
+    # The engine signs keyless (network/OIDC), so a stub wrangle-attest emits a
+    # deterministic compact signed line — this exercises the shell glue (append +
+    # store + referrer), not the engine (Go-unit-tested; dispatch-e2e for keyless).
+    cat > "$TEST_DIR/wrangle-attest" <<STUB
+#!/bin/bash
+subj=""
+for a in "\$@"; do case "\$a" in --subject=*) subj="\${a#--subject=}";; --out=*) out="\${a#--out=}";; esac; done
+printf '{"signedStatement":{"predicateType":"https://spdx.dev/Document","subject":[{"digest":{"sha256":"%s"}}]}}\n' "\${subj#sha256:}" > "\$out"
+STUB
+    # push records the file it was handed so store delivery is provable.
     cat > "$TEST_DIR/bnd" <<STUB
 #!/bin/bash
-if [[ "\$1" == "push" ]]; then cat "\$4" >> "$TEST_DIR/pushed"; exit 0; fi
-printf '{\n  "signed": '; cat "\$2"; printf '}\n'
+[[ "\$1" == "push" ]] && { cat "\$4" >> "$TEST_DIR/pushed"; exit 0; }
+exit 0
 STUB
-    chmod +x "$TEST_DIR/bnd"
-    # TEST_DIR first so the stub bnd wins; the real bnd is co-located with
-    # wrangle-attest in WRANGLE_BIN_DIR and would otherwise shadow the stub.
-    local attest_dir; attest_dir="$(dirname "$ATTEST_BIN")"
-    export PATH="$TEST_DIR:$attest_dir:$PATH"
-    export METADATA_ROOT="$TEST_DIR/meta"
+    chmod +x "$TEST_DIR/wrangle-attest" "$TEST_DIR/bnd"
+    export PATH="$TEST_DIR:$PATH"
+    export METADATA_ROOT="$TEST_DIR/meta"; mkdir -p "$METADATA_ROOT"
     export GITHUB_REPOSITORY="o/r"
     export OCI_TARGET=""
     : > "$TEST_DIR/pushed"
     local bundle="$TEST_DIR/bundle.jsonl"
     printf '{"provenance":1}\n' > "$bundle"
-    run wrangle_emit_metadata_statements "sha256:$(printf '0%.0s' {1..64})" "$bundle"
+    local sha; sha="$(printf '0%.0s' {1..64})"
+    run wrangle_emit_metadata_statements "sha256:$sha" "$bundle"
     [[ "$status" -eq 0 ]]
-    # The seeded provenance line plus exactly one appended SPDX statement; the
-    # stub bnd wraps the signed statement under .signed.
+    # Seeded provenance line plus exactly one appended signed statement.
     [[ "$(wc -l < "$bundle")" -eq 2 ]]
-    [[ "$(grep -c '"https://spdx.dev/Document"' "$bundle")" -eq 1 ]]
-    [[ "$(tail -1 "$bundle" | jq -r '.signed.predicateType')" == "https://spdx.dev/Document" ]]
+    [[ "$(tail -1 "$bundle" | jq -r '.signedStatement.predicateType')" == "https://spdx.dev/Document" ]]
     # The signed statement reached the store, bound to the single sha256 subject.
-    [[ "$(jq -r '.signed.subject[0].digest.sha256' "$TEST_DIR/pushed")" == "$(printf '0%.0s' {1..64})" ]]
+    [[ "$(jq -r '.signedStatement.subject[0].digest.sha256' "$TEST_DIR/pushed")" == "$sha" ]]
 }
 
-@test "run_verify: emit_metadata fails closed on a malformed manifest" {
-    # wrangle-attest fails closed on a bad manifest; the verify step must surface
-    # that rather than silently shipping a bundle with no SBOM statement.
-    if [[ ! -x "$ATTEST_BIN" ]]; then skip_or_fail "real wrangle-attest not available"; fi
-    mkdir -p "$TEST_DIR/meta"
-    printf '{"predicate-type":"https://spdx.dev/Document"}\n' > "$TEST_DIR/meta/wrangle_attestation_metadata.json"
-    local attest_dir; attest_dir="$(dirname "$ATTEST_BIN")"
-    export PATH="$attest_dir:$PATH"
-    export METADATA_ROOT="$TEST_DIR/meta"
+@test "run_verify: emit_metadata fails closed when the engine fails" {
+    # The engine fails closed on a malformed manifest or a signing failure; the
+    # verify step must surface that rather than shipping an SBOM-less bundle.
+    cat > "$TEST_DIR/wrangle-attest" <<'STUB'
+#!/bin/bash
+exit 2
+STUB
+    chmod +x "$TEST_DIR/wrangle-attest"
+    export PATH="$TEST_DIR:$PATH"
+    export METADATA_ROOT="$TEST_DIR/meta"; mkdir -p "$METADATA_ROOT"
+    export WRANGLE_RETRY_DELAY=0
     local bundle="$TEST_DIR/bundle.jsonl"; : > "$bundle"
     run wrangle_emit_metadata_statements "sha256:$(printf '0%.0s' {1..64})" "$bundle"
     [[ "$status" -ne 0 ]]
