@@ -177,7 +177,7 @@ jobs:
       imagename: ${{ steps.build.outputs.imagename }}
       shortname: ${{ steps.build.outputs.shortname }}
       metadata-artifact-name: container-metadata-${{ steps.build.outputs.shortname }}
-      metadata-pre-artifact-name: container-metadata-pre-${{ steps.build.outputs.shortname }}
+      metadata-pre-artifact-name: container-premeta-${{ steps.build.outputs.shortname }}
       metadata-dir: ${{ steps.build.outputs.metadata-dir }}
     runs-on: ubuntu-latest
     steps:

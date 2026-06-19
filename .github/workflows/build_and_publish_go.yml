@@ -290,7 +290,7 @@ jobs:
       shortname: ${{ steps.release.outputs.shortname }}
       dist-artifact-name: go-dist-${{ steps.release.outputs.shortname }}
       metadata-artifact-name: go-metadata-${{ steps.release.outputs.shortname }}
-      metadata-pre-artifact-name: go-metadata-pre-${{ steps.release.outputs.shortname }}
+      metadata-pre-artifact-name: go-premeta-${{ steps.release.outputs.shortname }}
       metadata-dir: ${{ steps.release.outputs.metadata-dir }}
       # JSON array of dist filenames the verify job binds one VSA to each.
       dist-files: ${{ steps.distfiles.outputs.files }}
