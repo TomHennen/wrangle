@@ -36,7 +36,7 @@ package-manager options within one workflow each, not separate L3 surfaces.
 
 | Build type | Level | Note |
 |---|---|---|
-| [Go](../.github/workflows/build_and_publish_go.yml) | **Build L3** | wrangle owns the publish: goreleaser builds `--skip=publish`, the Release is created only after attest + verify pass. |
+| [Go](../.github/workflows/build_and_publish_go.yml) | **Build L3** | goreleaser builds `--skip=publish`; the adopter publishes the Release from their own workflow (as with python/npm). |
 | [Python](../.github/workflows/build_and_publish_python.yml) (pip, uv) | **Build L3** | Cache handling differs between pip and uv — see Cache isolation. |
 | [npm](../.github/workflows/build_and_publish_npm.yml) (npm, pnpm) | **Build L3** | npm keeps its cache on release, relying on `npm ci` — see Cache isolation. |
 | [Container](../.github/workflows/build_and_publish_container.yml) | **Build L3** | Public registry only ([#182](https://github.com/TomHennen/wrangle/issues/182)); publishes inline. |

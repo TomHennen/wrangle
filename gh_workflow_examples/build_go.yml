@@ -7,19 +7,17 @@
 # 2. Make sure your release tags match `v*` — goreleaser uses the
 #    tag name as the version.
 #
-# Wrangle's reusable workflow handles build, tests, SBOM, SLSA L3
-# provenance generation, its `verify` job's provenance verification
-# (fail-closed, via ampel against the wrangle PolicySet) plus signed-VSA
-# emission. goreleaser builds with --skip=publish, then wrangle creates
-# the Release and uploads ONLY the attested artifacts. Downstream
-# goreleaser verbs (Docker pushes, Homebrew taps, deb/rpm/snap,
-# announcements) are NOT run — they'd ship bytes without provenance;
-# run them from your own job, or use wrangle's container build type for
-# attested images. This caller workflow gates which events publish.
+# Wrangle's reusable workflow builds (goreleaser --skip=publish), tests,
+# scans, and produces SLSA L3 provenance + a signed VSA (verified
+# fail-closed against the wrangle PolicySet). It does NOT publish:
+# goreleaser's downstream verbs (Docker pushes, Homebrew taps,
+# deb/rpm/snap, announcements) don't run — they'd ship bytes without
+# provenance. The `publish` job below (yours to own) creates the GitHub
+# Release with the attested archives + their VSA bundles.
 #
-# Trigger note: `release-events: tag-only` means only tag pushes
-# publish a release. PR builds run the full pipeline (build → tests
-# → SBOM) but do NOT mint provenance or publish.
+# Trigger note: `release-events: tag-only` means the full pipeline runs
+# (and the publish job fires) only on tag pushes. PR builds run build +
+# tests + SBOM but do NOT mint provenance or publish.
 name: Go Build
 
 on:
@@ -34,9 +32,9 @@ jobs:
   build:
     # Maximum the caller grants; wrangle's internal jobs each drop to the subset they actually need.
     permissions:
-      contents: write   # wrangle's publish job creates the Release + uploads the attested artifacts
+      contents: write   # wrangle's verify job attaches the VSA to the release on tags; GitHub validates at startup even on non-tag runs
       id-token: write   # OIDC for Sigstore signing
-      attestations: write   # wrangle's attest job writes GitHub-issued SLSA provenance
+      attestations: write   # wrangle's attest + verify jobs write to the GitHub attestation store
       actions: read  # source scan: Scorecard reads the Actions API
       security-events: write  # source-scan SARIF -> Security tab
     uses: TomHennen/wrangle/.github/workflows/build_and_publish_go.yml@v0.2.2 # zizmor: ignore[unpinned-uses] - immutable
@@ -47,3 +45,34 @@ jobs:
       # run-tests: true                 # optional: skip with false (also skips gofmt/vet/govulncheck)
       # run-race-detector: true         # optional: set false when CGO is disabled (race detector requires cgo)
       # run-gofmt-check: true           # optional: set false only if the `// Code generated` auto-skip isn't enough
+
+  # Publish — yours to own. wrangle built, attested, and verified the
+  # artifacts above; this job creates the GitHub Release. It runs only when
+  # the wrangle pipeline succeeded (so verification passed) and should-release
+  # is true (a tag push under the default release-events).
+  publish:
+    if: ${{ needs.build.outputs.should-release == 'true' }}
+    needs: [build]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write   # create the GitHub Release and upload assets
+    steps:
+      # The goreleaser archives + checksums.txt.
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: ${{ needs.build.outputs.dist-artifact-name }}
+          path: dist/
+
+      # The per-archive <archive>.intoto.jsonl VSA bundles consumers verify with.
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: ${{ needs.build.outputs.bundle-artifact-name }}
+          path: bundles/
+
+      - name: Create the GitHub Release with the attested artifacts
+        env:
+          TAG: ${{ needs.build.outputs.version }}
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release create "$TAG" --title "$TAG" --generate-notes \
+            dist/*.tar.gz dist/checksums.txt bundles/*.intoto.jsonl

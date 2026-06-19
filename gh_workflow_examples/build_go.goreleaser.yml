@@ -51,25 +51,7 @@ archives:
 snapshot:
   version_template: "{{ .ShortCommit }}-snapshot"
 
-# (Optional) Goreleaser's downstream verbs. wrangle runs goreleaser with
-# --skip=publish, so it does NOT execute these — they'd ship bytes wrangle
-# can't attest. Keep them here and run `goreleaser release` from a separate
-# job if you want them, or use wrangle's container build type for attested
-# images. Listed for reference:
-#
-# brews:                    # update a Homebrew tap
-#   - repository:
-#       owner: your-org
-#       name: homebrew-tap
-#
-# dockers:                  # push images to ghcr.io etc.
-#   - image_templates:
-#       - "ghcr.io/your-org/your-app:{{ .Tag }}"
-#
-# nfpms:                    # build deb / rpm / apk packages
-#   - vendor: your-org
-#     formats: [deb, rpm]
-#
-# announce:                 # post to Slack / Discord / etc.
-#   slack:
-#     enabled: true
+# goreleaser's downstream verbs (brews, dockers, nfpms, announce, …) are not
+# run by wrangle: it invokes goreleaser with --skip=publish, so nothing is
+# uploaded. Run `goreleaser release` from your own job if you want them, or use
+# wrangle's container build type for attested images.

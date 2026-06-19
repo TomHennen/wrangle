@@ -15,7 +15,6 @@ updates:
       - "/actions/verify-vsa"
       - "/build/actions/container"
       - "/build/actions/go/checks"
-      - "/build/actions/go/publish"
       - "/build/actions/go/release"
       - "/build/actions/npm"
       - "/build/actions/python"

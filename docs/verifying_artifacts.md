@@ -185,14 +185,14 @@ is emitted; consumers use the VSA path above.
 
 ## The timing model
 
-**Go** publishes *after* verify: goreleaser builds with `--skip=publish`,
-wrangle attests and verifies, then the publish job creates the Release — so a
-Go Release only ever goes live with already-verified artifacts.
+**Go, Python, npm** publish from the *adopter's* own workflow, which runs only
+after wrangle's pipeline (including the `verify` job) succeeds — so artifacts
+are already verified before they're published; there is no wrangle-side window.
 
-**Container** still publishes inline (`docker push`) and the attest + verify
-jobs complete shortly after — typically 30s–2min. That gap is fine because
-the SLSA contract is "consumer runs the verifier", not "consumer trusts that
-an attestation exists":
+**Container** publishes inline (`docker push`) and the attest + verify jobs
+complete shortly after — typically 30s–2min. That gap is fine because the SLSA
+contract is "consumer runs the verifier", not "consumer trusts that an
+attestation exists":
 
 - Download during the gap and verify → "no attestation found" → treat as
   untrusted, retry later.

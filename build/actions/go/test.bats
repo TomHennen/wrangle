@@ -26,10 +26,8 @@ setup() {
     REPO_ROOT="$(cd "$GO_ACTION_DIR/../../.." && pwd)"
     CHECKS_DIR="$GO_ACTION_DIR/checks"
     RELEASE_DIR="$GO_ACTION_DIR/release"
-    PUBLISH_DIR="$GO_ACTION_DIR/publish"
     CHECKS_ACTION="$CHECKS_DIR/action.yml"
     RELEASE_ACTION="$RELEASE_DIR/action.yml"
-    PUBLISH_ACTION="$PUBLISH_DIR/action.yml"
     WORKFLOW="$REPO_ROOT/.github/workflows/build_and_publish_go.yml"
     EXAMPLE="$REPO_ROOT/gh_workflow_examples/build_go.yml"
     GITHUB_OUTPUT="$BATS_TEST_TMPDIR/github_output"
@@ -401,123 +399,6 @@ func main() {}
 }
 
 # ====================================================================
-# Layer 1/2: publish_release.sh (wrangle owns the publish)
-# ====================================================================
-
-# Lay down a dist/ + bundles/ fixture the collector can walk.
-write_publish_fixture() {
-    local dist="$1" bundles="$2"
-    mkdir -p "$dist" "$bundles"
-    : > "$dist/app_v1_linux_amd64.tar.gz"
-    : > "$dist/app_v1_darwin_arm64.tar.gz"
-    : > "$dist/checksums.txt"
-    : > "$bundles/app_v1_linux_amd64.tar.gz.intoto.jsonl"
-    : > "$bundles/app_v1_darwin_arm64.tar.gz.intoto.jsonl"
-}
-
-@test "go.publish: collect_assets gathers archives, checksums, and bundles" {
-    local dist="$BATS_TEST_TMPDIR/dist" bundles="$BATS_TEST_TMPDIR/bundles"
-    write_publish_fixture "$dist" "$bundles"
-    local files='["app_v1_linux_amd64.tar.gz","app_v1_darwin_arm64.tar.gz"]'
-    run bash -c '
-        source "$1"
-        WRANGLE_ASSETS=()
-        wrangle_collect_assets "$2" "$3" "$4"
-        printf "%s\n" "${WRANGLE_ASSETS[@]}"
-    ' -- "$PUBLISH_DIR/publish_release.sh" "$dist" "$files" "$bundles"
-    [[ "$status" -eq 0 ]]
-    [[ "$output" == *"app_v1_linux_amd64.tar.gz"* ]]
-    [[ "$output" == *"checksums.txt"* ]]
-    [[ "$output" == *"app_v1_darwin_arm64.tar.gz.intoto.jsonl"* ]]
-}
-
-@test "go.publish: collect_assets fails closed when a dist file is missing" {
-    local dist="$BATS_TEST_TMPDIR/dist" bundles="$BATS_TEST_TMPDIR/bundles"
-    write_publish_fixture "$dist" "$bundles"
-    local files='["app_v1_linux_amd64.tar.gz","ghost.tar.gz"]'
-    run bash -c '
-        source "$1"
-        WRANGLE_ASSETS=()
-        wrangle_collect_assets "$2" "$3" "$4"
-    ' -- "$PUBLISH_DIR/publish_release.sh" "$dist" "$files" "$bundles"
-    [[ "$status" -ne 0 ]]
-    [[ "$output" == *"dist file not found"* ]]
-}
-
-@test "go.publish: collect_assets fails closed when checksums.txt is missing" {
-    local dist="$BATS_TEST_TMPDIR/dist" bundles="$BATS_TEST_TMPDIR/bundles"
-    mkdir -p "$dist" "$bundles"
-    : > "$dist/app_v1_linux_amd64.tar.gz"
-    run bash -c '
-        source "$1"
-        WRANGLE_ASSETS=()
-        wrangle_collect_assets "$2" "$3" "$4"
-    ' -- "$PUBLISH_DIR/publish_release.sh" "$dist" '["app_v1_linux_amd64.tar.gz"]' "$bundles"
-    [[ "$status" -ne 0 ]]
-    [[ "$output" == *"checksums.txt not found"* ]]
-}
-
-@test "go.publish: main rejects an unsafe release tag before touching gh" {
-    local dist="$BATS_TEST_TMPDIR/dist" bundles="$BATS_TEST_TMPDIR/bundles"
-    write_publish_fixture "$dist" "$bundles"
-    run "$PUBLISH_DIR/publish_release.sh" 'v1.0.0; rm -rf /' "$dist" '["app_v1_linux_amd64.tar.gz"]' "$bundles"
-    [[ "$status" -ne 0 ]]
-    [[ "$output" == *"unsafe release tag"* ]]
-}
-
-@test "go.publish: main usage error with wrong arg count" {
-    run "$PUBLISH_DIR/publish_release.sh" "v1.0.0"
-    [[ "$status" -ne 0 ]]
-    [[ "$output" == *"Usage:"* ]]
-}
-
-@test "go.publish: wrangle_publish creates the release when absent, then uploads (gh shim)" {
-    # A gh shim, not the real binary: gh release create/upload need a live
-    # GitHub repo + token, which a hermetic unit test can't provide. The shim
-    # records the subcommands so the create-then-upload contract is asserted.
-    local bindir="$BATS_TEST_TMPDIR/bin" log="$BATS_TEST_TMPDIR/gh.log"
-    mkdir -p "$bindir"
-    cat > "$bindir/gh" <<EOF
-#!/bin/bash
-printf '%s\n' "\$*" >> "$log"
-# 'release view' returns non-zero so wrangle_publish takes the create path.
-[[ "\$1 \$2" == "release view" ]] && exit 1
-exit 0
-EOF
-    chmod +x "$bindir/gh"
-    : > "$log"
-    run bash -c '
-        export PATH="$1:$PATH"
-        source "$2"
-        wrangle_publish "v1.0.0" "/tmp/a.tar.gz" "/tmp/checksums.txt"
-    ' -- "$bindir" "$PUBLISH_DIR/publish_release.sh"
-    [[ "$status" -eq 0 ]]
-    grep -q "release view v1.0.0" "$log"
-    grep -q "release create v1.0.0 --title v1.0.0 --generate-notes" "$log"
-    grep -q "release upload v1.0.0 /tmp/a.tar.gz /tmp/checksums.txt --clobber" "$log"
-}
-
-@test "go.publish: wrangle_publish skips create when the release already exists (gh shim)" {
-    local bindir="$BATS_TEST_TMPDIR/bin" log="$BATS_TEST_TMPDIR/gh.log"
-    mkdir -p "$bindir"
-    cat > "$bindir/gh" <<EOF
-#!/bin/bash
-printf '%s\n' "\$*" >> "$log"
-exit 0
-EOF
-    chmod +x "$bindir/gh"
-    : > "$log"
-    run bash -c '
-        export PATH="$1:$PATH"
-        source "$2"
-        wrangle_publish "v1.0.0" "/tmp/a.tar.gz"
-    ' -- "$bindir" "$PUBLISH_DIR/publish_release.sh"
-    [[ "$status" -eq 0 ]]
-    ! grep -q "release create" "$log"
-    grep -q "release upload v1.0.0 /tmp/a.tar.gz --clobber" "$log"
-}
-
-# ====================================================================
 # Layer 3: Structural / supply-chain guard rails
 # ====================================================================
 
@@ -528,41 +409,6 @@ EOF
 @test "go: release/action.yml exists" {
     [[ -f "$RELEASE_ACTION" ]]
 }
-
-@test "go: publish/action.yml and publish_release.sh exist" {
-    [[ -f "$PUBLISH_ACTION" ]]
-    [[ -x "$PUBLISH_DIR/publish_release.sh" ]]
-}
-
-@test "go.publish: publish_release.sh uses the canonical preamble + set -f" {
-    run grep -nx 'set -euo pipefail' "$PUBLISH_DIR/publish_release.sh"
-    [[ "$status" -eq 0 ]]
-    run grep -E '^set -f' "$PUBLISH_DIR/publish_release.sh"
-    [[ "$status" -eq 0 ]]
-}
-
-@test "go.publish: action threads inputs through env, never inputs interpolation in run" {
-    run awk '
-        /^[[:space:]]*run:[[:space:]]+[^|>]/ && /\$\{\{[[:space:]]*inputs\./ { print "FAIL " NR; bad = 1 }
-        /^[[:space:]]*run:[[:space:]]*([|>]|$)/ { match($0, /^ */); run_col = RLENGTH; in_run = 1; next }
-        in_run {
-            if ($0 !~ /[^[:space:]]/) next
-            match($0, /^ */); col = RLENGTH
-            if (col <= run_col) { in_run = 0 }
-            else if (/\$\{\{[[:space:]]*inputs\./) { print "FAIL body " NR; bad = 1 }
-        }
-        END { exit bad }
-    ' "$PUBLISH_ACTION"
-    [[ "$status" -eq 0 ]]
-}
-
-@test "go.publish: action passes GH_TOKEN via env and invokes publish_release.sh" {
-    run grep -E 'GH_TOKEN:[[:space:]]*\$\{\{[[:space:]]*github\.token' "$PUBLISH_ACTION"
-    [[ "$status" -eq 0 ]]
-    run grep -F 'publish_release.sh' "$PUBLISH_ACTION"
-    [[ "$status" -eq 0 ]]
-}
-
 @test "go: workflow file exists" {
     [[ -f "$WORKFLOW" ]]
 }
@@ -596,10 +442,10 @@ EOF
     [[ "$status" -eq 0 ]]
 }
 
-@test "go.release: goreleaser always --skip=publish (wrangle owns the publish)" {
-    # goreleaser only builds; the publish job creates the Release and uploads
-    # only the attested artifacts, so no un-attested downstream verb (Docker,
-    # Homebrew, deb/rpm) ships. publish==true selects a real tagged build:
+@test "go.release: goreleaser always --skip=publish (adopters own the publish)" {
+    # goreleaser only builds, so no un-attested downstream verb (Docker,
+    # Homebrew, deb/rpm) ships; adopters publish from their own workflow.
+    # publish==true selects a real tagged build:
     #   inputs.publish == 'true' && 'release --clean --skip=publish'
     #                            || 'release --clean --snapshot --skip=publish'
     run grep -E "inputs\\.publish == 'true' && 'release --clean --skip=publish' \\|\\|" "$RELEASE_ACTION"
@@ -737,28 +583,33 @@ EOF
 
 # --- Reusable workflow tests ---
 
-@test "go: workflow has guard, gate, checks, release, attest, verify, publish jobs" {
+@test "go: workflow has guard, gate, checks, build, attest, verify jobs" {
     # attest (attest-build-provenance) + verify replace the removed
     # slsa-github-generator provenance: and slsa-verifier verify: jobs.
-    # publish creates the Release wrangle owns (goreleaser --skip=publish).
-    for job in guard gate checks release attest verify publish; do
+    # No publish job: wrangle doesn't publish — adopters do (like python/npm).
+    for job in guard gate checks build attest verify; do
         run grep -E "^  ${job}:" "$WORKFLOW"
         [[ "$status" -eq 0 ]]
     done
 }
 
-@test "go: workflow release job runs even when checks is skipped (run-tests: false path)" {
+@test "go: workflow has no publish job (adopters publish from their own workflow)" {
+    run grep -E '^  publish:' "$WORKFLOW"
+    [[ "$status" -ne 0 ]]
+}
+
+@test "go: workflow build job runs even when checks is skipped (run-tests: false path)" {
     # Without an explicit `if:`, GitHub Actions skips a downstream job
     # whose needed-job is *skipped*. So `run-tests: false` (which
     # sets `if: ${{ inputs.run-tests }}` on checks → skips it) would
-    # cascade to release/attest/verify and nothing would build.
-    # The release job's `if:` must explicitly allow needs.checks.result
+    # cascade to build/attest/verify and nothing would build.
+    # The build job's `if:` must explicitly allow needs.checks.result
     # == 'skipped' to keep the documented behavior — "checks skipped,
-    # release proceeds with quality gates unenforced."
-    section="$(awk '/^  [a-z][a-z_-]*:$/ { in_section = ($0 == "  release:") } in_section' "$WORKFLOW")"
+    # build proceeds with quality gates unenforced."
+    section="$(awk '/^  [a-z][a-z_-]*:$/ { in_section = ($0 == "  build:") } in_section' "$WORKFLOW")"
     grep -qF "needs.checks.result == 'skipped'" <<<"$section"
     # And the if: must NOT be the trivial truthy default that would
-    # let release run even on a failed guard/gate.
+    # let the build run even on a failed guard/gate.
     grep -qE "needs\\.guard\\.result == 'success'" <<<"$section"
     grep -qE "needs\\.gate\\.result == 'success'" <<<"$section"
 }
@@ -785,16 +636,16 @@ EOF
     ! grep -qE '^      contents: write([[:space:]]|$)' <<<"$section"
 }
 
-@test "go: workflow release job has contents: read (goreleaser only builds, --skip=publish)" {
-    # goreleaser no longer publishes, so the build job needs no write — the
-    # publish job (separate, with contents: write) creates the Release.
-    section="$(awk '/^  [a-z][a-z_-]*:$/ { in_section = ($0 == "  release:") } in_section' "$WORKFLOW")"
+@test "go: workflow build job has contents: read (goreleaser only builds, --skip=publish)" {
+    # goreleaser doesn't publish, so the build job needs no write. matches
+    # python/npm's build job — adopters publish from their own workflow.
+    section="$(awk '/^  [a-z][a-z_-]*:$/ { in_section = ($0 == "  build:") } in_section' "$WORKFLOW")"
     grep -qE '^      contents: read([[:space:]]|$)' <<<"$section"
     ! grep -qE '^      contents: write([[:space:]]|$)' <<<"$section"
 }
 
-@test "go: workflow release job needs checks (quality gates run first)" {
-    section="$(awk '/^  [a-z][a-z_-]*:$/ { in_section = ($0 == "  release:") } in_section' "$WORKFLOW")"
+@test "go: workflow build job needs checks (quality gates run first)" {
+    section="$(awk '/^  [a-z][a-z_-]*:$/ { in_section = ($0 == "  build:") } in_section' "$WORKFLOW")"
     grep -qE '^    needs: \[.*checks.*\]' <<<"$section"
 }
 
@@ -824,38 +675,19 @@ EOF
     grep -qE "go-cache:.*should-release == 'true' && ''" <<<"$section"
 }
 
-@test "go: workflow release job needs scan (load-bearing finding blocks publish)" {
-    section="$(awk '/^  [a-z][a-z_-]*:$/ { in_section = ($0 == "  release:") } in_section' "$WORKFLOW")"
+@test "go: workflow build job needs scan (load-bearing finding blocks the build)" {
+    section="$(awk '/^  [a-z][a-z_-]*:$/ { in_section = ($0 == "  build:") } in_section' "$WORKFLOW")"
     grep -qE '^    needs: \[.*scan.*\]' <<<"$section"
-    # The if: gates release on the scan result for release events.
+    # The if: gates the build on the scan result for release events.
     grep -qE "needs\\.scan\\.result" <<<"$section"
 }
 
-@test "go: workflow publish job is gated on should-release AND a tag push" {
-    section="$(awk '/^  [a-z][a-z_-]*:$/ { in_section = ($0 == "  publish:") } in_section' "$WORKFLOW")"
-    grep -qE "should-release == 'true'" <<<"$section"
-    grep -qE "startsWith\\(github\\.ref, 'refs/tags/'\\)" <<<"$section"
-}
-
-@test "go: workflow publish job needs verify (nothing ships until the VSA passes)" {
-    section="$(awk '/^  [a-z][a-z_-]*:$/ { in_section = ($0 == "  publish:") } in_section' "$WORKFLOW")"
-    grep -qE '^    needs: \[.*verify.*\]' <<<"$section"
-    grep -qE '^    needs: \[.*attest.*\]' <<<"$section"
-}
-
-@test "go: workflow publish job has contents: write (it creates the Release)" {
-    section="$(awk '/^  [a-z][a-z_-]*:$/ { in_section = ($0 == "  publish:") } in_section' "$WORKFLOW")"
-    grep -qE '^      contents: write([[:space:]]|$)' <<<"$section"
-}
-
-@test "go: workflow publish job uses the go publish composite (SHA-pinned self-ref)" {
-    section="$(awk '/^  [a-z][a-z_-]*:$/ { in_section = ($0 == "  publish:") } in_section' "$WORKFLOW")"
-    grep -qE 'uses:[[:space:]]*TomHennen/wrangle/build/actions/go/publish@[0-9a-f]{40}' <<<"$section"
-}
-
-@test "go: verify job does not attach to the release (the publish job does)" {
+@test "go: verify job posts VSAs to the attestation store and can attach on tags" {
+    # Matches python/npm: id-token (sign) + attestations (store) + contents
+    # (attach the bundle to a release the adopter's publish job created).
     section="$(awk '/^  [a-z][a-z_-]*:$/ { in_section = ($0 == "  verify:") } in_section' "$WORKFLOW")"
-    grep -qE 'attach-to-release:[[:space:]]*"false"' <<<"$section"
+    grep -qE '^      attestations: write([[:space:]]|$)' <<<"$section"
+    grep -qE '^      contents: write([[:space:]]|$)' <<<"$section"
 }
 
 @test "go: workflow exposes run-race-detector and run-gofmt-check inputs" {
@@ -884,7 +716,7 @@ EOF
     [[ "$status" -ne 0 ]]
 }
 
-@test "go: workflow checks + release jobs use namespaced metadata artifact names" {
+@test "go: workflow checks + build jobs use namespaced metadata artifact names" {
     run grep 'go-checks-metadata-' "$WORKFLOW"
     [[ "$status" -eq 0 ]]
     run grep 'go-metadata-' "$WORKFLOW"
@@ -898,9 +730,14 @@ EOF
     [[ "$status" -ne 0 ]]
 }
 
-@test "go: example workflow does NOT have a publish job (goreleaser owns publish)" {
+@test "go: example workflow has an adopter publish job gated on should-release" {
+    # wrangle doesn't publish; the example shows the adopter's publish job
+    # creating the GitHub Release, gated on the reusable workflow's output.
     run grep -E '^  publish:' "$EXAMPLE"
-    [[ "$status" -ne 0 ]]
+    [[ "$status" -eq 0 ]]
+    section="$(awk '/^  [a-z][a-z_-]*:$/ { in_section = ($0 == "  publish:") } in_section' "$EXAMPLE")"
+    grep -qE "needs\\.build\\.outputs\\.should-release == 'true'" <<<"$section"
+    grep -qF 'gh release create' <<<"$section"
 }
 
 @test "go: example workflow grants contents: write to build job" {

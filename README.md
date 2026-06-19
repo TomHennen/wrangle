@@ -51,7 +51,7 @@ on:
 jobs:
   build:
     permissions:
-      contents: write         # wrangle's publish job creates the Release + uploads the attested artifacts
+      contents: write         # wrangle's verify job attaches the VSA on tags; your publish job creates the Release
       id-token: write         # OIDC for Sigstore signing
       attestations: write     # GitHub-issued SLSA provenance
       actions: read           # source scan: Scorecard reads the Actions API

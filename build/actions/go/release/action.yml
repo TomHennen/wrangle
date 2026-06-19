@@ -9,10 +9,9 @@ description: |
 
   goreleaser only builds here: --skip=publish means it does NOT
   create the GitHub Release or run any downstream verb (Docker
-  pushes, Homebrew taps, deb/rpm/snap, announce). wrangle's attest
-  and verify jobs produce the provenance and signed VSA, then the
-  publish job creates the Release and uploads only the attested
-  artifacts.
+  pushes, Homebrew taps, deb/rpm/snap, announce). wrangle attests
+  and verifies the build; adopters publish from their own calling
+  workflow (see gh_workflow_examples/build_go.yml).
 
 inputs:
   path:
@@ -38,14 +37,14 @@ inputs:
     default: "enabled"
   publish:
     description: |
-      Whether this run publishes a release. The calling reusable
+      Whether this is a real tagged build. The calling reusable
       workflow sets this to the AND of `should-release` (from the
       gate job) and `startsWith(github.ref, 'refs/tags/')`. goreleaser
       never uploads here (always --skip=publish); this input only
       selects the build mode so the artifacts carry the right version.
 
       true  -> goreleaser runs `release --clean --skip=publish`
-               (real tagged build; the publish job ships it).
+               (real tagged build).
       false -> goreleaser runs `release --clean --snapshot --skip=publish`
                (snapshot build, no version tag). PR and non-release
                builds use this to exercise the pipeline.
