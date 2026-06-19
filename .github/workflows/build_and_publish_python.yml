@@ -165,7 +165,7 @@ jobs:
           printf 'name=python-scan-%s\n' "${INPUT_PATH////_}" >> "$GITHUB_OUTPUT"
 
       # TODO: replace with $/actions/scan when GitHub ships $/ syntax (#136)
-      - uses: TomHennen/wrangle/actions/scan@b7eb9765639f6ffaf11e994efb63b810d69ff53f # main 2026-06-16
+      - uses: TomHennen/wrangle/actions/scan@fe07882c487bb44d97414c828a5a94acf1016351 # bootstrap PR-head until merge (#469)
         if: ${{ inputs.scan-tools != '' }}
         with:
           tools: ${{ inputs.scan-tools }}
