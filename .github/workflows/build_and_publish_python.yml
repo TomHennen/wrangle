@@ -246,16 +246,13 @@ jobs:
           SHORTNAME: ${{ steps.build.outputs.shortname }}
         run: |
           set -euo pipefail
-          # Join prefix-shortname inline (suffix-less at root): this job checks
-          # out the ADOPTER repo, where lib/shortname.sh is absent.
+          # Suffix-less at root; the adopter checkout has no lib/shortname.sh.
           sfx="${SHORTNAME:+-$SHORTNAME}"
-          {
-            printf 'dist=python-dist%s\n' "$sfx"
-            printf 'metadata=python-metadata%s\n' "$sfx"
-            printf 'scan=python-scan%s\n' "$sfx"
-            printf 'metadata-pre=python-premeta%s\n' "$sfx"
-            printf 'provenance-bundle=python-provenance-bundle%s\n' "$sfx"
-          } >> "$GITHUB_OUTPUT"
+          for p in dist:python-dist metadata:python-metadata scan:python-scan \
+                   metadata-pre:python-premeta \
+                   provenance-bundle:python-provenance-bundle; do
+            printf '%s=%s%s\n' "${p%%:*}" "${p#*:}" "$sfx"
+          done >> "$GITHUB_OUTPUT"
 
       # Emit the dist filenames as a JSON array; the verify job binds one VSA per file.
       # Derived from the build's base64 `hashes` output (the "<sha256>  <name>" lines the

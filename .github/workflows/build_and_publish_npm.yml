@@ -244,16 +244,13 @@ jobs:
           SHORTNAME: ${{ steps.build.outputs.shortname }}
         run: |
           set -euo pipefail
-          # Join prefix-shortname inline (suffix-less at root): this job checks
-          # out the ADOPTER repo, where lib/shortname.sh is absent.
+          # Suffix-less at root; the adopter checkout has no lib/shortname.sh.
           sfx="${SHORTNAME:+-$SHORTNAME}"
-          {
-            printf 'dist=npm-dist%s\n' "$sfx"
-            printf 'metadata=npm-metadata%s\n' "$sfx"
-            printf 'scan=npm-scan%s\n' "$sfx"
-            printf 'metadata-pre=npm-premeta%s\n' "$sfx"
-            printf 'provenance-bundle=npm-provenance-bundle%s\n' "$sfx"
-          } >> "$GITHUB_OUTPUT"
+          for p in dist:npm-dist metadata:npm-metadata scan:npm-scan \
+                   metadata-pre:npm-premeta \
+                   provenance-bundle:npm-provenance-bundle; do
+            printf '%s=%s%s\n' "${p%%:*}" "${p#*:}" "$sfx"
+          done >> "$GITHUB_OUTPUT"
 
       # The npm composite doesn't emit the package name; read it from
       # package.json for the VSA resourceUri purl. Scoped names (@scope/pkg) pass through.

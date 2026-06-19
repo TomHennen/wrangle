@@ -339,17 +339,13 @@ jobs:
           SHORTNAME: ${{ steps.release.outputs.shortname }}
         run: |
           set -euo pipefail
-          # Join prefix-shortname inline (suffix-less at root): this job checks
-          # out the ADOPTER repo, where lib/shortname.sh is absent.
+          # Suffix-less at root; the adopter checkout has no lib/shortname.sh.
           sfx="${SHORTNAME:+-$SHORTNAME}"
-          {
-            printf 'dist=go-dist%s\n' "$sfx"
-            printf 'scan=go-scan%s\n' "$sfx"
-            printf 'checks=go-checks%s\n' "$sfx"
-            printf 'metadata=go-metadata%s\n' "$sfx"
-            printf 'metadata-pre=go-premeta%s\n' "$sfx"
-            printf 'provenance-bundle=go-provenance-bundle%s\n' "$sfx"
-          } >> "$GITHUB_OUTPUT"
+          for p in dist:go-dist scan:go-scan checks:go-checks \
+                   metadata:go-metadata metadata-pre:go-premeta \
+                   provenance-bundle:go-provenance-bundle; do
+            printf '%s=%s%s\n' "${p%%:*}" "${p#*:}" "$sfx"
+          done >> "$GITHUB_OUTPUT"
 
       # Emit the dist filenames as a JSON array; the verify job binds one VSA per file.
       # Derived from the build's base64 `hashes` output (the "<sha256>  <name>" lines the

@@ -270,14 +270,17 @@ EOF
     # (no -<shortname>), which the old "*-metadata-*" missed → root adopters
     # downloaded zero bundles and verify-vsa failed closed (#469). The
     # '-premeta'/'-premeta-' transients must still not match.
-    glob='*-metadata*'
+    # Bash case-glob mirrors the download-artifact pattern "*-metadata*";
+    # collect the verdicts and assert, so no early `return` confuses linters.
+    matched="" missed=""
     for name in go-metadata python-metadata container-metadata-cmd_foo npm-metadata-pkg; do
-        [[ "$name" == $glob ]] || { printf 'expected %s to match\n' "$name"; return 1; }
+        case "$name" in *-metadata*) matched="$matched $name" ;; esac
     done
     for name in go-premeta python-premeta-pkg go-dist go-scan; do
-        [[ "$name" == $glob ]] && { printf 'expected %s NOT to match\n' "$name"; return 1; }
+        case "$name" in *-metadata*) missed="$missed $name" ;; esac
     done
-    return 0
+    [[ "$matched" == " go-metadata python-metadata container-metadata-cmd_foo npm-metadata-pkg" ]]
+    [[ -z "$missed" ]]
 }
 
 @test "structure: action.yml delegates to verify_vsa.sh" {

@@ -500,7 +500,7 @@ write_pyproject() {
     # the lib (#469). Root build ('.') stays suffix-less via a conditional join.
     run grep -F 'source lib/shortname.sh' "$WORKFLOW"
     [[ "$status" -ne 0 ]]
-    run grep -F 'dist=python-dist%s' "$WORKFLOW"
+    run grep -F 'dist:python-dist' "$WORKFLOW"
     [[ "$status" -eq 0 ]]
 }
 

@@ -801,7 +801,7 @@ write_pkg_json() {
     # the lib (#469). Root build ('.') stays suffix-less via a conditional join.
     run grep -F 'source lib/shortname.sh' "$WORKFLOW"
     [[ "$status" -ne 0 ]]
-    run grep -F 'dist=npm-dist%s' "$WORKFLOW"
+    run grep -F 'dist:npm-dist' "$WORKFLOW"
     [[ "$status" -eq 0 ]]
 }
 

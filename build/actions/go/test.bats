@@ -721,7 +721,7 @@ func main() {}
     # Derived inline (no adopter-workspace lib source); root stays clean.
     run grep -F "format('go-checks-{0}'" "$WORKFLOW"
     [[ "$status" -eq 0 ]]
-    run grep -F 'metadata=go-metadata%s' "$WORKFLOW"
+    run grep -F 'metadata:go-metadata' "$WORKFLOW"
     [[ "$status" -eq 0 ]]
 }
 
