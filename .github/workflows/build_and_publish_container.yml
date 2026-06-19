@@ -87,7 +87,7 @@ on:
         description: "Normalized (lowercased) image name."
         value: ${{ jobs.build.outputs.imagename }}
       metadata-artifact-name:
-        description: "Name of the workflow artifact (a zip of `metadata/container/<shortname>/`'s contents) containing the SBOM and any scan output. Format: `container-metadata-<shortname>`. Adopters fetch via `actions/download-artifact` — the metadata files land at the top level of the configured `path:`, not under `metadata/container/<shortname>/`."
+        description: "Name of the unified metadata workflow artifact. Format: `container-metadata[-<shortname>]`. Contents and layout: docs/metadata_layout.md."
         value: ${{ jobs.build.outputs.metadata-artifact-name }}
       should-release:
         description: |
@@ -135,17 +135,30 @@ jobs:
       actions: read
       contents: read
       security-events: write
+    outputs:
+      artifact-name: ${{ steps.names.outputs.scan }}
     steps:
       - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
         if: ${{ inputs.scan-tools != '' }}
         with:
           persist-credentials: false
 
+      # Shared name derivation so the scan and build jobs can't drift.
+      # TODO: replace with $/actions/package_metadata when GitHub ships $/ syntax (#136)
+      - uses: TomHennen/wrangle/actions/package_metadata@720c44bcd275740f0c232f4d64dc0eec7c05f7a2 # feat/469-unify-metadata-artifact 2026-06-19
+        id: names
+        if: ${{ inputs.scan-tools != '' }}
+        with:
+          build-type: container
+          path: ${{ inputs.path }}
+
       # TODO: replace with $/actions/scan when GitHub ships $/ syntax (#136)
-      - uses: TomHennen/wrangle/actions/scan@041a3fcc56df40113f1b0f6f319c707a6283c5ff # main 2026-06-19
+      - uses: TomHennen/wrangle/actions/scan@720c44bcd275740f0c232f4d64dc0eec7c05f7a2 # feat/469-unify-metadata-artifact 2026-06-19
         if: ${{ inputs.scan-tools != '' }}
         with:
           tools: ${{ inputs.scan-tools }}
+          # The build job folds this into the unified container-metadata.
+          artifact-name: ${{ steps.names.outputs.scan }}
           # Cold on release: the scan gates an attested build, so a
           # poisoned tool cache must not be able to forge a passing scan.
           go-cache: ${{ needs.gate.outputs.should-release == 'true' && '' || inputs.go-cache }}
@@ -163,18 +176,24 @@ jobs:
       digest: ${{ steps.build.outputs.digest }}
       imagename: ${{ steps.build.outputs.imagename }}
       shortname: ${{ steps.build.outputs.shortname }}
-      metadata-artifact-name: container-metadata-${{ steps.build.outputs.shortname }}
+      metadata-artifact-name: ${{ steps.build.outputs.metadata-artifact-name }}
+      metadata-pre-artifact-name: ${{ steps.build.outputs.metadata-pre-artifact-name }}
+      metadata-dir: ${{ steps.build.outputs.metadata-dir }}
     runs-on: ubuntu-latest
     steps:
     # TODO: replace with $/build/actions/container when GitHub ships $/ syntax (#136)
     - name: "build and publish"
       id: build
-      uses: TomHennen/wrangle/build/actions/container@041a3fcc56df40113f1b0f6f319c707a6283c5ff # main 2026-06-19
+      uses: TomHennen/wrangle/build/actions/container@fa08d98b55fef0d5ad28cf026d56d08c137e0eb2 # feat/469-unify-metadata-artifact 2026-06-19
       with:
         path: ${{ inputs.path }}
         imagename: ${{ inputs.imagename }}
         registry: ${{ inputs.registry }}
         github_token: ${{ secrets.GITHUB_TOKEN }}
+        # The workflow owns the unified metadata upload (folding in the scan
+        # job's output and the verify job's bundle), so disable the composite's
+        # own upload.
+        upload-metadata: "false"
         # Release builds (should-release == 'true') always run cache-free:
         # they produce L3 provenance, so the build must not consume a
         # shared, cross-build, unverified-on-hit cache — see
@@ -183,6 +202,23 @@ jobs:
         # so PRs cannot poison each other) and can be widened to a fully
         # shared cache or tightened to read-only / disabled.
         cache: ${{ needs.gate.outputs.should-release == 'true' && 'disabled' || inputs.pr-cache }}
+
+    # Fold the untrusted scan job's output into the metadata dir as inert data.
+    - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+      if: ${{ always() && inputs.scan-tools != '' }}
+      continue-on-error: true   # scan upload is best-effort
+      with:
+        name: ${{ needs.scan.outputs.artifact-name }}
+        path: ${{ steps.build.outputs.metadata-dir }}/scan/
+
+    # Non-release: this is the final unified metadata (sbom + scan/). On
+    # release the verify job appends the bundle and owns the final upload.
+    - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+      if: always()
+      with:
+        name: ${{ needs.gate.outputs.should-release == 'true' && steps.build.outputs.metadata-pre-artifact-name || steps.build.outputs.metadata-artifact-name }}
+        path: ${{ steps.build.outputs.metadata-dir }}/
+        if-no-files-found: warn
 
   # Generate SLSA L3 build provenance via GitHub's attestation API, naming THIS
   # reusable workflow as builder.id (its job_workflow_ref) and the Sigstore
@@ -246,18 +282,18 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
-      # TODO: replace with $/actions/verify when GitHub ships $/ syntax (#136)
-      - uses: TomHennen/wrangle/actions/verify@041a3fcc56df40113f1b0f6f319c707a6283c5ff # main 2026-06-19
+      # oci-target seeds provenance from the registry referrer, skipping the dist/provenance downloads.
+      # TODO: replace with $/actions/verify_release when GitHub ships $/ syntax (#136)
+      - uses: TomHennen/wrangle/actions/verify_release@720c44bcd275740f0c232f4d64dc0eec7c05f7a2 # feat/469-unify-metadata-artifact 2026-06-19
         with:
+          build-type: container
+          shortname: ${{ needs.build.outputs.shortname }}
           subjects: ${{ needs.build.outputs.digest }}
           policy: policies/wrangle-provenance-container-v1.hjson
           collector: oci:${{ needs.build.outputs.imagename }}@${{ needs.build.outputs.digest }}
-          bundle-out: bundles
-          artifact-name: container-bundle-${{ needs.build.outputs.shortname }}
           # resourceUri is the OCI image ref a container consumer fetches and
           # pins when verifying the VSA; the subject digest is the cryptographic bind.
           context: buildPoint:git+https://github.com/${{ github.repository }},vsa.resourceUri:${{ needs.build.outputs.imagename }}@${{ needs.build.outputs.digest }}
-          fail: "true"
           # Seed each bundle from this digest's provenance referrer and push the
           # bundle back as its own by-digest referrer (fail-closed).
           oci-target: ${{ needs.build.outputs.imagename }}@${{ needs.build.outputs.digest }}

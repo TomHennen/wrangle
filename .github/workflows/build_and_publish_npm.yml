@@ -114,11 +114,11 @@ on:
       provenance-artifact-name:
         description: "Name of the workflow artifact containing the SLSA provenance bundle — one JSON object per line, covering all dist subjects. Empty when should-release is false."
         value: ${{ jobs.attest.outputs.bundle-artifact-name }}
-      bundle-artifact-name:
-        description: "Name of the workflow artifact containing the single in-toto JSONL bundle (SLSA provenance + one signed VSA per dist subject). Empty when should-release is false."
-        value: ${{ jobs.verify.outputs.bundle-artifact-name }}
+      attestation-bundle-name:
+        description: "Name of the workflow artifact the per-subject in-toto JSONL bundles ship in. They live inside the unified metadata artifact, so this equals metadata-artifact-name on release runs. Empty when should-release is false."
+        value: ${{ jobs.verify.outputs.attestation-bundle-name }}
       metadata-artifact-name:
-        description: "Name of the workflow artifact (a zip of `metadata/npm/<shortname>/`'s contents) containing the SBOM. Format: `npm-metadata-<shortname>`. Adopters fetch via `actions/download-artifact` — the metadata files land at the top level of the configured `path:`, not under `metadata/npm/<shortname>/`."
+        description: "Name of the unified metadata workflow artifact. Format: `npm-metadata[-<shortname>]`. Contents and layout: docs/metadata_layout.md."
         value: ${{ jobs.build.outputs.metadata-artifact-name }}
       should-release:
         description: |
@@ -172,17 +172,30 @@ jobs:
           persist-credentials: false
           ref: ${{ inputs.ref || '' }}
 
+      # Shared name derivation so the scan and build jobs can't drift.
+      # TODO: replace with $/actions/package_metadata when GitHub ships $/ syntax (#136)
+      - uses: TomHennen/wrangle/actions/package_metadata@720c44bcd275740f0c232f4d64dc0eec7c05f7a2 # feat/469-unify-metadata-artifact 2026-06-19
+        id: names
+        if: ${{ inputs.scan-tools != '' }}
+        with:
+          build-type: npm
+          path: ${{ inputs.path }}
+
       # TODO: replace with $/actions/scan when GitHub ships $/ syntax (#136)
-      - uses: TomHennen/wrangle/actions/scan@041a3fcc56df40113f1b0f6f319c707a6283c5ff # main 2026-06-19
+      - uses: TomHennen/wrangle/actions/scan@720c44bcd275740f0c232f4d64dc0eec7c05f7a2 # feat/469-unify-metadata-artifact 2026-06-19
         if: ${{ inputs.scan-tools != '' }}
         with:
           tools: ${{ inputs.scan-tools }}
+          # The build job folds this into the unified npm-metadata.
+          artifact-name: ${{ steps.names.outputs.scan }}
           # Cold on release: the scan gates an attested build, so a
           # poisoned tool cache must not be able to forge a passing scan.
           go-cache: ${{ needs.gate.outputs.should-release == 'true' && '' || inputs.go-cache }}
 
   build:
-    needs: [guard]
+    # needs `gate` to read should-release for the conditional metadata upload,
+    # and `scan` to fold the untrusted scan output into the metadata dir.
+    needs: [guard, gate, scan]
     runs-on: ubuntu-latest
     permissions:
       contents: read    # minimal — no OIDC, no publish
@@ -197,6 +210,9 @@ jobs:
       shortname: ${{ steps.build.outputs.shortname }}
       dist-artifact-name: ${{ steps.names.outputs.dist }}
       metadata-artifact-name: ${{ steps.names.outputs.metadata }}
+      metadata-pre-artifact-name: ${{ steps.names.outputs.metadata-pre }}
+      provenance-bundle-artifact-name: ${{ steps.names.outputs.provenance-bundle }}
+      metadata-dir: ${{ steps.build.outputs.metadata-dir }}
       # JSON array of dist filenames the verify job binds one VSA to each.
       dist-files: ${{ steps.distfiles.outputs.files }}
     steps:
@@ -214,16 +230,12 @@ jobs:
           run-tests: ${{ inputs.run-tests }}
           ignore-scripts: ${{ inputs.ignore-scripts }}
 
-      # Namespace artifact names by the path-derived shortname so multiple
-      # npm builds in one workflow don't collide.
-      - id: names
-        shell: bash
-        env:
-          SHORTNAME: ${{ steps.build.outputs.shortname }}
-        run: |
-          set -euo pipefail
-          printf 'dist=npm-dist-%s\n' "$SHORTNAME" >> "$GITHUB_OUTPUT"
-          printf 'metadata=npm-metadata-%s\n' "$SHORTNAME" >> "$GITHUB_OUTPUT"
+      # TODO: replace with $/actions/package_metadata when GitHub ships $/ syntax (#136)
+      - uses: TomHennen/wrangle/actions/package_metadata@720c44bcd275740f0c232f4d64dc0eec7c05f7a2 # feat/469-unify-metadata-artifact 2026-06-19
+        id: names
+        with:
+          build-type: npm
+          shortname: ${{ steps.build.outputs.shortname }}
 
       # The npm composite doesn't emit the package name; read it from
       # package.json for the VSA resourceUri purl. Scoped names (@scope/pkg) pass through.
@@ -259,9 +271,19 @@ jobs:
           name: ${{ steps.names.outputs.dist }}
           path: ${{ inputs.path }}/dist/
 
+      # Fold the untrusted scan job's output into the metadata dir as inert data.
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        if: ${{ inputs.scan-tools != '' }}
+        continue-on-error: true   # scan upload is best-effort
+        with:
+          name: ${{ steps.names.outputs.scan }}
+          path: ${{ steps.build.outputs.metadata-dir }}/scan/
+
+      # Non-release: this is the final unified metadata (sbom + scan/). On
+      # release the verify job appends the bundle and owns the final upload.
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
-          name: ${{ steps.names.outputs.metadata }}
+          name: ${{ needs.gate.outputs.should-release == 'true' && steps.names.outputs.metadata-pre || steps.names.outputs.metadata }}
           path: ${{ steps.build.outputs.metadata-dir }}/
           if-no-files-found: error
 
@@ -278,7 +300,7 @@ jobs:
       attestations: write   # write the attestation to GitHub's store
       contents: read        # download-artifact reads the same-run dist
     outputs:
-      bundle-artifact-name: npm-provenance-bundle-${{ needs.build.outputs.shortname }}
+      bundle-artifact-name: ${{ needs.build.outputs.provenance-bundle-artifact-name }}
     steps:
       - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
         with:
@@ -303,7 +325,7 @@ jobs:
 
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
-          name: npm-provenance-bundle-${{ needs.build.outputs.shortname }}
+          name: ${{ needs.build.outputs.provenance-bundle-artifact-name }}
           path: ${{ runner.temp }}/provenance.jsonl
           if-no-files-found: error
 
@@ -323,29 +345,16 @@ jobs:
       attestations: write   # post each VSA to the GitHub attestation store
       contents: write       # attach the bundle to the release on tag pushes
     outputs:
-      bundle-artifact-name: npm-bundle-${{ needs.build.outputs.shortname }}
+      attestation-bundle-name: ${{ needs.build.outputs.metadata-artifact-name }}
     steps:
-      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+      # TODO: replace with $/actions/verify_release when GitHub ships $/ syntax (#136)
+      - uses: TomHennen/wrangle/actions/verify_release@720c44bcd275740f0c232f4d64dc0eec7c05f7a2 # feat/469-unify-metadata-artifact 2026-06-19
         with:
-          name: ${{ needs.build.outputs.dist-artifact-name }}
-          path: dist/
-
-      # The one multi-subject provenance bundle the attest job staged; the VSAs
-      # append to it to form the single bundle.
-      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
-        with:
-          name: npm-provenance-bundle-${{ needs.build.outputs.shortname }}
-          path: provenance/
-
-      # TODO: replace with $/actions/verify when GitHub ships $/ syntax (#136)
-      - uses: TomHennen/wrangle/actions/verify@041a3fcc56df40113f1b0f6f319c707a6283c5ff # main 2026-06-19
-        with:
+          build-type: npm
+          shortname: ${{ needs.build.outputs.shortname }}
           dist-files: ${{ needs.build.outputs.dist-files }}
           policy: policies/wrangle-provenance-npm-v1.hjson
           collector: jsonl:provenance/provenance.jsonl
-          bundle-in: provenance/provenance.jsonl
-          bundle-out: bundles
-          artifact-name: npm-bundle-${{ needs.build.outputs.shortname }}
           # resourceUri is the npm purl consumers pin when verifying the VSAs;
           # each subject digest is the cryptographic bind.
           context: buildPoint:git+https://github.com/${{ github.repository }},vsa.resourceUri:${{ needs.build.outputs.resource-uri }}

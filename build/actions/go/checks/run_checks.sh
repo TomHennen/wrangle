@@ -35,8 +35,8 @@
 #   path:                 project directory (already validated by
 #                         the composite's validate_inputs.sh)
 #   metadata_dir:         workspace-relative dir for govulncheck.json
-#                         (e.g., metadata/go/_/). MUST exist; caller
-#                         creates it.
+#                         (e.g., metadata/go/ at the repo root). MUST
+#                         exist; caller creates it.
 #   govulncheck_version:  pinned semver (e.g., v1.1.4). Wrangle never
 #                         takes `latest`/`main` — see CLAUDE.md
 #                         "Supply Chain Discipline."

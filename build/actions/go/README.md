@@ -42,7 +42,7 @@ Push a `v`-prefixed semver tag (e.g. `v1.2.3`) and wrangle runs the full pipelin
 
 - **Source scan** built in — vulnerable dependencies (OSV), unsafe workflow patterns (Zizmor), and more ([details](../../../actions/scan/README.md)); a load-bearing finding blocks the release. No separate scan workflow needed.
 - **Checks before bytes ship** — gofmt, `go vet`, `go test`, govulncheck run in a read-only job; a failure blocks the release job.
-- **An SPDX SBOM**, uploaded as a workflow artifact.
+- **An SPDX SBOM, scan findings (incl. govulncheck), and the signed bundle** in one `go-metadata-<sn>` workflow artifact ([what's in it](../../../docs/metadata_layout.md)).
 - **SLSA Build L3 provenance** tying each artifact to the workflow that built it ([the requirements it meets](../../../docs/REQUIREMENTS_MAPPING.md)).
 - **A signed VSA** attached to the release, so downstream users can verify your artifacts with one command.
 

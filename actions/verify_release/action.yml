@@ -1,0 +1,94 @@
+name: Wrangle Verify Release
+description: >
+  Own the verify-job wiring the four reusable build workflows shared: stage
+  the build's dist, provenance bundle, and pre-verify metadata, then call
+  actions/verify to evaluate the PolicySet, sign one VSA per subject, and
+  emit the unified metadata artifact. The artifact names and the metadata
+  dir are computed here from build-type + shortname (lib/shortname.sh via
+  the action_path), so adding a verify input is one edit here, not four.
+
+  The download steps that round-trip workflow artifacts (dist, provenance)
+  are skipped for the container build type — set oci-target and the
+  provenance is fetched from the registry referrer instead. Registry auth
+  (cosign install, registry login) stays in the container workflow: it is
+  container-only and handles registry secrets.
+
+inputs:
+  build-type:
+    description: "Build type (go, python, npm, container) — namespaces the computed names and metadata dir."
+    required: true
+  shortname:
+    description: "The build composite's path-derived shortname (empty at the repo root)."
+    required: false
+    default: ""
+  policy:
+    description: "wrangle PolicySet to evaluate (path under policies/ or an ampel locator)."
+    required: true
+  collector:
+    description: "ampel collector(s) that gather the attestations to evaluate."
+    required: true
+  context:
+    description: "Per-verify context for the policy's CEL (ampel KEY:VALUE, comma-separated)."
+    required: false
+    default: ""
+  dist-files:
+    description: "JSON array of dist basenames to bind a VSA to (go/npm/python). Mutually exclusive with subjects."
+    required: false
+    default: ""
+  subjects:
+    description: "Newline-separated subjects to bind a VSA to (container: the image digest). Mutually exclusive with dist-files."
+    required: false
+    default: ""
+  oci-target:
+    description: "OCI image ref to fetch provenance from and push the bundle to (container only). When set, the dist/provenance workflow-artifact downloads are skipped."
+    required: false
+    default: ""
+  attach-to-release:
+    description: 'When "true" (default) and the run is a tag push, attach the bundle to the release.'
+    required: false
+    default: "true"
+
+runs:
+  using: composite
+  steps:
+    - id: names
+      shell: bash
+      env:
+        BUILD_TYPE: ${{ inputs.build-type }}
+        SHORTNAME: ${{ inputs.shortname }}
+      run: '"${{ github.action_path }}/../package_metadata/derive_names.sh" "$BUILD_TYPE" "$SHORTNAME"'
+
+    # Skipped for container: dist + provenance come from the registry referrer.
+    - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+      if: ${{ inputs.oci-target == '' }}
+      with:
+        name: ${{ steps.names.outputs.dist }}
+        path: dist/
+
+    - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+      if: ${{ inputs.oci-target == '' }}
+      with:
+        name: ${{ steps.names.outputs.provenance-bundle }}
+        path: provenance/
+
+    # Stage the build job's sbom + scan/ so verify writes the bundle alongside.
+    - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+      with:
+        name: ${{ steps.names.outputs.metadata-pre }}
+        path: ${{ steps.names.outputs.metadata-dir }}/
+
+    # TODO: replace with $/actions/verify when GitHub ships $/ syntax (#136)
+    - uses: TomHennen/wrangle/actions/verify@720c44bcd275740f0c232f4d64dc0eec7c05f7a2 # feat/469-unify-metadata-artifact 2026-06-19
+      with:
+        dist-files: ${{ inputs.dist-files }}
+        subjects: ${{ inputs.subjects }}
+        policy: ${{ inputs.policy }}
+        collector: ${{ inputs.collector }}
+        # Empty for container (provenance comes from the oci collector).
+        bundle-in: ${{ inputs.oci-target == '' && 'provenance/provenance.jsonl' || '' }}
+        bundle-out: ${{ steps.names.outputs.metadata-dir }}
+        artifact-name: ${{ steps.names.outputs.metadata }}
+        context: ${{ inputs.context }}
+        oci-target: ${{ inputs.oci-target }}
+        attach-to-release: ${{ inputs.attach-to-release }}
+        fail: "true"

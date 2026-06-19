@@ -129,23 +129,24 @@ Every build type publishes its build outputs to **two complementary places**:
 
 Both layers always exist for every build type. They aren't either-or.
 
-The unified location for a build is:
+The unified location for a build is the workspace dir `metadata/<type>/<sn>/`,
+whose contents follow this convention: `sbom.spdx.json`, a `scan/<tool>/` subdir
+for each scan tool that ran (`output.sarif` + `output.md`; plus
+`scan/govulncheck/govulncheck.json` for go), and — on release runs — one
+`<artifact>.intoto.jsonl` per dist subject (SLSA provenance + that subject's
+signed VSA). The full file layout, and which `scan/` subdirs appear for a given
+event (scorecard non-PR, dependency-review PR-only, driven by `scan-tools`), is
+documented in [docs/metadata_layout.md](metadata_layout.md).
 
-```
-metadata/<type>/<shortname>/
-├── sbom.spdx.json           # SPDX SBOM (every build type that has dependencies)
-├── <type>-<shortname>.intoto.jsonl  # SLSA provenance (filename is namespaced so multiple builds in one workflow don't collide)
-├── summary.md               # human-readable build summary
-├── scan/
-│   ├── osv.sarif            # SBOM vuln scan
-│   ├── zizmor.sarif         # action-specific scans where applicable
-│   └── ...
-└── build-info.json          # type-specific structured metadata (image digest, wheel filenames, etc.)
-```
+`<type>` is the build type and `<sn>` is the path-derived shortname that namespaces per-build artifacts so multiple builds in one workflow don't collide (format and examples in [docs/metadata_layout.md](metadata_layout.md#naming)). All build types and the standalone scan share one derivation (`lib/shortname.sh`).
 
-`<type>` is the build type (`container`, `python`, ...) and `<shortname>` is the path-derived name (`/` becomes `_`) so multiple builds in one workflow don't collide.
+Each build job folds the separate scan job's output into `scan/` and, on release runs, the verify job folds the per-subject `<artifact>.intoto.jsonl` bundle into the same dir — so one `download-artifact` of `<type>-metadata-<sn>` yields the complete set.
 
-For npm/go/python the signed provenance bundle is uploaded as a workflow artifact namespaced by build type and shortname (`<type>-provenance-bundle-<shortname>`) so multiple builds in one workflow don't collide — `actions/download-artifact` picks non-deterministically when two artifacts share a name in the same run, and the verify job reading the wrong build's bundle would fail with a confusing subject mismatch. The artifact name is exposed via the workflow's `provenance-artifact-name` output so adopters and downstream consumers don't need to reconstruct the convention themselves. (For container the input provenance is not a workflow artifact — the `verify` job fetches it from the image's registry referrer with `cosign download attestation`.) This bundle is an internal intermediate; the `verify` job consumes it to build the consumer-facing per-artifact bundles, one `<artifact>.intoto.jsonl` per dist subject (provenance + that artifact's VSA — see [Release verification](#release-verification)), following the [in-toto bundle spec](https://github.com/in-toto/attestation/blob/main/spec/v1/bundle.md) naming so several build types publishing to one release surface can't collide. They are uploaded under the same namespacing (`<type>-bundle-<shortname>`, exposed via `bundle-artifact-name`) and attached to the release as `<artifact>.intoto.jsonl` for npm/go/python; container has no release, so its combined bundle is delivered as the workflow artifact while the VSA alone is pushed as its own by-digest registry referrer.
+#### Artifact roles
+
+Every build job produces two consumer-facing workflow artifacts: `<type>-dist-<sn>` (the product — npm/go/python; container ships its product to the registry instead) and `<type>-metadata-<sn>` (the unified set above). The rest are internal job-passing transients (scan output, the attest job's raw provenance bundle, the build job's pre-verify metadata) that are folded into `<type>-metadata-<sn>` and not part of the consumer contract.
+
+For npm/go/python the attest job's signed provenance bundle is passed to the verify job as a transient workflow artifact namespaced by build type and shortname (`<type>-provenance-bundle-<shortname>`) so multiple builds in one workflow don't collide — `actions/download-artifact` picks non-deterministically when two artifacts share a name in the same run, and the verify job reading the wrong build's bundle would fail with a confusing subject mismatch. The artifact name is exposed via the workflow's `provenance-artifact-name` output for consumers who want the raw provenance independently. (For container the input provenance is not a workflow artifact — the `verify` job fetches it from the image's registry referrer with `cosign download attestation`.) The `verify` job consumes it to build the per-subject bundles, one `<artifact>.intoto.jsonl` per dist subject (provenance + that artifact's VSA — see [Release verification](#release-verification)), following the [in-toto bundle spec](https://github.com/in-toto/attestation/blob/main/spec/v1/bundle.md) naming so several build types publishing to one release surface can't collide. The verify job writes those bundles into `metadata/<type>/<sn>/` and uploads the whole directory as `<type>-metadata-<sn>` (exposed via `attestation-bundle-name`, which equals `metadata-artifact-name` on release runs); for npm/go/python they are additionally attached to the release as `<artifact>.intoto.jsonl`, and for container the VSA is also pushed as its own by-digest registry referrer.
 
 #### How the artifact maps to a directory
 

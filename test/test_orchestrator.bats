@@ -284,6 +284,33 @@ run_orchestrator() {
     [ -f "$TEST_DIR/output/findings-tool/output.sarif" ]
 }
 
+@test "orchestrator: multiple tools land in distinct scan/<tool> dirs without clobbering" {
+    # The build workflows fold this output into the unified metadata's scan/.
+    # If a future change collapsed the per-tool subdir, the second tool would
+    # overwrite the first's output.sarif and the merge would silently become a
+    # clobber. Run two tools and assert both survive AND keep their own content.
+    for t in osv zizmor; do
+        mkdir -p "$MOCK_TOOLS/$t"
+        printf '#!/bin/bash\nexit 0\n' > "$MOCK_TOOLS/$t/install.sh"
+        chmod +x "$MOCK_TOOLS/$t/install.sh"
+        cat > "$MOCK_TOOLS/$t/adapter.sh" << ADAPT
+#!/bin/bash
+set -euo pipefail
+printf '{"version":"2.1.0","runs":[{"tool":{"driver":{"name":"$t"}},"results":[]}]}\n' > "\$2/output.sarif"
+exit 0
+ADAPT
+        chmod +x "$MOCK_TOOLS/$t/adapter.sh"
+    done
+
+    run_orchestrator -s "$TEST_DIR/src" -o "$TEST_DIR/output" "osv" "zizmor"
+    [ "$status" -eq 0 ]
+    [ -f "$TEST_DIR/output/osv/output.sarif" ]
+    [ -f "$TEST_DIR/output/zizmor/output.sarif" ]
+    # Each subdir kept its own tool's SARIF — no cross-tool overwrite.
+    grep -q '"name":"osv"' "$TEST_DIR/output/osv/output.sarif"
+    grep -q '"name":"zizmor"' "$TEST_DIR/output/zizmor/output.sarif"
+}
+
 @test "orchestrator: error takes precedence over findings" {
     run_orchestrator -s "$TEST_DIR/src" -o "$TEST_DIR/output" "clean-tool" "error-tool"
 

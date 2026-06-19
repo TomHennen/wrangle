@@ -22,6 +22,8 @@ INPUT_REGISTRY="$2"
 INPUT_IMAGENAME="$3"
 INPUT_CACHE="$4"
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+# shellcheck source=lib/shortname.sh
+source "$SCRIPT_DIR/../../../lib/shortname.sh"
 
 # Reject any cache value outside the enabled|disabled|isolated|read-only
 # allowlist. This is load-bearing for SLSA L3: the reusable workflow passes
@@ -50,5 +52,5 @@ fi
 {
     printf 'imagename=%s\n' "${INPUT_IMAGENAME,,}"
     printf 'path=%s\n' "$INPUT_PATH"
-    printf 'shortname=%s\n' "${INPUT_PATH////_}"
+    printf 'shortname=%s\n' "$(derive_shortname "$INPUT_PATH")"
 } >> "$GITHUB_OUTPUT"

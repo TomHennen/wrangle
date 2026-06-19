@@ -494,9 +494,76 @@ write_pyproject() {
     [[ "$status" -eq 0 ]]
 }
 
-@test "python: workflow namespaces artifacts by shortname" {
-    run grep 'python-dist-' "$WORKFLOW"
+@test "python: workflow namespaces artifacts by shortname, suffix-less at root" {
+    # The scan/build jobs check out the ADOPTER repo, where lib/shortname.sh
+    # is absent — the workflow must never source the lib (#469). Both the scan
+    # and build jobs get their names from the package_metadata composite, which
+    # sources the lib from the wrangle checkout. Root build ('.') stays
+    # suffix-less.
+    run grep -F 'source lib/shortname.sh' "$WORKFLOW"
+    [[ "$status" -ne 0 ]]
+    run grep -F 'TomHennen/wrangle/actions/package_metadata@' "$WORKFLOW"
     [[ "$status" -eq 0 ]]
+    run grep -F 'build-type: python' "$WORKFLOW"
+    [[ "$status" -eq 0 ]]
+}
+
+@test "python: extract_metadata.sh at root emits empty shortname and clean dir" {
+    cd "$BATS_TEST_TMPDIR"
+    mkdir -p dist
+    : > "dist/pkg-1.0.0-py3-none-any.whl"
+    export GITHUB_OUTPUT="$BATS_TEST_TMPDIR/out"
+    : > "$GITHUB_OUTPUT"
+    run "$ACTION_DIR/extract_metadata.sh" "."
+    [[ "$status" -eq 0 ]]
+    grep -qE '^shortname=$' "$GITHUB_OUTPUT"
+    grep -qE '^metadata-dir=metadata/python$' "$GITHUB_OUTPUT"
+}
+
+@test "python: extract_metadata.sh in a subdir namespaces shortname and dir" {
+    cd "$BATS_TEST_TMPDIR"
+    mkdir -p pkg/foo/dist
+    : > "pkg/foo/dist/pkg-1.0.0-py3-none-any.whl"
+    export GITHUB_OUTPUT="$BATS_TEST_TMPDIR/out"
+    : > "$GITHUB_OUTPUT"
+    run "$ACTION_DIR/extract_metadata.sh" "pkg/foo"
+    [[ "$status" -eq 0 ]]
+    grep -qE '^shortname=pkg_foo$' "$GITHUB_OUTPUT"
+    grep -qE '^metadata-dir=metadata/python/pkg_foo$' "$GITHUB_OUTPUT"
+}
+
+@test "python: scan job passes a per-build artifact-name to the scan action" {
+    # The scan action no longer owns wrangle-scan-results; the build job folds
+    # this artifact into the unified metadata. The name is the package_metadata
+    # composite's scan output (path-derived shortname).
+    run bash -c "sed -n '/^  scan:/,/^  [a-z]/p' \"$WORKFLOW\" | grep -E 'artifact-name: \\\$\\{\\{ steps.names.outputs.scan \\}\\}'"
+    [[ "$status" -eq 0 ]]
+}
+
+@test "python: build job folds the scan output into the metadata dir" {
+    # download-artifact of the scan output into <metadata-dir>/scan/ before upload.
+    run bash -c "sed -n '/^  build:/,/^  attest:/p' \"$WORKFLOW\" | grep -E 'path: \\\$\\{\\{ steps.build.outputs.metadata-dir \\}\\}/scan/'"
+    [[ "$status" -eq 0 ]]
+}
+
+@test "python: build job needs scan so scan output is foldable" {
+    run bash -c "sed -n '/^  build:/,/^  attest:/p' \"$WORKFLOW\" | grep -E 'needs:.*scan'"
+    [[ "$status" -eq 0 ]]
+}
+
+@test "python: verify job delegates to verify_release with build-type python" {
+    # The bundle-out/metadata-dir/artifact-name wiring lives in the composite;
+    # the workflow just names the build type + shortname (verify_release test.bats
+    # covers the staging + verify wiring).
+    run bash -c "sed -n '/^  verify:/,\$p' \"$WORKFLOW\" | grep -F 'TomHennen/wrangle/actions/verify_release@'"
+    [[ "$status" -eq 0 ]]
+    run bash -c "sed -n '/^  verify:/,\$p' \"$WORKFLOW\" | grep -E 'build-type: python'"
+    [[ "$status" -eq 0 ]]
+}
+
+@test "python: no standalone python-bundle-* artifact (folded into metadata)" {
+    run grep 'python-bundle-' "$WORKFLOW"
+    [[ "$status" -ne 0 ]]
 }
 
 @test "python: action installs syft via tools/syft (not curl | sh)" {
@@ -626,7 +693,9 @@ write_pyproject() {
 
 @test "python: attest job uploads the provenance bundle the verify job needs" {
     # The verify job depends on attest and reads its uploaded bundle artifact.
-    run bash -c "sed -n '/^  attest:/,/^  [a-z]/p' \"$WORKFLOW\" | grep -E 'name: python-provenance-bundle-'"
+    # The name is the build job's provenance-bundle output (suffix-less at
+    # root, not a trailing-dash python-provenance-bundle- — #469).
+    run bash -c "sed -n '/^  attest:/,/^  [a-z]/p' \"$WORKFLOW\" | grep -F 'name: \${{ needs.build.outputs.provenance-bundle-artifact-name }}'"
     [[ "$status" -eq 0 ]]
     run bash -c "sed -n '/^  verify:/,\$p' \"$WORKFLOW\" | grep -E 'needs:.*attest'"
     [[ "$status" -eq 0 ]]

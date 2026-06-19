@@ -8,11 +8,13 @@ updates:
     # A new composite needs an entry here (a divergence test backstops a miss).
     directories:
       - "/"
+      - "/actions/package_metadata"
       - "/actions/preflight_guard"
       - "/actions/release_gate"
       - "/actions/scan"
       - "/actions/verify"
       - "/actions/verify-vsa"
+      - "/actions/verify_release"
       - "/build/actions/container"
       - "/build/actions/go/checks"
       - "/build/actions/go/release"

@@ -221,30 +221,45 @@ EOF
 
 # --- contract (divergence-fail guards across producer/consumer files) ---
 
-@test "contract: producer uploads the bundle under the name this action resolves" {
-    # actions/verify uploads one bundle artifact per build, named
-    # <type>-bundle-<shortname>; this action downloads *-bundle-* and
-    # concatenates every <artifact>.intoto.jsonl found. A producer-side rename
-    # must fail here before it strands every adopter publish job.
+@test "contract: every build workflow uploads the bundle under the name this action resolves" {
+    # The verify job folds each build's <artifact>.intoto.jsonl bundles into
+    # the unified <type>-metadata-<shortname> artifact; this action downloads
+    # *-metadata* and concatenates every <artifact>.intoto.jsonl found. A
+    # producer-side rename must fail here before it strands every adopter
+    # publish job (#469).
     PRODUCER="$ACTION_DIR/../verify/action.yml"
     grep -q 'name: ${{ inputs.artifact-name }}' "$PRODUCER"
-    grep -q 'pattern: "\*-bundle-\*"' "$ACTION"
+    grep -q 'pattern: "\*-metadata\*"' "$ACTION"
     grep -q '.intoto.jsonl' "$SCRIPT"
+    # verify_release owns the producer wiring: it computes the metadata name and
+    # passes it to verify as artifact-name; the build workflows just call it.
+    RELEASE="$ACTION_DIR/../verify_release/action.yml"
+    grep -q 'artifact-name: ${{ steps.names.outputs.metadata }}' "$RELEASE"
     WF_DIR="$ACTION_DIR/../../.github/workflows"
-    grep -q 'artifact-name: npm-bundle-' "$WF_DIR/build_and_publish_npm.yml"
-    grep -q 'artifact-name: python-bundle-' "$WF_DIR/build_and_publish_python.yml"
+    for type in npm python go container; do
+        grep -q 'TomHennen/wrangle/actions/verify_release@' "$WF_DIR/build_and_publish_$type.yml"
+    done
 }
 
-@test "contract: the build workflows export the resource-uri this action expects" {
-    # The README and examples pipe the workflow's resource-uri output into
-    # this action's resource-uri input; a renamed or dropped output strands
-    # every adopter publish job.
-    # Match the workflow_call output specifically (its value references the
-    # build job's output), not the job-level composition line that shares the
-    # `resource-uri:` key — deleting the adopter-facing export must fail here.
+@test "contract: each build workflow threads the resource-uri this action expects into verify_release" {
+    # Each build type binds a resourceUri into its VSA via verify_release's
+    # context input; a renamed or dropped binding strands the adopter publish
+    # job. The shape differs by delivery model, so assert what each type does:
+    #   - npm/python (file delivery): export a workflow-level resource-uri
+    #     output README/examples pipe into this action, threaded into context.
+    #     Match the workflow_call output (value references the build job),
+    #     not the job-composition line sharing the `resource-uri:` key.
+    #   - go (file delivery): no workflow output; the module purl is computed
+    #     inline into context.
+    #   - container (OCI): no workflow output; the image ref (imagename@digest)
+    #     is the resourceUri, and the subject digest is the cryptographic bind.
     WF_DIR="$ACTION_DIR/../../.github/workflows"
-    grep -q 'value: ${{ jobs.build.outputs.resource-uri }}' "$WF_DIR/build_and_publish_npm.yml"
-    grep -q 'value: ${{ jobs.build.outputs.resource-uri }}' "$WF_DIR/build_and_publish_python.yml"
+    for type in npm python; do
+        grep -q 'value: ${{ jobs.build.outputs.resource-uri }}' "$WF_DIR/build_and_publish_$type.yml"
+        grep -q 'vsa.resourceUri:${{ needs.build.outputs.resource-uri }}' "$WF_DIR/build_and_publish_$type.yml"
+    done
+    grep -q 'vsa.resourceUri:pkg:golang/' "$WF_DIR/build_and_publish_go.yml"
+    grep -q 'vsa.resourceUri:${{ needs.build.outputs.imagename }}@${{ needs.build.outputs.digest }}' "$WF_DIR/build_and_publish_container.yml"
 }
 
 # --- structural ---
@@ -260,7 +275,30 @@ EOF
     grep -q 'go-version-file: ${{ github.action_path }}/../../tools/go.mod' "$ACTION"
     grep -q 'install github.com/carabiner-dev/ampel/cmd/ampel' "$ACTION"
     grep -Eq 'uses: actions/download-artifact@[0-9a-f]{40}' "$ACTION"
-    grep -q 'pattern: "\*-bundle-\*"' "$ACTION"
+    grep -q 'pattern: "\*-metadata\*"' "$ACTION"
+}
+
+@test "structure: the download glob matches root (suffix-less) and namespaced metadata, not premeta transients" {
+    # Mirror the action's pattern: a root build's artifact is <type>-metadata
+    # (no -<shortname>), which the old "*-metadata-*" missed → root adopters
+    # downloaded zero bundles and verify-vsa failed closed (#469). The
+    # '-premeta'/'-premeta-' transients must still not match.
+    # Bash case-glob mirrors the download-artifact pattern "*-metadata*";
+    # collect the verdicts and assert, so no early `return` confuses linters.
+    matched="" missed=""
+    # Root (suffix-less) and namespaced, all four build types.
+    for name in go-metadata go-metadata-cmd_foo container-metadata container-metadata-svc \
+                python-metadata python-metadata-pkg npm-metadata npm-metadata-pkg; do
+        case "$name" in *-metadata*) matched="$matched $name" ;; esac
+    done
+    # Transients and the dist/scan siblings must never match, all four types.
+    for name in go-premeta go-premeta-cmd_foo container-premeta container-premeta-svc \
+                python-premeta python-premeta-pkg npm-premeta \
+                go-dist go-scan container-dist container-scan; do
+        case "$name" in *-metadata*) missed="$missed $name" ;; esac
+    done
+    [[ "$matched" == " go-metadata go-metadata-cmd_foo container-metadata container-metadata-svc python-metadata python-metadata-pkg npm-metadata npm-metadata-pkg" ]]
+    [[ -z "$missed" ]]
 }
 
 @test "structure: action.yml delegates to verify_vsa.sh" {

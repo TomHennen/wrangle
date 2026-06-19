@@ -14,12 +14,16 @@ if [[ $# -ne 1 ]]; then
     exit 1
 fi
 
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+# shellcheck source=lib/shortname.sh
+source "$SCRIPT_DIR/../../../lib/shortname.sh"
+
 # input_path is the action's inputs.path, already constrained by
 # validate_inputs.sh (lib/validate_path.sh) — the composite's first step,
 # which runs before this one; no untrusted value reaches the cd / glob below.
 INPUT_PATH="$1"
-SHORTNAME="${INPUT_PATH////_}"
-METADATA_DIR="metadata/python/${SHORTNAME}"
+SHORTNAME="$(derive_shortname "$INPUT_PATH")"
+METADATA_DIR="$(metadata_dir python "$SHORTNAME")"
 mkdir -p "$METADATA_DIR"
 printf 'shortname=%s\n' "$SHORTNAME" >> "$GITHUB_OUTPUT"
 printf 'metadata-dir=%s\n' "$METADATA_DIR" >> "$GITHUB_OUTPUT"

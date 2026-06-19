@@ -76,10 +76,10 @@ outputs:
     description: "Base64-encoded SHA-256 hashes of built artifacts (SLSA provenance subjects; feeds the VSA matrix)"
     value: ${{ steps.hash.outputs.hashes }}
   shortname:
-    description: "Path-derived short name for artifact namespacing (e.g., '.' becomes '_')"
+    description: "Path-derived short name for artifact namespacing ('/' becomes '_'; the repo root '.' is empty)"
     value: ${{ steps.metadata.outputs.shortname }}
   metadata-dir:
-    description: "Workspace-relative path containing the SBOM. Format: metadata/go/<shortname>."
+    description: "Workspace-relative path containing the SBOM. Format: metadata/go[/<shortname>]."
     value: ${{ steps.metadata.outputs.metadata-dir }}
 
 runs:

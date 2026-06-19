@@ -84,6 +84,17 @@ Go, Python, npm, and Container each run the full pipeline and produce an atteste
 | Shell | — | [build_shell.yml](gh_workflow_examples/build_shell.yml) |
 | Source-only — no build, scan only | [README](actions/scan/README.md) | [check_source_change.yml](gh_workflow_examples/check_source_change.yml) |
 
+## Where's my stuff?
+
+Each build produces two workflow artifacts (zipfiles):
+
+- **`<type>-dist-<sn>`** — your built product (wheels/sdist for python, the npm tarball, goreleaser's `dist/` for go). Container builds push the image to the registry instead.
+- **`<type>-metadata-<sn>`** — the SBOM, the scan findings, and (on release runs) the SLSA provenance + signed VSA, all in one artifact. The [source-only scan workflow](actions/scan/README.md) uploads just `scan/` as `scan` (or `scan-<sn>` for a subdir).
+
+The reusable workflow exposes both names as the `dist-artifact-name` and `metadata-artifact-name` outputs so you don't have to hardcode them. For the full file layout — and which `scan/` subdirs appear on a given event — see [docs/metadata_layout.md](docs/metadata_layout.md).
+
+To find them in the UI: click **Actions** → your wrangle workflow → the run → scroll to **Artifacts**. The URL looks like `https://github.com/<owner>/<repo>/actions/runs/<id>#artifacts`. For a live example, see a run in the [wrangle-test companion repo](https://github.com/TomHennen/wrangle-test/actions). Per-ecosystem details are in the [ecosystem READMEs](#ecosystems) above.
+
 ## How Wrangle Works
 
 Behind that one workflow call, wrangle runs your code through a pipeline of well-known security

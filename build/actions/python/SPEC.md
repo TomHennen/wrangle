@@ -67,8 +67,8 @@ Adopters' publish jobs MUST gate on `needs.build.outputs.should-release == 'true
 | `provenance-artifact-name` | reusable workflow only | Name of the uploaded SLSA provenance bundle workflow artifact — a Sigstore bundle (`actions/attest-build-provenance`'s output, one JSON object per line) covering all dist subjects. Empty when `should-release` is false. |
 | `metadata-artifact-name` | reusable workflow only | Name of the uploaded metadata workflow artifact (`python-metadata-<shortname>`). Naming and contents follow the unified-metadata convention shared across all build types; see [`docs/SPEC.md`](../../../docs/SPEC.md) "Unified metadata layout." |
 | `should-release` | reusable workflow only | `"true"` if the current event matches `release-events`. The caller's publish job MUST gate on this; the reusable workflow gates its `attest` and `verify` jobs on it internally. |
-| `shortname` | composite only | Path-derived short name (e.g., `.` becomes `_`, `pkg/foo` becomes `pkg_foo`). Used for artifact namespacing when the composite is invoked directly. |
-| `metadata-dir` | composite only | Path to the metadata directory (`metadata/python/<shortname>/`) containing the SBOM. |
+| `shortname` | composite only | Path-derived short name (`pkg/foo` becomes `pkg_foo`; the repo root `.` is empty). Used for artifact namespacing when the composite is invoked directly. |
+| `metadata-dir` | composite only | Path to the metadata directory (`metadata/python[/<shortname>]/`) containing the SBOM. |
 
 ## Step sequence
 

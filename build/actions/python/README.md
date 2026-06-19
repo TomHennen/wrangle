@@ -39,7 +39,7 @@ These steps set up [PyPI Trusted Publishing](https://docs.pypi.org/trusted-publi
 - **uv or pip, auto-detected** — `uv.lock` selects uv; otherwise standard PEP 517 tooling (`pip` + `python -m build`).
 - **pytest runs automatically** when `tests/`, `test/`, or `[tool.pytest.ini_options]` is present (default pytest discovery conventions).
 - **Source scan** built in — vulnerable dependencies (OSV), unsafe workflow patterns (Zizmor), and more ([details](../../../actions/scan/README.md)); a load-bearing finding blocks publish.
-- **An SPDX SBOM**, uploaded as a workflow artifact.
+- **An SPDX SBOM, scan findings, and the signed bundle** in one `python-metadata-<sn>` workflow artifact ([what's in it](../../../docs/metadata_layout.md)).
 - **SLSA Build L3 provenance** ([the requirements it meets](../../../docs/REQUIREMENTS_MAPPING.md)), plus PEP 740 attestations on PyPI from the publish step.
 - **A signed VSA** attached to the release on tag pushes, so downstream users can verify your dist files with one command.
 
