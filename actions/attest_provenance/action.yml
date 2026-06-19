@@ -21,7 +21,7 @@ inputs:
     required: false
     default: ""
   subject-checksums:
-    description: "Checksums file whose entries are the provenance subjects (go). Mutually exclusive with subject-path."
+    description: "Path to a standard sha256sum-format checksums file (one '<sha256>  <filename>' line per artifact) whose entries are the provenance subjects. Not go-specific (go passes goreleaser's dist/checksums.txt). Mutually exclusive with subject-path."
     required: false
     default: ""
   subject-path:
