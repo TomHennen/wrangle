@@ -1,0 +1,87 @@
+name: Wrangle Attest Provenance
+description: >
+  Own the attest-job wiring the go/npm/python reusable build workflows shared:
+  download the build's dist, generate SLSA L3 build provenance via GitHub's
+  attestation API, stage the signed bundle as one-JSON-per-line jsonl, and
+  upload it as the provenance-bundle workflow artifact the verify job reads.
+  The dist and provenance-bundle artifact names are computed here from
+  build-type + shortname (lib/shortname.sh via the action_path), so callers
+  don't pass them.
+
+  Pass exactly one subject: subject-checksums (go: dist/checksums.txt, the
+  canonical subject set the VSA binds to) or subject-path (npm/python:
+  dist/*). Container is its own OCI variant and does not use this composite.
+
+inputs:
+  build-type:
+    description: "Build type (go, npm, python) — namespaces the computed artifact names."
+    required: true
+  shortname:
+    description: "The build composite's path-derived shortname (empty at the repo root)."
+    required: false
+    default: ""
+  subject-checksums:
+    description: "Path to a standard sha256sum-format checksums file (one '<sha256>  <filename>' line per artifact) whose entries are the provenance subjects; go passes goreleaser's dist/checksums.txt. Mutually exclusive with subject-path."
+    required: false
+    default: ""
+  subject-path:
+    description: "Glob of files to attest as provenance subjects (npm/python). Mutually exclusive with subject-checksums."
+    required: false
+    default: ""
+
+outputs:
+  bundle-artifact-name:
+    description: "Name of the provenance-bundle workflow artifact the verify job downloads."
+    value: ${{ steps.names.outputs.provenance-bundle }}
+
+runs:
+  using: composite
+  steps:
+    - id: validate
+      shell: bash
+      env:
+        SUBJECT_CHECKSUMS: ${{ inputs.subject-checksums }}
+        SUBJECT_PATH: ${{ inputs.subject-path }}
+      run: |
+        set -euo pipefail
+        set -f
+        if [[ -n "$SUBJECT_CHECKSUMS" && -n "$SUBJECT_PATH" ]] || [[ -z "$SUBJECT_CHECKSUMS" && -z "$SUBJECT_PATH" ]]; then
+            printf 'attest_provenance: pass exactly one of subject-checksums or subject-path\n' >&2
+            exit 1
+        fi
+
+    - id: names
+      shell: bash
+      env:
+        BUILD_TYPE: ${{ inputs.build-type }}
+        SHORTNAME: ${{ inputs.shortname }}
+      run: '"${{ github.action_path }}/../package_metadata/derive_names.sh" "$BUILD_TYPE" "$SHORTNAME"'
+
+    - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+      with:
+        name: ${{ steps.names.outputs.dist }}
+        path: dist/
+
+    - uses: actions/attest-build-provenance@a2bbfa25375fe432b6a289bc6b6cd05ecd0c4c32 # v4.1.0
+      id: attest
+      with:
+        subject-checksums: ${{ inputs.subject-checksums }}
+        subject-path: ${{ inputs.subject-path }}
+
+    # Stage the signed provenance bundle as a workflow artifact for the verify
+    # job; jq -c normalizes it to one JSON object per line for ampel's jsonl:
+    # collector.
+    - name: Stage the provenance bundle for the VSA
+      shell: bash
+      env:
+        BUNDLE_PATH: ${{ steps.attest.outputs.bundle-path }}
+      run: |
+        set -euo pipefail
+        set -f
+        jq -c . "$BUNDLE_PATH" > "$RUNNER_TEMP/provenance.jsonl"
+
+    - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+      with:
+        name: ${{ steps.names.outputs.provenance-bundle }}
+        path: ${{ runner.temp }}/provenance.jsonl
+        if-no-files-found: error

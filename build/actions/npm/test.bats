@@ -892,10 +892,10 @@ write_pkg_json() {
 
 # --- attest-build-provenance (wrangle builder identity, #316) ---
 
-@test "npm: workflow has attest job producing GitHub attest-build-provenance" {
-    run grep -E '^  attest:' "$WORKFLOW"
+@test "npm: attest job delegates to attest_provenance with dist/* subject" {
+    run bash -c "sed -n '/^  attest:/,/^  [a-z]/p' \"$WORKFLOW\" | grep -F 'TomHennen/wrangle/actions/attest_provenance@'"
     [[ "$status" -eq 0 ]]
-    run grep 'actions/attest-build-provenance@' "$WORKFLOW"
+    run bash -c "sed -n '/^  attest:/,/^  [a-z]/p' \"$WORKFLOW\" | grep -F 'subject-path: dist/*'"
     [[ "$status" -eq 0 ]]
 }
 
@@ -932,11 +932,10 @@ write_pkg_json() {
     [[ "$status" -eq 0 ]]
 }
 
-@test "npm: attest job uploads the provenance bundle the verify job needs" {
-    # The verify job depends on attest and reads its uploaded bundle artifact.
-    # The name is the build job's provenance-bundle output (suffix-less at
-    # root, not a trailing-dash npm-provenance-bundle- — #469).
-    run bash -c "sed -n '/^  attest:/,/^  [a-z]/p' \"$WORKFLOW\" | grep -F 'name: \${{ needs.build.outputs.provenance-bundle-artifact-name }}'"
+@test "npm: attest job exposes the bundle name the verify job needs" {
+    # attest_provenance uploads the bundle; the job re-exports its name and the
+    # verify job depends on attest.
+    run bash -c "sed -n '/^  attest:/,/^  [a-z]/p' \"$WORKFLOW\" | grep -F 'bundle-artifact-name: \${{ steps.attest.outputs.bundle-artifact-name }}'"
     [[ "$status" -eq 0 ]]
     run bash -c "sed -n '/^  verify:/,\$p' \"$WORKFLOW\" | grep -E 'needs:.*attest'"
     [[ "$status" -eq 0 ]]
