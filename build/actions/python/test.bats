@@ -496,10 +496,10 @@ write_pyproject() {
 
 @test "python: workflow namespaces artifacts by shortname, suffix-less at root" {
     # The scan/build jobs check out the ADOPTER repo, where lib/shortname.sh
-    # is absent — the workflow must never source the lib (#469). The scan job
-    # derives the shortname inline; the build job's packaging names come from
-    # the package_metadata composite (which sources the lib from the wrangle
-    # checkout). Root build ('.') stays suffix-less either way.
+    # is absent — the workflow must never source the lib (#469). Both the scan
+    # and build jobs get their names from the package_metadata composite, which
+    # sources the lib from the wrangle checkout. Root build ('.') stays
+    # suffix-less.
     run grep -F 'source lib/shortname.sh' "$WORKFLOW"
     [[ "$status" -ne 0 ]]
     run grep -F 'TomHennen/wrangle/actions/package_metadata@' "$WORKFLOW"
@@ -534,8 +534,9 @@ write_pyproject() {
 
 @test "python: scan job passes a per-build artifact-name to the scan action" {
     # The scan action no longer owns wrangle-scan-results; the build job folds
-    # this artifact into the unified metadata (#469).
-    run bash -c "sed -n '/^  scan:/,/^  [a-z]/p' \"$WORKFLOW\" | grep -E 'artifact-name: \\\$\\{\\{ steps.shortname.outputs.name \\}\\}'"
+    # this artifact into the unified metadata. The name is the package_metadata
+    # composite's scan output (path-derived shortname).
+    run bash -c "sed -n '/^  scan:/,/^  [a-z]/p' \"$WORKFLOW\" | grep -E 'artifact-name: \\\$\\{\\{ steps.names.outputs.scan \\}\\}'"
     [[ "$status" -eq 0 ]]
 }
 
@@ -550,12 +551,13 @@ write_pyproject() {
     [[ "$status" -eq 0 ]]
 }
 
-@test "python: verify job writes the bundle into the metadata dir and uploads it as metadata" {
-    # bundle-out is the metadata dir (not a throwaway bundles/ dir) and the
-    # upload name is the unified python-metadata-<sn> (#469).
-    run bash -c "sed -n '/^  verify:/,\$p' \"$WORKFLOW\" | grep -E 'bundle-out: \\\$\\{\\{ needs.build.outputs.metadata-dir \\}\\}'"
+@test "python: verify job delegates to verify_release with build-type python" {
+    # The bundle-out/metadata-dir/artifact-name wiring lives in the composite;
+    # the workflow just names the build type + shortname (verify_release test.bats
+    # covers the staging + verify wiring).
+    run bash -c "sed -n '/^  verify:/,\$p' \"$WORKFLOW\" | grep -F 'TomHennen/wrangle/actions/verify_release@'"
     [[ "$status" -eq 0 ]]
-    run bash -c "sed -n '/^  verify:/,\$p' \"$WORKFLOW\" | grep -E 'artifact-name: \\\$\\{\\{ needs.build.outputs.metadata-artifact-name \\}\\}'"
+    run bash -c "sed -n '/^  verify:/,\$p' \"$WORKFLOW\" | grep -E 'build-type: python'"
     [[ "$status" -eq 0 ]]
 }
 

@@ -10,7 +10,8 @@
 # names themselves.
 #
 # Outputs (each suffix-less at the repo root): dist, scan, checks,
-# metadata, metadata-pre, provenance-bundle, and the resolved shortname.
+# metadata, metadata-pre, provenance-bundle, metadata-dir, and the
+# resolved shortname.
 #
 # The shortname can be passed directly (the build job already has the build
 # composite's output) or derived here from a path (the scan job, which runs
@@ -66,6 +67,7 @@ main() {
         printf 'metadata=%s\n' "$(artifact_name "${type}-metadata" "$shortname")"
         printf 'metadata-pre=%s\n' "$(artifact_name "${type}-premeta" "$shortname")"
         printf 'provenance-bundle=%s\n' "$(artifact_name "${type}-provenance-bundle" "$shortname")"
+        printf 'metadata-dir=%s\n' "$(metadata_dir "$type" "$shortname")"
         printf 'shortname=%s\n' "$shortname"
     } >> "$GITHUB_OUTPUT"
 }

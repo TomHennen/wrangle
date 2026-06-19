@@ -43,6 +43,9 @@ outputs:
   provenance-bundle:
     description: "Name of the attest job's raw provenance bundle transient."
     value: ${{ steps.names.outputs.provenance-bundle }}
+  metadata-dir:
+    description: "The unified metadata dir (metadata/<type>[/<shortname>]) the bundle and sbom + scan/ live under."
+    value: ${{ steps.names.outputs.metadata-dir }}
   shortname:
     description: "The resolved shortname (the input shortname, or the one derived from path)."
     value: ${{ steps.names.outputs.shortname }}

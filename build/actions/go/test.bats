@@ -613,17 +613,16 @@ func main() {}
     grep -qE "needs\\.gate\\.result == 'success'" <<<"$section"
 }
 
-@test "go: workflow derives shortname inline, never sourcing the lib from the adopter workspace" {
+@test "go: workflow never sources lib/shortname.sh from the adopter workspace" {
     # The scan/checks/release jobs check out the ADOPTER repo, where
     # lib/shortname.sh does not exist — sourcing it there only worked when
-    # the adopter was wrangle itself (#469). The workflow derives the
-    # shortname inline (composite output joined in pure YAML, or a 2-line
-    # bash derivation), never `source lib/shortname.sh`.
+    # the adopter was wrangle itself (#469). The shortname/name derivation is
+    # delegated to the package_metadata composite, which sources the lib from
+    # its OWN action_path; no workflow run: block touches the adopter copy.
     run grep -F 'source lib/shortname.sh' "$WORKFLOW"
     [[ "$status" -ne 0 ]]
-    # Root build ('.') must stay suffix-less, so the inline join is
-    # conditional on a non-empty shortname.
-    run grep -F 'go-scan${shortname:+-$shortname}' "$WORKFLOW"
+    # The scan job derives the scan name via the package_metadata composite.
+    run bash -c "sed -n '/^  scan:/,/^  [a-z]/p' \"$WORKFLOW\" | grep -F 'TomHennen/wrangle/actions/package_metadata@'"
     [[ "$status" -eq 0 ]]
 }
 

@@ -354,37 +354,16 @@ jobs:
       # The bundle ships inside the unified metadata artifact (no separate role).
       attestation-bundle-name: ${{ needs.build.outputs.metadata-artifact-name }}
     steps:
-      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+      # The composite stages dist + provenance + sbom/scan and runs actions/verify,
+      # computing the artifact names and metadata dir from build-type + shortname.
+      # TODO: replace with $/actions/verify_release when GitHub ships $/ syntax (#136)
+      - uses: TomHennen/wrangle/actions/verify_release@aee4ea966bf75781af227322d1466479417f5db3 # feat/469-unify-metadata-artifact 2026-06-19
         with:
-          name: ${{ needs.build.outputs.dist-artifact-name }}
-          path: dist/
-
-      # The one multi-subject provenance bundle the attest job staged; the VSAs
-      # append to it to form the single bundle.
-      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
-        with:
-          name: ${{ needs.build.outputs.provenance-bundle-artifact-name }}
-          path: provenance/
-
-      # Stage the build job's sbom + scan/ into the metadata dir; the verify
-      # step writes the bundle alongside them and uploads the whole dir as the
-      # final npm-metadata-<sn>. Inert data — nothing is executed.
-      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
-        with:
-          name: ${{ needs.build.outputs.metadata-pre-artifact-name }}
-          path: ${{ needs.build.outputs.metadata-dir }}/
-
-      # TODO: replace with $/actions/verify when GitHub ships $/ syntax (#136)
-      - uses: TomHennen/wrangle/actions/verify@041a3fcc56df40113f1b0f6f319c707a6283c5ff # main 2026-06-19
-        with:
+          build-type: npm
+          shortname: ${{ needs.build.outputs.shortname }}
           dist-files: ${{ needs.build.outputs.dist-files }}
           policy: policies/wrangle-provenance-npm-v1.hjson
           collector: jsonl:provenance/provenance.jsonl
-          bundle-in: provenance/provenance.jsonl
-          # Write bundles into the metadata dir and upload it as the unified
-          # metadata artifact (sbom + scan/ + bundle).
-          bundle-out: ${{ needs.build.outputs.metadata-dir }}
-          artifact-name: ${{ needs.build.outputs.metadata-artifact-name }}
           # resourceUri is the npm purl consumers pin when verifying the VSAs;
           # each subject digest is the cryptographic bind.
           context: buildPoint:git+https://github.com/${{ github.repository }},vsa.resourceUri:${{ needs.build.outputs.resource-uri }}

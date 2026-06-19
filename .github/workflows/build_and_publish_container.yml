@@ -285,28 +285,21 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
-      # Stage the build job's sbom + scan/ into the metadata dir; the verify
-      # step writes the bundle alongside them and uploads the whole dir as the
-      # final container-metadata-<sn>. Inert data — nothing is executed.
-      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+      # The composite stages sbom + scan/ and runs actions/verify, computing the
+      # artifact names and metadata dir from build-type + shortname. With
+      # oci-target set it skips the dist/provenance workflow-artifact downloads —
+      # the provenance is seeded from the registry referrer instead.
+      # TODO: replace with $/actions/verify_release when GitHub ships $/ syntax (#136)
+      - uses: TomHennen/wrangle/actions/verify_release@aee4ea966bf75781af227322d1466479417f5db3 # feat/469-unify-metadata-artifact 2026-06-19
         with:
-          name: ${{ needs.build.outputs.metadata-pre-artifact-name }}
-          path: ${{ needs.build.outputs.metadata-dir }}/
-
-      # TODO: replace with $/actions/verify when GitHub ships $/ syntax (#136)
-      - uses: TomHennen/wrangle/actions/verify@041a3fcc56df40113f1b0f6f319c707a6283c5ff # main 2026-06-19
-        with:
+          build-type: container
+          shortname: ${{ needs.build.outputs.shortname }}
           subjects: ${{ needs.build.outputs.digest }}
           policy: policies/wrangle-provenance-container-v1.hjson
           collector: oci:${{ needs.build.outputs.imagename }}@${{ needs.build.outputs.digest }}
-          # Write the bundle into the metadata dir and upload it as the unified
-          # metadata artifact (sbom + scan/ + bundle).
-          bundle-out: ${{ needs.build.outputs.metadata-dir }}
-          artifact-name: ${{ needs.build.outputs.metadata-artifact-name }}
           # resourceUri is the OCI image ref a container consumer fetches and
           # pins when verifying the VSA; the subject digest is the cryptographic bind.
           context: buildPoint:git+https://github.com/${{ github.repository }},vsa.resourceUri:${{ needs.build.outputs.imagename }}@${{ needs.build.outputs.digest }}
-          fail: "true"
           # Seed each bundle from this digest's provenance referrer and push the
           # bundle back as its own by-digest referrer (fail-closed).
           oci-target: ${{ needs.build.outputs.imagename }}@${{ needs.build.outputs.digest }}

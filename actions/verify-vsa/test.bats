@@ -231,10 +231,13 @@ EOF
     grep -q 'name: ${{ inputs.artifact-name }}' "$PRODUCER"
     grep -q 'pattern: "\*-metadata\*"' "$ACTION"
     grep -q '.intoto.jsonl' "$SCRIPT"
+    # verify_release owns the producer wiring: it computes the metadata name and
+    # passes it to verify as artifact-name; the build workflows just call it.
+    RELEASE="$ACTION_DIR/../verify_release/action.yml"
+    grep -q 'artifact-name: ${{ steps.names.outputs.metadata }}' "$RELEASE"
     WF_DIR="$ACTION_DIR/../../.github/workflows"
-    # Both build workflows route the verify job's bundle into the metadata artifact.
-    grep -q 'artifact-name: ${{ needs.build.outputs.metadata-artifact-name }}' "$WF_DIR/build_and_publish_npm.yml"
-    grep -q 'artifact-name: ${{ needs.build.outputs.metadata-artifact-name }}' "$WF_DIR/build_and_publish_python.yml"
+    grep -q 'TomHennen/wrangle/actions/verify_release@' "$WF_DIR/build_and_publish_npm.yml"
+    grep -q 'TomHennen/wrangle/actions/verify_release@' "$WF_DIR/build_and_publish_python.yml"
 }
 
 @test "contract: the build workflows export the resource-uri this action expects" {

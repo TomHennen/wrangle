@@ -14,6 +14,7 @@ updates:
       - "/actions/scan"
       - "/actions/verify"
       - "/actions/verify-vsa"
+      - "/actions/verify_release"
       - "/build/actions/container"
       - "/build/actions/go/checks"
       - "/build/actions/go/release"
