@@ -273,13 +273,18 @@ EOF
     # Bash case-glob mirrors the download-artifact pattern "*-metadata*";
     # collect the verdicts and assert, so no early `return` confuses linters.
     matched="" missed=""
-    for name in go-metadata python-metadata container-metadata-cmd_foo npm-metadata-pkg; do
+    # Root (suffix-less) and namespaced, all four build types.
+    for name in go-metadata go-metadata-cmd_foo container-metadata container-metadata-svc \
+                python-metadata python-metadata-pkg npm-metadata npm-metadata-pkg; do
         case "$name" in *-metadata*) matched="$matched $name" ;; esac
     done
-    for name in go-premeta python-premeta-pkg go-dist go-scan; do
+    # Transients and the dist/scan siblings must never match, all four types.
+    for name in go-premeta go-premeta-cmd_foo container-premeta container-premeta-svc \
+                python-premeta python-premeta-pkg npm-premeta \
+                go-dist go-scan container-dist container-scan; do
         case "$name" in *-metadata*) missed="$missed $name" ;; esac
     done
-    [[ "$matched" == " go-metadata python-metadata container-metadata-cmd_foo npm-metadata-pkg" ]]
+    [[ "$matched" == " go-metadata go-metadata-cmd_foo container-metadata container-metadata-svc python-metadata python-metadata-pkg npm-metadata npm-metadata-pkg" ]]
     [[ -z "$missed" ]]
 }
 
