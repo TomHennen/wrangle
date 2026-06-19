@@ -50,6 +50,12 @@ setup() {
         if [[ -n "$SUBJECT_CHECKSUMS" && -n "$SUBJECT_PATH" ]] || [[ -z "$SUBJECT_CHECKSUMS" && -z "$SUBJECT_PATH" ]]; then exit 1; fi
     ' && status=0 || status=$?
     [ "$status" -eq 0 ]
+    bash -c '
+        set -euo pipefail
+        SUBJECT_CHECKSUMS=""; SUBJECT_PATH="b"
+        if [[ -n "$SUBJECT_CHECKSUMS" && -n "$SUBJECT_PATH" ]] || [[ -z "$SUBJECT_CHECKSUMS" && -z "$SUBJECT_PATH" ]]; then exit 1; fi
+    ' && status=0 || status=$?
+    [ "$status" -eq 0 ]
 }
 
 @test "attest_provenance: stages jsonl and uploads the provenance-bundle artifact" {

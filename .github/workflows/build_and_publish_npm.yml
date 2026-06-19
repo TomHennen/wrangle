@@ -211,7 +211,6 @@ jobs:
       dist-artifact-name: ${{ steps.names.outputs.dist }}
       metadata-artifact-name: ${{ steps.names.outputs.metadata }}
       metadata-pre-artifact-name: ${{ steps.names.outputs.metadata-pre }}
-      provenance-bundle-artifact-name: ${{ steps.names.outputs.provenance-bundle }}
       metadata-dir: ${{ steps.build.outputs.metadata-dir }}
       # JSON array of dist filenames the verify job binds one VSA to each.
       dist-files: ${{ steps.distfiles.outputs.files }}
