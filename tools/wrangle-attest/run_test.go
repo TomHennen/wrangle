@@ -60,6 +60,52 @@ func TestRunWritesSBOMStatement(t *testing.T) {
 	}
 }
 
+// A scan/<tool>/ manifest under the metadata-root is discovered and produces a
+// scan/v1 envelope statement with the threaded scannedCommit — the same
+// unsigned-build path the SBOM uses, no separate handling.
+func TestRunWritesScanStatement(t *testing.T) {
+	dir := t.TempDir()
+	writeFile(t, dir, "meta/scan/osv/wrangle_attestation_metadata.json",
+		`{"predicate-type":"https://github.com/TomHennen/wrangle/attestation/scan/v1","result-file":"output.sarif","tool":{"name":"osv-scanner","version":"1.0"},"result":"clean"}`)
+	writeFile(t, dir, "meta/scan/osv/output.sarif", `{"version":"2.1.0","runs":[]}`)
+	out := filepath.Join(dir, "out.jsonl")
+
+	var stderr bytes.Buffer
+	rc := run([]string{
+		"--metadata-root", filepath.Join(dir, "meta"),
+		"--subject", testArtifactDigest,
+		"--commit", "deadbeef",
+		"--out", out,
+	}, &stderr)
+	if rc != 0 {
+		t.Fatalf("run rc=%d stderr=%s", rc, stderr.String())
+	}
+	data, err := os.ReadFile(out)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var stmt struct {
+		PredicateType string `json:"predicateType"`
+		Predicate     struct {
+			ScannedCommit string `json:"scannedCommit"`
+			Result        string `json:"result"`
+			Tool          struct {
+				Name string `json:"name"`
+			} `json:"tool"`
+		} `json:"predicate"`
+	}
+	if err := json.Unmarshal([]byte(strings.TrimSpace(string(data))), &stmt); err != nil {
+		t.Fatal(err)
+	}
+	if stmt.PredicateType != predicateScanV1 {
+		t.Fatalf("wrong predicateType: %q", stmt.PredicateType)
+	}
+	if stmt.Predicate.ScannedCommit != "deadbeef" || stmt.Predicate.Result != "clean" ||
+		stmt.Predicate.Tool.Name != "osv-scanner" {
+		t.Fatalf("scan/v1 envelope not populated: %+v", stmt.Predicate)
+	}
+}
+
 // --artifact self-digests the file into the subject; the bound digest must be
 // a plain sha256 of the artifact bytes (the same the VSA binds to).
 func TestRunArtifactSelfDigest(t *testing.T) {

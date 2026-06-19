@@ -72,13 +72,17 @@ func (m *manifest) resultPath() string {
 	return filepath.Join(m.dir, m.ResultFile)
 }
 
-// discoverManifests honors only the canonical top-level
-// <root>/wrangle_attestation_metadata.json for each root; any other such file
-// in the tree is ignored, not signed,
-// since a build-time dependency could plant one to forge a wrangle-signed
-// attestation. Results are sorted by dir for deterministic output. A missing
-// canonical manifest is not an error — a build may legitimately produce none;
-// a malformed canonical manifest fails the whole run (fail closed).
+const manifestFile = "wrangle_attestation_metadata.json"
+
+// discoverManifests honors two fixed locations per root: the canonical top-level
+// <root>/wrangle_attestation_metadata.json and, one level down, each
+// <root>/scan/<tool>/wrangle_attestation_metadata.json (a bounded readdir of the
+// immediate children of <root>/scan/, no recursion). Any other such file in the
+// tree — deeper, or outside those locations — is ignored, not signed, since a
+// build-time dependency could plant one to forge a wrangle-signed attestation.
+// Results are sorted by dir for deterministic output. A missing manifest is not
+// an error — a build may legitimately produce none; a malformed manifest at an
+// honored location fails the whole run (fail closed).
 func discoverManifests(roots []string) ([]manifest, error) {
 	var found []manifest
 	for _, root := range roots {
@@ -89,21 +93,62 @@ func discoverManifests(roots []string) ([]manifest, error) {
 		if !info.IsDir() {
 			return nil, fmt.Errorf("metadata-root %q is not a directory", root)
 		}
-		path := filepath.Join(root, "wrangle_attestation_metadata.json")
-		if _, err := os.Stat(path); err != nil {
-			if errors.Is(err, fs.ErrNotExist) {
-				continue
-			}
-			return nil, fmt.Errorf("%s: %w", path, err)
-		}
-		m, err := parseManifest(path)
+		dirs := []string{root}
+		scanDirs, err := scanToolDirs(root)
 		if err != nil {
-			return nil, fmt.Errorf("%s: %w", path, err)
+			return nil, err
 		}
-		found = append(found, m)
+		dirs = append(dirs, scanDirs...)
+		for _, dir := range dirs {
+			m, ok, err := manifestAt(dir)
+			if err != nil {
+				return nil, err
+			}
+			if ok {
+				found = append(found, m)
+			}
+		}
 	}
 	sort.Slice(found, func(i, j int) bool { return found[i].dir < found[j].dir })
 	return found, nil
+}
+
+// scanToolDirs returns the immediate child directories of <root>/scan/. A
+// missing scan/ dir is not an error. Non-directory entries are skipped; the
+// lookup never recurses below scan/<tool>/.
+func scanToolDirs(root string) ([]string, error) {
+	scanRoot := filepath.Join(root, "scan")
+	entries, err := os.ReadDir(scanRoot)
+	if err != nil {
+		if errors.Is(err, fs.ErrNotExist) {
+			return nil, nil
+		}
+		return nil, fmt.Errorf("%s: %w", scanRoot, err)
+	}
+	var dirs []string
+	for _, e := range entries {
+		if e.IsDir() {
+			dirs = append(dirs, filepath.Join(scanRoot, e.Name()))
+		}
+	}
+	return dirs, nil
+}
+
+// manifestAt parses the canonical manifest in dir, if present. A missing file
+// reports ok=false with no error; a present-but-malformed one fails closed.
+func manifestAt(dir string) (manifest, bool, error) {
+	path := filepath.Join(dir, manifestFile)
+	if _, err := os.Stat(path); err != nil {
+		if errors.Is(err, fs.ErrNotExist) {
+			return manifest{}, false, nil
+		}
+		return manifest{}, false, fmt.Errorf("%s: %w", path, err)
+	}
+	m, err := parseManifest(path)
+	if err != nil {
+		return manifest{}, false, fmt.Errorf("%s: %w", path, err)
+	}
+	return m, true, nil
 }
 
 func parseManifest(path string) (manifest, error) {

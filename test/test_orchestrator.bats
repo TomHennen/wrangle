@@ -9,6 +9,9 @@ setup() {
     ORIG_DIR="$(pwd)"
     export ORIG_DIR
 
+    # Forward the golden-SARIF fixtures dir to the mock osv adapter.
+    export WRANGLE_EXTRA_FIXTURES="$ORIG_DIR/test/fixtures"
+
     # Create a mock tools directory structure that run.sh can find
     export MOCK_TOOLS="$TEST_DIR/tools"
 
@@ -161,6 +164,30 @@ echo "rogue file" > "$1/rogue_file.txt"
 exit 0
 ADAPT
     chmod +x "$MOCK_TOOLS/rogue-tool/adapter.sh"
+
+    # Mock osv tool: run.sh writes a scan/v1 manifest for the osv token.
+    # Copies a golden SARIF (findings/empty) per WRANGLE_EXTRA_RESULTS, with the
+    # fixtures dir forwarded as WRANGLE_EXTRA_FIXTURES (run.sh strips env but
+    # forwards WRANGLE_EXTRA_*); tool name/version come from the golden driver.
+    mkdir -p "$MOCK_TOOLS/osv"
+    cat > "$MOCK_TOOLS/osv/install.sh" << 'INST'
+#!/bin/bash
+set -euo pipefail
+exit 0
+INST
+    chmod +x "$MOCK_TOOLS/osv/install.sh"
+
+    cat > "$MOCK_TOOLS/osv/adapter.sh" << 'ADAPT'
+#!/bin/bash
+set -euo pipefail
+if [[ "${RESULTS:-}" == "findings" ]]; then
+    cp "${FIXTURES}/findings.sarif" "$2/output.sarif"
+    exit 1
+fi
+cp "${FIXTURES}/empty.sarif" "$2/output.sarif"
+exit 0
+ADAPT
+    chmod +x "$MOCK_TOOLS/osv/adapter.sh"
 
     # Create test source and output directories
     mkdir -p "$TEST_DIR/src" "$TEST_DIR/output"
@@ -470,4 +497,37 @@ FAKEGO
 
     [ "$status" -eq 0 ]
     [ ! -s "$GO_RECORD" ]
+}
+
+# --- scan/v1 attestation manifest (issue #420) ---
+
+@test "orchestrator: writes an osv scan/v1 manifest next to output.sarif (clean)" {
+    run_orchestrator -s "$TEST_DIR/src" -o "$TEST_DIR/output" "osv"
+    [ "$status" -eq 0 ]
+    manifest="$TEST_DIR/output/osv/wrangle_attestation_metadata.json"
+    [ -f "$manifest" ]
+    run jq -r '."predicate-type"' "$manifest"
+    [[ "$output" == "https://github.com/TomHennen/wrangle/attestation/scan/v1" ]]
+    run jq -r '.tool.name' "$manifest"
+    [[ "$output" == "osv-scanner" ]]
+    run jq -r '.tool.version' "$manifest"
+    [[ "$output" == "1.0.0" ]]
+    run jq -r '.result' "$manifest"
+    [[ "$output" == "clean" ]]
+    run jq -r '."result-file"' "$manifest"
+    [[ "$output" == "output.sarif" ]]
+}
+
+@test "orchestrator: osv manifest records result=findings when osv reports findings" {
+    WRANGLE_EXTRA_RESULTS=findings run_orchestrator \
+        -s "$TEST_DIR/src" -o "$TEST_DIR/output" "osv"
+    [ "$status" -eq 1 ]
+    run jq -r '.result' "$TEST_DIR/output/osv/wrangle_attestation_metadata.json"
+    [[ "$output" == "findings" ]]
+}
+
+@test "orchestrator: writes no scan manifest for a non-osv adapter (Phase 2 not wired)" {
+    run_orchestrator -s "$TEST_DIR/src" -o "$TEST_DIR/output" "clean-tool"
+    [ "$status" -eq 0 ]
+    [ ! -f "$TEST_DIR/output/clean-tool/wrangle_attestation_metadata.json" ]
 }

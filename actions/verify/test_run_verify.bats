@@ -102,11 +102,13 @@ teardown() {
 
 # --- wrangle-attest arg vector ---
 
-@test "run_verify: attest args carry the metadata-root, subject arg, sign, and out" {
+@test "run_verify: attest args carry the metadata-root, subject arg, commit, sign, and out" {
     export METADATA_ROOT="$TEST_DIR/meta"
+    export COMMIT="deadbeef"
     mapfile -t args < <(wrangle_attest_args "--subject=sha256:abc" "$TEST_DIR/out.jsonl")
     printf '%s\n' "${args[@]}" | grep -qx -- "--metadata-root=$TEST_DIR/meta"
     printf '%s\n' "${args[@]}" | grep -qx -- "--subject=sha256:abc"
+    printf '%s\n' "${args[@]}" | grep -qx -- "--commit=deadbeef"
     printf '%s\n' "${args[@]}" | grep -qx -- "--sign"
     printf '%s\n' "${args[@]}" | grep -qx -- "--out=$TEST_DIR/out.jsonl"
 }

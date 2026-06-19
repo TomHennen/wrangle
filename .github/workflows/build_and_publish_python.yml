@@ -116,7 +116,7 @@ jobs:
     permissions: {}    # reads env only — no workspace, no API, no secrets
     steps:
       # TODO: replace with $/actions/preflight_guard when GitHub ships $/ syntax (#136)
-      - uses: TomHennen/wrangle/actions/preflight_guard@3aa4d85a088b8458e4aac1266518c0b1909d615c # main 2026-06-19
+      - uses: TomHennen/wrangle/actions/preflight_guard@b1ef99a4037ddbbd26da7cbd9718d4a0739651a5 # feat/osv-scan-attest-on-sbom 2026-06-19
 
   # Decide whether release-time actions (provenance, publish) should run
   # for this event. Cheap separate job so the result is available to
@@ -131,7 +131,7 @@ jobs:
     steps:
       # No checkout: release_gate resolves via ${{ github.action_path }}.
       # TODO: replace with $/actions/release_gate when GitHub ships $/ syntax (#136)
-      - uses: TomHennen/wrangle/actions/release_gate@3aa4d85a088b8458e4aac1266518c0b1909d615c # main 2026-06-19
+      - uses: TomHennen/wrangle/actions/release_gate@b1ef99a4037ddbbd26da7cbd9718d4a0739651a5 # feat/osv-scan-attest-on-sbom 2026-06-19
         id: gate
         with:
           events: ${{ inputs.release-events }}
@@ -155,7 +155,7 @@ jobs:
 
       # Shared name derivation so the scan and build jobs can't drift.
       # TODO: replace with $/actions/package_metadata when GitHub ships $/ syntax (#136)
-      - uses: TomHennen/wrangle/actions/package_metadata@3aa4d85a088b8458e4aac1266518c0b1909d615c # main 2026-06-19
+      - uses: TomHennen/wrangle/actions/package_metadata@b1ef99a4037ddbbd26da7cbd9718d4a0739651a5 # feat/osv-scan-attest-on-sbom 2026-06-19
         id: names
         if: ${{ inputs.scan-tools != '' }}
         with:
@@ -163,7 +163,7 @@ jobs:
           path: ${{ inputs.path }}
 
       # TODO: replace with $/actions/scan when GitHub ships $/ syntax (#136)
-      - uses: TomHennen/wrangle/actions/scan@3aa4d85a088b8458e4aac1266518c0b1909d615c # main 2026-06-19
+      - uses: TomHennen/wrangle/actions/scan@b1ef99a4037ddbbd26da7cbd9718d4a0739651a5 # feat/osv-scan-attest-on-sbom 2026-06-19
         if: ${{ inputs.scan-tools != '' }}
         with:
           tools: ${{ inputs.scan-tools }}
@@ -202,7 +202,7 @@ jobs:
           ref: ${{ inputs.ref || '' }}
 
       # TODO: replace with $/build/actions/python when GitHub ships $/ syntax (#136)
-      - uses: TomHennen/wrangle/build/actions/python@3aa4d85a088b8458e4aac1266518c0b1909d615c # main 2026-06-19
+      - uses: TomHennen/wrangle/build/actions/python@b1ef99a4037ddbbd26da7cbd9718d4a0739651a5 # feat/osv-scan-attest-on-sbom 2026-06-19
         id: build
         with:
           path: ${{ inputs.path }}
@@ -231,7 +231,7 @@ jobs:
           printf 'resource-uri=pkg:pypi/%s@%s\n' "$normalized" "$VERSION" >> "$GITHUB_OUTPUT"
 
       # TODO: replace with $/actions/package_metadata when GitHub ships $/ syntax (#136)
-      - uses: TomHennen/wrangle/actions/package_metadata@3aa4d85a088b8458e4aac1266518c0b1909d615c # main 2026-06-19
+      - uses: TomHennen/wrangle/actions/package_metadata@b1ef99a4037ddbbd26da7cbd9718d4a0739651a5 # feat/osv-scan-attest-on-sbom 2026-06-19
         id: names
         with:
           build-type: python
@@ -295,7 +295,7 @@ jobs:
       bundle-artifact-name: ${{ steps.attest.outputs.bundle-artifact-name }}
     steps:
       # TODO: replace with $/actions/attest_provenance when GitHub ships $/ syntax (#136)
-      - uses: TomHennen/wrangle/actions/attest_provenance@3aa4d85a088b8458e4aac1266518c0b1909d615c # main 2026-06-19
+      - uses: TomHennen/wrangle/actions/attest_provenance@b1ef99a4037ddbbd26da7cbd9718d4a0739651a5 # feat/osv-scan-attest-on-sbom 2026-06-19
         id: attest
         with:
           build-type: python
@@ -321,7 +321,7 @@ jobs:
       attestation-bundle-name: ${{ needs.build.outputs.metadata-artifact-name }}
     steps:
       # TODO: replace with $/actions/verify_release when GitHub ships $/ syntax (#136)
-      - uses: TomHennen/wrangle/actions/verify_release@3aa4d85a088b8458e4aac1266518c0b1909d615c # main 2026-06-19
+      - uses: TomHennen/wrangle/actions/verify_release@b1ef99a4037ddbbd26da7cbd9718d4a0739651a5 # feat/osv-scan-attest-on-sbom 2026-06-19
         with:
           build-type: python
           shortname: ${{ needs.build.outputs.shortname }}
