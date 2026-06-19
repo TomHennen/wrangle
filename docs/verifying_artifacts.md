@@ -16,7 +16,10 @@ Wrangle produces two attestations for every released artifact:
   own OCI referrer on the image digest (one VSA statement, which round-trips
   cleanly by digest), so `ampel`/`cosign` can fetch it without a download —
   provenance is a separate referrer. The combined `<artifact>.intoto.jsonl`
-  bundle (provenance + VSA) is also uploaded as a workflow artifact.
+  bundle (provenance + VSA) is also uploaded as a workflow artifact. For every
+  build type the VSA is *also* posted to your repo's GitHub attestation store,
+  so a consumer can fetch it by digest with no download — see [by-digest
+  fetch](#by-digest-from-the-github-attestation-store) below.
 
 A consumer's one-command check is the VSA: it carries the full verdict, so
 you trust one signature instead of re-running the policy engine.
@@ -67,6 +70,26 @@ The VSA rides as its own by-digest referrer, so the `oci:` collector finds it
 from just the image reference. The combined `<sha256-digest>.intoto.jsonl`
 bundle (provenance + VSA) is also available from the workflow-run artifacts if
 you'd rather verify from the file: `--collector jsonl:<sha256-digest>.intoto.jsonl`.
+
+### By-digest, from the GitHub attestation store
+
+The VSA also lands in your repo's GitHub attestation store, so ampel's
+`github:` collector fetches it by subject digest with no download — for every
+build type, including a container image by its OCI digest:
+
+```bash
+ampel verify --subject sha256:<digest> \
+  --policy git+https://github.com/TomHennen/wrangle@v0.2.2#policies/wrangle-vsa-consumer-v1.hjson \
+  --collector github:<your-org>/<your-repo> \
+  --context expectedResourceUri:<resourceUri from the table above> \
+  --context sourceRepo:https://github.com/<your-org>/<your-repo>
+```
+
+The `gh attestation verify --predicate-type` filter does **not** accept the VSA
+predicate URI (`https://slsa.dev/verification_summary/v1`) — GitHub returns HTTP
+422 from its filter allowlist — so use ampel (recommended) or an unfiltered `gh
+attestation verify`. The filter only blocks the query; storing and unfiltered
+fetch work.
 
 Pin the policy locator to any wrangle `v*` release tag — it does **not**
 need to match the wrangle version the adopter builds with. The `-v1` in the

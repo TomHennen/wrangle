@@ -109,7 +109,7 @@ jobs:
     permissions: {}    # reads env only — no workspace, no API, no secrets
     steps:
       # TODO: replace with $/actions/preflight_guard when GitHub ships $/ syntax (#136)
-      - uses: TomHennen/wrangle/actions/preflight_guard@b7eb9765639f6ffaf11e994efb63b810d69ff53f # main 2026-06-16
+      - uses: TomHennen/wrangle/actions/preflight_guard@041a3fcc56df40113f1b0f6f319c707a6283c5ff # main 2026-06-19
 
   gate:
     needs: [guard]
@@ -120,7 +120,7 @@ jobs:
     steps:
       # No checkout: release_gate resolves via ${{ github.action_path }}.
       # TODO: replace with $/actions/release_gate when GitHub ships $/ syntax (#136)
-      - uses: TomHennen/wrangle/actions/release_gate@b7eb9765639f6ffaf11e994efb63b810d69ff53f # main 2026-06-16
+      - uses: TomHennen/wrangle/actions/release_gate@041a3fcc56df40113f1b0f6f319c707a6283c5ff # main 2026-06-19
         id: gate
         with:
           events: ${{ inputs.release-events }}
@@ -142,7 +142,7 @@ jobs:
           persist-credentials: false
 
       # TODO: replace with $/actions/scan when GitHub ships $/ syntax (#136)
-      - uses: TomHennen/wrangle/actions/scan@b7eb9765639f6ffaf11e994efb63b810d69ff53f # main 2026-06-16
+      - uses: TomHennen/wrangle/actions/scan@041a3fcc56df40113f1b0f6f319c707a6283c5ff # main 2026-06-19
         if: ${{ inputs.scan-tools != '' }}
         with:
           tools: ${{ inputs.scan-tools }}
@@ -169,7 +169,7 @@ jobs:
     # TODO: replace with $/build/actions/container when GitHub ships $/ syntax (#136)
     - name: "build and publish"
       id: build
-      uses: TomHennen/wrangle/build/actions/container@b7eb9765639f6ffaf11e994efb63b810d69ff53f # main 2026-06-16
+      uses: TomHennen/wrangle/build/actions/container@041a3fcc56df40113f1b0f6f319c707a6283c5ff # main 2026-06-19
       with:
         path: ${{ inputs.path }}
         imagename: ${{ inputs.imagename }}
@@ -225,8 +225,9 @@ jobs:
     # requesting it here would be a startup-failing escalation; the bundle ships
     # as a workflow artifact and an OCI referrer, not a release asset.
     permissions:
-      id-token: write    # bnd keyless-signs the VSA via this workflow's OIDC identity
-      packages: write    # pull provenance and push the bundle referrer to ghcr
+      id-token: write       # bnd keyless-signs the VSA via this workflow's OIDC identity
+      attestations: write   # post the VSA to the GitHub attestation store
+      packages: write       # pull provenance and push the bundle referrer to ghcr
     steps:
       # Round-tripping the bundle through ghcr needs registry auth. Same pin as
       # the attest job's cosign-installer — bump in lockstep.
@@ -246,7 +247,7 @@ jobs:
           password: ${{ secrets.GITHUB_TOKEN }}
 
       # TODO: replace with $/actions/verify when GitHub ships $/ syntax (#136)
-      - uses: TomHennen/wrangle/actions/verify@b7eb9765639f6ffaf11e994efb63b810d69ff53f # main 2026-06-16
+      - uses: TomHennen/wrangle/actions/verify@041a3fcc56df40113f1b0f6f319c707a6283c5ff # main 2026-06-19
         with:
           subjects: ${{ needs.build.outputs.digest }}
           policy: policies/wrangle-provenance-container-v1.hjson

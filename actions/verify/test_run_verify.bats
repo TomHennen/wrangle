@@ -35,6 +35,7 @@ setup() {
     export BUNDLE_IN="$TEST_DIR/provenance.jsonl"
     # bundle-out is the directory the per-artifact bundles are written into.
     export BUNDLE_OUT="$TEST_DIR/bundles"
+    export GITHUB_REPOSITORY="o/r"
     export RUNNER_TEMP="$TEST_DIR"
     # The unsigned-VSA path the arg-vector tests reference.
     VSA="$TEST_DIR/vsa.intoto.jsonl"
@@ -70,6 +71,32 @@ teardown() {
     export POLICY="/etc/wrangle/policy.hjson"
     mapfile -t args < <(wrangle_ampel_verify_args "sha256:abc" "$VSA")
     printf '%s\n' "${args[@]}" | grep -qx -- "--policy=/etc/wrangle/policy.hjson"
+}
+
+# --- subject arg (single-sha256 subject) ---
+
+@test "run_verify: subject_arg hashes a file subject to a single sha256 --subject-hash" {
+    # The store rejects a multi-digest subject; passing the file as a precomputed
+    # sha256 hash keeps the VSA subject single-digest (ampel's file hasher would
+    # otherwise add sha512).
+    printf 'CONTENT\n' > "$TEST_DIR/blob"
+    local want; want="$(sha256sum "$TEST_DIR/blob" | cut -d' ' -f1)"
+    run wrangle_subject_arg "$TEST_DIR/blob"
+    [[ "$status" -eq 0 ]]
+    [[ "$output" == "--subject-hash=sha256:$want" ]]
+}
+
+@test "run_verify: subject_arg passes a digest subject through as --subject" {
+    # A container subject is already a digest; ampel synthesizes a single-digest
+    # descriptor from it, so it needs no re-hashing.
+    run wrangle_subject_arg "sha256:0000000000000000000000000000000000000000000000000000000000000000"
+    [[ "$status" -eq 0 ]]
+    [[ "$output" == "--subject=sha256:0000000000000000000000000000000000000000000000000000000000000000" ]]
+}
+
+@test "run_verify: subject_arg fails closed on an unreadable file subject" {
+    run wrangle_subject_arg "$TEST_DIR/does-not-exist.tgz"
+    [[ "$status" -ne 0 ]]
 }
 
 # --- ampel arg vector ---
@@ -181,6 +208,25 @@ teardown() {
     run "$COSIGN_BIN" download attestation --help
     [[ "$status" -eq 0 ]]
     [[ "$output" == *"download attestation"* ]]
+}
+
+# --- bnd push arg vector (GitHub attestation store) ---
+
+@test "run_verify: bnd push args target the store repo with the signed VSA file" {
+    local vsa="$TEST_DIR/vsa.jsonl"
+    mapfile -t args < <(wrangle_bnd_push_args "owner/repo" "$vsa")
+    [[ "${args[0]}" == "push" ]]
+    [[ "${args[1]}" == "github" ]]
+    # The org/repo is positional, then the bundle file.
+    [[ "${args[2]}" == "owner/repo" ]]
+    [[ "${args[3]}" == "$vsa" ]]
+}
+
+@test "run_verify: bnd push arg vector names a real bnd subcommand" {
+    if [[ ! -x "$BND_BIN" ]]; then skip_or_fail "real bnd not available"; fi
+    run "$BND_BIN" push github --help
+    [[ "$status" -eq 0 ]]
+    [[ "$output" == *"GitHub attestation store"* ]]
 }
 
 # --- subject parsing ---
@@ -334,6 +380,45 @@ STUB
     [[ "$(wc -l < "$TEST_DIR/cosign-calls")" -eq 2 ]]
 }
 
+# --- push to GitHub attestation store ---
+
+@test "run_verify: push_store invokes bnd push github with the repo and VSA file" {
+    cat > "$TEST_DIR/bnd" <<STUB
+#!/bin/bash
+printf '%s\n' "\$@" > "$TEST_DIR/bnd-args"
+STUB
+    chmod +x "$TEST_DIR/bnd"
+    export PATH="$TEST_DIR:$PATH"
+    export GITHUB_REPOSITORY="owner/repo"
+    local vsa="$TEST_DIR/vsa.jsonl"
+    : > "$vsa"
+    run wrangle_push_store "$vsa"
+    [[ "$status" -eq 0 ]]
+    recorded="$(cat "$TEST_DIR/bnd-args")"
+    [[ "$recorded" == *"push"* ]]
+    [[ "$recorded" == *"github"* ]]
+    [[ "$recorded" == *"owner/repo"* ]]
+    [[ "$recorded" == *"$vsa"* ]]
+}
+
+@test "run_verify: push_store fails closed — a bnd failure fails the step" {
+    # The store is the by-digest delivery, so a push failure is a real delivery
+    # gap and must fail the job (after the one transient retry, so bnd runs twice).
+    cat > "$TEST_DIR/bnd" <<STUB
+#!/bin/bash
+printf 'x\n' >> "$TEST_DIR/bnd-calls"
+exit 7
+STUB
+    chmod +x "$TEST_DIR/bnd"
+    export PATH="$TEST_DIR:$PATH"
+    : > "$TEST_DIR/bnd-calls"
+    local vsa="$TEST_DIR/vsa.jsonl"
+    : > "$vsa"
+    run wrangle_push_store "$vsa"
+    [[ "$status" -ne 0 ]]
+    [[ "$(wc -l < "$TEST_DIR/bnd-calls")" -eq 2 ]]
+}
+
 # --- emit path plumbing (stubbed ampel) ---
 
 @test "run_verify: emit pipes ampel output through the HTML sanitizer" {
@@ -412,38 +497,55 @@ STUB
     cat > "$TEST_DIR/ampel" <<STUB
 #!/bin/bash
 # Emit a one-line JSON unsigned VSA naming the subject, where --results-path points.
+# File subjects are hashed by run_verify to --subject-hash; echo that back so the
+# test can prove the per-subject VSA reached the bundle and the store.
 subj=""
-for a in "\$@"; do case "\$a" in --subject=*) subj="\${a#--subject=}";; esac; done
+for a in "\$@"; do case "\$a" in --subject-hash=*) subj="\${a#--subject-hash=}";; --subject=*) subj="\${a#--subject=}";; esac; done
 for a in "\$@"; do case "\$a" in --results-path=*) printf '{"unsigned":"%s"}\n' "\$subj" > "\${a#--results-path=}";; esac; done
 printf 'report\n'
 STUB
-    # bnd "signs" by wrapping the unsigned statement (pretty-printed over two
-    # lines, so the jq -c flatten in run is load-bearing).
+    # bnd "signs" (statement) by wrapping the unsigned statement over two lines
+    # (so the jq -c flatten in run is load-bearing); "push" records the VSA it
+    # was handed so the test can prove the signed statement reached the store.
     cat > "$TEST_DIR/bnd" <<STUB
 #!/bin/bash
+if [[ "\$1" == "push" ]]; then cat "\$4" >> "$TEST_DIR/pushed"; exit 0; fi
 printf '{\n  "signed": '; cat "\$2"; printf '}\n'
 STUB
     chmod +x "$TEST_DIR/ampel" "$TEST_DIR/bnd"
     export PATH="$TEST_DIR:$PATH"
     export GITHUB_STEP_SUMMARY="$TEST_DIR/summary.md"
     : > "$GITHUB_STEP_SUMMARY"
+    : > "$TEST_DIR/pushed"
     printf '{"provenance":1}\n' > "$BUNDLE_IN"
-    export SUBJECTS=$'dist/a.tgz\ndist/b.whl'
+    # Real file subjects: run_verify sha256-hashes each into a single-digest
+    # --subject-hash, so the VSA's subject can't carry two digests (the store
+    # rejects that). Distinct bytes -> distinct digests the assertions key on.
+    mkdir -p "$TEST_DIR/dist"
+    printf 'AAA\n' > "$TEST_DIR/dist/a.tgz"
+    printf 'BBB\n' > "$TEST_DIR/dist/b.whl"
+    local ha hb
+    ha="sha256:$(sha256sum "$TEST_DIR/dist/a.tgz" | cut -d' ' -f1)"
+    hb="sha256:$(sha256sum "$TEST_DIR/dist/b.whl" | cut -d' ' -f1)"
+    export SUBJECTS="$TEST_DIR/dist/a.tgz"$'\n'"$TEST_DIR/dist/b.whl"
 
     run "$SCRIPT" run
     [[ "$status" -eq 0 ]]
     # One per-artifact bundle per subject, named <artifact-basename>.intoto.jsonl.
     local a="$BUNDLE_OUT/a.tgz.intoto.jsonl" b="$BUNDLE_OUT/b.whl.intoto.jsonl"
     [[ -f "$a" && -f "$b" ]]
+    # Each subject's signed VSA (keyed by its sha256) was posted to the store.
+    grep -q "\"signed\":{\"unsigned\":\"$ha\"}" "$TEST_DIR/pushed"
+    grep -q "\"signed\":{\"unsigned\":\"$hb\"}" "$TEST_DIR/pushed"
     # Each bundle is the seeded provenance line plus exactly that subject's VSA.
     [[ "$(wc -l < "$a")" -eq 2 ]]
     [[ "$(wc -l < "$b")" -eq 2 ]]
     run head -n1 "$a"; [[ "$output" == '{"provenance":1}' ]]
-    grep -q '"signed":{"unsigned":"dist/a.tgz"}' "$a"
-    grep -q '"signed":{"unsigned":"dist/b.whl"}' "$b"
+    grep -q "\"signed\":{\"unsigned\":\"$ha\"}" "$a"
+    grep -q "\"signed\":{\"unsigned\":\"$hb\"}" "$b"
     # A subject's bundle carries only its own VSA, not the other's.
-    ! grep -q '"unsigned":"dist/b.whl"' "$a"
-    ! grep -q '"unsigned":"dist/a.tgz"' "$b"
+    ! grep -q "$hb" "$a"
+    ! grep -q "$ha" "$b"
     # Every line is one JSON object (valid JSONL).
     run jq -e . "$a"; [[ "$status" -eq 0 ]]
     run jq -e . "$b"; [[ "$status" -eq 0 ]]
@@ -461,6 +563,7 @@ printf 'report\n'
 STUB
     cat > "$TEST_DIR/bnd" <<STUB
 #!/bin/bash
+[[ "\$1" == "push" ]] && exit 0
 cat "\$2"
 STUB
     # download returns a real provenance DSSE envelope so the seed filter keeps it.
@@ -510,6 +613,7 @@ printf 'report\n'
 STUB
     cat > "$TEST_DIR/bnd" <<STUB
 #!/bin/bash
+[[ "\$1" == "push" ]] && exit 0
 cat "\$2"
 STUB
     _dsse_line "https://slsa.dev/provenance/v1" > "$TEST_DIR/referrers.jsonl"
