@@ -9,6 +9,9 @@ setup() {
     ORIG_DIR="$(pwd)"
     export ORIG_DIR
 
+    # Forward the golden-SARIF fixtures dir to the mock osv adapter.
+    export WRANGLE_EXTRA_FIXTURES="$ORIG_DIR/test/fixtures"
+
     # Create a mock tools directory structure that run.sh can find
     export MOCK_TOOLS="$TEST_DIR/tools"
 
@@ -163,9 +166,9 @@ ADAPT
     chmod +x "$MOCK_TOOLS/rogue-tool/adapter.sh"
 
     # Mock osv tool: run.sh writes a scan/v1 manifest for the osv token.
-    # Emits findings or clean per WRANGLE_EXTRA_RESULTS (run.sh strips env but
-    # forwards WRANGLE_EXTRA_*), so both manifest results can be exercised;
-    # version comes from the SARIF driver.
+    # Copies a golden SARIF (findings/empty) per WRANGLE_EXTRA_RESULTS, with the
+    # fixtures dir forwarded as WRANGLE_EXTRA_FIXTURES (run.sh strips env but
+    # forwards WRANGLE_EXTRA_*); tool name/version come from the golden driver.
     mkdir -p "$MOCK_TOOLS/osv"
     cat > "$MOCK_TOOLS/osv/install.sh" << 'INST'
 #!/bin/bash
@@ -178,14 +181,10 @@ INST
 #!/bin/bash
 set -euo pipefail
 if [[ "${RESULTS:-}" == "findings" ]]; then
-    cat > "$2/output.sarif" << 'SARIF'
-{"version":"2.1.0","runs":[{"tool":{"driver":{"name":"osv-scanner","version":"9.9.9"}},"results":[{"ruleId":"CVE-1"}]}]}
-SARIF
+    cp "${FIXTURES}/findings.sarif" "$2/output.sarif"
     exit 1
 fi
-cat > "$2/output.sarif" << 'SARIF'
-{"version":"2.1.0","runs":[{"tool":{"driver":{"name":"osv-scanner","version":"9.9.9"}},"results":[]}]}
-SARIF
+cp "${FIXTURES}/empty.sarif" "$2/output.sarif"
 exit 0
 ADAPT
     chmod +x "$MOCK_TOOLS/osv/adapter.sh"
@@ -512,7 +511,7 @@ FAKEGO
     run jq -r '.tool.name' "$manifest"
     [[ "$output" == "osv-scanner" ]]
     run jq -r '.tool.version' "$manifest"
-    [[ "$output" == "9.9.9" ]]
+    [[ "$output" == "1.0.0" ]]
     run jq -r '.result' "$manifest"
     [[ "$output" == "clean" ]]
     run jq -r '."result-file"' "$manifest"
