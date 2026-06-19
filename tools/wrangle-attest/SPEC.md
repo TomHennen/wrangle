@@ -37,8 +37,9 @@ the whole run closed; scan output is untrusted input.
 Passthrough embeds the result file verbatim as the predicate (it must be a JSON
 object). The thin envelope hoists `tool`/`result`/`scannedCommit` to the top
 level so policy filters on `predicate.tool.name` / `predicate.result` without
-parsing nested SARIF. v1 ships SBOM; the OSV/scorecard/SARIF cases are wired so
-later producer PRs are manifest-only.
+parsing nested SARIF. SBOM (passthrough) and OSV (scan/v1 envelope) ship with
+producers; the scorecard passthrough is wired so a later producer PR is
+manifest-only.
 
 ## Engine-owned subject
 
@@ -57,9 +58,11 @@ wrangle-attest --metadata-root <dir>... (--subject sha256:<hex> | --artifact <fi
     [--commit <hex-sha>] [--sign] --out <file>
 ```
 
-Honors only the canonical top-level `<root>/wrangle_attestation_metadata.json` for each
-`--metadata-root`; any other `wrangle_attestation_metadata.json` deeper in the tree is ignored (a
-build-time dependency could plant one to forge a wrangle-signed attestation).
+Honors the canonical top-level `<root>/wrangle_attestation_metadata.json` plus,
+for each immediate child dir of `<root>/scan/`, `<root>/scan/<tool>/wrangle_attestation_metadata.json`
+(a bounded one-level lookup, no recursion). Any other `wrangle_attestation_metadata.json`
+deeper in the tree or outside those two locations is ignored (a build-time
+dependency could plant one to forge a wrangle-signed attestation).
 Builds one Statement per honored manifest bound to the subject and writes them
 all to `--out` as JSONL. `--commit` is woven into the `scan/v1` envelope only;
 passthrough predicates ignore it.

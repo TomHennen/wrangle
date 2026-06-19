@@ -135,6 +135,8 @@ runs:
         BUNDLE_OUT: ${{ inputs.bundle-out }}
         OCI_TARGET: ${{ inputs.oci-target }}
         METADATA_ROOT: ${{ inputs.metadata-dir }}
+        # Scanned commit recorded in each scan/v1 envelope's scannedCommit.
+        COMMIT: ${{ github.sha }}
         GITHUB_REPOSITORY: ${{ github.repository }}
         # bnd push github authenticates to the attestation store with this token;
         # the attestations: write permission rides on it.

@@ -13,8 +13,9 @@
 # Inputs arrive as env vars: SUBJECTS (newline-separated), POLICY, COLLECTOR,
 # FAIL, CONTEXT, BUNDLE_IN, BUNDLE_OUT, GITHUB_REPOSITORY (store push target),
 # GITHUB_TOKEN (bnd reads it to auth the store push), and optional ATTESTATION,
-# OCI_TARGET, METADATA_ROOT (the build metadata dir holding the top-level SBOM
-# manifest wrangle-attest reads, signed by the engine and appended per subject).
+# OCI_TARGET, METADATA_ROOT (the metadata dir wrangle-attest reads for the
+# top-level SBOM and scan/<tool>/ manifests, signed by the engine and appended
+# per subject), COMMIT (scanned git commit woven into the scan/v1 envelope).
 
 set -euo pipefail
 set -f  # disable globbing — processes external input
@@ -211,13 +212,14 @@ wrangle_push_bundle() {
 # in-toto statements (one signed Sigstore-bundle JSONL line per statement), one
 # arg per line for mapfile. $1 is the pre-formed subject arg (--subject=<digest>
 # or --artifact=<file>); $2 the JSONL output path. METADATA_ROOT holds the
-# build's wrangle_attestation_metadata.json files (sbom.spdx.json + its
-# manifest); --commit is woven into the scan/v1 envelope only, ignored by the
-# SBOM passthrough.
+# build's wrangle_attestation_metadata.json files (the SBOM's, the scan tools'
+# scan/v1); COMMIT is the scanned git commit woven into the scan/v1 envelope
+# only, ignored by the SBOM passthrough.
 wrangle_attest_args() {
     printf '%s\n' \
         --metadata-root="$METADATA_ROOT" \
         "$1" \
+        --commit="${COMMIT:-}" \
         --sign \
         --out="$2"
 }

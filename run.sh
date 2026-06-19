@@ -227,6 +227,23 @@ for tool in "${adapter_tools[@]}"; do
             > "${tool_output_dir}/output.md" 2>/dev/null || true
     fi
 
+    # Write the scan/v1 attestation manifest next to output.sarif so the
+    # trusted verify job's wrangle-attest engine wraps + signs it. Only on a
+    # clean run or findings (not error/missing SARIF): an attestation must
+    # claim a real scan result. The scanner name differs from the orchestrator
+    # token (osv -> osv-scanner); keyed per tool here so Phase 2 adds a line.
+    if [[ "$tool_status" != "error" ]] && [[ -f "${tool_output_dir}/output.sarif" ]]; then
+        scanner_name=""
+        case "$tool" in
+            osv) scanner_name="osv-scanner" ;;
+        esac
+        if [[ -n "$scanner_name" ]]; then
+            "$SCRIPT_DIR/lib/write_scan_manifest.sh" "$scanner_name" \
+                "${tool_output_dir}/output.sarif" \
+                || printf 'wrangle: failed to write %s scan manifest\n' "$tool" >&2
+        fi
+    fi
+
     summary_tools+=("$tool")
     summary_statuses+=("$tool_status")
     printf '::endgroup::\n'
