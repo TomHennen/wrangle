@@ -67,7 +67,7 @@ jobs:
     permissions: {}    # reads env only — no workspace, no API, no secrets
     steps:
       # TODO: replace with $/actions/preflight_guard when GitHub ships $/ syntax (#136)
-      - uses: TomHennen/wrangle/actions/preflight_guard@36c75f81a774c44709ac5a619c0889d96c5b05b1 # feat/wrangle-attest-sbom-on-469 2026-06-19
+      - uses: TomHennen/wrangle/actions/preflight_guard@a261f7d1c71c8269e90d191e48ec14930241b7ad # feat/wrangle-attest-sbom-on-469 2026-06-19
 
   # Source scan. A load-bearing (:fail) finding fails the run alongside
   # the shell build/test (there is no artifact to gate publishing of).
@@ -88,7 +88,7 @@ jobs:
       # Bootstrap pin (docs/e2e_testing.md): scan must resolve the branch
       # version so its dependency-review wrapper honors the repo's native
       # config file. Bump to main post-merge via tools/bump_action_pins.sh.
-      - uses: TomHennen/wrangle/actions/scan@36c75f81a774c44709ac5a619c0889d96c5b05b1 # feat/wrangle-attest-sbom-on-469 2026-06-19
+      - uses: TomHennen/wrangle/actions/scan@a261f7d1c71c8269e90d191e48ec14930241b7ad # feat/wrangle-attest-sbom-on-469 2026-06-19
         if: ${{ inputs.scan-tools != '' }}
         with:
           tools: ${{ inputs.scan-tools }}
@@ -121,7 +121,7 @@ jobs:
         # setup-script input and multi-path bats — the main-pinned version
         # would ignore setup-script and fail the dogfooded integration bats.
         # Bump to main post-merge via tools/bump_action_pins.sh.
-        uses: TomHennen/wrangle/build/actions/shell@36c75f81a774c44709ac5a619c0889d96c5b05b1 # feat/wrangle-attest-sbom-on-469 2026-06-19
+        uses: TomHennen/wrangle/build/actions/shell@a261f7d1c71c8269e90d191e48ec14930241b7ad # feat/wrangle-attest-sbom-on-469 2026-06-19
         with:
           scan-path: ${{ inputs.scan-path }}
           bats-path: ${{ inputs.bats-path }}
