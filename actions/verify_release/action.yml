@@ -51,8 +51,6 @@ inputs:
 runs:
   using: composite
   steps:
-    # Compute the artifact names and metadata dir from build-type + shortname,
-    # so the names match the build job's without threading each one as an input.
     - id: names
       shell: bash
       env:
@@ -60,8 +58,7 @@ runs:
         SHORTNAME: ${{ inputs.shortname }}
       run: '"${{ github.action_path }}/../package_metadata/derive_names.sh" "$BUILD_TYPE" "$SHORTNAME"'
 
-    # go/npm/python round-trip dist + provenance through workflow artifacts;
-    # container seeds both from the registry referrer (oci-target) instead.
+    # Skipped for container: dist + provenance come from the registry referrer.
     - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
       if: ${{ inputs.oci-target == '' }}
       with:
@@ -74,8 +71,7 @@ runs:
         name: ${{ steps.names.outputs.provenance-bundle }}
         path: provenance/
 
-    # Stage the build job's sbom + scan/ into the metadata dir; verify writes
-    # the bundle alongside them and uploads the whole dir. Inert data.
+    # Stage the build job's sbom + scan/ so verify writes the bundle alongside.
     - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
       with:
         name: ${{ steps.names.outputs.metadata-pre }}
