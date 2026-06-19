@@ -86,22 +86,14 @@ Go, Python, npm, and Container each run the full pipeline and produce an atteste
 
 ## Where's my stuff?
 
-Each build produces two workflow artifacts you can download from the run's Actions page (or by name with `actions/download-artifact`):
+Each build produces two workflow artifacts:
 
 - **`<type>-dist-<sn>`** — your built product (wheels/sdist for python, the npm tarball, goreleaser's `dist/` for go). Container builds push the image to the registry instead.
-- **`<type>-metadata-<sn>`** — everything else, in one place:
+- **`<type>-metadata-<sn>`** — the SBOM, the scan findings, and (on release runs) the SLSA provenance + signed VSA, all in one artifact. The [source-only scan workflow](actions/scan/README.md) uploads just `scan/` as `scan` (or `scan-<sn>` for a subdir).
 
-  ```
-  sbom.spdx.json                       # SPDX SBOM
-  scan/<tool>/output.sarif             # per-tool scan findings (osv, zizmor, scorecard, wrangle-lint, dependency-review)
-  scan/<tool>/output.md                # human-readable version of the same
-  scan/govulncheck/govulncheck.json    # go only
-  <artifact>.intoto.jsonl              # SLSA provenance + signed VSA, one per released artifact (release runs)
-  ```
+The reusable workflow exposes both names as the `dist-artifact-name` and `metadata-artifact-name` outputs so you don't have to hardcode them. For the full file layout — and which `scan/` subdirs appear on a given event — see [docs/metadata_layout.md](docs/metadata_layout.md).
 
-`<type>` is your build type and `<sn>` is a shortname derived from the `path` input (`/` → `_`). For the common single root build (`path: .`) the suffix is dropped, so the names are just `<type>-dist` / `<type>-metadata`. The reusable workflow exposes the names as the `dist-artifact-name` and `metadata-artifact-name` outputs so you don't have to hardcode them; the [source-only scan workflow](actions/scan/README.md) uploads just `scan/` as `scan` (or `scan-<sn>` for a subdir).
-
-For a live example, open any run of [wrangle's own release-showcase workflow](https://github.com/TomHennen/wrangle/actions/workflows/release-showcase.yml) and look at its Artifacts list. Per-ecosystem details are in the [ecosystem READMEs](#ecosystems) above.
+To find them in the UI: click **Actions** → your wrangle workflow → the run → scroll to **Artifacts**. The URL looks like `https://github.com/<owner>/<repo>/actions/runs/<id>#artifacts`. For a live example, see a run in the [wrangle-test companion repo](https://github.com/TomHennen/wrangle-test/actions). Per-ecosystem details are in the [ecosystem READMEs](#ecosystems) above.
 
 ## How Wrangle Works
 

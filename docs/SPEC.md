@@ -129,20 +129,14 @@ Every build type publishes its build outputs to **two complementary places**:
 
 Both layers always exist for every build type. They aren't either-or.
 
-The unified location for a build is:
-
-```
-metadata/<type>/<sn>/
-├── sbom.spdx.json                       # SPDX SBOM (every build type that has dependencies)
-├── scan/
-│   ├── osv/{output.sarif, output.md}
-│   ├── zizmor/{output.sarif, output.md}
-│   ├── scorecard/{output.sarif, output.md}
-│   ├── wrangle-lint/{output.sarif, output.md}
-│   ├── dependency-review/{output.sarif, output.md}   # PRs only
-│   └── govulncheck/govulncheck.json                  # go only; native JSON
-└── <artifact>.intoto.jsonl                            # one per dist subject: SLSA provenance + that subject's signed VSA (release runs)
-```
+The unified location for a build is the workspace dir `metadata/<type>/<sn>/`,
+whose contents follow this convention: `sbom.spdx.json`, a `scan/<tool>/` subdir
+for each scan tool that ran (`output.sarif` + `output.md`; plus
+`scan/govulncheck/govulncheck.json` for go), and — on release runs — one
+`<artifact>.intoto.jsonl` per dist subject (SLSA provenance + that subject's
+signed VSA). The full file layout, and which `scan/` subdirs appear for a given
+event (scorecard non-PR, dependency-review PR-only, driven by `scan-tools`), is
+documented in [docs/metadata_layout.md](metadata_layout.md).
 
 `<type>` is the build type (`container`, `python`, ...) and `<sn>` is the path-derived shortname: the `path` input with `/` → `_` (`path: services/api` → `services_api`), so multiple builds in one workflow don't collide. For the common root build (`path: .`) the shortname is empty, so the suffix is omitted entirely — artifact names are clean (`<type>-metadata`, `scan`) and the dir is `metadata/<type>/`. All build types and the standalone scan share one derivation (`lib/shortname.sh`).
 
