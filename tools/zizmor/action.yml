@@ -66,9 +66,10 @@ runs:
         fi
 
     # Leave the scan/v1 manifest the trusted verify job's wrangle-attest engine
-    # wraps + signs. write_scan_manifest.sh skips when collect_sarif.sh wrote an
-    # error marker, so a failed audit is never attested. Gated on the SARIF
-    # existing so the step stays a single script call (no inline if).
+    # wraps + signs. The "don't attest an errored audit" gating lives in the
+    # script: write_scan_manifest.sh skips when collect_sarif.sh wrote an error
+    # marker. The hashFiles guard here only suppresses the "tool didn't run"
+    # case (no SARIF), keeping the step a single script call (no inline if).
     - name: Write scan manifest
       if: always() && hashFiles('.wrangle/metadata/zizmor/output.sarif') != ''
       shell: bash

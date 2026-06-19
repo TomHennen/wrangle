@@ -111,10 +111,12 @@ runs:
         "$TOOL_DIR/mark_error.sh"
 
     # Leave the scan/v1 manifest the trusted verify job's wrangle-attest engine
-    # wraps + signs. Runs after mark_error.sh so write_scan_manifest.sh sees the
-    # marker and skips on a tool error; the action is PR-only, so off-PR runs
-    # never reach here and no manifest is written for a skipped tool. Gated on
-    # the SARIF existing so the step stays a single script call (no inline if).
+    # wraps + signs. The "don't attest an errored audit" gating lives in the
+    # script: write_scan_manifest.sh runs after mark_error.sh and skips when the
+    # error marker is present. The hashFiles guard here only suppresses the "tool
+    # didn't run" case (no SARIF), keeping the step a single script call.
+    # PR-only: the sign/verify flow runs on release/push, never on a PR, so this
+    # manifest is produced but never signed — inert on a PR by construction.
     - name: Write scan manifest
       if: always() && hashFiles('.wrangle/metadata/dependency-review/output.sarif') != ''
       shell: bash

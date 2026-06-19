@@ -37,9 +37,13 @@ the whole run closed; scan output is untrusted input.
 Passthrough embeds the result file verbatim as the predicate (it must be a JSON
 object). The thin envelope hoists `tool`/`result`/`scannedCommit` to the top
 level so policy filters on `predicate.tool.name` / `predicate.result` without
-parsing nested SARIF. SBOM (passthrough) and OSV (scan/v1 envelope) ship with
-producers; the scorecard passthrough is wired so a later producer PR is
-manifest-only.
+parsing nested SARIF. SBOM (passthrough) and the SARIF tools osv, zizmor,
+wrangle-lint, and dependency-review (scan/v1 envelope) ship with producers; the
+scorecard passthrough is wired so a later producer PR is manifest-only.
+
+dependency-review runs only on `pull_request`; the sign/verify flow runs on
+release/push. Its manifest is therefore produced on a PR but never signed —
+inert by construction, not a gap.
 
 ## Engine-owned subject
 
