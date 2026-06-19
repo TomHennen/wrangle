@@ -87,6 +87,9 @@ runs:
         # Empty for container (provenance comes from the oci collector).
         bundle-in: ${{ inputs.oci-target == '' && 'provenance/provenance.jsonl' || '' }}
         bundle-out: ${{ steps.names.outputs.metadata-dir }}
+        # wrangle-attest walks this for the sbom manifest, appending one signed
+        # SBOM statement per subject to each bundle.
+        metadata-dir: ${{ steps.names.outputs.metadata-dir }}
         artifact-name: ${{ steps.names.outputs.metadata }}
         context: ${{ inputs.context }}
         oci-target: ${{ inputs.oci-target }}
