@@ -221,7 +221,7 @@ EOF
 
 # --- contract (divergence-fail guards across producer/consumer files) ---
 
-@test "contract: producer uploads the bundle under the name this action resolves" {
+@test "contract: every build workflow uploads the bundle under the name this action resolves" {
     # The verify job folds each build's <artifact>.intoto.jsonl bundles into
     # the unified <type>-metadata-<shortname> artifact; this action downloads
     # *-metadata* and concatenates every <artifact>.intoto.jsonl found. A
@@ -236,20 +236,30 @@ EOF
     RELEASE="$ACTION_DIR/../verify_release/action.yml"
     grep -q 'artifact-name: ${{ steps.names.outputs.metadata }}' "$RELEASE"
     WF_DIR="$ACTION_DIR/../../.github/workflows"
-    grep -q 'TomHennen/wrangle/actions/verify_release@' "$WF_DIR/build_and_publish_npm.yml"
-    grep -q 'TomHennen/wrangle/actions/verify_release@' "$WF_DIR/build_and_publish_python.yml"
+    for type in npm python go container; do
+        grep -q 'TomHennen/wrangle/actions/verify_release@' "$WF_DIR/build_and_publish_$type.yml"
+    done
 }
 
-@test "contract: the build workflows export the resource-uri this action expects" {
-    # The README and examples pipe the workflow's resource-uri output into
-    # this action's resource-uri input; a renamed or dropped output strands
-    # every adopter publish job.
-    # Match the workflow_call output specifically (its value references the
-    # build job's output), not the job-level composition line that shares the
-    # `resource-uri:` key — deleting the adopter-facing export must fail here.
+@test "contract: each build workflow threads the resource-uri this action expects into verify_release" {
+    # Each build type binds a resourceUri into its VSA via verify_release's
+    # context input; a renamed or dropped binding strands the adopter publish
+    # job. The shape differs by delivery model, so assert what each type does:
+    #   - npm/python (file delivery): export a workflow-level resource-uri
+    #     output README/examples pipe into this action, threaded into context.
+    #     Match the workflow_call output (value references the build job),
+    #     not the job-composition line sharing the `resource-uri:` key.
+    #   - go (file delivery): no workflow output; the module purl is computed
+    #     inline into context.
+    #   - container (OCI): no workflow output; the image ref (imagename@digest)
+    #     is the resourceUri, and the subject digest is the cryptographic bind.
     WF_DIR="$ACTION_DIR/../../.github/workflows"
-    grep -q 'value: ${{ jobs.build.outputs.resource-uri }}' "$WF_DIR/build_and_publish_npm.yml"
-    grep -q 'value: ${{ jobs.build.outputs.resource-uri }}' "$WF_DIR/build_and_publish_python.yml"
+    for type in npm python; do
+        grep -q 'value: ${{ jobs.build.outputs.resource-uri }}' "$WF_DIR/build_and_publish_$type.yml"
+        grep -q 'vsa.resourceUri:${{ needs.build.outputs.resource-uri }}' "$WF_DIR/build_and_publish_$type.yml"
+    done
+    grep -q 'vsa.resourceUri:pkg:golang/' "$WF_DIR/build_and_publish_go.yml"
+    grep -q 'vsa.resourceUri:${{ needs.build.outputs.imagename }}@${{ needs.build.outputs.digest }}' "$WF_DIR/build_and_publish_container.yml"
 }
 
 # --- structural ---
