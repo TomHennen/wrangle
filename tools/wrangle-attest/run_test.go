@@ -2,6 +2,8 @@ package main
 
 import (
 	"bytes"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"flag"
 	"os"
@@ -55,6 +57,68 @@ func TestRunWritesSBOMStatement(t *testing.T) {
 	if len(stmt.Subject) != 1 || len(stmt.Subject[0].Digest) != 1 ||
 		stmt.Subject[0].Digest["sha256"] != "011b95c8e47c538646a2c01df5373fe703381cd415c847357b3d563563eb1d95" {
 		t.Fatalf("expected single sha256 subject, got %+v", stmt.Subject)
+	}
+}
+
+// --artifact self-digests the file into the subject; the bound digest must be
+// a plain sha256 of the artifact bytes (the same the VSA binds to).
+func TestRunArtifactSelfDigest(t *testing.T) {
+	dir := t.TempDir()
+	writeFile(t, dir, "meta/wrangle_attestation_metadata.json",
+		`{"predicate-type":"https://spdx.dev/Document","result-file":"sbom.spdx.json"}`)
+	writeFile(t, dir, "meta/sbom.spdx.json", `{"spdxVersion":"SPDX-2.3","name":"x"}`)
+	artifact := filepath.Join(dir, "pkg.tgz")
+	if err := os.WriteFile(artifact, []byte("PKGBYTES"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	sum := sha256.Sum256([]byte("PKGBYTES"))
+	want := hex.EncodeToString(sum[:])
+	out := filepath.Join(dir, "out.jsonl")
+
+	var stderr bytes.Buffer
+	rc := run([]string{
+		"--metadata-root", filepath.Join(dir, "meta"),
+		"--artifact", artifact,
+		"--out", out,
+	}, &stderr)
+	if rc != 0 {
+		t.Fatalf("run rc=%d stderr=%s", rc, stderr.String())
+	}
+	data, err := os.ReadFile(out)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var stmt struct {
+		Subject []struct {
+			Digest map[string]string `json:"digest"`
+		} `json:"subject"`
+	}
+	if err := json.Unmarshal([]byte(strings.TrimSpace(string(data))), &stmt); err != nil {
+		t.Fatal(err)
+	}
+	if len(stmt.Subject) != 1 || stmt.Subject[0].Digest["sha256"] != want {
+		t.Fatalf("expected self-digest %q, got %+v", want, stmt.Subject)
+	}
+}
+
+func TestRunArtifactAndSubjectConflict(t *testing.T) {
+	dir := t.TempDir()
+	writeFile(t, dir, "meta/wrangle_attestation_metadata.json",
+		`{"predicate-type":"https://spdx.dev/Document","result-file":"sbom.spdx.json"}`)
+	writeFile(t, dir, "meta/sbom.spdx.json", `{"spdxVersion":"SPDX-2.3"}`)
+	artifact := filepath.Join(dir, "pkg.tgz")
+	if err := os.WriteFile(artifact, []byte("X"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	var stderr bytes.Buffer
+	rc := run([]string{
+		"--metadata-root", filepath.Join(dir, "meta"),
+		"--subject", testArtifactDigest,
+		"--artifact", artifact,
+		"--out", filepath.Join(dir, "out.jsonl"),
+	}, &stderr)
+	if rc == 0 {
+		t.Fatal("expected error when both --subject and --artifact are passed")
 	}
 }
 

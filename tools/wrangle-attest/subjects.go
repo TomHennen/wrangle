@@ -1,7 +1,11 @@
 package main
 
 import (
+	"crypto/sha256"
+	"encoding/hex"
 	"fmt"
+	"io"
+	"os"
 	"regexp"
 	"strings"
 
@@ -22,8 +26,23 @@ func newSubject(subject string) (*intoto.ResourceDescriptor, error) {
 	if !sha256DigestRe.MatchString(subject) {
 		return nil, fmt.Errorf("subject %q must be sha256:<64-hex>", subject)
 	}
-	hex := strings.TrimPrefix(subject, "sha256:")
+	h := strings.TrimPrefix(subject, "sha256:")
 	return &intoto.ResourceDescriptor{
-		Digest: map[string]string{"sha256": hex},
+		Digest: map[string]string{"sha256": h},
 	}, nil
+}
+
+// digestArtifact hashes a file to sha256:<hex>, the same digest run_verify.sh
+// binds the VSA to. A missing/unreadable file fails closed.
+func digestArtifact(path string) (string, error) {
+	f, err := os.Open(path)
+	if err != nil {
+		return "", fmt.Errorf("artifact: %w", err)
+	}
+	defer f.Close()
+	h := sha256.New()
+	if _, err := io.Copy(h, f); err != nil {
+		return "", fmt.Errorf("hashing artifact: %w", err)
+	}
+	return "sha256:" + hex.EncodeToString(h.Sum(nil)), nil
 }

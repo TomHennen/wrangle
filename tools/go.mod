@@ -13,6 +13,7 @@ tool (
 )
 
 require (
+	github.com/carabiner-dev/signer v0.5.2
 	github.com/in-toto/attestation v1.2.0
 	github.com/owenrumney/go-sarif/v3 v3.3.0
 	google.golang.org/protobuf v1.36.11
@@ -133,7 +134,6 @@ require (
 	github.com/carabiner-dev/policy v0.5.1 // indirect
 	github.com/carabiner-dev/predicates v0.5.0 // indirect
 	github.com/carabiner-dev/sbomfs v0.1.0 // indirect
-	github.com/carabiner-dev/signer v0.5.2 // indirect
 	github.com/carabiner-dev/termtable v1.1.0 // indirect
 	github.com/carabiner-dev/vcslocator v0.4.4 // indirect
 	github.com/cenkalti/backoff/v4 v4.3.0 // indirect

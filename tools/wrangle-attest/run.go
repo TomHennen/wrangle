@@ -18,10 +18,12 @@ func (r *metadataRoots) Set(v string) error {
 }
 
 // run is the testable entry point. It discovers manifests, binds each to the
-// single artifact subject, builds one unsigned Statement per manifest, and
-// writes them all to --out as JSONL. The file is written whole (buffer first)
-// so a mid-run failure never leaves a half-written line. run_verify.sh signs
-// each emitted line in the trusted post-build context.
+// single artifact subject, builds one Statement per manifest, and writes them
+// all to --out as JSONL. With --sign each statement is keyless-signed (one
+// shared signer, so the OIDC+Fulcio flow runs once) and the Sigstore bundle is
+// emitted; without it the statements are emitted unsigned. The file is written
+// whole (buffer first) so a mid-run failure — including a Fulcio error on the
+// Nth statement — never leaves a partial/unsigned bundle on disk.
 func run(args []string, stderr io.Writer) int {
 	fs := flag.NewFlagSet("wrangle-attest", flag.ContinueOnError)
 	fs.SetOutput(stderr)
@@ -29,54 +31,89 @@ func run(args []string, stderr io.Writer) int {
 	var roots metadataRoots
 	fs.Var(&roots, "metadata-root", "directory holding a top-level wrangle_attestation_metadata.json (repeatable)")
 	subject := fs.String("subject", "", "artifact subject digest sha256:<hex> every statement binds to")
+	artifact := fs.String("artifact", "", "file to self-digest into the sha256 subject (alternative to --subject)")
 	commit := fs.String("commit", "", "scanned git commit, woven into the scan/v1 envelope only")
-	out := fs.String("out", "", "file the UNSIGNED in-toto JSONL statements are written to")
+	sign := fs.Bool("sign", false, "keyless-sign each statement and emit the Sigstore bundle")
+	out := fs.String("out", "", "file the in-toto JSONL statements are written to")
 
 	if err := fs.Parse(args); err != nil {
 		return 2
 	}
 
-	if err := validateFlags(roots, *subject, *out); err != nil {
-		fmt.Fprintf(stderr, "wrangle-attest: %v\nwrangle-attest: failing closed.\n", err)
-		return 2
+	subjectArg, err := resolveSubject(*subject, *artifact)
+	if err != nil {
+		return failClosed(stderr, err)
+	}
+	if err := validateFlags(roots, subjectArg, *out); err != nil {
+		return failClosed(stderr, err)
 	}
 
-	subj, err := newSubject(*subject)
+	subj, err := newSubject(subjectArg)
 	if err != nil {
-		fmt.Fprintf(stderr, "wrangle-attest: %v\nwrangle-attest: failing closed.\n", err)
-		return 2
+		return failClosed(stderr, err)
 	}
 
 	manifests, err := discoverManifests(roots)
 	if err != nil {
-		fmt.Fprintf(stderr, "wrangle-attest: %v\nwrangle-attest: failing closed.\n", err)
-		return 2
+		return failClosed(stderr, err)
 	}
 
-	// Build every statement into a buffer first; only touch --out once all
-	// succeed, so an error on the Nth manifest can't corrupt the output.
+	var sg statementSigner
+	if *sign {
+		s, closeFn, err := newSigner()
+		if err != nil {
+			return failClosed(stderr, err)
+		}
+		defer closeFn()
+		sg = s
+	}
+
+	// Build (and sign) every statement into a buffer first; only touch --out
+	// once all succeed, so an error on the Nth manifest — including a Fulcio
+	// signing failure — can't corrupt or partially write the output.
 	var buf bytes.Buffer
 	for _, m := range manifests {
 		stmt, err := buildStatement(m, subj, *commit)
 		if err != nil {
-			fmt.Fprintf(stderr, "wrangle-attest: %v\nwrangle-attest: failing closed.\n", err)
-			return 2
+			return failClosed(stderr, err)
 		}
 		line, err := marshalStatement(stmt)
 		if err != nil {
-			fmt.Fprintf(stderr, "wrangle-attest: %v\nwrangle-attest: failing closed.\n", err)
-			return 2
+			return failClosed(stderr, err)
+		}
+		if sg != nil {
+			line, err = sg.sign(line)
+			if err != nil {
+				return failClosed(stderr, err)
+			}
 		}
 		buf.Write(line)
 		buf.WriteByte('\n')
 	}
 
 	if err := os.WriteFile(*out, buf.Bytes(), 0o644); err != nil {
-		fmt.Fprintf(stderr, "wrangle-attest: %v\nwrangle-attest: failing closed.\n", err)
-		return 2
+		return failClosed(stderr, err)
 	}
 	fmt.Fprintf(stderr, "wrangle-attest: wrote %d statement(s) to %s\n", len(manifests), *out)
 	return 0
+}
+
+func failClosed(stderr io.Writer, err error) int {
+	fmt.Fprintf(stderr, "wrangle-attest: %v\nwrangle-attest: failing closed.\n", err)
+	return 2
+}
+
+// resolveSubject yields the sha256 subject from exactly one of --subject (a
+// passed digest, e.g. a container image) or --artifact (a file we self-digest).
+func resolveSubject(subject, artifact string) (string, error) {
+	switch {
+	case subject != "" && artifact != "":
+		return "", fmt.Errorf("pass only one of --subject or --artifact")
+	case artifact != "":
+		return digestArtifact(artifact)
+	default:
+		return subject, nil
+	}
 }
 
 func validateFlags(roots []string, subject, out string) error {
@@ -84,7 +121,7 @@ func validateFlags(roots []string, subject, out string) error {
 		return fmt.Errorf("at least one --metadata-root is required")
 	}
 	if subject == "" {
-		return fmt.Errorf("--subject is required")
+		return fmt.Errorf("--subject or --artifact is required")
 	}
 	if out == "" {
 		return fmt.Errorf("--out is required")
