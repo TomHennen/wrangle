@@ -54,6 +54,26 @@ setup() {
     grep -qx 'metadata=go-metadata-a.b_c' "$GITHUB_OUTPUT"
 }
 
+@test "package_metadata: derives the shortname from a path (scan-job mode)" {
+    run "$SCRIPT" python "" services/api
+    [ "$status" -eq 0 ]
+    grep -qx 'scan=python-scan-services_api' "$GITHUB_OUTPUT"
+    grep -qx 'shortname=services_api' "$GITHUB_OUTPUT"
+}
+
+@test "package_metadata: root path derives an empty shortname" {
+    run "$SCRIPT" go "" .
+    [ "$status" -eq 0 ]
+    grep -qx 'scan=go-scan' "$GITHUB_OUTPUT"
+    grep -qx 'shortname=' "$GITHUB_OUTPUT"
+}
+
+@test "package_metadata: explicit shortname wins over path" {
+    run "$SCRIPT" npm given ignored/path
+    [ "$status" -eq 0 ]
+    grep -qx 'scan=npm-scan-given' "$GITHUB_OUTPUT"
+}
+
 @test "package_metadata: rejects a shortname with a path separator" {
     run "$SCRIPT" go "a/b"
     [ "$status" -ne 0 ]

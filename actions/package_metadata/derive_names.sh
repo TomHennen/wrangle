@@ -10,9 +10,16 @@
 # names themselves.
 #
 # Outputs (each suffix-less at the repo root): dist, scan, checks,
-# metadata, metadata-pre, provenance-bundle.
+# metadata, metadata-pre, provenance-bundle, and the resolved shortname.
 #
-# Usage: derive_names.sh <build-type> <shortname>
+# The shortname can be passed directly (the build job already has the build
+# composite's output) or derived here from a path (the scan job, which runs
+# before the build and only knows the input path). Either way derivation
+# lands in one place — lib/shortname.sh — so the scan and build names agree.
+#
+# Usage: derive_names.sh <build-type> <shortname> [<path>]
+#   <shortname> wins when non-empty; otherwise <path> is normalized via
+#   derive_shortname (root '.' -> '').
 
 set -euo pipefail
 set -f  # processes external arguments — disable globbing per CLAUDE.md
@@ -22,11 +29,17 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 source "$SCRIPT_DIR/../../lib/shortname.sh"
 
 main() {
-    if [[ $# -ne 2 ]]; then
-        printf 'Usage: %s <build-type> <shortname>\n' "$0" >&2
+    if [[ $# -lt 2 || $# -gt 3 ]]; then
+        printf 'Usage: %s <build-type> <shortname> [<path>]\n' "$0" >&2
         exit 1
     fi
-    local type="$1" shortname="$2"
+    local type="$1" shortname="$2" path="${3:-}"
+
+    # Scan-job mode: no shortname yet, derive it from the path so the scan
+    # artifact name matches the build job's (which passes its shortname).
+    if [[ -z "$shortname" && -n "$path" ]]; then
+        shortname="$(derive_shortname "$path")"
+    fi
 
     # derive_shortname maps path '/' -> '_' but keeps other path-legal
     # chars ('.', '-'), so 'python-uv' stays 'python-uv'. Re-assert that
@@ -53,6 +66,7 @@ main() {
         printf 'metadata=%s\n' "$(artifact_name "${type}-metadata" "$shortname")"
         printf 'metadata-pre=%s\n' "$(artifact_name "${type}-premeta" "$shortname")"
         printf 'provenance-bundle=%s\n' "$(artifact_name "${type}-provenance-bundle" "$shortname")"
+        printf 'shortname=%s\n' "$shortname"
     } >> "$GITHUB_OUTPUT"
 }
 

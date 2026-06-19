@@ -1,12 +1,14 @@
 name: Wrangle Package Metadata Names
 description: >
-  Derive the per-build packaging artifact names for a build type from the
-  build composite's path-derived shortname. The four reusable build
-  workflows (go/python/npm/container) call this instead of each repeating
-  the same name-join loop, so the names can't drift between build types.
+  Derive the per-build packaging artifact names (and the shortname) for a
+  build type. The four reusable build workflows (go/python/npm/container)
+  call this from both their scan job (passing path) and their build job
+  (passing the build composite's shortname) instead of repeating the
+  name-join loop or the path normalization, so names can't drift between
+  build types or between the scan and build jobs.
 
   Runs from the wrangle checkout, so it sources lib/shortname.sh for the
-  root-path normalization — the build/release jobs check out the ADOPTER
+  root-path normalization — the build/scan jobs check out the ADOPTER
   repo (no lib/) and consume these outputs rather than deriving names.
 
 inputs:
@@ -14,7 +16,11 @@ inputs:
     description: "Build type the names are namespaced under (go, python, npm, container)."
     required: true
   shortname:
-    description: "The build composite's path-derived shortname output (alphanumeric + '_', empty at the repo root)."
+    description: "The build composite's path-derived shortname output (path '/' -> '_', empty at the repo root). Wins over path when set."
+    required: false
+    default: ""
+  path:
+    description: "Input path to derive the shortname from when shortname is empty (the scan job, which runs before the build)."
     required: false
     default: ""
 
@@ -37,6 +43,9 @@ outputs:
   provenance-bundle:
     description: "Name of the attest job's raw provenance bundle transient."
     value: ${{ steps.names.outputs.provenance-bundle }}
+  shortname:
+    description: "The resolved shortname (the input shortname, or the one derived from path)."
+    value: ${{ steps.names.outputs.shortname }}
 
 runs:
   using: composite
@@ -46,4 +55,5 @@ runs:
       env:
         BUILD_TYPE: ${{ inputs.build-type }}
         SHORTNAME: ${{ inputs.shortname }}
-      run: '"${{ github.action_path }}/derive_names.sh" "$BUILD_TYPE" "$SHORTNAME"'
+        PATH_IN: ${{ inputs.path }}
+      run: '"${{ github.action_path }}/derive_names.sh" "$BUILD_TYPE" "$SHORTNAME" "$PATH_IN"'

@@ -153,19 +153,17 @@ jobs:
           persist-credentials: false
           ref: ${{ inputs.ref || '' }}
 
-      # Shortname must match the build job's (extract_metadata.sh: path with
-      # '/'→'_', root '.'→''), so the build job downloads the right scan artifact.
-      - id: shortname
+      # Derive the scan artifact name from the path so it matches the build
+      # job's (which passes its shortname): the composite runs from the wrangle
+      # checkout and sources lib/shortname.sh, which this job's ADOPTER checkout
+      # lacks. Sharing the derivation keeps the names from drifting.
+      # TODO: replace with $/actions/package_metadata when GitHub ships $/ syntax (#136)
+      - uses: TomHennen/wrangle/actions/package_metadata@aee4ea966bf75781af227322d1466479417f5db3 # feat/469-unify-metadata-artifact 2026-06-19
+        id: names
         if: ${{ inputs.scan-tools != '' }}
-        shell: bash
-        env:
-          INPUT_PATH: ${{ inputs.path }}
-        run: |
-          set -euo pipefail
-          # Derive the shortname inline (root '.' -> '', else '/'->'_'): this
-          # job checks out the ADOPTER repo, where lib/shortname.sh is absent.
-          shortname=""; [[ "$INPUT_PATH" != "." ]] && shortname="${INPUT_PATH//\//_}"
-          printf 'name=%s\n' "python-scan${shortname:+-$shortname}" >> "$GITHUB_OUTPUT"
+        with:
+          build-type: python
+          path: ${{ inputs.path }}
 
       # TODO: replace with $/actions/scan when GitHub ships $/ syntax (#136)
       - uses: TomHennen/wrangle/actions/scan@aee4ea966bf75781af227322d1466479417f5db3 # feat/469-unify-metadata-artifact 2026-06-19
@@ -173,7 +171,7 @@ jobs:
         with:
           tools: ${{ inputs.scan-tools }}
           # The build job folds this into the unified python-metadata.
-          artifact-name: ${{ steps.shortname.outputs.name }}
+          artifact-name: ${{ steps.names.outputs.scan }}
           # Cold on release: the scan gates an attested build, so a
           # poisoned tool cache must not be able to forge a passing scan.
           go-cache: ${{ needs.gate.outputs.should-release == 'true' && '' || inputs.go-cache }}
