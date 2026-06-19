@@ -181,9 +181,10 @@ jobs:
           INPUT_PATH: ${{ inputs.path }}
         run: |
           set -euo pipefail
-          source lib/shortname.sh
-          sn="$(derive_shortname "$INPUT_PATH")"
-          printf 'name=%s\n' "$(artifact_name npm-scan "$sn")" >> "$GITHUB_OUTPUT"
+          # Derive the shortname inline (root '.' -> '', else '/'->'_'): this
+          # job checks out the ADOPTER repo, where lib/shortname.sh is absent.
+          sn=""; [[ "$INPUT_PATH" != "." ]] && sn="${INPUT_PATH//\//_}"
+          printf 'name=%s\n' "npm-scan${sn:+-$sn}" >> "$GITHUB_OUTPUT"
 
       # TODO: replace with $/actions/scan when GitHub ships $/ syntax (#136)
       - uses: TomHennen/wrangle/actions/scan@66e4f664bfc0297f63b6f1f506b62d5cf601e4da # bootstrap PR-head until merge (#469)
@@ -215,6 +216,7 @@ jobs:
       dist-artifact-name: ${{ steps.names.outputs.dist }}
       metadata-artifact-name: ${{ steps.names.outputs.metadata }}
       metadata-pre-artifact-name: ${{ steps.names.outputs.metadata-pre }}
+      provenance-bundle-artifact-name: ${{ steps.names.outputs.provenance-bundle }}
       metadata-dir: ${{ steps.build.outputs.metadata-dir }}
       # JSON array of dist filenames the verify job binds one VSA to each.
       dist-files: ${{ steps.distfiles.outputs.files }}
@@ -242,12 +244,15 @@ jobs:
           SHORTNAME: ${{ steps.build.outputs.shortname }}
         run: |
           set -euo pipefail
-          source lib/shortname.sh
+          # Join prefix-shortname inline (suffix-less at root): this job checks
+          # out the ADOPTER repo, where lib/shortname.sh is absent.
+          sfx="${SHORTNAME:+-$SHORTNAME}"
           {
-            printf 'dist=%s\n' "$(artifact_name npm-dist "$SHORTNAME")"
-            printf 'metadata=%s\n' "$(artifact_name npm-metadata "$SHORTNAME")"
-            printf 'scan=%s\n' "$(artifact_name npm-scan "$SHORTNAME")"
-            printf 'metadata-pre=%s\n' "$(artifact_name npm-premeta "$SHORTNAME")"
+            printf 'dist=npm-dist%s\n' "$sfx"
+            printf 'metadata=npm-metadata%s\n' "$sfx"
+            printf 'scan=npm-scan%s\n' "$sfx"
+            printf 'metadata-pre=npm-premeta%s\n' "$sfx"
+            printf 'provenance-bundle=npm-provenance-bundle%s\n' "$sfx"
           } >> "$GITHUB_OUTPUT"
 
       # The npm composite doesn't emit the package name; read it from
@@ -313,7 +318,7 @@ jobs:
       attestations: write   # write the attestation to GitHub's store
       contents: read        # download-artifact reads the same-run dist
     outputs:
-      bundle-artifact-name: npm-provenance-bundle-${{ needs.build.outputs.shortname }}
+      bundle-artifact-name: ${{ needs.build.outputs.provenance-bundle-artifact-name }}
     steps:
       - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
         with:
@@ -338,7 +343,7 @@ jobs:
 
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
-          name: npm-provenance-bundle-${{ needs.build.outputs.shortname }}
+          name: ${{ needs.build.outputs.provenance-bundle-artifact-name }}
           path: ${{ runner.temp }}/provenance.jsonl
           if-no-files-found: error
 
@@ -370,7 +375,7 @@ jobs:
       # append to it to form the single bundle.
       - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
         with:
-          name: npm-provenance-bundle-${{ needs.build.outputs.shortname }}
+          name: ${{ needs.build.outputs.provenance-bundle-artifact-name }}
           path: provenance/
 
       # Stage the build job's sbom + scan/ into the metadata dir; the verify
