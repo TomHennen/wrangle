@@ -18,6 +18,21 @@ setup() {
     [[ "$(derive_shortname "a/b/c")" == "a_b_c" ]]
 }
 
+@test "shortname: a trailing slash is stripped" {
+    [[ "$(derive_shortname "foo/")" == "foo" ]]
+    [[ "$(derive_shortname "a/b/")" == "a_b" ]]
+}
+
+@test "shortname: a leading slash is stripped" {
+    [[ "$(derive_shortname "/foo")" == "foo" ]]
+    [[ "$(derive_shortname "/a/b")" == "a_b" ]]
+}
+
+@test "shortname: repeated slashes collapse" {
+    [[ "$(derive_shortname "a//b")" == "a_b" ]]
+    [[ "$(derive_shortname "/a//b/")" == "a_b" ]]
+}
+
 @test "shortname: artifact_name omits the suffix when the shortname is empty" {
     [[ "$(artifact_name go-metadata "")" == "go-metadata" ]]
     [[ "$(artifact_name container-scan "")" == "container-scan" ]]

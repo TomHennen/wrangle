@@ -12,15 +12,24 @@ set -f
 #
 # Usage: source lib/shortname.sh, then call the functions below.
 
-# Derive the shortname from a path: '/' -> '_', and the repo root '.' -> ''
-# (empty). Args: <path>. Prints the shortname (possibly empty).
+# Derive the shortname from a path: strip leading/trailing slashes, collapse
+# repeated slashes, then '/' -> '_'; the repo root '.' -> '' (empty). So
+# 'foo/' -> 'foo', '/a//b/' -> 'a_b'. Args: <path>. Prints the shortname
+# (possibly empty).
 derive_shortname() {
     local path="$1"
     if [[ "$path" == "." ]]; then
         printf ''
-    else
-        printf '%s' "${path////_}"
+        return
     fi
+    # Strip leading and trailing slashes so they don't become edge '_'.
+    path="${path#"${path%%[!/]*}"}"
+    path="${path%"${path##*[!/]}"}"
+    # Collapse runs of '/' so 'a//b' doesn't become 'a__b'.
+    while [[ "$path" == *//* ]]; do
+        path="${path//\/\//\/}"
+    done
+    printf '%s' "${path////_}"
 }
 
 # Join an artifact-name prefix with a shortname: '<prefix>' when the
