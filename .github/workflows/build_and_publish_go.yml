@@ -164,7 +164,7 @@ jobs:
     permissions: {}    # reads env only — no workspace, no API, no secrets
     steps:
       # TODO: replace with $/actions/preflight_guard when GitHub ships $/ syntax (#136)
-      - uses: TomHennen/wrangle/actions/preflight_guard@b7eb9765639f6ffaf11e994efb63b810d69ff53f # main 2026-06-16
+      - uses: TomHennen/wrangle/actions/preflight_guard@041a3fcc56df40113f1b0f6f319c707a6283c5ff # main 2026-06-19
 
   gate:
     needs: [guard]
@@ -174,7 +174,7 @@ jobs:
       should-release: ${{ steps.gate.outputs.should-release }}
     steps:
       # TODO: replace with $/actions/release_gate when GitHub ships $/ syntax (#136)
-      - uses: TomHennen/wrangle/actions/release_gate@b7eb9765639f6ffaf11e994efb63b810d69ff53f # main 2026-06-16
+      - uses: TomHennen/wrangle/actions/release_gate@041a3fcc56df40113f1b0f6f319c707a6283c5ff # main 2026-06-19
         id: gate
         with:
           events: ${{ inputs.release-events }}
@@ -197,7 +197,7 @@ jobs:
           ref: ${{ inputs.ref || '' }}
 
       # TODO: replace with $/actions/scan when GitHub ships $/ syntax (#136)
-      - uses: TomHennen/wrangle/actions/scan@b7eb9765639f6ffaf11e994efb63b810d69ff53f # main 2026-06-16
+      - uses: TomHennen/wrangle/actions/scan@041a3fcc56df40113f1b0f6f319c707a6283c5ff # main 2026-06-19
         if: ${{ inputs.scan-tools != '' }}
         with:
           tools: ${{ inputs.scan-tools }}
@@ -225,7 +225,7 @@ jobs:
       # TODO: replace with $/build/actions/go/checks when GitHub ships $/ syntax (#136)
       # Self-pinned to PR HEAD until merge — bump-self-refs follow-up
       # repoints to the squashed merge SHA after this lands.
-      - uses: TomHennen/wrangle/build/actions/go/checks@b7eb9765639f6ffaf11e994efb63b810d69ff53f # main 2026-06-16
+      - uses: TomHennen/wrangle/build/actions/go/checks@041a3fcc56df40113f1b0f6f319c707a6283c5ff # main 2026-06-19
         id: checks
         with:
           path: ${{ inputs.path }}
@@ -287,7 +287,7 @@ jobs:
 
       # TODO: replace with $/build/actions/go/release when GitHub ships $/ syntax (#136)
       # Self-pinned to PR HEAD until merge.
-      - uses: TomHennen/wrangle/build/actions/go/release@b7eb9765639f6ffaf11e994efb63b810d69ff53f # main 2026-06-16
+      - uses: TomHennen/wrangle/build/actions/go/release@041a3fcc56df40113f1b0f6f319c707a6283c5ff # main 2026-06-19
         id: release
         with:
           path: ${{ inputs.path }}
@@ -420,7 +420,7 @@ jobs:
           path: provenance/
 
       # TODO: replace with $/actions/verify when GitHub ships $/ syntax (#136)
-      - uses: TomHennen/wrangle/actions/verify@0a91dfc4fbaae75585c1596f1f602fe8d7fc52e2 # feat/store-vsa-372 2026-06-18 (bootstrap PR HEAD; bump after merge)
+      - uses: TomHennen/wrangle/actions/verify@041a3fcc56df40113f1b0f6f319c707a6283c5ff # main 2026-06-19
         with:
           dist-files: ${{ needs.release.outputs.dist-files }}
           policy: policies/wrangle-provenance-go-v1.hjson
