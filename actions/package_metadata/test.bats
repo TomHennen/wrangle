@@ -43,6 +43,17 @@ setup() {
     grep -qx 'metadata=npm-metadata' "$GITHUB_OUTPUT"
 }
 
+@test "package_metadata: accepts a hyphen/dot shortname (path 'python-uv', 'a.b_c')" {
+    run "$SCRIPT" python python-uv
+    [ "$status" -eq 0 ]
+    grep -qx 'metadata=python-metadata-python-uv' "$GITHUB_OUTPUT"
+
+    : > "$GITHUB_OUTPUT"
+    run "$SCRIPT" go a.b_c
+    [ "$status" -eq 0 ]
+    grep -qx 'metadata=go-metadata-a.b_c' "$GITHUB_OUTPUT"
+}
+
 @test "package_metadata: rejects a shortname with a path separator" {
     run "$SCRIPT" go "a/b"
     [ "$status" -ne 0 ]

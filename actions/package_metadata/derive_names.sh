@@ -28,10 +28,11 @@ main() {
     fi
     local type="$1" shortname="$2"
 
-    # The shortname is the build composite's already-validated output
-    # (alphanumeric + '_', or empty at root). Re-assert it so a future
-    # caller can't smuggle a path separator or shell metachar into a name.
-    if [[ -n "$shortname" && ! "$shortname" =~ ^[a-zA-Z0-9_]+$ ]]; then
+    # derive_shortname maps path '/' -> '_' but keeps other path-legal
+    # chars ('.', '-'), so 'python-uv' stays 'python-uv'. Re-assert that
+    # shape (or empty at root) so a future caller can't smuggle a path
+    # separator or shell metachar into a name.
+    if [[ -n "$shortname" && ! "$shortname" =~ ^[A-Za-z0-9._-]+$ ]]; then
         printf 'Error: invalid shortname: %s\n' "$shortname" >&2
         exit 1
     fi
