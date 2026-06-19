@@ -116,7 +116,7 @@ jobs:
     permissions: {}    # reads env only — no workspace, no API, no secrets
     steps:
       # TODO: replace with $/actions/preflight_guard when GitHub ships $/ syntax (#136)
-      - uses: TomHennen/wrangle/actions/preflight_guard@b7eb9765639f6ffaf11e994efb63b810d69ff53f # main 2026-06-16
+      - uses: TomHennen/wrangle/actions/preflight_guard@041a3fcc56df40113f1b0f6f319c707a6283c5ff # main 2026-06-19
 
   # Decide whether release-time actions (provenance, publish) should run
   # for this event. Cheap separate job so the result is available to
@@ -131,7 +131,7 @@ jobs:
     steps:
       # No checkout: release_gate resolves via ${{ github.action_path }}.
       # TODO: replace with $/actions/release_gate when GitHub ships $/ syntax (#136)
-      - uses: TomHennen/wrangle/actions/release_gate@b7eb9765639f6ffaf11e994efb63b810d69ff53f # main 2026-06-16
+      - uses: TomHennen/wrangle/actions/release_gate@041a3fcc56df40113f1b0f6f319c707a6283c5ff # main 2026-06-19
         id: gate
         with:
           events: ${{ inputs.release-events }}
@@ -204,7 +204,7 @@ jobs:
           ref: ${{ inputs.ref || '' }}
 
       # TODO: replace with $/build/actions/python when GitHub ships $/ syntax (#136)
-      - uses: TomHennen/wrangle/build/actions/python@b7eb9765639f6ffaf11e994efb63b810d69ff53f # main 2026-06-16
+      - uses: TomHennen/wrangle/build/actions/python@041a3fcc56df40113f1b0f6f319c707a6283c5ff # main 2026-06-19
         id: build
         with:
           path: ${{ inputs.path }}
@@ -345,8 +345,9 @@ jobs:
     needs: [guard, gate, build, attest]
     runs-on: ubuntu-latest
     permissions:
-      id-token: write    # bnd keyless-signs each VSA via this workflow's OIDC identity
-      contents: write    # attach the bundle to the release on tag pushes
+      id-token: write       # bnd keyless-signs each VSA via this workflow's OIDC identity
+      attestations: write   # post each VSA to the GitHub attestation store
+      contents: write       # attach the bundle to the release on tag pushes
     outputs:
       # The bundle ships inside the unified metadata artifact (no separate role).
       bundle-artifact-name: ${{ needs.build.outputs.metadata-artifact-name }}
@@ -372,7 +373,7 @@ jobs:
           path: ${{ needs.build.outputs.metadata-dir }}/
 
       # TODO: replace with $/actions/verify when GitHub ships $/ syntax (#136)
-      - uses: TomHennen/wrangle/actions/verify@b7eb9765639f6ffaf11e994efb63b810d69ff53f # main 2026-06-16
+      - uses: TomHennen/wrangle/actions/verify@041a3fcc56df40113f1b0f6f319c707a6283c5ff # main 2026-06-19
         with:
           dist-files: ${{ needs.build.outputs.dist-files }}
           policy: policies/wrangle-provenance-python-v1.hjson

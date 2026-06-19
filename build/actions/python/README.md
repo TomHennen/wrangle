@@ -87,6 +87,8 @@ ampel verify --subject <dist-file> \
 
 That single command checks — fail-closed — the signature, wrangle's signer identity, that the build ran in *your* repo, and that policy passed at SLSA Build L3. The `<name>` is [PEP 503-normalized](https://peps.python.org/pep-0503/#normalized-names). No ampel? See the [artifact verification guide](../../../docs/verifying_artifacts.md) for an equivalent cosign recipe, the PEP 740 path, and the full trust model.
 
+The VSA is also posted to your repo's GitHub attestation store, so consumers can fetch it by digest with no download via ampel's `--collector github:<your-org>/<your-repo>` — see the [by-digest path](../../../docs/verifying_artifacts.md#by-digest-from-the-github-attestation-store).
+
 ## Further reading
 
 - [`SPEC.md`](./SPEC.md) — this action's full specification: inputs, outputs, step sequence, security model.

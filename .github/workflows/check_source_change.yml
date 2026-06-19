@@ -30,7 +30,7 @@ jobs:
     permissions: {}    # reads env only — no workspace, no API, no secrets
     steps:
       # TODO: replace with $/actions/preflight_guard when GitHub ships $/ syntax (#136)
-      - uses: TomHennen/wrangle/actions/preflight_guard@b7eb9765639f6ffaf11e994efb63b810d69ff53f # main 2026-06-16
+      - uses: TomHennen/wrangle/actions/preflight_guard@041a3fcc56df40113f1b0f6f319c707a6283c5ff # main 2026-06-19
 
   check-change:
     needs: [guard]
