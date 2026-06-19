@@ -5,16 +5,19 @@
 # forget. bnd signs each VSA keyless via the CALLING workflow's OIDC identity;
 # consumers verify with cosign --certificate-identity-regexp.
 #
-# Caller permissions: id-token: write (sign); contents: write only on the
-# tag/publish job (attach to release); packages: write only with oci-target.
+# Caller permissions: id-token: write (sign); attestations: write (post each VSA
+# to the GitHub attestation store); contents: write only on the tag/publish job
+# (attach to release); packages: write only with oci-target.
 name: Wrangle Verify
 description: >
   Verify a release's provenance against a wrangle PolicySet using ampel, sign
   one SLSA VSA per dist subject, and emit one per-artifact
   <artifact>.intoto.jsonl bundle per subject (provenance + that subject's VSA)
   into bundle-out — uploaded as one workflow artifact and attached to the GitHub
-  release on a tag push. With oci-target set (container build type) the bundle is
-  also pushed to the registry as an OCI referrer, which needs packages: write.
+  release on a tag push. Each signed VSA is also posted to the GitHub attestation
+  store for by-digest discovery (needs attestations: write). With oci-target set
+  (container build type) the VSA is also pushed to the registry as an OCI
+  referrer, which needs packages: write.
 
 inputs:
   subjects:
@@ -122,6 +125,10 @@ runs:
         BUNDLE_IN: ${{ inputs.bundle-in }}
         BUNDLE_OUT: ${{ inputs.bundle-out }}
         OCI_TARGET: ${{ inputs.oci-target }}
+        GITHUB_REPOSITORY: ${{ github.repository }}
+        # bnd push github authenticates to the attestation store with this token;
+        # the attestations: write permission rides on it.
+        GITHUB_TOKEN: ${{ github.token }}
       run: |
         "$WRANGLE_ROOT/actions/verify/run_verify.sh" run
 

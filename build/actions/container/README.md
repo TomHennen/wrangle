@@ -43,6 +43,8 @@ ampel verify --subject sha256:<digest> \
 
 That single command checks — fail-closed — the signature, wrangle's signer identity, that the build ran in *your* repo, and that policy passed at SLSA Build L3. No ampel? See the [artifact verification guide](../../../docs/verifying_artifacts.md) for an equivalent cosign recipe and the full trust model.
 
+The VSA is also posted to your repo's GitHub attestation store, so consumers can fetch it by the image digest via ampel's `--collector github:<your-org>/<your-repo>` — see the [by-digest path](../../../docs/verifying_artifacts.md#by-digest-from-the-github-attestation-store).
+
 The SBOM is also inspectable straight off the image: `docker buildx imagetools inspect --format '{{ json .SBOM.SPDX }}' <image>@<digest>`.
 
 ## Further reading

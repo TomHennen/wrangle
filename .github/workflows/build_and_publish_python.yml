@@ -310,8 +310,9 @@ jobs:
     needs: [guard, gate, build, attest]
     runs-on: ubuntu-latest
     permissions:
-      id-token: write    # bnd keyless-signs each VSA via this workflow's OIDC identity
-      contents: write    # attach the bundle to the release on tag pushes
+      id-token: write       # bnd keyless-signs each VSA via this workflow's OIDC identity
+      attestations: write   # post each VSA to the GitHub attestation store
+      contents: write       # attach the bundle to the release on tag pushes
     outputs:
       bundle-artifact-name: python-bundle-${{ needs.build.outputs.shortname }}
     steps:
@@ -328,7 +329,7 @@ jobs:
           path: provenance/
 
       # TODO: replace with $/actions/verify when GitHub ships $/ syntax (#136)
-      - uses: TomHennen/wrangle/actions/verify@b7eb9765639f6ffaf11e994efb63b810d69ff53f # main 2026-06-16
+      - uses: TomHennen/wrangle/actions/verify@0a91dfc4fbaae75585c1596f1f602fe8d7fc52e2 # feat/store-vsa-372 2026-06-18 (bootstrap PR HEAD; bump after merge)
         with:
           dist-files: ${{ needs.build.outputs.dist-files }}
           policy: policies/wrangle-provenance-python-v1.hjson
