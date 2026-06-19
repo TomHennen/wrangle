@@ -496,11 +496,15 @@ write_pyproject() {
 
 @test "python: workflow namespaces artifacts by shortname, suffix-less at root" {
     # The scan/build jobs check out the ADOPTER repo, where lib/shortname.sh
-    # is absent — the workflow must derive the shortname inline, never source
-    # the lib (#469). Root build ('.') stays suffix-less via a conditional join.
+    # is absent — the workflow must never source the lib (#469). The scan job
+    # derives the shortname inline; the build job's packaging names come from
+    # the package_metadata composite (which sources the lib from the wrangle
+    # checkout). Root build ('.') stays suffix-less either way.
     run grep -F 'source lib/shortname.sh' "$WORKFLOW"
     [[ "$status" -ne 0 ]]
-    run grep -F 'dist:python-dist' "$WORKFLOW"
+    run grep -F 'TomHennen/wrangle/actions/package_metadata@' "$WORKFLOW"
+    [[ "$status" -eq 0 ]]
+    run grep -F 'build-type: python' "$WORKFLOW"
     [[ "$status" -eq 0 ]]
 }
 
@@ -531,7 +535,7 @@ write_pyproject() {
 @test "python: scan job passes a per-build artifact-name to the scan action" {
     # The scan action no longer owns wrangle-scan-results; the build job folds
     # this artifact into the unified metadata (#469).
-    run bash -c "sed -n '/^  scan:/,/^  [a-z]/p' \"$WORKFLOW\" | grep -E 'artifact-name: \\\$\\{\\{ steps.sn.outputs.name \\}\\}'"
+    run bash -c "sed -n '/^  scan:/,/^  [a-z]/p' \"$WORKFLOW\" | grep -E 'artifact-name: \\\$\\{\\{ steps.shortname.outputs.name \\}\\}'"
     [[ "$status" -eq 0 ]]
 }
 

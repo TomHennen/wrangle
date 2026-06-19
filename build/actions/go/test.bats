@@ -623,7 +623,7 @@ func main() {}
     [[ "$status" -ne 0 ]]
     # Root build ('.') must stay suffix-less, so the inline join is
     # conditional on a non-empty shortname.
-    run grep -F 'go-scan${sn:+-$sn}' "$WORKFLOW"
+    run grep -F 'go-scan${shortname:+-$shortname}' "$WORKFLOW"
     [[ "$status" -eq 0 ]]
 }
 
@@ -721,7 +721,11 @@ func main() {}
     # Derived inline (no adopter-workspace lib source); root stays clean.
     run grep -F "format('go-checks-{0}'" "$WORKFLOW"
     [[ "$status" -eq 0 ]]
-    run grep -F 'metadata:go-metadata' "$WORKFLOW"
+    # The release job's packaging names come from the package_metadata
+    # composite, seeded with the build type and the build's shortname output.
+    run grep -F 'TomHennen/wrangle/actions/package_metadata@' "$WORKFLOW"
+    [[ "$status" -eq 0 ]]
+    run grep -F 'build-type: go' "$WORKFLOW"
     [[ "$status" -eq 0 ]]
 }
 
