@@ -161,7 +161,7 @@ jobs:
     permissions: {}    # reads env only — no workspace, no API, no secrets
     steps:
       # TODO: replace with $/actions/preflight_guard when GitHub ships $/ syntax (#136)
-      - uses: TomHennen/wrangle/actions/preflight_guard@a261f7d1c71c8269e90d191e48ec14930241b7ad # feat/wrangle-attest-sbom-on-469 2026-06-19
+      - uses: TomHennen/wrangle/actions/preflight_guard@e5936f0dfb78c4899c84bac8ad4d3922112d669e # feat/wrangle-attest-sbom-on-469 2026-06-19
 
   gate:
     needs: [guard]
@@ -171,7 +171,7 @@ jobs:
       should-release: ${{ steps.gate.outputs.should-release }}
     steps:
       # TODO: replace with $/actions/release_gate when GitHub ships $/ syntax (#136)
-      - uses: TomHennen/wrangle/actions/release_gate@a261f7d1c71c8269e90d191e48ec14930241b7ad # feat/wrangle-attest-sbom-on-469 2026-06-19
+      - uses: TomHennen/wrangle/actions/release_gate@e5936f0dfb78c4899c84bac8ad4d3922112d669e # feat/wrangle-attest-sbom-on-469 2026-06-19
         id: gate
         with:
           events: ${{ inputs.release-events }}
@@ -195,7 +195,7 @@ jobs:
 
       # Shared name derivation so the scan and release jobs can't drift.
       # TODO: replace with $/actions/package_metadata when GitHub ships $/ syntax (#136)
-      - uses: TomHennen/wrangle/actions/package_metadata@a261f7d1c71c8269e90d191e48ec14930241b7ad # feat/wrangle-attest-sbom-on-469 2026-06-19
+      - uses: TomHennen/wrangle/actions/package_metadata@e5936f0dfb78c4899c84bac8ad4d3922112d669e # feat/wrangle-attest-sbom-on-469 2026-06-19
         id: names
         if: ${{ inputs.scan-tools != '' }}
         with:
@@ -203,7 +203,7 @@ jobs:
           path: ${{ inputs.path }}
 
       # TODO: replace with $/actions/scan when GitHub ships $/ syntax (#136)
-      - uses: TomHennen/wrangle/actions/scan@a261f7d1c71c8269e90d191e48ec14930241b7ad # feat/wrangle-attest-sbom-on-469 2026-06-19
+      - uses: TomHennen/wrangle/actions/scan@e5936f0dfb78c4899c84bac8ad4d3922112d669e # feat/wrangle-attest-sbom-on-469 2026-06-19
         if: ${{ inputs.scan-tools != '' }}
         with:
           tools: ${{ inputs.scan-tools }}
@@ -236,7 +236,7 @@ jobs:
       # TODO: replace with $/build/actions/go/checks when GitHub ships $/ syntax (#136)
       # Self-pinned to PR HEAD until merge — bump-self-refs follow-up
       # repoints to the squashed merge SHA after this lands.
-      - uses: TomHennen/wrangle/build/actions/go/checks@a261f7d1c71c8269e90d191e48ec14930241b7ad # feat/wrangle-attest-sbom-on-469 2026-06-19
+      - uses: TomHennen/wrangle/build/actions/go/checks@e5936f0dfb78c4899c84bac8ad4d3922112d669e # feat/wrangle-attest-sbom-on-469 2026-06-19
         id: checks
         with:
           path: ${{ inputs.path }}
@@ -303,7 +303,7 @@ jobs:
 
       # TODO: replace with $/build/actions/go/release when GitHub ships $/ syntax (#136)
       # Self-pinned to PR HEAD until merge.
-      - uses: TomHennen/wrangle/build/actions/go/release@a261f7d1c71c8269e90d191e48ec14930241b7ad # feat/wrangle-attest-sbom-on-469 2026-06-19
+      - uses: TomHennen/wrangle/build/actions/go/release@e5936f0dfb78c4899c84bac8ad4d3922112d669e # feat/wrangle-attest-sbom-on-469 2026-06-19
         id: release
         with:
           path: ${{ inputs.path }}
@@ -327,7 +327,7 @@ jobs:
           printf 'module=%s\n' "$(go -C "$INPUT_PATH" list -m | head -n1)" >> "$GITHUB_OUTPUT"
 
       # TODO: replace with $/actions/package_metadata when GitHub ships $/ syntax (#136)
-      - uses: TomHennen/wrangle/actions/package_metadata@a261f7d1c71c8269e90d191e48ec14930241b7ad # feat/wrangle-attest-sbom-on-469 2026-06-19
+      - uses: TomHennen/wrangle/actions/package_metadata@e5936f0dfb78c4899c84bac8ad4d3922112d669e # feat/wrangle-attest-sbom-on-469 2026-06-19
         id: names
         with:
           build-type: go
@@ -450,7 +450,7 @@ jobs:
       attestation-bundle-name: ${{ needs.release.outputs.metadata-artifact-name }}
     steps:
       # TODO: replace with $/actions/verify_release when GitHub ships $/ syntax (#136)
-      - uses: TomHennen/wrangle/actions/verify_release@a261f7d1c71c8269e90d191e48ec14930241b7ad # feat/wrangle-attest-sbom-on-469 2026-06-19
+      - uses: TomHennen/wrangle/actions/verify_release@e5936f0dfb78c4899c84bac8ad4d3922112d669e # feat/wrangle-attest-sbom-on-469 2026-06-19
         with:
           build-type: go
           shortname: ${{ needs.release.outputs.shortname }}
