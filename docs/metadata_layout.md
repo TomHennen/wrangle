@@ -1,12 +1,11 @@
 # Unified metadata layout
 
-Every wrangle build publishes its outputs to two complementary places: the
-**ecosystem-native** location consumers already expect (PyPI attestations,
-GHCR image referrers, GitHub release assets, …) and one **unified wrangle
-location** that carries the complete set in the same shape for every build
-type. This page documents the unified location. For the design rationale —
-why both layers exist and how the artifact maps to a directory — see
-[docs/SPEC.md](SPEC.md).
+Every wrangle build publishes its outputs to the ecosystem-native location
+consumers already expect (PyPI attestations, GHCR image referrers, GitHub
+release assets, …) and to one common location that carries the complete set in
+the same shape for every build type. This page documents that common location.
+For the design rationale — why both layers exist and how the artifact maps to a
+directory — see [docs/SPEC.md](SPEC.md).
 
 ## What's in the metadata artifact
 
@@ -25,18 +24,15 @@ scan/govulncheck/govulncheck.json   # go only; native JSON, not SARIF
 
 ## Which `scan/` subdirs appear
 
-`scan/` holds **a `scan/<tool>/` subdir for each tool that actually ran** —
-not a fixed five. Which tools run is driven by the caller's `scan-tools`
-input (default `osv zizmor scorecard:info dependency-review wrangle-lint`),
-and two of the defaults are event-gated:
+`scan/` holds a `scan/<tool>/` subdir for each tool listed in the caller's
+`scan-tools` input. Some tools are event-gated:
 
-- **scorecard** runs on non-PR events only.
-- **dependency-review** runs on pull requests only.
+- scorecard runs on non-PR events only.
+- dependency-review runs on pull requests only.
 
 So a PR run and a tag/push run of the same project produce different
-`scan/` subdirs. Setting `scan-tools` to a custom list (or the empty string
-to disable scanning) changes the set accordingly. **go** builds additionally
-get `scan/govulncheck/govulncheck.json` from the checks job.
+`scan/` subdirs. go builds additionally get
+`scan/govulncheck/govulncheck.json` from the checks job.
 
 ## Naming
 

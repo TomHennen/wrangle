@@ -1,22 +1,17 @@
 name: Wrangle Package Metadata Names
 description: >
   Derive the per-build packaging artifact names (and the shortname) for a
-  build type. The four reusable build workflows (go/python/npm/container)
-  call this from both their scan job (passing path) and their build job
-  (passing the build composite's shortname) instead of repeating the
-  name-join loop or the path normalization, so names can't drift between
-  build types or between the scan and build jobs.
-
-  Runs from the wrangle checkout, so it sources lib/shortname.sh for the
-  root-path normalization — the build/scan jobs check out the ADOPTER
-  repo (no lib/) and consume these outputs rather than deriving names.
+  build type. The build workflows call this from both their scan job (passing
+  path) and their build job (passing shortname) so names can't drift between
+  build types or between the scan and build jobs. Runs from the wrangle
+  checkout so it can source lib/shortname.sh, which the adopter checkout lacks.
 
 inputs:
   build-type:
     description: "Build type the names are namespaced under (go, python, npm, container)."
     required: true
   shortname:
-    description: "The build composite's path-derived shortname output (path '/' -> '_', empty at the repo root). Wins over path when set."
+    description: "Overrides the shortname that path would otherwise compute. Build jobs pass their already-computed shortname here."
     required: false
     default: ""
   path:

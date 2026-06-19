@@ -87,7 +87,7 @@ on:
         description: "Normalized (lowercased) image name."
         value: ${{ jobs.build.outputs.imagename }}
       metadata-artifact-name:
-        description: "Name of the unified metadata workflow artifact (a zip of `metadata/container[/<shortname>]/`'s contents): SBOM, the `scan/` tool output, and on release the `<image-digest>.intoto.jsonl` bundle. Format: `container-metadata[-<shortname>]`. Adopters fetch via `actions/download-artifact` — files land at the top level of the configured `path:`. See docs/SPEC.md \"Unified metadata layout\"."
+        description: "Name of the unified metadata workflow artifact. Format: `container-metadata[-<shortname>]`. Contents and layout: docs/metadata_layout.md."
         value: ${{ jobs.build.outputs.metadata-artifact-name }}
       should-release:
         description: |
@@ -143,10 +143,7 @@ jobs:
         with:
           persist-credentials: false
 
-      # Derive the scan artifact name from the path so it matches the build
-      # job's (which passes its shortname): the composite runs from the wrangle
-      # checkout and sources lib/shortname.sh, which this job's ADOPTER checkout
-      # lacks. Sharing the derivation keeps the names from drifting.
+      # Shared name derivation so the scan and build jobs can't drift.
       # TODO: replace with $/actions/package_metadata when GitHub ships $/ syntax (#136)
       - uses: TomHennen/wrangle/actions/package_metadata@530c5131a764b6fa84da6f794bbb250d03b7ab29 # feat/469-unify-metadata-artifact 2026-06-19
         id: names
@@ -285,10 +282,7 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
-      # The composite stages sbom + scan/ and runs actions/verify, computing the
-      # artifact names and metadata dir from build-type + shortname. With
-      # oci-target set it skips the dist/provenance workflow-artifact downloads —
-      # the provenance is seeded from the registry referrer instead.
+      # oci-target seeds provenance from the registry referrer, skipping the dist/provenance downloads.
       # TODO: replace with $/actions/verify_release when GitHub ships $/ syntax (#136)
       - uses: TomHennen/wrangle/actions/verify_release@530c5131a764b6fa84da6f794bbb250d03b7ab29 # feat/469-unify-metadata-artifact 2026-06-19
         with:

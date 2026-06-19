@@ -86,7 +86,7 @@ Go, Python, npm, and Container each run the full pipeline and produce an atteste
 
 ## Where's my stuff?
 
-Each build produces two workflow artifacts:
+Each build produces two workflow artifacts (zipfiles):
 
 - **`<type>-dist-<sn>`** — your built product (wheels/sdist for python, the npm tarball, goreleaser's `dist/` for go). Container builds push the image to the registry instead.
 - **`<type>-metadata-<sn>`** — the SBOM, the scan findings, and (on release runs) the SLSA provenance + signed VSA, all in one artifact. The [source-only scan workflow](actions/scan/README.md) uploads just `scan/` as `scan` (or `scan-<sn>` for a subdir).

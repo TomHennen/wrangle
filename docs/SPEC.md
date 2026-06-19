@@ -138,7 +138,7 @@ signed VSA). The full file layout, and which `scan/` subdirs appear for a given
 event (scorecard non-PR, dependency-review PR-only, driven by `scan-tools`), is
 documented in [docs/metadata_layout.md](metadata_layout.md).
 
-`<type>` is the build type (`container`, `python`, ...) and `<sn>` is the path-derived shortname: the `path` input with `/` → `_` (`path: services/api` → `services_api`), so multiple builds in one workflow don't collide. For the common root build (`path: .`) the shortname is empty, so the suffix is omitted entirely — artifact names are clean (`<type>-metadata`, `scan`) and the dir is `metadata/<type>/`. All build types and the standalone scan share one derivation (`lib/shortname.sh`).
+`<type>` is the build type and `<sn>` is the path-derived shortname that namespaces per-build artifacts so multiple builds in one workflow don't collide (format and examples in [docs/metadata_layout.md](metadata_layout.md#naming)). All build types and the standalone scan share one derivation (`lib/shortname.sh`).
 
 Each build job folds the separate scan job's output into `scan/` and, on release runs, the verify job folds the per-subject `<artifact>.intoto.jsonl` bundle into the same dir — so one `download-artifact` of `<type>-metadata-<sn>` yields the complete set.
 
