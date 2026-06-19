@@ -189,6 +189,19 @@ exit 0
 ADAPT
     chmod +x "$MOCK_TOOLS/osv/adapter.sh"
 
+    # Mock wrangle-lint adapter: like osv, run.sh writes a scan/v1 manifest for
+    # the wrangle-lint token. Its SARIF driver name is wrangle-lint.
+    mkdir -p "$MOCK_TOOLS/wrangle-lint"
+    cat > "$MOCK_TOOLS/wrangle-lint/adapter.sh" << 'ADAPT'
+#!/bin/bash
+set -euo pipefail
+cat > "$2/output.sarif" << 'SARIF'
+{"version":"2.1.0","runs":[{"tool":{"driver":{"name":"wrangle-lint","version":"1.2.3"}},"results":[]}]}
+SARIF
+exit 0
+ADAPT
+    chmod +x "$MOCK_TOOLS/wrangle-lint/adapter.sh"
+
     # Create test source and output directories
     mkdir -p "$TEST_DIR/src" "$TEST_DIR/output"
 }
@@ -526,7 +539,20 @@ FAKEGO
     [[ "$output" == "findings" ]]
 }
 
-@test "orchestrator: writes no scan manifest for a non-osv adapter (Phase 2 not wired)" {
+@test "orchestrator: writes a wrangle-lint scan/v1 manifest next to output.sarif" {
+    run_orchestrator -s "$TEST_DIR/src" -o "$TEST_DIR/output" "wrangle-lint"
+    [ "$status" -eq 0 ]
+    manifest="$TEST_DIR/output/wrangle-lint/manifest.json"
+    [ -f "$manifest" ]
+    run jq -r '.tool.name' "$manifest"
+    [[ "$output" == "wrangle-lint" ]]
+    run jq -r '.tool.version' "$manifest"
+    [[ "$output" == "1.2.3" ]]
+    run jq -r '.result' "$manifest"
+    [[ "$output" == "clean" ]]
+}
+
+@test "orchestrator: writes no scan manifest for an unwired adapter" {
     run_orchestrator -s "$TEST_DIR/src" -o "$TEST_DIR/output" "clean-tool"
     [ "$status" -eq 0 ]
     [ ! -f "$TEST_DIR/output/clean-tool/wrangle_attestation_metadata.json" ]
