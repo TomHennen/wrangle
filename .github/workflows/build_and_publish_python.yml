@@ -92,10 +92,10 @@ on:
         description: "Name of the workflow artifact containing the SLSA provenance bundle — one JSON object per line, covering all dist subjects. Empty when should-release is false."
         value: ${{ jobs.attest.outputs.bundle-artifact-name }}
       bundle-artifact-name:
-        description: "Name of the workflow artifact containing the single in-toto JSONL bundle (SLSA provenance + one signed VSA per dist subject). Empty when should-release is false."
+        description: "Name of the workflow artifact the per-subject in-toto JSONL bundles ship in. They live inside the unified metadata artifact, so this equals metadata-artifact-name on release runs. Empty when should-release is false."
         value: ${{ jobs.verify.outputs.bundle-artifact-name }}
       metadata-artifact-name:
-        description: "Name of the workflow artifact (a zip of `metadata/python/<shortname>/`'s contents) containing the SBOM and metadata. Format: `python-metadata-<shortname>`. Adopters fetch via `actions/download-artifact` — the metadata files land at the top level of the configured `path:`, not under `metadata/python/<shortname>/`. See docs/SPEC.md \"Unified metadata layout\"."
+        description: "Name of the unified metadata workflow artifact (a zip of `metadata/python/<shortname>/`'s contents): SBOM, the `scan/` tool output, and on release the `<artifact>.intoto.jsonl` bundles. Format: `python-metadata-<shortname>`. Adopters fetch via `actions/download-artifact` — files land at the top level of the configured `path:`. See docs/SPEC.md \"Unified metadata layout\"."
         value: ${{ jobs.build.outputs.metadata-artifact-name }}
       should-release:
         description: |
@@ -153,11 +153,24 @@ jobs:
           persist-credentials: false
           ref: ${{ inputs.ref || '' }}
 
+      # Shortname must match the build job's (extract_metadata.sh: path with
+      # '/'→'_'), so the build job downloads the right scan artifact.
+      - id: sn
+        if: ${{ inputs.scan-tools != '' }}
+        shell: bash
+        env:
+          INPUT_PATH: ${{ inputs.path }}
+        run: |
+          set -euo pipefail
+          printf 'name=python-scan-%s\n' "${INPUT_PATH////_}" >> "$GITHUB_OUTPUT"
+
       # TODO: replace with $/actions/scan when GitHub ships $/ syntax (#136)
       - uses: TomHennen/wrangle/actions/scan@b7eb9765639f6ffaf11e994efb63b810d69ff53f # main 2026-06-16
         if: ${{ inputs.scan-tools != '' }}
         with:
           tools: ${{ inputs.scan-tools }}
+          # The build job folds this into the unified python-metadata-<sn>.
+          artifact-name: ${{ steps.sn.outputs.name }}
           # Cold on release: the scan gates an attested build, so a
           # poisoned tool cache must not be able to forge a passing scan.
           go-cache: ${{ needs.gate.outputs.should-release == 'true' && '' || inputs.go-cache }}
@@ -165,8 +178,10 @@ jobs:
   build:
     # needs `gate` so the build can read should-release and disable the
     # uv cache for release builds (SLSA L3 isolation — see the `cache:`
-    # input below and docs/SLSA_L3_AUDIT.md Finding 1).
-    needs: [guard, gate]
+    # input below and docs/SLSA_L3_AUDIT.md Finding 1). needs `scan` so the
+    # untrusted scan job's output can be folded into the unified metadata
+    # dir as inert data before upload.
+    needs: [guard, gate, scan]
     runs-on: ubuntu-latest
     permissions:
       contents: read    # minimal — no OIDC, no publish
@@ -178,6 +193,8 @@ jobs:
       shortname: ${{ steps.build.outputs.shortname }}
       dist-artifact-name: ${{ steps.names.outputs.dist }}
       metadata-artifact-name: ${{ steps.names.outputs.metadata }}
+      metadata-pre-artifact-name: ${{ steps.names.outputs.metadata-pre }}
+      metadata-dir: ${{ steps.build.outputs.metadata-dir }}
       # JSON array of dist filenames the verify job binds one VSA to each.
       dist-files: ${{ steps.distfiles.outputs.files }}
     steps:
@@ -216,15 +233,21 @@ jobs:
           printf 'resource-uri=pkg:pypi/%s@%s\n' "$normalized" "$VERSION" >> "$GITHUB_OUTPUT"
 
       # Namespace artifact names by the path-derived shortname so multiple
-      # python builds in one workflow don't collide.
+      # python builds in one workflow don't collide. `metadata` is the single
+      # unified artifact (sbom + scan/ + bundle); `scan` and `metadata-pre`
+      # are internal job-passing transients folded into it.
       - id: names
         shell: bash
         env:
           SHORTNAME: ${{ steps.build.outputs.shortname }}
         run: |
           set -euo pipefail
-          printf 'dist=python-dist-%s\n' "$SHORTNAME" >> "$GITHUB_OUTPUT"
-          printf 'metadata=python-metadata-%s\n' "$SHORTNAME" >> "$GITHUB_OUTPUT"
+          {
+            printf 'dist=python-dist-%s\n' "$SHORTNAME"
+            printf 'metadata=python-metadata-%s\n' "$SHORTNAME"
+            printf 'scan=python-scan-%s\n' "$SHORTNAME"
+            printf 'metadata-pre=python-metadata-pre-%s\n' "$SHORTNAME"
+          } >> "$GITHUB_OUTPUT"
 
       # Emit the dist filenames as a JSON array; the verify job binds one VSA per file.
       # Derived from the build's base64 `hashes` output (the "<sha256>  <name>" lines the
@@ -250,9 +273,21 @@ jobs:
           name: ${{ steps.names.outputs.dist }}
           path: ${{ inputs.path }}/dist/
 
+      # Fold the untrusted scan job's output into the metadata dir as inert
+      # data (download-artifact only extracts files; nothing is executed here).
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        if: ${{ inputs.scan-tools != '' }}
+        continue-on-error: true   # scan upload is best-effort (continue-on-error in the scan job)
+        with:
+          name: ${{ steps.names.outputs.scan }}
+          path: ${{ steps.build.outputs.metadata-dir }}/scan/
+
+      # Non-release: this is the final unified metadata (sbom + scan/). On
+      # release the verify job appends the bundle and owns the final upload,
+      # so build only stages sbom + scan/ as a transient for verify.
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
-          name: ${{ steps.names.outputs.metadata }}
+          name: ${{ needs.gate.outputs.should-release == 'true' && steps.names.outputs.metadata-pre || steps.names.outputs.metadata }}
           path: ${{ steps.build.outputs.metadata-dir }}/
           if-no-files-found: error
 
@@ -313,7 +348,8 @@ jobs:
       id-token: write    # bnd keyless-signs each VSA via this workflow's OIDC identity
       contents: write    # attach the bundle to the release on tag pushes
     outputs:
-      bundle-artifact-name: python-bundle-${{ needs.build.outputs.shortname }}
+      # The bundle ships inside the unified metadata artifact (no separate role).
+      bundle-artifact-name: ${{ needs.build.outputs.metadata-artifact-name }}
     steps:
       - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
         with:
@@ -327,6 +363,14 @@ jobs:
           name: python-provenance-bundle-${{ needs.build.outputs.shortname }}
           path: provenance/
 
+      # Stage the build job's sbom + scan/ into the unified metadata dir; the
+      # verify step writes the bundle alongside them and uploads the whole dir
+      # as the final python-metadata-<sn>. Inert data — nothing is executed.
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: ${{ needs.build.outputs.metadata-pre-artifact-name }}
+          path: ${{ needs.build.outputs.metadata-dir }}/
+
       # TODO: replace with $/actions/verify when GitHub ships $/ syntax (#136)
       - uses: TomHennen/wrangle/actions/verify@b7eb9765639f6ffaf11e994efb63b810d69ff53f # main 2026-06-16
         with:
@@ -334,8 +378,10 @@ jobs:
           policy: policies/wrangle-provenance-python-v1.hjson
           collector: jsonl:provenance/provenance.jsonl
           bundle-in: provenance/provenance.jsonl
-          bundle-out: bundles
-          artifact-name: python-bundle-${{ needs.build.outputs.shortname }}
+          # Write bundles into the metadata dir and upload the whole dir as the
+          # unified metadata artifact (sbom + scan/ + bundle).
+          bundle-out: ${{ needs.build.outputs.metadata-dir }}
+          artifact-name: ${{ needs.build.outputs.metadata-artifact-name }}
           # resourceUri names the package the VSAs cover (pkg:pypi, PEP
           # 503-normalized); the consumer/gate check pins it. Each subject
           # digest is the cryptographic bind.

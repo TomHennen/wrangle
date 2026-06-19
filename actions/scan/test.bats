@@ -51,9 +51,18 @@ setup() {
     [ "$status" -eq 0 ]
 }
 
-@test "scan: artifact name is wrangle-scan-results" {
-    run grep 'name: wrangle-scan-results' "$ACTION_DIR/action.yml"
+@test "scan: artifact name is the artifact-name input (caller-supplied)" {
+    # The scan job no longer owns a fixed name — a build workflow passes a
+    # per-build name it folds into the unified metadata artifact, the
+    # standalone scan workflow passes scan-<sn>.
+    run grep 'name: ${{ inputs.artifact-name }}' "$ACTION_DIR/action.yml"
     [ "$status" -eq 0 ]
+}
+
+@test "scan: artifact-name defaults to wrangle-scan-results for direct callers" {
+    run bash -c "grep -A12 '^  artifact-name:' '$ACTION_DIR/action.yml' | grep -m1 'default:'"
+    [ "$status" -eq 0 ]
+    [[ "$output" == *'default: "wrangle-scan-results"'* ]]
 }
 
 @test "scan: references zizmor action" {
