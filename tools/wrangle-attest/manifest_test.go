@@ -134,6 +134,56 @@ func TestDiscoverManifestsIgnoresStrays(t *testing.T) {
 	}
 }
 
+// A scan/<tool>/wrangle_attestation_metadata.json is discovered alongside the
+// top-level SBOM manifest (the bounded one-level lookup under <root>/scan/).
+func TestDiscoverManifestsScanSubdir(t *testing.T) {
+	root := t.TempDir()
+	writeFile(t, root, "wrangle_attestation_metadata.json", `{"predicate-type":"https://spdx.dev/Document","result-file":"sbom.spdx.json"}`)
+	writeFile(t, root, "scan/osv/wrangle_attestation_metadata.json", `{"predicate-type":"https://github.com/TomHennen/wrangle/attestation/scan/v1","result-file":"output.sarif","tool":{"name":"osv-scanner","version":"1.0"},"result":"clean"}`)
+	got, err := discoverManifests([]string{root})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != 2 {
+		t.Fatalf("expected the SBOM + scan manifests, got %d", len(got))
+	}
+	var sawScan bool
+	for _, m := range got {
+		if m.PredicateType == predicateScanV1 {
+			sawScan = true
+		}
+	}
+	if !sawScan {
+		t.Fatal("scan/osv manifest was not discovered")
+	}
+}
+
+// The scan lookup is one level only: a manifest under scan/<tool>/sub/ is too
+// deep and a top-level non-scan stray (e.g. evil/) is outside the honored
+// locations — both ignored, neither an error.
+func TestDiscoverManifestsScanBounded(t *testing.T) {
+	root := t.TempDir()
+	writeFile(t, root, "wrangle_attestation_metadata.json", `{"predicate-type":"https://spdx.dev/Document","result-file":"sbom.spdx.json"}`)
+	writeFile(t, root, "scan/osv/sub/wrangle_attestation_metadata.json", `{"predicate-type":"https://evil.example/x","result-file":"r.json"}`)
+	writeFile(t, root, "evil/wrangle_attestation_metadata.json", `{"predicate-type":"https://evil.example/y","result-file":"r.json"}`)
+	got, err := discoverManifests([]string{root})
+	if err != nil {
+		t.Fatalf("strays must not cause an error: %v", err)
+	}
+	if len(got) != 1 || got[0].PredicateType != predicateSPDX {
+		t.Fatalf("expected only the canonical SBOM manifest, got %d", len(got))
+	}
+}
+
+// A malformed manifest at an honored scan/<tool>/ location fails closed.
+func TestDiscoverManifestsScanFailClosed(t *testing.T) {
+	root := t.TempDir()
+	writeFile(t, root, "scan/osv/wrangle_attestation_metadata.json", `{"bad`)
+	if _, err := discoverManifests([]string{root}); err == nil {
+		t.Fatal("expected discovery to fail closed on a malformed scan manifest")
+	}
+}
+
 // A malformed canonical manifest fails the whole run (fail closed).
 func TestDiscoverManifestsFailClosed(t *testing.T) {
 	root := t.TempDir()
