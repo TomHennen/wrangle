@@ -116,6 +116,17 @@ make_sarif() {
     ! grep -E 'run:.*\$\{\{ *steps\.zizmor' "$TOOL_DIR/action.yml"
 }
 
+@test "zizmor: action.yml writes the scan/v1 manifest, gated and via env" {
+    # The manifest step must exist, gate on the SARIF via hashFiles (so it's
+    # skipped when the tool didn't run), thread the SARIF path through env:
+    # (no ${{ }} in run:), and call write_scan_manifest.sh with the zizmor token.
+    grep -q "hashFiles('.wrangle/metadata/zizmor/output.sarif') != ''" "$TOOL_DIR/action.yml"
+    grep -Eq 'write_scan_manifest\.sh" zizmor ' "$TOOL_DIR/action.yml"
+    run awk '/^    - name: Write scan manifest/{flag=1;next} flag && /^    - name:/{flag=0} flag' "$TOOL_DIR/action.yml"
+    [ "$status" -eq 0 ]
+    ! printf '%s\n' "$output" | grep -q 'run:.*\${{'
+}
+
 @test "zizmor: collect_sarif.sh exists and is executable" {
     [ -x "$TOOL_DIR/collect_sarif.sh" ]
 }
