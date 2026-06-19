@@ -48,7 +48,7 @@ func (m *manifest) validate() error {
 		return errors.New("missing result-file")
 	}
 	// A result-file is a name within the manifest's dir, never an escape.
-	if filepath.IsAbs(m.ResultFile) || containsDotDot(m.ResultFile) {
+	if !filepath.IsLocal(m.ResultFile) {
 		return fmt.Errorf("result-file %q must be a path within the manifest directory", m.ResultFile)
 	}
 	switch m.PredicateType {
@@ -65,15 +65,6 @@ func (m *manifest) validate() error {
 		return fmt.Errorf("unknown predicate-type %q", m.PredicateType)
 	}
 	return nil
-}
-
-func containsDotDot(p string) bool {
-	for _, seg := range strings.Split(filepath.ToSlash(p), "/") {
-		if seg == ".." {
-			return true
-		}
-	}
-	return false
 }
 
 // resultPath is the absolute path to the manifest's native result file.

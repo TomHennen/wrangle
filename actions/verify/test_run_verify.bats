@@ -744,6 +744,24 @@ STUB
     ! grep -q -- "--subject=" "$TEST_DIR/attest-args"
 }
 
+@test "run_verify: the real engine emits the in-toto statement in unsigned mode" {
+    # Happy path against the real binary, hermetically: unsigned mode needs no
+    # OIDC/network, so it proves end-to-end manifest -> in-toto statement without
+    # a stub. (The shell glue always signs; this drives the engine directly.)
+    if [[ ! -x "$ATTEST_BIN" ]]; then skip_or_fail "real wrangle-attest not available"; fi
+    local meta="$TEST_DIR/meta"; mkdir -p "$meta"
+    printf '{"predicate-type":"https://spdx.dev/Document","result-file":"sbom.spdx.json"}\n' \
+        > "$meta/wrangle_attestation_metadata.json"
+    printf '{"spdxVersion":"SPDX-2.3","name":"x"}\n' > "$meta/sbom.spdx.json"
+    local out="$TEST_DIR/out.intoto.jsonl"
+    local sha; sha="$(printf '0%.0s' {1..64})"
+    run "$ATTEST_BIN" --metadata-root="$meta" --subject="sha256:$sha" --out="$out"
+    [[ "$status" -eq 0 ]]
+    [[ "$(wc -l < "$out")" -eq 1 ]]
+    [[ "$(jq -r '.predicateType' "$out")" == "https://spdx.dev/Document" ]]
+    [[ "$(jq -r '.subject[0].digest.sha256' "$out")" == "$sha" ]]
+}
+
 @test "run_verify: emit_metadata fails closed when the real engine sees a malformed manifest" {
     # The real engine fails closed at discoverManifests — before newSigner — so a
     # malformed top-level manifest aborts hermetically (no OIDC/network). Drive

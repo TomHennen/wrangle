@@ -2,8 +2,6 @@ package main
 
 import (
 	"bytes"
-	"encoding/base64"
-	"encoding/json"
 	"errors"
 	"os"
 	"path/filepath"
@@ -12,6 +10,9 @@ import (
 	"github.com/carabiner-dev/signer"
 	"github.com/carabiner-dev/signer/key"
 	"github.com/carabiner-dev/signer/options"
+	intoto "github.com/in-toto/attestation/go/v1"
+	sdsse "github.com/sigstore/protobuf-specs/gen/pb-go/dsse"
+	"google.golang.org/protobuf/encoding/protojson"
 )
 
 // localKeySigner signs with an ephemeral local key (DSSE envelope backend),
@@ -69,39 +70,24 @@ func TestRunSignEmitsSignedStatement(t *testing.T) {
 		t.Fatal(err)
 	}
 	// The local-key backend emits a single DSSE envelope (indented protojson);
-	// keyless emits a compact bundle. Parse the whole artifact as one object.
-	var env struct {
-		Payload     string `json:"payload"`
-		PayloadType string `json:"payloadType"`
-		Signatures  []struct {
-			Sig string `json:"sig"`
-		} `json:"signatures"`
-	}
-	if err := json.Unmarshal(bytes.TrimSpace(data), &env); err != nil {
+	// keyless emits a compact bundle. Parse via the upstream DSSE envelope type.
+	var env sdsse.Envelope
+	if err := protojson.Unmarshal(bytes.TrimSpace(data), &env); err != nil {
 		t.Fatalf("signed output is not a DSSE envelope: %v", err)
 	}
-	if len(env.Signatures) == 0 || env.Signatures[0].Sig == "" {
-		t.Fatalf("envelope carries no signature: %+v", env.Signatures)
+	if len(env.GetSignatures()) == 0 || len(env.GetSignatures()[0].GetSig()) == 0 {
+		t.Fatalf("envelope carries no signature: %+v", env.GetSignatures())
 	}
 
-	payload, err := base64.StdEncoding.DecodeString(env.Payload)
-	if err != nil {
-		t.Fatalf("payload is not base64: %v", err)
-	}
-	var stmt struct {
-		PredicateType string `json:"predicateType"`
-		Subject       []struct {
-			Digest map[string]string `json:"digest"`
-		} `json:"subject"`
-	}
-	if err := json.Unmarshal(payload, &stmt); err != nil {
+	var stmt intoto.Statement
+	if err := protojson.Unmarshal(env.GetPayload(), &stmt); err != nil {
 		t.Fatalf("payload is not the in-toto statement: %v", err)
 	}
-	if stmt.PredicateType != "https://spdx.dev/Document" {
-		t.Fatalf("wrong predicateType: %q", stmt.PredicateType)
+	if stmt.GetPredicateType() != "https://spdx.dev/Document" {
+		t.Fatalf("wrong predicateType: %q", stmt.GetPredicateType())
 	}
-	if len(stmt.Subject) != 1 || stmt.Subject[0].Digest["sha256"] == "" {
-		t.Fatalf("expected the single sha256 subject, got %+v", stmt.Subject)
+	if subs := stmt.GetSubject(); len(subs) != 1 || subs[0].GetDigest()["sha256"] == "" {
+		t.Fatalf("expected the single sha256 subject, got %+v", stmt.GetSubject())
 	}
 }
 

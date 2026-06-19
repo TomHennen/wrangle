@@ -7,11 +7,15 @@
 package main
 
 import (
-	"encoding/base64"
-	"encoding/json"
 	"os"
 	"path/filepath"
 	"testing"
+
+	"github.com/carabiner-dev/signer"
+	"github.com/carabiner-dev/signer/options"
+	intoto "github.com/in-toto/attestation/go/v1"
+	sbundle "github.com/sigstore/sigstore-go/pkg/bundle"
+	"google.golang.org/protobuf/encoding/protojson"
 )
 
 func TestRunSignKeyless(t *testing.T) {
@@ -43,52 +47,98 @@ func TestRunSignKeyless(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	// The keyless artifact is a Sigstore bundle: one compact line carrying a
-	// verificationMaterial (the Fulcio cert) and the inner DSSE envelope.
-	var bundle struct {
-		MediaType            string          `json:"mediaType"`
-		VerificationMaterial json.RawMessage `json:"verificationMaterial"`
-		DSSEEnvelope         struct {
-			Payload     string `json:"payload"`
-			PayloadType string `json:"payloadType"`
-			Signatures  []struct {
-				Sig string `json:"sig"`
-			} `json:"signatures"`
-		} `json:"dsseEnvelope"`
-	}
-	if err := json.Unmarshal(data, &bundle); err != nil {
+	// The keyless artifact is a Sigstore bundle carrying the Fulcio cert in
+	// verificationMaterial and the in-toto statement in an inner DSSE envelope.
+	// Parse it with the upstream sigstore-go bundle type so the shape checks
+	// can't drift from the real schema.
+	var bundle sbundle.Bundle
+	if err := bundle.UnmarshalJSON(data); err != nil {
 		t.Fatalf("output is not a Sigstore bundle: %v\n%s", err, data)
 	}
-	if len(bundle.VerificationMaterial) == 0 {
+	if bundle.GetVerificationMaterial() == nil {
 		t.Fatal("bundle carries no verificationMaterial (Fulcio cert)")
 	}
-	if len(bundle.DSSEEnvelope.Signatures) == 0 || bundle.DSSEEnvelope.Signatures[0].Sig == "" {
+	env := bundle.GetDsseEnvelope()
+	if env == nil {
+		t.Fatal("bundle carries no DSSE envelope")
+	}
+	if len(env.GetSignatures()) == 0 || len(env.GetSignatures()[0].GetSig()) == 0 {
 		t.Fatal("bundle's DSSE envelope carries no signature")
 	}
 	// The keyless path uses the in-toto media type, NOT the statement URI.
-	if got := bundle.DSSEEnvelope.PayloadType; got != "application/vnd.in-toto+json" {
+	if got := env.GetPayloadType(); got != "application/vnd.in-toto+json" {
 		t.Fatalf("payloadType = %q, want application/vnd.in-toto+json", got)
 	}
 
-	payload, err := base64.StdEncoding.DecodeString(bundle.DSSEEnvelope.Payload)
-	if err != nil {
-		t.Fatalf("payload not base64: %v", err)
-	}
-	var stmt struct {
-		PredicateType string `json:"predicateType"`
-		Subject       []struct {
-			Digest map[string]string `json:"digest"`
-		} `json:"subject"`
-	}
-	if err := json.Unmarshal(payload, &stmt); err != nil {
+	var stmt intoto.Statement
+	if err := protojson.Unmarshal(env.GetPayload(), &stmt); err != nil {
 		t.Fatalf("payload is not the in-toto statement: %v", err)
 	}
-	if stmt.PredicateType != "https://spdx.dev/Document" {
-		t.Fatalf("wrong predicateType: %q", stmt.PredicateType)
+	if stmt.GetPredicateType() != "https://spdx.dev/Document" {
+		t.Fatalf("wrong predicateType: %q", stmt.GetPredicateType())
 	}
-	if len(stmt.Subject) != 1 || stmt.Subject[0].Digest["sha256"] == "" {
-		t.Fatalf("expected the single sha256 subject, got %+v", stmt.Subject)
+	if subs := stmt.GetSubject(); len(subs) != 1 || subs[0].GetDigest()["sha256"] == "" {
+		t.Fatalf("expected the single sha256 subject, got %+v", stmt.GetSubject())
 	}
+
+	// Cryptographically verify the bundle against the Sigstore trust root: the
+	// signature must be valid for this Fulcio identity over the signed payload.
+	// A tampered payload or signature fails here.
+	verifyKeylessBundle(t, data)
+}
+
+// verifyKeylessBundle verifies the signed bundle bytes with the upstream
+// carabiner-dev/signer verifier against the embedded Sigstore trust root,
+// asserting the GitHub Actions OIDC identity and proving the signature is
+// valid. It re-verifies a tampered copy to confirm the check actually fails.
+func verifyKeylessBundle(t *testing.T, bundleBytes []byte) {
+	t.Helper()
+
+	verifier, err := signer.NewVerifierFromSet(options.DefaultVerifierSet())
+	if err != nil {
+		t.Fatalf("building verifier: %v", err)
+	}
+
+	// The signer is the GitHub Actions OIDC identity of this workflow run;
+	// match the well-known issuer and constrain the SAN to this repo's actions.
+	issuerRegex := `^https://token\.actions\.githubusercontent\.com$`
+	sanRegex := `^https://github\.com/TomHennen/wrangle/`
+	res, err := verifier.VerifyInlineBundle(bundleBytes,
+		options.WithExpectedIdentityRegex(issuerRegex, sanRegex))
+	if err != nil {
+		t.Fatalf("verifying keyless bundle: %v", err)
+	}
+	if res == nil {
+		t.Fatal("verification returned no result")
+	}
+
+	// A flipped byte in the signed payload must fail verification — proves the
+	// assertion above is load-bearing, not a no-op.
+	tampered := tamperPayload(t, bundleBytes)
+	if _, err := verifier.VerifyInlineBundle(tampered,
+		options.WithExpectedIdentityRegex(issuerRegex, sanRegex)); err == nil {
+		t.Fatal("tampered bundle verified; signature check is not load-bearing")
+	}
+}
+
+// tamperPayload flips one byte of the DSSE payload and returns the re-serialized
+// bundle, which no longer matches its signature.
+func tamperPayload(t *testing.T, bundleBytes []byte) []byte {
+	t.Helper()
+	var b sbundle.Bundle
+	if err := b.UnmarshalJSON(bundleBytes); err != nil {
+		t.Fatalf("re-parsing bundle to tamper: %v", err)
+	}
+	payload := b.GetDsseEnvelope().GetPayload()
+	if len(payload) == 0 {
+		t.Fatal("no payload to tamper")
+	}
+	payload[0] ^= 0xff
+	out, err := protojson.Marshal(&b)
+	if err != nil {
+		t.Fatalf("re-marshaling tampered bundle: %v", err)
+	}
+	return out
 }
 
 type testWriter struct{ b []byte }
