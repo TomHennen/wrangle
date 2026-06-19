@@ -158,7 +158,7 @@ jobs:
       # checkout and sources lib/shortname.sh, which this job's ADOPTER checkout
       # lacks. Sharing the derivation keeps the names from drifting.
       # TODO: replace with $/actions/package_metadata when GitHub ships $/ syntax (#136)
-      - uses: TomHennen/wrangle/actions/package_metadata@fa08d98b55fef0d5ad28cf026d56d08c137e0eb2 # feat/469-unify-metadata-artifact 2026-06-19
+      - uses: TomHennen/wrangle/actions/package_metadata@530c5131a764b6fa84da6f794bbb250d03b7ab29 # feat/469-unify-metadata-artifact 2026-06-19
         id: names
         if: ${{ inputs.scan-tools != '' }}
         with:
@@ -166,7 +166,7 @@ jobs:
           path: ${{ inputs.path }}
 
       # TODO: replace with $/actions/scan when GitHub ships $/ syntax (#136)
-      - uses: TomHennen/wrangle/actions/scan@fa08d98b55fef0d5ad28cf026d56d08c137e0eb2 # feat/469-unify-metadata-artifact 2026-06-19
+      - uses: TomHennen/wrangle/actions/scan@530c5131a764b6fa84da6f794bbb250d03b7ab29 # feat/469-unify-metadata-artifact 2026-06-19
         if: ${{ inputs.scan-tools != '' }}
         with:
           tools: ${{ inputs.scan-tools }}
@@ -238,7 +238,7 @@ jobs:
       # composite runs from the wrangle checkout (lib/shortname.sh), so this
       # job needn't read that file from the adopter workspace it checked out.
       # TODO: replace with $/actions/package_metadata when GitHub ships $/ syntax (#136)
-      - uses: TomHennen/wrangle/actions/package_metadata@fa08d98b55fef0d5ad28cf026d56d08c137e0eb2 # feat/469-unify-metadata-artifact 2026-06-19
+      - uses: TomHennen/wrangle/actions/package_metadata@530c5131a764b6fa84da6f794bbb250d03b7ab29 # feat/469-unify-metadata-artifact 2026-06-19
         id: names
         with:
           build-type: python
@@ -350,7 +350,7 @@ jobs:
       # The composite stages dist + provenance + sbom/scan and runs actions/verify,
       # computing the artifact names and metadata dir from build-type + shortname.
       # TODO: replace with $/actions/verify_release when GitHub ships $/ syntax (#136)
-      - uses: TomHennen/wrangle/actions/verify_release@fa08d98b55fef0d5ad28cf026d56d08c137e0eb2 # feat/469-unify-metadata-artifact 2026-06-19
+      - uses: TomHennen/wrangle/actions/verify_release@530c5131a764b6fa84da6f794bbb250d03b7ab29 # feat/469-unify-metadata-artifact 2026-06-19
         with:
           build-type: python
           shortname: ${{ needs.build.outputs.shortname }}
