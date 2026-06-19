@@ -46,9 +46,13 @@ jobs:
 
       # The scan action runs adapter-pattern tools (via run.sh) and
       # action-pattern tools (zizmor, scorecard) via uses: internally.
+      # Standalone scan: there is no build to fold into, so the artifact is
+      # the consumer-facing scan-<sn>. This workflow scans the whole repo
+      # (root path), so <sn> normalizes to "_".
       # TODO: replace with $/actions/scan when GitHub ships $/ syntax (#136)
       - name: Source scan
         uses: TomHennen/wrangle/actions/scan@b7eb9765639f6ffaf11e994efb63b810d69ff53f # main 2026-06-16
         with:
           tools: ${{ inputs.tools }}
+          artifact-name: scan-_
           go-cache: ${{ inputs.go-cache }}

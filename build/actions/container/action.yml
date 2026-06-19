@@ -49,6 +49,16 @@ inputs:
       same isolated default; they are not claiming L3 provenance.
     required: false
     default: "isolated"
+  upload-metadata:
+    description: |
+      When "true" (default) this composite uploads metadata-dir as the
+      workflow artifact container-metadata-<shortname> — the convenient
+      path for direct callers. The reusable workflow sets it "false" and
+      owns the upload itself, so it can first fold in the separate scan
+      job's output (and, on release, the verify job's signed bundle) to
+      ship one unified container-metadata-<shortname>.
+    required: false
+    default: "true"
 
 outputs:
   digest:
@@ -240,8 +250,11 @@ runs:
           "$WRANGLE_ROOT/lib/format_sarif_summary.sh" "./metadata" >> "$GITHUB_STEP_SUMMARY"
         fi
 
+    # Direct-caller convenience upload. The reusable workflow disables this
+    # (upload-metadata: false) and uploads the unified artifact itself after
+    # folding in the scan job's output and the verify job's bundle.
     - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
-      if: always()
+      if: always() && inputs.upload-metadata == 'true'
       with:
         # Convention shared with other build types: <type>-metadata-<shortname>,
         # path = the leaf metadata dir (so the artifact zip's contents are the

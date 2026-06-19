@@ -682,11 +682,15 @@ func main() {}
     [[ "$status" -eq 0 ]]
 }
 
-@test "go: workflow exports hashes, provenance, metadata, checks-metadata artifact names" {
-    for output in hashes provenance-artifact-name metadata-artifact-name checks-metadata-artifact-name; do
+@test "go: workflow exports hashes, provenance, metadata artifact names" {
+    # govulncheck folds into the unified metadata artifact, so there is no
+    # separate checks-metadata-artifact-name output (#469).
+    for output in hashes provenance-artifact-name metadata-artifact-name; do
         run grep -E "^      ${output}:" "$WORKFLOW"
         [[ "$status" -eq 0 ]]
     done
+    run grep 'checks-metadata-artifact-name' "$WORKFLOW"
+    [[ "$status" -ne 0 ]]
 }
 
 @test "go: workflow pins every third-party action to a SHA (no tag exceptions)" {
@@ -702,7 +706,9 @@ func main() {}
 }
 
 @test "go: workflow checks + release jobs use namespaced metadata artifact names" {
-    run grep 'go-checks-metadata-' "$WORKFLOW"
+    # The checks job's govulncheck output is an internal transient
+    # (go-checks-<sn>) folded into the unified go-metadata-<sn> (#469).
+    run grep 'go-checks-' "$WORKFLOW"
     [[ "$status" -eq 0 ]]
     run grep 'go-metadata-' "$WORKFLOW"
     [[ "$status" -eq 0 ]]
