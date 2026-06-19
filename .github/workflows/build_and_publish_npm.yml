@@ -187,7 +187,7 @@ jobs:
           printf 'name=%s\n' "npm-scan${shortname:+-$shortname}" >> "$GITHUB_OUTPUT"
 
       # TODO: replace with $/actions/scan when GitHub ships $/ syntax (#136)
-      - uses: TomHennen/wrangle/actions/scan@e8ebd93aead78c858211a2d445e269a779b094a5 # feat/469-unify-metadata-artifact 2026-06-19
+      - uses: TomHennen/wrangle/actions/scan@aee4ea966bf75781af227322d1466479417f5db3 # feat/469-unify-metadata-artifact 2026-06-19
         if: ${{ inputs.scan-tools != '' }}
         with:
           tools: ${{ inputs.scan-tools }}
@@ -239,7 +239,7 @@ jobs:
       # composite runs from the wrangle checkout (lib/shortname.sh), so this
       # job needn't read that file from the adopter workspace it checked out.
       # TODO: replace with $/actions/package_metadata when GitHub ships $/ syntax (#136)
-      - uses: TomHennen/wrangle/actions/package_metadata@e8ebd93aead78c858211a2d445e269a779b094a5 # feat/469-unify-metadata-artifact 2026-06-19
+      - uses: TomHennen/wrangle/actions/package_metadata@aee4ea966bf75781af227322d1466479417f5db3 # feat/469-unify-metadata-artifact 2026-06-19
         id: names
         with:
           build-type: npm
