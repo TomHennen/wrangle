@@ -278,6 +278,33 @@ teardown() {
     [[ "$status" -eq 0 ]]
 }
 
+@test "container: extract_sbom.sh writes the SBOM, the attest manifest, and the output" {
+    # Fake docker so the test needs no real image; it echoes the SBOM JSON.
+    fakebin="$(mktemp -d)"
+    cat > "$fakebin/docker" << 'FAKE'
+#!/usr/bin/env bash
+printf '%s\n' '{"spdxVersion":"SPDX-2.3","name":"img"}'
+FAKE
+    chmod +x "$fakebin/docker"
+    meta="$(mktemp -d)"
+    out="$(mktemp)"
+    PATH="$fakebin:$PATH" run "$ACTION_DIR/extract_sbom.sh" "img@sha256:abc" "$meta" "$out"
+    [[ "$status" -eq 0 ]]
+    run jq -e '.spdxVersion' "$meta/sbom.spdx.json"
+    [[ "$status" -eq 0 ]]
+    run jq -r '."predicate-type"' "$meta/wrangle_attestation_metadata.json"
+    [[ "$output" == "https://spdx.dev/Document" ]]
+    run jq -r '."result-file"' "$meta/wrangle_attestation_metadata.json"
+    [[ "$output" == "sbom.spdx.json" ]]
+    grep -Fq "sbom=$meta/sbom.spdx.json" "$out"
+    rm -rf "$fakebin" "$meta" "$out"
+}
+
+@test "container: extract_sbom.sh usage error on wrong arg count" {
+    run "$ACTION_DIR/extract_sbom.sh" "img@sha256:abc"
+    [[ "$status" -eq 2 ]]
+}
+
 @test "container: action.yml exposes metadata-dir output" {
     run grep -E '^[[:space:]]+metadata-dir:' "$ACTION_DIR/action.yml"
     [[ "$status" -eq 0 ]]

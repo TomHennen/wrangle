@@ -244,11 +244,8 @@ runs:
         METADATA_DIR: ${{ steps.meta_dir.outputs.metadata-dir }}
       run: |
         set -euo pipefail
-        SBOM_PATH="${METADATA_DIR}/sbom.spdx.json"
-        # Reference by digest, not tag — the :latest tag only exists on
-        # main-branch builds, so bare image name fails on other branches.
-        docker buildx imagetools inspect "${IMAGE}@${DIGEST}" --format "{{ json .SBOM.SPDX }}" > "$SBOM_PATH"
-        printf 'sbom=%s\n' "$SBOM_PATH" >> "$GITHUB_OUTPUT"
+        "${{ github.action_path }}/extract_sbom.sh" \
+            "${IMAGE}@${DIGEST}" "${METADATA_DIR}" "$GITHUB_OUTPUT"
 
     - name: Generate summary
       if: always()

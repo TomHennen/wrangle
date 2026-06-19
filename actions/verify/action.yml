@@ -78,6 +78,15 @@ inputs:
     description: 'When "true" (default) and the run is a tag push, attach the bundle to the release.'
     required: false
     default: "true"
+  metadata-dir:
+    description: >
+      Directory holding the build's metadata (the build job's metadata artifact:
+      sbom.spdx.json + its top-level wrangle_attestation_metadata.json). wrangle-attest reads that
+      manifest to build one signed SBOM statement per subject, appended to each
+      bundle and posted to
+      the attestation store. Leave empty to emit VSA-only bundles.
+    required: false
+    default: ""
   oci-target:
     description: >
       When set, fetch the provenance from and push the bundle to this OCI image
@@ -125,6 +134,7 @@ runs:
         BUNDLE_IN: ${{ inputs.bundle-in }}
         BUNDLE_OUT: ${{ inputs.bundle-out }}
         OCI_TARGET: ${{ inputs.oci-target }}
+        METADATA_ROOT: ${{ inputs.metadata-dir }}
         GITHUB_REPOSITORY: ${{ github.repository }}
         # bnd push github authenticates to the attestation store with this token;
         # the attestations: write permission rides on it.

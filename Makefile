@@ -31,10 +31,11 @@ workflowstyle:
 	@echo "=== wrangle-workflow-lint ==="
 	@./tools/wrangle-workflow-lint/lint.sh
 
-# Run first-party Go unit tests (the wrangle-lint rule engine).
+# Run first-party Go unit tests (the wrangle-lint rule engine and the
+# wrangle-attest attestation engine).
 gotest:
 	@echo "=== go test ==="
-	@go -C tools test ./wrangle-lint/...
+	@go -C tools test ./wrangle-lint/... ./wrangle-attest/...
 
 # Lint all shell scripts (.sh and .bats) via the same script CI's dogfooded
 # shell build runs, so the local and CI shellcheck surfaces can't drift (#368).

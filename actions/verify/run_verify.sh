@@ -13,7 +13,8 @@
 # Inputs arrive as env vars: SUBJECTS (newline-separated), POLICY, COLLECTOR,
 # FAIL, CONTEXT, BUNDLE_IN, BUNDLE_OUT, GITHUB_REPOSITORY (store push target),
 # GITHUB_TOKEN (bnd reads it to auth the store push), and optional ATTESTATION,
-# OCI_TARGET.
+# OCI_TARGET, METADATA_ROOT (the build metadata dir holding the top-level SBOM
+# manifest wrangle-attest reads, signed by the engine and appended per subject).
 
 set -euo pipefail
 set -f  # disable globbing — processes external input
@@ -206,6 +207,57 @@ wrangle_push_bundle() {
     wrangle_retry_once /dev/null cosign "${args[@]}"
 }
 
+# Build the wrangle-attest arg vector that turns the build metadata into signed
+# in-toto statements (one signed Sigstore-bundle JSONL line per statement), one
+# arg per line for mapfile. $1 is the pre-formed subject arg (--subject=<digest>
+# or --artifact=<file>); $2 the JSONL output path. METADATA_ROOT holds the
+# build's wrangle_attestation_metadata.json files (sbom.spdx.json + its
+# manifest); --commit is woven into the scan/v1 envelope only, ignored by the
+# SBOM passthrough.
+wrangle_attest_args() {
+    printf '%s\n' \
+        --metadata-root="$METADATA_ROOT" \
+        "$1" \
+        --sign \
+        --out="$2"
+}
+
+# For one subject, build and sign the SBOM (and any other build-metadata)
+# statement(s) via the engine, then append each signed line to the bundle and
+# post each to the store. No-op when METADATA_ROOT is unset/empty (a build that
+# produced no metadata). $1 is the subject, $2 the bundle file. A digest subject
+# (container) passes through as --subject; a file subject is handed to the
+# engine via --artifact, which self-digests it to the same sha256 the VSA binds
+# to. The engine signs in the same trusted process as the VSA and fails closed
+# on a malformed manifest, an unreadable artifact, or a signing failure (no
+# partial bundle), so an absent statement is a real gap, not a silent skip.
+wrangle_emit_metadata_statements() {
+    [[ -z "${METADATA_ROOT:-}" || ! -d "${METADATA_ROOT:-}" ]] && return 0
+    local subject="$1" bundle="$2" subject_arg
+    if [[ "$subject" =~ ^[a-z0-9]+:[a-f0-9]+$ ]]; then
+        subject_arg="--subject=$subject"
+    else
+        subject_arg="--artifact=$subject"
+    fi
+    local stmts args
+    stmts="$(mktemp "${RUNNER_TEMP:-/tmp}/attest.XXXXXX")"
+    mapfile -t args < <(wrangle_attest_args "$subject_arg" "$stmts")
+    wrangle_retry_once /dev/null wrangle-attest "${args[@]}" || { rm -f "$stmts"; return 1; }
+    # Each line is one signed Sigstore bundle (compact JSONL): appended to the
+    # bundle, posted to the store, and pushed alone as the OCI referrer (cosign
+    # attach rejects multi-line).
+    local line_file
+    line_file="$(mktemp "${RUNNER_TEMP:-/tmp}/attestline.XXXXXX")"
+    while IFS= read -r line; do
+        [[ -z "$line" ]] && continue
+        printf '%s\n' "$line" > "$line_file"
+        cat "$line_file" >> "$bundle"
+        wrangle_push_store "$line_file"
+        wrangle_push_bundle "$line_file"
+    done < "$stmts"
+    rm -f "$stmts" "$line_file"
+}
+
 # Post the signed VSA at $1 to the GitHub attestation store (all build types).
 # Provenance is already in the store from attest-build-provenance, so only the
 # VSA is pushed. Fails closed: a missing by-digest VSA is a real delivery gap.
@@ -259,6 +311,9 @@ wrangle_run() {
         cat "$vsa_line" >> "$bundle"
         wrangle_push_store "$vsa_line"
         wrangle_push_bundle "$vsa_line"
+        # Append the build-metadata statements (SBOM, …) bound to this same
+        # single-sha256 subject, signed and delivered alongside the VSA.
+        wrangle_emit_metadata_statements "$subject" "$bundle"
     done
     rm -f "$tmp_vsa" "$vsa_line" "$seed"
 }
