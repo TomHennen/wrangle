@@ -494,9 +494,36 @@ write_pyproject() {
     [[ "$status" -eq 0 ]]
 }
 
-@test "python: workflow namespaces artifacts by shortname" {
-    run grep 'python-dist-' "$WORKFLOW"
+@test "python: workflow namespaces artifacts by shortname via shared lib" {
+    run grep -E 'artifact_name python-dist' "$WORKFLOW"
     [[ "$status" -eq 0 ]]
+    # No open-coded derivation that could drift from lib/shortname.sh.
+    run grep -E 'INPUT_PATH////_' "$WORKFLOW"
+    [[ "$status" -ne 0 ]]
+}
+
+@test "python: extract_metadata.sh at root emits empty shortname and clean dir" {
+    cd "$BATS_TEST_TMPDIR"
+    mkdir -p dist
+    : > "dist/pkg-1.0.0-py3-none-any.whl"
+    export GITHUB_OUTPUT="$BATS_TEST_TMPDIR/out"
+    : > "$GITHUB_OUTPUT"
+    run "$ACTION_DIR/extract_metadata.sh" "."
+    [[ "$status" -eq 0 ]]
+    grep -qE '^shortname=$' "$GITHUB_OUTPUT"
+    grep -qE '^metadata-dir=metadata/python$' "$GITHUB_OUTPUT"
+}
+
+@test "python: extract_metadata.sh in a subdir namespaces shortname and dir" {
+    cd "$BATS_TEST_TMPDIR"
+    mkdir -p pkg/foo/dist
+    : > "pkg/foo/dist/pkg-1.0.0-py3-none-any.whl"
+    export GITHUB_OUTPUT="$BATS_TEST_TMPDIR/out"
+    : > "$GITHUB_OUTPUT"
+    run "$ACTION_DIR/extract_metadata.sh" "pkg/foo"
+    [[ "$status" -eq 0 ]]
+    grep -qE '^shortname=pkg_foo$' "$GITHUB_OUTPUT"
+    grep -qE '^metadata-dir=metadata/python/pkg_foo$' "$GITHUB_OUTPUT"
 }
 
 @test "python: scan job passes a per-build artifact-name to the scan action" {

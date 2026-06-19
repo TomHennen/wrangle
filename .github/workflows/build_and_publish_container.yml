@@ -87,7 +87,7 @@ on:
         description: "Normalized (lowercased) image name."
         value: ${{ jobs.build.outputs.imagename }}
       metadata-artifact-name:
-        description: "Name of the unified metadata workflow artifact (a zip of `metadata/container/<shortname>/`'s contents): SBOM, the `scan/` tool output, and on release the `<image-digest>.intoto.jsonl` bundle. Format: `container-metadata-<shortname>`. Adopters fetch via `actions/download-artifact` — files land at the top level of the configured `path:`. See docs/SPEC.md \"Unified metadata layout\"."
+        description: "Name of the unified metadata workflow artifact (a zip of `metadata/container[/<shortname>]/`'s contents): SBOM, the `scan/` tool output, and on release the `<image-digest>.intoto.jsonl` bundle. Format: `container-metadata[-<shortname>]`. Adopters fetch via `actions/download-artifact` — files land at the top level of the configured `path:`. See docs/SPEC.md \"Unified metadata layout\"."
         value: ${{ jobs.build.outputs.metadata-artifact-name }}
       should-release:
         description: |
@@ -135,6 +135,8 @@ jobs:
       actions: read
       contents: read
       security-events: write
+    outputs:
+      artifact-name: ${{ steps.sn.outputs.name }}
     steps:
       - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
         if: ${{ inputs.scan-tools != '' }}
@@ -142,7 +144,7 @@ jobs:
           persist-credentials: false
 
       # Shortname must match the build composite's (validate_inputs.sh: path
-      # with '/'→'_'), so the build job downloads the right scan artifact.
+      # with '/'→'_', root '.'→''), so the build job downloads the right scan artifact.
       - id: sn
         if: ${{ inputs.scan-tools != '' }}
         shell: bash
@@ -150,7 +152,9 @@ jobs:
           INPUT_PATH: ${{ inputs.path }}
         run: |
           set -euo pipefail
-          printf 'name=container-scan-%s\n' "${INPUT_PATH////_}" >> "$GITHUB_OUTPUT"
+          source lib/shortname.sh
+          sn="$(derive_shortname "$INPUT_PATH")"
+          printf 'name=%s\n' "$(artifact_name container-scan "$sn")" >> "$GITHUB_OUTPUT"
 
       # TODO: replace with $/actions/scan when GitHub ships $/ syntax (#136)
       - uses: TomHennen/wrangle/actions/scan@66e4f664bfc0297f63b6f1f506b62d5cf601e4da # bootstrap PR-head until merge (#469)
@@ -176,8 +180,8 @@ jobs:
       digest: ${{ steps.build.outputs.digest }}
       imagename: ${{ steps.build.outputs.imagename }}
       shortname: ${{ steps.build.outputs.shortname }}
-      metadata-artifact-name: container-metadata-${{ steps.build.outputs.shortname }}
-      metadata-pre-artifact-name: container-premeta-${{ steps.build.outputs.shortname }}
+      metadata-artifact-name: ${{ steps.build.outputs.metadata-artifact-name }}
+      metadata-pre-artifact-name: ${{ steps.build.outputs.metadata-pre-artifact-name }}
       metadata-dir: ${{ steps.build.outputs.metadata-dir }}
     runs-on: ubuntu-latest
     steps:
@@ -208,7 +212,7 @@ jobs:
       if: ${{ always() && inputs.scan-tools != '' }}
       continue-on-error: true   # scan upload is best-effort
       with:
-        name: container-scan-${{ steps.build.outputs.shortname }}
+        name: ${{ needs.scan.outputs.artifact-name }}
         path: ${{ steps.build.outputs.metadata-dir }}/scan/
 
     # Non-release: this is the final unified metadata (sbom + scan/). On
@@ -216,7 +220,7 @@ jobs:
     - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
       if: always()
       with:
-        name: ${{ needs.gate.outputs.should-release == 'true' && format('container-premeta-{0}', steps.build.outputs.shortname) || format('container-metadata-{0}', steps.build.outputs.shortname) }}
+        name: ${{ needs.gate.outputs.should-release == 'true' && steps.build.outputs.metadata-pre-artifact-name || steps.build.outputs.metadata-artifact-name }}
         path: ${{ steps.build.outputs.metadata-dir }}/
         if-no-files-found: warn
 

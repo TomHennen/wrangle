@@ -99,7 +99,7 @@ Each build produces two workflow artifacts you can download from the run's Actio
   <artifact>.intoto.jsonl              # SLSA provenance + signed VSA, one per released artifact (release runs)
   ```
 
-`<type>` is your build type and `<sn>` is a shortname derived from the `path` input (`/` → `_`; a single root build is the common case). The reusable workflow exposes the names as the `dist-artifact-name` and `metadata-artifact-name` outputs so you don't have to hardcode them; the [source-only scan workflow](actions/scan/README.md) uploads just `scan/` as `scan-<sn>`.
+`<type>` is your build type and `<sn>` is a shortname derived from the `path` input (`/` → `_`). For the common single root build (`path: .`) the suffix is dropped, so the names are just `<type>-dist` / `<type>-metadata`. The reusable workflow exposes the names as the `dist-artifact-name` and `metadata-artifact-name` outputs so you don't have to hardcode them; the [source-only scan workflow](actions/scan/README.md) uploads just `scan/` as `scan` (or `scan-<sn>` for a subdir).
 
 For a live example, open any run of [wrangle's own release-showcase workflow](https://github.com/TomHennen/wrangle/actions/workflows/release-showcase.yml) and look at its Artifacts list. Per-ecosystem details are in the [ecosystem READMEs](#ecosystems) above.
 

@@ -53,10 +53,20 @@ setup() {
 
 @test "scan: artifact name is the artifact-name input (caller-supplied)" {
     # The scan job no longer owns a fixed name — a build workflow passes a
-    # per-build name it folds into the unified metadata artifact, the
-    # standalone scan workflow passes scan-<sn>.
+    # per-build name it folds into the unified metadata artifact; the
+    # standalone scan workflow passes `scan` (or `scan-<sn>` for a subdir).
     run grep 'name: ${{ inputs.artifact-name }}' "$ACTION_DIR/action.yml"
     [ "$status" -eq 0 ]
+}
+
+@test "scan: standalone check_source_change scans the root and uploads clean 'scan'" {
+    # Root build → empty shortname → the artifact name drops the suffix
+    # entirely (not the old 'scan-_').
+    local wf="$ACTION_DIR/../../.github/workflows/check_source_change.yml"
+    run grep -E '^[[:space:]]+artifact-name: scan$' "$wf"
+    [ "$status" -eq 0 ]
+    run grep -E 'artifact-name: scan-_' "$wf"
+    [ "$status" -ne 0 ]
 }
 
 @test "scan: artifact-name defaults to wrangle-scan-results for direct callers" {

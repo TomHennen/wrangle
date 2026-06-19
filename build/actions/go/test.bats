@@ -171,10 +171,10 @@ func main() {}
 # Layer 1: Pure-function tests for compute_metadata.sh
 # ====================================================================
 
-@test "go.release: derive_shortname maps '.' to '_'" {
+@test "go.release: derive_shortname maps root '.' to empty (clean names)" {
     run bash -c 'source "$1"; derive_shortname "."' -- "$GO_ACTION_DIR/compute_metadata.sh"
     [[ "$status" -eq 0 ]]
-    [[ "$output" == "_" ]]
+    [[ "$output" == "" ]]
 }
 
 @test "go.release: derive_shortname maps 'cmd/foo' to 'cmd_foo'" {
@@ -211,7 +211,15 @@ func main() {}
     GITHUB_REF=refs/tags/v0.1.0 run "$GO_ACTION_DIR/compute_metadata.sh" "cmd/example"
     [[ "$status" -eq 0 ]]
     grep -qE '^shortname=cmd_example$' "$GITHUB_OUTPUT"
+    grep -qE '^metadata-dir=metadata/go/cmd_example$' "$GITHUB_OUTPUT"
     grep -qE '^version=v0\.1\.0$' "$GITHUB_OUTPUT"
+}
+
+@test "go.release: compute_metadata.sh at root emits empty shortname and clean metadata-dir" {
+    GITHUB_REF=refs/heads/main run "$GO_ACTION_DIR/compute_metadata.sh" "."
+    [[ "$status" -eq 0 ]]
+    grep -qE '^shortname=$' "$GITHUB_OUTPUT"
+    grep -qE '^metadata-dir=metadata/go$' "$GITHUB_OUTPUT"
 }
 
 # ====================================================================
@@ -605,16 +613,14 @@ func main() {}
     grep -qE "needs\\.gate\\.result == 'success'" <<<"$section"
 }
 
-@test "go: workflow does not inline-duplicate shortname derivation (composites own it)" {
-    # Earlier revisions had `SHORTNAME="${INPUT_PATH////_}"` shell
-    # blocks in both the checks and release jobs, duplicating
-    # derive_shortname() from compute_metadata.sh. The composites
-    # now own shortname computation; the workflow consumes the
-    # `shortname` and `metadata-dir` outputs.
-    run grep -E 'SHORTNAME=\$' "$WORKFLOW"
-    [[ "$status" -ne 0 ]]
+@test "go: workflow does not inline-duplicate shortname derivation (shared lib owns it)" {
+    # Shortname/artifact-name derivation is centralized in lib/shortname.sh;
+    # the workflow must source it, never open-code `${INPUT_PATH////_}` or a
+    # bespoke root-normalization branch that could drift from the lib.
     run grep -E 'INPUT_PATH////_' "$WORKFLOW"
     [[ "$status" -ne 0 ]]
+    run grep -qE 'source lib/shortname\.sh' "$WORKFLOW"
+    [[ "$status" -eq 0 ]]
 }
 
 @test "go: workflow checks job has contents: read (least privilege for go test)" {
@@ -707,10 +713,11 @@ func main() {}
 
 @test "go: workflow checks + release jobs use namespaced metadata artifact names" {
     # The checks job's govulncheck output is an internal transient
-    # (go-checks-<sn>) folded into the unified go-metadata-<sn> (#469).
-    run grep 'go-checks-' "$WORKFLOW"
+    # (go-checks[-<sn>]) folded into the unified go-metadata[-<sn>] (#469).
+    # Names come from the shared lib so the root build gets clean names.
+    run grep -E 'artifact_name go-checks' "$WORKFLOW"
     [[ "$status" -eq 0 ]]
-    run grep 'go-metadata-' "$WORKFLOW"
+    run grep -E 'artifact_name go-metadata' "$WORKFLOW"
     [[ "$status" -eq 0 ]]
 }
 
@@ -1367,7 +1374,8 @@ func TestFails(t *testing.T) {
 
 @test "go: attest job uploads the provenance bundle the verify job needs" {
     # The verify job depends on attest and reads its uploaded bundle artifact.
-    run bash -c "sed -n '/^  attest:/,/^  [a-z]/p' \"$WORKFLOW\" | grep -E 'name: go-provenance-bundle-'"
+    # The bundle name is the release job's lib-derived provenance-bundle output.
+    run bash -c "sed -n '/^  attest:/,/^  [a-z]/p' \"$WORKFLOW\" | grep -E 'name: \\\$\\{\\{ needs.release.outputs.provenance-bundle-artifact-name \\}\\}'"
     [[ "$status" -eq 0 ]]
     run bash -c "sed -n '/^  verify:/,\$p' \"$WORKFLOW\" | grep -E 'needs:.*attest'"
     [[ "$status" -eq 0 ]]

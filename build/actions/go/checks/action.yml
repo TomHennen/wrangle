@@ -59,10 +59,10 @@ inputs:
 
 outputs:
   shortname:
-    description: "Path-derived short name (e.g., '.' becomes '_'). Use to namespace artifacts."
+    description: "Path-derived short name ('/' becomes '_'; the repo root '.' is empty). Use to namespace artifacts."
     value: ${{ steps.metadata.outputs.shortname }}
   metadata-dir:
-    description: "Workspace-relative path containing the govulncheck.json output. Format: metadata/go/<shortname>."
+    description: "Workspace-relative path containing the govulncheck.json output. Format: metadata/go[/<shortname>]."
     value: ${{ steps.metadata.outputs.metadata-dir }}
 
 runs:

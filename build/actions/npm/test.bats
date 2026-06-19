@@ -83,6 +83,10 @@ setup() {
     [[ -x "$ACTION_DIR/detect_tooling.sh" ]]
 }
 
+@test "npm: extract_metadata.sh exists and is executable" {
+    [[ -x "$ACTION_DIR/extract_metadata.sh" ]]
+}
+
 @test "npm: action.yml delegates input validation to validate_inputs.sh" {
     run grep 'validate_inputs.sh' "$ACTION"
     [[ "$status" -eq 0 ]]
@@ -791,9 +795,34 @@ write_pkg_json() {
     [[ "$status" -eq 0 ]]
 }
 
-@test "npm: workflow namespaces artifacts by shortname" {
-    run grep 'npm-dist-' "$WORKFLOW"
+@test "npm: workflow namespaces artifacts by shortname via shared lib" {
+    run grep -E 'artifact_name npm-dist' "$WORKFLOW"
     [[ "$status" -eq 0 ]]
+    run grep -E 'INPUT_PATH////_' "$WORKFLOW"
+    [[ "$status" -ne 0 ]]
+}
+
+@test "npm: extract_metadata.sh at root emits empty shortname and clean dir" {
+    cd "$BATS_TEST_TMPDIR"
+    printf '{"version":"1.2.3"}' > package.json
+    export GITHUB_OUTPUT="$BATS_TEST_TMPDIR/out"
+    : > "$GITHUB_OUTPUT"
+    run "$ACTION_DIR/extract_metadata.sh" "."
+    [[ "$status" -eq 0 ]]
+    grep -qE '^shortname=$' "$GITHUB_OUTPUT"
+    grep -qE '^metadata-dir=metadata/npm$' "$GITHUB_OUTPUT"
+}
+
+@test "npm: extract_metadata.sh in a subdir namespaces shortname and dir" {
+    cd "$BATS_TEST_TMPDIR"
+    mkdir -p pkg/foo
+    printf '{"version":"1.2.3"}' > pkg/foo/package.json
+    export GITHUB_OUTPUT="$BATS_TEST_TMPDIR/out"
+    : > "$GITHUB_OUTPUT"
+    run "$ACTION_DIR/extract_metadata.sh" "pkg/foo"
+    [[ "$status" -eq 0 ]]
+    grep -qE '^shortname=pkg_foo$' "$GITHUB_OUTPUT"
+    grep -qE '^metadata-dir=metadata/npm/pkg_foo$' "$GITHUB_OUTPUT"
 }
 
 @test "npm: build job exposes shortname output" {

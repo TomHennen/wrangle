@@ -63,6 +63,12 @@ teardown() {
     grep -q '^shortname=pkg_foo$' "$GITHUB_OUTPUT"
 }
 
+@test "container: validate_inputs.sh at root '.' emits an empty shortname (clean names)" {
+    run "$ACTION_DIR/validate_inputs.sh" "." "ghcr.io" "ghcr.io/owner/img" "enabled"
+    [[ "$status" -eq 0 ]]
+    grep -q '^shortname=$' "$GITHUB_OUTPUT"
+}
+
 # --- Cache gating (SLSA L3 isolation, #224 / SLSA_L3_AUDIT.md Finding 2) ---
 
 @test "container: validate_inputs.sh accepts every cache policy value" {
@@ -267,8 +273,8 @@ teardown() {
 
 # --- Unified metadata layout assertions (#150) ---
 
-@test "container: action.yml writes SBOM under metadata/container/<shortname>/" {
-    run grep 'metadata/container/' "$ACTION_DIR/action.yml"
+@test "container: action.yml derives the metadata dir via the shared lib" {
+    run grep -E 'metadata_dir container' "$ACTION_DIR/action.yml"
     [[ "$status" -eq 0 ]]
 }
 
@@ -282,8 +288,8 @@ teardown() {
     [[ "$status" -eq 0 ]]
 }
 
-@test "container: action.yml uploads container-metadata-<shortname> artifact" {
-    run grep 'container-metadata-' "$ACTION_DIR/action.yml"
+@test "container: action.yml derives the container-metadata artifact name via the shared lib" {
+    run grep -E 'artifact_name container-metadata' "$ACTION_DIR/action.yml"
     [[ "$status" -eq 0 ]]
     # Old name must not linger
     run grep 'container-build-results' "$ACTION_DIR/action.yml"

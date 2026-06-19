@@ -71,11 +71,17 @@ outputs:
     description: 'Path to an SBOM that describes the container'
     value: ${{ steps.get_sbom.outputs.sbom }}
   metadata-dir:
-    description: "Workspace-relative path of the unified metadata directory (`metadata/container/<shortname>/`) containing the SBOM and any scan output."
+    description: "Workspace-relative path of the unified metadata directory (`metadata/container[/<shortname>]/`) containing the SBOM and any scan output."
     value: ${{ steps.meta_dir.outputs.metadata-dir }}
   shortname:
-    description: "Path-derived short name (`/` becomes `_`) used for artifact namespacing."
+    description: "Path-derived short name (`/` becomes `_`; the repo root `.` is empty) used for artifact namespacing."
     value: ${{ steps.normalize.outputs.shortname }}
+  metadata-artifact-name:
+    description: "Name of the unified metadata workflow artifact: `container-metadata[-<shortname>]`."
+    value: ${{ steps.meta_dir.outputs.metadata-artifact-name }}
+  metadata-pre-artifact-name:
+    description: "Name of the internal pre-bundle metadata transient: `container-premeta[-<shortname>]`."
+    value: ${{ steps.meta_dir.outputs.metadata-pre-artifact-name }}
 
 runs:
   using: "composite"
@@ -220,9 +226,14 @@ runs:
         SHORTNAME: ${{ steps.normalize.outputs.shortname }}
       run: |
         set -euo pipefail
-        METADATA_DIR="metadata/container/${SHORTNAME}"
+        source "${{ github.action_path }}/../../../lib/shortname.sh"
+        METADATA_DIR="$(metadata_dir container "$SHORTNAME")"
         mkdir -p "$METADATA_DIR"
-        printf 'metadata-dir=%s\n' "$METADATA_DIR" >> "$GITHUB_OUTPUT"
+        {
+          printf 'metadata-dir=%s\n' "$METADATA_DIR"
+          printf 'metadata-artifact-name=%s\n' "$(artifact_name container-metadata "$SHORTNAME")"
+          printf 'metadata-pre-artifact-name=%s\n' "$(artifact_name container-premeta "$SHORTNAME")"
+        } >> "$GITHUB_OUTPUT"
 
     - name: Extract SBOM from built image
       id: get_sbom
@@ -256,11 +267,11 @@ runs:
     - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
       if: always() && inputs.upload-metadata == 'true'
       with:
-        # Convention shared with other build types: <type>-metadata-<shortname>,
+        # Convention shared with other build types: <type>-metadata[-<shortname>],
         # path = the leaf metadata dir (so the artifact zip's contents are the
         # metadata files at the top level, not nested under metadata/<type>/...).
         # See docs/SPEC.md "Unified metadata layout."
-        name: container-metadata-${{ steps.normalize.outputs.shortname }}
+        name: ${{ steps.meta_dir.outputs.metadata-artifact-name }}
         # Reference the prepared dir from `meta_dir` (always runs), not from
         # `get_sbom` — if SBOM extraction is skipped due to an earlier failure,
         # `get_sbom.outputs.metadata-dir` is empty and the `if: always()`

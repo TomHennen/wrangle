@@ -146,15 +146,7 @@ runs:
         INPUT_PATH: ${{ inputs.path }}
       run: |
         set -euo pipefail
-        SHORTNAME="${INPUT_PATH////_}"
-        METADATA_DIR="metadata/npm/${SHORTNAME}"
-        mkdir -p "$METADATA_DIR"
-        printf 'shortname=%s\n' "$SHORTNAME" >> "$GITHUB_OUTPUT"
-        printf 'metadata-dir=%s\n' "$METADATA_DIR" >> "$GITHUB_OUTPUT"
-
-        VERSION="$(jq -r .version "$INPUT_PATH/package.json")"
-        printf 'version=%s\n' "$VERSION" >> "$GITHUB_OUTPUT"
-        printf 'Package version: %s\n' "$VERSION"
+        "${{ github.action_path }}/extract_metadata.sh" "$INPUT_PATH"
 
     - name: Compute artifact hashes
       id: hash

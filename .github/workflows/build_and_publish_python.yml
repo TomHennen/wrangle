@@ -95,7 +95,7 @@ on:
         description: "Name of the workflow artifact the per-subject in-toto JSONL bundles ship in. They live inside the unified metadata artifact, so this equals metadata-artifact-name on release runs. Empty when should-release is false."
         value: ${{ jobs.verify.outputs.bundle-artifact-name }}
       metadata-artifact-name:
-        description: "Name of the unified metadata workflow artifact (a zip of `metadata/python/<shortname>/`'s contents): SBOM, the `scan/` tool output, and on release the `<artifact>.intoto.jsonl` bundles. Format: `python-metadata-<shortname>`. Adopters fetch via `actions/download-artifact` — files land at the top level of the configured `path:`. See docs/SPEC.md \"Unified metadata layout\"."
+        description: "Name of the unified metadata workflow artifact (a zip of `metadata/python[/<shortname>]/`'s contents): SBOM, the `scan/` tool output, and on release the `<artifact>.intoto.jsonl` bundles. Format: `python-metadata[-<shortname>]`. Adopters fetch via `actions/download-artifact` — files land at the top level of the configured `path:`. See docs/SPEC.md \"Unified metadata layout\"."
         value: ${{ jobs.build.outputs.metadata-artifact-name }}
       should-release:
         description: |
@@ -154,7 +154,7 @@ jobs:
           ref: ${{ inputs.ref || '' }}
 
       # Shortname must match the build job's (extract_metadata.sh: path with
-      # '/'→'_'), so the build job downloads the right scan artifact.
+      # '/'→'_', root '.'→''), so the build job downloads the right scan artifact.
       - id: sn
         if: ${{ inputs.scan-tools != '' }}
         shell: bash
@@ -162,7 +162,9 @@ jobs:
           INPUT_PATH: ${{ inputs.path }}
         run: |
           set -euo pipefail
-          printf 'name=python-scan-%s\n' "${INPUT_PATH////_}" >> "$GITHUB_OUTPUT"
+          source lib/shortname.sh
+          sn="$(derive_shortname "$INPUT_PATH")"
+          printf 'name=%s\n' "$(artifact_name python-scan "$sn")" >> "$GITHUB_OUTPUT"
 
       # TODO: replace with $/actions/scan when GitHub ships $/ syntax (#136)
       - uses: TomHennen/wrangle/actions/scan@66e4f664bfc0297f63b6f1f506b62d5cf601e4da # bootstrap PR-head until merge (#469)
@@ -242,11 +244,12 @@ jobs:
           SHORTNAME: ${{ steps.build.outputs.shortname }}
         run: |
           set -euo pipefail
+          source lib/shortname.sh
           {
-            printf 'dist=python-dist-%s\n' "$SHORTNAME"
-            printf 'metadata=python-metadata-%s\n' "$SHORTNAME"
-            printf 'scan=python-scan-%s\n' "$SHORTNAME"
-            printf 'metadata-pre=python-premeta-%s\n' "$SHORTNAME"
+            printf 'dist=%s\n' "$(artifact_name python-dist "$SHORTNAME")"
+            printf 'metadata=%s\n' "$(artifact_name python-metadata "$SHORTNAME")"
+            printf 'scan=%s\n' "$(artifact_name python-scan "$SHORTNAME")"
+            printf 'metadata-pre=%s\n' "$(artifact_name python-premeta "$SHORTNAME")"
           } >> "$GITHUB_OUTPUT"
 
       # Emit the dist filenames as a JSON array; the verify job binds one VSA per file.

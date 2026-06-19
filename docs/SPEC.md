@@ -144,7 +144,7 @@ metadata/<type>/<sn>/
 └── <artifact>.intoto.jsonl                            # one per dist subject: SLSA provenance + that subject's signed VSA (release runs)
 ```
 
-`<type>` is the build type (`container`, `python`, ...) and `<sn>` is the path-derived shortname: the `path` input with `/` → `_` (`path: services/api` → `services_api`), so multiple builds in one workflow don't collide. The standalone scan workflow normalizes the root to `_`.
+`<type>` is the build type (`container`, `python`, ...) and `<sn>` is the path-derived shortname: the `path` input with `/` → `_` (`path: services/api` → `services_api`), so multiple builds in one workflow don't collide. For the common root build (`path: .`) the shortname is empty, so the suffix is omitted entirely — artifact names are clean (`<type>-metadata`, `scan`) and the dir is `metadata/<type>/`. All build types and the standalone scan share one derivation (`lib/shortname.sh`).
 
 Each build job folds the separate scan job's output into `scan/` and, on release runs, the verify job folds the per-subject `<artifact>.intoto.jsonl` bundle into the same dir — so one `download-artifact` of `<type>-metadata-<sn>` yields the complete set.
 
