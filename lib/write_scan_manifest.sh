@@ -33,6 +33,14 @@ main() {
     metadata_dir="$(dirname "$sarif_path")"
     result_file="$(basename "$sarif_path")"
 
+    # Action-pattern tools (zizmor, dependency-review) write an error marker
+    # when the run failed and any SARIF on disk is an empty fallback. Don't
+    # attest that: an attestation must claim a real scan result. (run.sh's
+    # adapter path gates on tool_status and never calls here on error.)
+    if [[ -f "$metadata_dir/error" ]]; then
+        return 0
+    fi
+
     # result and version come from the SARIF: results count is the same signal
     # the gate reads (clean|findings); version is the driver's reported version.
     local count result version

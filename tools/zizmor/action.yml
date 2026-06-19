@@ -64,3 +64,18 @@ runs:
         if [[ -f "$SARIF" ]]; then
           "$WRANGLE_ROOT/lib/sarif_to_md.sh" "$SARIF" > "$MD"
         fi
+
+    # Leave the scan/v1 manifest the trusted verify job's wrangle-attest engine
+    # wraps + signs. write_scan_manifest.sh skips when collect_sarif.sh wrote an
+    # error marker, so a failed audit is never attested.
+    - name: Write scan manifest
+      if: always()
+      shell: bash
+      env:
+        WRANGLE_ROOT: ${{ github.action_path }}/../..
+      run: |
+        set -euo pipefail
+        SARIF="${GITHUB_WORKSPACE}/.wrangle/metadata/zizmor/output.sarif"
+        if [[ -f "$SARIF" ]]; then
+          "$WRANGLE_ROOT/lib/write_scan_manifest.sh" zizmor "$SARIF"
+        fi

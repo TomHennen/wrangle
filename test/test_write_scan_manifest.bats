@@ -68,6 +68,14 @@ EOF
     [[ "$status" -eq 2 ]]
 }
 
+@test "write_scan_manifest: skips (no manifest, exit 0) when an error marker is present" {
+    write_sarif '' "2.3.8"
+    printf 'tool error\n' > "$TEST_DIR/osv/error"
+    run "$SCRIPT" osv-scanner "$SARIF"
+    [[ "$status" -eq 0 ]]
+    [[ ! -f "$TEST_DIR/osv/manifest.json" ]]
+}
+
 @test "write_scan_manifest: usage error on wrong arg count" {
     run "$SCRIPT" osv-scanner
     [[ "$status" -eq 2 ]]
