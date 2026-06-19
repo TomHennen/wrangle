@@ -174,7 +174,7 @@ jobs:
 
       # Shared name derivation so the scan and build jobs can't drift.
       # TODO: replace with $/actions/package_metadata when GitHub ships $/ syntax (#136)
-      - uses: TomHennen/wrangle/actions/package_metadata@720c44bcd275740f0c232f4d64dc0eec7c05f7a2 # feat/469-unify-metadata-artifact 2026-06-19
+      - uses: TomHennen/wrangle/actions/package_metadata@041a3fcc56df40113f1b0f6f319c707a6283c5ff # feat/469-unify-metadata-artifact 2026-06-19
         id: names
         if: ${{ inputs.scan-tools != '' }}
         with:
@@ -182,7 +182,7 @@ jobs:
           path: ${{ inputs.path }}
 
       # TODO: replace with $/actions/scan when GitHub ships $/ syntax (#136)
-      - uses: TomHennen/wrangle/actions/scan@720c44bcd275740f0c232f4d64dc0eec7c05f7a2 # feat/469-unify-metadata-artifact 2026-06-19
+      - uses: TomHennen/wrangle/actions/scan@041a3fcc56df40113f1b0f6f319c707a6283c5ff # feat/469-unify-metadata-artifact 2026-06-19
         if: ${{ inputs.scan-tools != '' }}
         with:
           tools: ${{ inputs.scan-tools }}
@@ -231,7 +231,7 @@ jobs:
           ignore-scripts: ${{ inputs.ignore-scripts }}
 
       # TODO: replace with $/actions/package_metadata when GitHub ships $/ syntax (#136)
-      - uses: TomHennen/wrangle/actions/package_metadata@720c44bcd275740f0c232f4d64dc0eec7c05f7a2 # feat/469-unify-metadata-artifact 2026-06-19
+      - uses: TomHennen/wrangle/actions/package_metadata@041a3fcc56df40113f1b0f6f319c707a6283c5ff # feat/469-unify-metadata-artifact 2026-06-19
         id: names
         with:
           build-type: npm
@@ -348,7 +348,7 @@ jobs:
       attestation-bundle-name: ${{ needs.build.outputs.metadata-artifact-name }}
     steps:
       # TODO: replace with $/actions/verify_release when GitHub ships $/ syntax (#136)
-      - uses: TomHennen/wrangle/actions/verify_release@720c44bcd275740f0c232f4d64dc0eec7c05f7a2 # feat/469-unify-metadata-artifact 2026-06-19
+      - uses: TomHennen/wrangle/actions/verify_release@041a3fcc56df40113f1b0f6f319c707a6283c5ff # feat/469-unify-metadata-artifact 2026-06-19
         with:
           build-type: npm
           shortname: ${{ needs.build.outputs.shortname }}
