@@ -67,15 +67,13 @@ runs:
 
     # Leave the scan/v1 manifest the trusted verify job's wrangle-attest engine
     # wraps + signs. write_scan_manifest.sh skips when collect_sarif.sh wrote an
-    # error marker, so a failed audit is never attested.
+    # error marker, so a failed audit is never attested. Gated on the SARIF
+    # existing so the step stays a single script call (no inline if).
     - name: Write scan manifest
-      if: always()
+      if: always() && hashFiles('.wrangle/metadata/zizmor/output.sarif') != ''
       shell: bash
       env:
         WRANGLE_ROOT: ${{ github.action_path }}/../..
+        SARIF: ${{ github.workspace }}/.wrangle/metadata/zizmor/output.sarif
       run: |
-        set -euo pipefail
-        SARIF="${GITHUB_WORKSPACE}/.wrangle/metadata/zizmor/output.sarif"
-        if [[ -f "$SARIF" ]]; then
-          "$WRANGLE_ROOT/lib/write_scan_manifest.sh" zizmor "$SARIF"
-        fi
+        "$WRANGLE_ROOT/lib/write_scan_manifest.sh" zizmor "$SARIF"

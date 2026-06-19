@@ -113,15 +113,13 @@ runs:
     # Leave the scan/v1 manifest the trusted verify job's wrangle-attest engine
     # wraps + signs. Runs after mark_error.sh so write_scan_manifest.sh sees the
     # marker and skips on a tool error; the action is PR-only, so off-PR runs
-    # never reach here and no manifest is written for a skipped tool.
+    # never reach here and no manifest is written for a skipped tool. Gated on
+    # the SARIF existing so the step stays a single script call (no inline if).
     - name: Write scan manifest
-      if: always()
+      if: always() && hashFiles('.wrangle/metadata/dependency-review/output.sarif') != ''
       shell: bash
       env:
         WRANGLE_ROOT: ${{ github.action_path }}/../..
+        SARIF: ${{ github.workspace }}/.wrangle/metadata/dependency-review/output.sarif
       run: |
-        set -euo pipefail
-        SARIF="${GITHUB_WORKSPACE}/.wrangle/metadata/dependency-review/output.sarif"
-        if [[ -f "$SARIF" ]]; then
-          "$WRANGLE_ROOT/lib/write_scan_manifest.sh" dependency-review "$SARIF"
-        fi
+        "$WRANGLE_ROOT/lib/write_scan_manifest.sh" dependency-review "$SARIF"
