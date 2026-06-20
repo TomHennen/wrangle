@@ -28,7 +28,7 @@ jobs:
     permissions: {}    # guard reads env only — no workspace, no API, no secrets
     steps:
       # TODO: replace with $/actions/prep when GitHub ships $/ syntax (#136)
-      - uses: TomHennen/wrangle/actions/prep@731eb4e95e4c53cce9dd8d57f0ba5c626517b39f # bootstrap: PR head until post-merge bump
+      - uses: TomHennen/wrangle/actions/prep@428325083b9ffed4b41fa5ad9abc146bcb8aded8 # main 2026-06-20
 
   check-change:
     needs: [prep]
@@ -49,7 +49,7 @@ jobs:
       # (root path), so the shortname is empty and the name is just "scan".
       # TODO: replace with $/actions/scan when GitHub ships $/ syntax (#136)
       - name: Source scan
-        uses: TomHennen/wrangle/actions/scan@56aa2ffe4d4b0f48a3c0e09ff2d458e16e25bdcb # main 2026-06-20
+        uses: TomHennen/wrangle/actions/scan@428325083b9ffed4b41fa5ad9abc146bcb8aded8 # main 2026-06-20
         with:
           tools: ${{ inputs.tools }}
           artifact-name: scan

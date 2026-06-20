@@ -735,8 +735,8 @@ write_pkg_json() {
     [[ "$status" -eq 0 ]]
 }
 
-@test "npm: scan job needs gate so go-cache can read should-release" {
-    run bash -c "sed -n '/^  scan:/,/^  [a-z]/p' \"$WORKFLOW\" | grep -E 'needs:.*gate'"
+@test "npm: scan job needs prep so go-cache can read should-release" {
+    run bash -c "sed -n '/^  scan:/,/^  [a-z]/p' \"$WORKFLOW\" | grep -E 'needs:.*prep'"
     [[ "$status" -eq 0 ]]
 }
 
@@ -747,10 +747,10 @@ write_pkg_json() {
     [[ "$status" -eq 0 ]]
 }
 
-@test "npm: workflow has gate job calling release_gate" {
-    run grep -E '^  gate:' "$WORKFLOW"
+@test "npm: workflow has prep job calling the prep action" {
+    run grep -E '^  prep:' "$WORKFLOW"
     [[ "$status" -eq 0 ]]
-    run grep -E 'TomHennen/wrangle/actions/release_gate' "$WORKFLOW"
+    run grep -E 'TomHennen/wrangle/actions/prep@' "$WORKFLOW"
     [[ "$status" -eq 0 ]]
 }
 
@@ -797,13 +797,13 @@ write_pkg_json() {
 
 @test "npm: workflow namespaces artifacts by shortname, suffix-less at root" {
     # The scan/build jobs check out the ADOPTER repo, where lib/shortname.sh
-    # is absent — the workflow must never source the lib (#469). Both the scan
-    # and build jobs get their names from the package_metadata composite, which
-    # sources the lib from the wrangle checkout. Root build ('.') stays
-    # suffix-less.
+    # is absent — the workflow must never source the lib (#469). Name
+    # derivation is delegated to the prep job (which runs package_metadata
+    # from the wrangle checkout); downstream jobs read needs.prep.outputs.*.
+    # Root build ('.') stays suffix-less.
     run grep -F 'source lib/shortname.sh' "$WORKFLOW"
     [[ "$status" -ne 0 ]]
-    run grep -F 'TomHennen/wrangle/actions/package_metadata@' "$WORKFLOW"
+    run grep -F 'TomHennen/wrangle/actions/prep@' "$WORKFLOW"
     [[ "$status" -eq 0 ]]
     run grep -F 'build-type: npm' "$WORKFLOW"
     [[ "$status" -eq 0 ]]
@@ -832,8 +832,8 @@ write_pkg_json() {
     grep -qE '^metadata-dir=metadata/npm/pkg_foo$' "$GITHUB_OUTPUT"
 }
 
-@test "npm: build job exposes shortname output" {
-    run bash -c "sed -n '/^  build:/,/^  [a-z]/p' \"$WORKFLOW\" | grep -E '^[[:space:]]*shortname:'"
+@test "npm: prep job exposes shortname output" {
+    run bash -c "sed -n '/^  prep:/,/^  [a-z]/p' \"$WORKFLOW\" | grep -E '^[[:space:]]*shortname:'"
     [[ "$status" -eq 0 ]]
 }
 
