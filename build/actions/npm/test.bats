@@ -798,7 +798,7 @@ write_pkg_json() {
 @test "npm: workflow namespaces artifacts by shortname, suffix-less at root" {
     # The scan/build jobs check out the ADOPTER repo, where lib/shortname.sh
     # is absent — the workflow must never source the lib (#469). Name
-    # derivation is delegated to the prep job (which runs package_metadata
+    # derivation is delegated to the prep job (which runs lib/derive_names.sh
     # from the wrangle checkout); downstream jobs read needs.prep.outputs.*.
     # Root build ('.') stays suffix-less.
     run grep -F 'source lib/shortname.sh' "$WORKFLOW"

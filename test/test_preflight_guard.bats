@@ -1,19 +1,18 @@
 #!/usr/bin/env bats
 
-# Tests for the preflight_guard composite action. Two flavors:
+# Tests for lib/preflight_guard.sh — the trigger refusal logic prep runs at
+# the head of every reusable workflow. Two flavors:
 #
-#   - Behavioral: run preflight_guard.sh directly with EVENT_NAME /
-#     OUTER_EVENT set, assert exit code + emitted message. These cover
-#     the actual refusal logic.
-#   - Structural: grep-based fingerprints on action.yml / the script.
-#     These survive script-internal refactors and break loudly if a
-#     drive-by edit swaps the guard for a no-op step or strips the
-#     env-passthrough pattern.
+#   - Behavioral: run the script directly with EVENT_NAME / OUTER_EVENT set,
+#     assert exit code + emitted message. These cover the refusal logic.
+#   - Structural: grep-based fingerprints on prep's action.yml / the script.
+#     These break loudly if a drive-by edit swaps the guard for a no-op step
+#     or strips the env-passthrough pattern.
 
 setup() {
-    ACTION_DIR="$(cd "$(dirname "$BATS_TEST_FILENAME")" && pwd)"
-    ACTION="$ACTION_DIR/action.yml"
-    SCRIPT="$ACTION_DIR/preflight_guard.sh"
+    REPO_ROOT="$(cd "$(dirname "$BATS_TEST_FILENAME")/.." && pwd)"
+    SCRIPT="$REPO_ROOT/lib/preflight_guard.sh"
+    PREP="$REPO_ROOT/actions/prep/action.yml"
 }
 
 # --- behavioral ---
@@ -53,25 +52,21 @@ setup() {
 
 # --- structural ---
 
-@test "structure: action.yml exists" {
-    [[ -f "$ACTION" ]]
-}
-
 @test "structure: script exists and is executable" {
     [[ -x "$SCRIPT" ]]
 }
 
-@test "structure: action.yml delegates to the script" {
-    run grep 'preflight_guard.sh' "$ACTION"
+@test "structure: prep delegates to the script" {
+    run grep 'lib/preflight_guard.sh' "$PREP"
     [[ "$status" -eq 0 ]]
 }
 
-@test "structure: action.yml passes env vars (no expression interpolation into shell body)" {
+@test "structure: prep passes env vars (no expression interpolation into shell body)" {
     # EVENT_NAME and OUTER_EVENT must be passed via env:, not interpolated
     # into the script body. Matches wrangle's injection-safety convention.
-    run grep -F 'EVENT_NAME: ${{ github.event_name }}' "$ACTION"
+    run grep -F 'EVENT_NAME: ${{ github.event_name }}' "$PREP"
     [[ "$status" -eq 0 ]]
-    run grep -F 'OUTER_EVENT: ${{ github.event.workflow_run.event }}' "$ACTION"
+    run grep -F 'OUTER_EVENT: ${{ github.event.workflow_run.event }}' "$PREP"
     [[ "$status" -eq 0 ]]
 }
 

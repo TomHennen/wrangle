@@ -125,7 +125,7 @@ The reusable workflow runs an `attest:` job that calls `actions/attest-build-pro
 
 The `attest:` job declares `id-token: write` (OIDC for Sigstore keyless signing), `attestations: write` (write the attestation to GitHub's store), and `contents: read` (`download-artifact` reads the same-run dist). It does **not** need `actions: read` (which the former generator required to detect the Actions environment).
 
-Provenance is gated on the `release-events` input (default `non-pull-request`). The reusable workflow runs a small `gate` job that calls `actions/release_gate` and exposes a `should-release` output; the `attest:` job runs only when `should-release == 'true'`. On gated-out runs (e.g., PRs, or non-tag events when `release-events: tag-only`), only the build + test + SBOM steps run. See [`docs/SPEC.md`](../../../docs/SPEC.md) "Release-events gating" for the full predicate vocabulary.
+Provenance is gated on the `release-events` input (default `non-pull-request`). The reusable workflow runs a small `gate` job that calls `lib/release_gate.sh` and exposes a `should-release` output; the `attest:` job runs only when `should-release == 'true'`. On gated-out runs (e.g., PRs, or non-tag events when `release-events: tag-only`), only the build + test + SBOM steps run. See [`docs/SPEC.md`](../../../docs/SPEC.md) "Release-events gating" for the full predicate vocabulary.
 
 The separate `verify:` job (which emits the signed SLSA VSA) declares `contents: write` so it can attach the VSA to the GitHub release on tag pushes. Callers of this reusable workflow must therefore grant `contents: write` themselves for that job.
 
@@ -253,10 +253,13 @@ jobs:
     runs-on: ubuntu-latest
     outputs: { should-release: ${{ steps.gate.outputs.should-release }} }
     steps:
-      - uses: TomHennen/wrangle/actions/release_gate@<sha>
-        id: gate
-        with:
-          events: ${{ inputs.release-events }}
+      - uses: actions/checkout@<sha>
+      - id: gate
+        env:
+          EVENTS_INPUT: ${{ inputs.release-events }}
+          EVENT_NAME: ${{ github.event_name }}
+          REF: ${{ github.ref }}
+        run: ./lib/release_gate.sh
 
   attest:
     if: ${{ needs.gate.outputs.should-release == 'true' }}

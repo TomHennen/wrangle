@@ -2,7 +2,7 @@
 
 # Structural tests for actions/prep/action.yml — the shared head-of-pipeline
 # composite every reusable workflow runs as its first job. Asserts the three
-# sub-actions are wired in the guard-first order, that the gate and names
+# lib steps are wired in the guard-first order, that the gate and names
 # outputs are surfaced, and that an empty build-type is guard-only.
 
 setup() {
@@ -11,16 +11,16 @@ setup() {
 }
 
 @test "prep: runs preflight_guard before the gate and names steps" {
-    guard_line="$(grep -n 'actions/preflight_guard@' "$ACTION" | head -1 | cut -d: -f1)"
-    gate_line="$(grep -n 'actions/release_gate@' "$ACTION" | head -1 | cut -d: -f1)"
-    names_line="$(grep -n 'actions/package_metadata@' "$ACTION" | head -1 | cut -d: -f1)"
+    guard_line="$(grep -n 'lib/preflight_guard.sh' "$ACTION" | head -1 | cut -d: -f1)"
+    gate_line="$(grep -n 'lib/release_gate.sh' "$ACTION" | head -1 | cut -d: -f1)"
+    names_line="$(grep -n 'lib/derive_names.sh' "$ACTION" | head -1 | cut -d: -f1)"
     [ -n "$guard_line" ] && [ -n "$gate_line" ] && [ -n "$names_line" ]
     [ "$guard_line" -lt "$gate_line" ]
     [ "$gate_line" -lt "$names_line" ]
 }
 
 @test "prep: gate reads the release-events input" {
-    run grep -F 'events: ${{ inputs.release-events }}' "$ACTION"
+    run grep -F 'EVENTS_INPUT: ${{ inputs.release-events }}' "$ACTION"
     [ "$status" -eq 0 ]
 }
 
@@ -38,9 +38,9 @@ setup() {
 }
 
 @test "prep: names derives from build-type + path" {
-    run grep -F 'build-type: ${{ inputs.build-type }}' "$ACTION"
+    run grep -F 'BUILD_TYPE: ${{ inputs.build-type }}' "$ACTION"
     [ "$status" -eq 0 ]
-    run grep -F 'path: ${{ inputs.path }}' "$ACTION"
+    run grep -F 'PATH_IN: ${{ inputs.path }}' "$ACTION"
     [ "$status" -eq 0 ]
 }
 

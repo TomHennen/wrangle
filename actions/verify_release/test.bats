@@ -10,8 +10,8 @@ setup() {
     ACTION="$REPO_ROOT/actions/verify_release/action.yml"
 }
 
-@test "verify_release: computes names via package_metadata's derive_names.sh" {
-    run grep -F 'package_metadata/derive_names.sh' "$ACTION"
+@test "verify_release: computes names via lib/derive_names.sh" {
+    run grep -F 'lib/derive_names.sh' "$ACTION"
     [ "$status" -eq 0 ]
 }
 

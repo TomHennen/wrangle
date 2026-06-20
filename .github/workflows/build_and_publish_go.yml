@@ -72,7 +72,7 @@ on:
             - main-and-tags: push to refs/heads/main or refs/tags/*.
             - <comma-separated event_name list>: matches if
               github.event_name is in the list. See
-              actions/release_gate for full vocabulary.
+              lib/release_gate.sh for full vocabulary.
 
           Goreleaser publishes only on TAG PUSHES (`gh release create`
           requires a tag). The default `tag-only` is therefore also

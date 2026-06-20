@@ -20,7 +20,7 @@ inputs:
     required: false
     default: "."
   release-events:
-    description: "Which events trigger release-time actions; passed to release_gate."
+    description: "Which events trigger release-time actions; passed to the release gate."
     required: false
     default: non-pull-request
 
@@ -58,21 +58,27 @@ runs:
   steps:
     # Refuse unsafe triggers first, so a refused invocation fails prep and
     # every downstream `needs: [prep]` job skips.
-    # TODO: replace with $/actions/preflight_guard when $/ syntax ships (#136)
-    - uses: TomHennen/wrangle/actions/preflight_guard@0cc2ea9d13e4ad1616fa4f425258d9580d8ed69a # main 2026-06-20
+    - shell: bash
+      env:
+        EVENT_NAME: ${{ github.event_name }}
+        OUTER_EVENT: ${{ github.event.workflow_run.event }}
+      run: "${{ github.action_path }}/../../lib/preflight_guard.sh"
 
     # Gate + names run only for a real build type; guard-only mode skips them.
-    # TODO: replace with $/actions/release_gate when $/ syntax ships (#136)
-    - uses: TomHennen/wrangle/actions/release_gate@0cc2ea9d13e4ad1616fa4f425258d9580d8ed69a # main 2026-06-20
-      id: gate
+    - id: gate
+      shell: bash
       if: ${{ inputs.build-type != '' }}
-      with:
-        events: ${{ inputs.release-events }}
+      env:
+        EVENTS_INPUT: ${{ inputs.release-events }}
+        EVENT_NAME: ${{ github.event_name }}
+        REF: ${{ github.ref }}
+      run: "${{ github.action_path }}/../../lib/release_gate.sh"
 
-    # TODO: replace with $/actions/package_metadata when $/ syntax ships (#136)
-    - uses: TomHennen/wrangle/actions/package_metadata@0cc2ea9d13e4ad1616fa4f425258d9580d8ed69a # main 2026-06-20
-      id: names
+    - id: names
+      shell: bash
       if: ${{ inputs.build-type != '' }}
-      with:
-        build-type: ${{ inputs.build-type }}
-        path: ${{ inputs.path }}
+      env:
+        BUILD_TYPE: ${{ inputs.build-type }}
+        SHORTNAME: ""
+        PATH_IN: ${{ inputs.path }}
+      run: '"${{ github.action_path }}/../../lib/derive_names.sh" "$BUILD_TYPE" "$SHORTNAME" "$PATH_IN"'
