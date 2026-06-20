@@ -11,6 +11,7 @@ updates:
       - "/actions/attest_provenance"
       - "/actions/package_metadata"
       - "/actions/preflight_guard"
+      - "/actions/prep"
       - "/actions/release_gate"
       - "/actions/scan"
       - "/actions/verify"
