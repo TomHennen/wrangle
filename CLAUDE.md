@@ -1,6 +1,6 @@
 # CLAUDE.md — Wrangle Development Guidelines
 
-Wrangle is a composable CI/CD security framework for GitHub Actions. Because it is a **supply chain security tool**, its own code must be exemplary. A compromise of wrangle propagates to every adopter.
+Wrangle is a composable CI/CD security framework for GitHub Actions. Because it is a **supply chain security tool**, its own code must be exemplary — a compromise of wrangle propagates to every adopter.
 
 Read `docs/SPEC.md` before contributing. It is the source of truth for architecture and contracts; this file covers conventions and judgment calls that are not yet mechanically enforced.
 
@@ -8,8 +8,8 @@ Read `docs/SPEC.md` before contributing. It is the source of truth for architect
 
 1. **Mechanical enforcement beats prose.** If a rule can be enforced by a lint, test, or CI check, do that — don't put it here. CLAUDE.md describes only what can't (yet) be mechanically caught.
 2. **Prefer language parsers over grep for code analysis.** AST tools (ast-grep, shellcheck, mvdan/sh, semgrep) beat regex/awk for any code-rule enforcer.
-3. **One sentence per rule.** Why → linked issue or commit message. What → here.
-4. **Read upstream docs before integrating a tool.** Custom code (install.sh, CLI shims, verification logic) is the fallback path, not the default — you can't pick canonical package managers, attestation tiers, or built-in CLI options without looking. When adopting a new tool, the PR description must note what upstream install paths and verification mechanisms exist, and why the chosen one was picked.
+3. **One sentence per rule.** What → here; why → linked issue or commit message.
+4. **Read upstream docs before integrating a tool.** Custom code (install.sh, CLI shims, verification logic) is the fallback, not the default. The adopting PR's description must note what upstream install paths and verification mechanisms exist, and why the chosen one was picked.
 
 ## Code review checklist
 
@@ -22,60 +22,50 @@ Before approving any PR, ask:
 - Is this code we'd be comfortable maintaining a year from now?
 - Do CI checks pass?
 
-Then check the diff against the conventions in the rest of this file.
-
-**Re-verification by the original reviewer.** After review findings are addressed, the same reviewer verifies the fixes.
+Then check the diff against the conventions below. After findings are addressed, the **same reviewer** verifies the fixes.
 
 ## Comments
 
-**Default to no comment.** Add one only for a genuinely non-obvious constraint, and keep it to one short line. Never restate what the code does, narrate rationale or history, or reference PR numbers, review threads, comment URLs, or policy docs (CLAUDE.md, SPEC.md, DEP_MGMT.md) — the rule lives in the doc, the comment states the constraint. A multi-line explanatory paragraph is a review burden and is rejected: cut it to one line or delete it. Delete any comment that just paraphrases the line below it.
+**Default to no comment.** Add one only for a genuinely non-obvious constraint, kept to one short line. Never restate what the code does, narrate rationale or history, or reference PR numbers, review threads, or policy docs — the rule lives in the doc, the comment states the constraint.
 
-**Describe what the code does now, not what it used to do.** When you change or remove something, rewrite the comment to stand on its own describing current behavior — never "replaces the old X", "previously the generator…", "this is the new path", or "X now does Y instead of Z". A reader who never saw the prior version is the audience. Migration rationale and "what changed and why" belong in the PR description or an inline PR comment to the reviewer — not in the committed code.
+**Describe current behavior, not history.** A reader who never saw the prior version is the audience — never "replaces the old X", "previously…", or "now does Y instead of Z". Migration rationale belongs in the PR, not the committed code.
 
 ## Adopter-facing docs
 
-The per-build-type READMEs, `docs/verifying_artifacts.md`, the top-level `README.md`, and the workflow examples are **quick-start docs, not specifications.** Keep them at the altitude of *what the adopter does*; mechanism, rationale, and exhaustive rules live in `SPEC.md` (or the relevant upstream spec) and get a *link*, not a reproduction. Match the top-level `README.md`'s voice: benefit-first, second person, no spec-annex walls.
+The per-build-type READMEs, `docs/verifying_artifacts.md`, the top-level `README.md`, and the workflow examples are **quick-start docs, not specifications.** Keep them at the altitude of *what the adopter does*, in the top-level `README.md`'s benefit-first, second-person voice. Mechanism, rationale, and exhaustive rules live in `SPEC.md` (or the relevant upstream spec) and get a *link*.
 
-- **State the fact, link the spec — don't reproduce it.** "The name is PEP 503-normalized (link)" — not the normalization algorithm; "provenance covers `checksums.txt`" — not the subject-set derivation.
-- **Don't enumerate what a source of truth already lists.** Workflow inputs/outputs are documented in the workflow file — point to it, don't copy the list (copies drift).
+- **State the fact, link the spec — don't reproduce it** ("the name is PEP 503-normalized (link)", not the algorithm).
+- **Don't enumerate what a source of truth already lists** (workflow inputs/outputs live in the workflow file — point to it; copies drift).
 - **Cut anything the adopter doesn't act on** — internal job mechanics, threat-model derivations, "under the hood" asides.
-- **Unshipped work lives in issues, not docs.** Don't describe planned features or what hasn't been done yet.
+- **Unshipped work lives in issues, not docs.**
 
 ## Shell scripts
 
-Every shell script MUST start with the exact preamble `set -euo pipefail` followed by `set -f` (disable globbing). Stricter supersets (`set -Eeuo pipefail`) and equivalent decompositions (`set -e -u -o pipefail`) are rejected — one canonical form. If you need ERR trap inheritance, add `set -E` on its own line after the preamble. Scripts that intentionally need globbing must wrap it in `set +f` / `set -f` with a comment, scoped as narrowly as possible. Sourced libs that toggle `set +f` MUST restore `set -f` before returning.
+Every script starts with the exact preamble `set -euo pipefail` then `set -f` — supersets (`set -Eeuo pipefail`) and decompositions (`set -e -u -o pipefail`) are rejected. Add `set -E` on its own line after if you need ERR trap inheritance. Scripts needing globbing wrap it in a narrowly-scoped `set +f` / `set -f` with a comment; sourced libs restore `set -f` before returning. Double-quote every expansion, use `$(…)` not backticks, `[[ ]]` not `[ ]`, and `printf` not `echo` for output that may contain user data. A `# shellcheck disable` needs a justifying comment.
 
-All variable expansions MUST be double-quoted. All scripts MUST pass `shellcheck` — no `# shellcheck disable` without a justifying comment. Use `$(command)` not backticks. Use `[[ ]]` not `[ ]` for conditionals. Use `printf` not `echo` for output that may contain user data.
-
-Don't `curl | sh` — all binary downloads go through `lib/download_verify.sh`. These rules are mechanically enforced by `tools/wrangle-shell-lint/` (WSL001–007; `curl | sh` is WSL006, `set +f` outside a subshell is WSL007).
+Mechanically enforced by `tools/wrangle-shell-lint/` (WSL001–007; `curl | sh` is WSL006, `set +f` outside a subshell is WSL007).
 
 ## GitHub Actions
 
-- **Inline shell ≤ 10 physical lines** (preamble, blanks, and comments all count). Longer or anything with logic → extract to a script. Enforced by `tools/wrangle-workflow-lint/` (WWL001).
+- **Inline shell ≤ 10 physical lines** (preamble, blanks, comments all count); longer or anything with logic → extract to a script. Enforced by `tools/wrangle-workflow-lint/` (WWL001).
 - **No expression injection.** NEVER interpolate `${{ inputs.* }}`, `${{ github.event.* }}`, or any attacker-controllable expression directly in a `run:` block — always thread through `env:` first.
-- **No copy-paste across workflows.** If the same `run:` block or step sequence appears in more than two workflow files, extract to a composite or shared script. Drift between copies is a class of bug, not a one-off.
+- **No copy-paste across workflows.** A `run:` block or step sequence appearing in more than two workflow files → extract to a composite or shared script.
 
-## Action reference pinning
+## Pointers to DEP_MGMT.md and SPEC.md
 
-Required pin format per context (third-party actions, self-references, examples), the `@main` prohibition, and how self-references are bumped: see [DEP_MGMT.md](DEP_MGMT.md).
+- **Action reference pinning** — required pin format per context, the `@main` prohibition, and self-reference bumping: [DEP_MGMT.md](DEP_MGMT.md).
+- **Installing and verifying tools** — install-method decision tree, integrity-tier ladder, and freshness-first rule: [DEP_MGMT.md](DEP_MGMT.md). Install-script mechanics (`lib/download_verify.sh`, `$WRANGLE_BIN_DIR`, idempotency, atomic `mv`) are the Install Script Interface contract in SPEC.md.
+- **Pin drift across files** — single-source or a divergence-fail test: [DEP_MGMT.md § Drift](DEP_MGMT.md#drift).
 
-## Installing and verifying tools
+## Adapter contract (full contract: SPEC.md §Adapter Script Interface)
 
-How to choose an install method and verification tier — the decision tree, the integrity-tier ladder, and the freshness-first rule — is in [DEP_MGMT.md](DEP_MGMT.md). Install-script mechanics (`lib/download_verify.sh`, `$WRANGLE_BIN_DIR`, idempotency, atomic `mv`) are the Install Script Interface contract in SPEC.md.
-
-## Pins drift across files
-
-Prevent the same pin literal drifting across files (single-source or a divergence-fail test): see [DEP_MGMT.md § Drift](DEP_MGMT.md#drift).
-
-## Adapter contract (see SPEC.md §Adapter Script Interface for the full contract)
-
-Adapters take `<src_dir>` (read-only) and `<output_dir>` (writable), write `output.sarif` (SARIF 2.1.0), exit 0 (no findings) / 1 (findings) / 2 (tool error). Do not write outside `output_dir`. Do not access secrets (env is stripped by the orchestrator). `jq` exit codes are checked — malformed SARIF MUST cause exit 2, not silent success.
+Adapters take `<src_dir>` (read-only) and `<output_dir>` (writable), write `output.sarif` (SARIF 2.1.0), exit 0 (no findings) / 1 (findings) / 2 (tool error). Do not write outside `output_dir` or access secrets (env is stripped by the orchestrator). `jq` exit codes are checked — malformed SARIF MUST cause exit 2, not silent success.
 
 ## Per-tool directory layout
 
-Tools live in `tools/<name>/`. Three patterns: **adapter** (`adapter.sh` + `test.bats`, binary from a tools/go.mod `tool` directive or a bespoke `install.sh` for tools no package manager ships; wired into `actions/scan/action.yml`) for scan tools; **action** (`action.yml` + `test.bats`) for tools with official GitHub Actions; **developer tooling** (whatever the tool needs + `test.bats`) for things used only during development, not by adopters (e.g., `bump_action_pins`, `wrangle-shell-lint`).
+Tools live in `tools/<name>/`. Three patterns: **adapter** (`adapter.sh` + `test.bats`, binary from a tools/go.mod `tool` directive or a bespoke `install.sh` for tools no package manager ships; wired into `actions/scan/action.yml`); **action** (`action.yml` + `test.bats`) for tools with official GitHub Actions; **developer tooling** (whatever it needs + `test.bats`) for things used only during development, not by adopters (e.g. `bump_action_pins`, `wrangle-shell-lint`).
 
-An action's own helper scripts live in its `actions/<name>/` directory alongside `action.yml`, **with their bats next to them** (`actions/<name>/*.bats`) so a test sits beside the thing it tests (e.g. `preflight_guard`, `verify`). `lib/` is only for helpers shared across multiple actions/tools (`env.sh`, `sanitize.sh`, `download_verify.sh`), and `test/` holds those shared-lib tests + cross-cutting ones.
+An action's own helper scripts live in its `actions/<name>/` directory beside `action.yml`, **with their bats next to them** (`actions/<name>/*.bats`). `lib/` is only for helpers shared across multiple actions/tools (`env.sh`, `sanitize.sh`, `download_verify.sh`); `test/` holds shared-lib and cross-cutting tests.
 
 ## Path resolution
 
@@ -83,19 +73,19 @@ Scripts resolve paths relative to their own location via `SCRIPT_DIR="$(cd "$(di
 
 ## Testing
 
-Run `make test` before pushing — it's the exact suite CI runs. When the host toolchain is installed (the pinned set `test/Dockerfile` lists: shellcheck, bats, ast-grep, actionlint, PyYAML, Go, plus zizmor), run `make test` directly — or a single layer like `make bats` / `make shellcheck`. When those deps can't be installed, use `./test.sh`, which runs the same `make test` inside the pinned container with no host setup; `./test.sh quick` skips zizmor for inner-loop iteration. Every adapter and install script gets a `test.bats`. The test-layer breakdown (local layers, the containerized unit suite, CI integration, e2e) is in SPEC.md §Testing Strategy. Beyond that:
+Run `make test` before pushing — it's the exact suite CI runs. With the host toolchain installed (the pinned set in `test/Dockerfile`: shellcheck, bats, ast-grep, actionlint, PyYAML, Go, zizmor), run it directly, or a single layer (`make bats`, `make shellcheck`). Otherwise use `./test.sh`, which runs the same suite in the pinned container; `./test.sh quick` skips zizmor for inner-loop iteration. The test-layer breakdown is in SPEC.md §Testing Strategy. Beyond that:
 
-- **Prefer real tools/binaries over shims/mocks.** Drive tests with the actual binary wherever practical; a shim is acceptable only with a one-line comment saying why a real tool can't be used (e.g., an adapter feeding deterministic fixture SARIF that no real scanner would emit on demand).
-- **Unit vs. integration — two independent axes.** *Containerized* (packaging: a reproducible pinned toolchain, no host setup) is separate from *hermetic* (the test's result doesn't depend on a real binary or network). The unit suite (`./test.sh`) is both, but that's a coincidence, not a rule: the integration job could run in a container and still be non-hermetic (it'd still hit registries/Sigstore/github.com). What decides where a test goes is the *dependency*, not the container — a test that needs a real binary or network is an integration test (dedicated CI job; also runs locally when prereqs are present, gated by `skip_or_fail`), kept out of the unit suite so that suite stays deterministic. A bats test lives next to the script it covers.
-- **Tests must never skip in CI.** Skip paths exist as a safety net for sandboxed local dev (no network, no installed binary); in CI those preconditions are guaranteed, so a skip means coverage silently degraded. The test distinguishes CI from local and fails rather than skips (the shared `skip_or_fail` helper) — don't bolt a separate per-job CI step onto a test that skips.
-- **A script may have a `main` that runs on execution.** Factoring logic into small, pure functions for unit tests is good, but don't over-rotate into "source the script then call a function" from callers — a script can expose testable helpers *and* a `main`/subcommand dispatcher guarded by `[[ "${BASH_SOURCE[0]}" == "$0" ]]`, so a caller just runs it.
+- **Prefer real tools/binaries over shims/mocks.** A shim is acceptable only with a one-line comment saying why a real tool can't be used.
+- **Unit vs. integration is decided by the *dependency*, not the container.** A test needing a real binary or network is an integration test (dedicated CI job, also runs locally when prereqs are present), kept out of the unit suite so that suite stays deterministic. A bats test lives next to the script it covers.
+- **Tests must never skip in CI.** Skip paths are a safety net for sandboxed local dev; in CI the preconditions are guaranteed, so a skip means coverage silently degraded. Use the shared `skip_or_fail` helper to fail rather than skip.
+- **A script may have a `main` that runs on execution.** Expose testable helpers *and* a `main`/dispatcher guarded by `[[ "${BASH_SOURCE[0]}" == "$0" ]]` — don't force callers to source-and-call.
 
 ## Supply chain discipline
 
-- **No auto-merge of dependency updates.** New upstream tool versions are adopted after a delay (aim for 7 days) to let the community discover supply chain attacks before wrangle amplifies them.
 - **No `curl | sh` anywhere.** All binary downloads go through `lib/download_verify.sh`.
-- **No downloading checksums from the same source as binaries.** When checksums are used, they are hardcoded; version + checksum updates are always a single atomic commit.
-- **Avoid linter / scanner suppressions; do it right.** If `shellcheck`, `actionlint`, `zizmor`, or a similar tool flags something, the default is to restructure the code so the finding goes away — not to add `# zizmor: ignore[...]` / `# shellcheck disable=...`. Suppressions are escape hatches for genuinely-false positives only, and carry a one-line justification.
+- **No auto-merge of dependency updates.** Adopt new upstream versions after a delay (aim for 7 days) to let the community discover supply chain attacks first.
+- **No downloading checksums from the same source as binaries.** Checksums are hardcoded; version + checksum updates are always a single atomic commit.
+- **Avoid linter/scanner suppressions; do it right.** Restructure the code so the finding goes away rather than adding `# zizmor: ignore[...]` / `# shellcheck disable=...`. Suppressions are for genuine false positives only, with a one-line justification.
 
 ## Dogfooding
 
@@ -105,7 +95,7 @@ A PR that changes a composite action (or a file it reads, like a `policies/*.hjs
 
 ## Permissions
 
-Workflows request minimum required permissions. Never blanket `permissions: write-all`. The standard set for source scanning is `actions: read`, `contents: read`, `security-events: write`. Add permissions only as needed, with a comment explaining why.
+Workflows request minimum required permissions — never blanket `permissions: write-all`. The standard set for source scanning is `actions: read`, `contents: read`, `security-events: write`. Add more only as needed, with a comment explaining why.
 
 ## Input validation
 
@@ -113,17 +103,16 @@ The orchestrator validates tool names against `^[a-z][a-z0-9_-]*$`. Any new inpu
 
 ## Secrets
 
-Adapters do NOT receive secrets (env stripped by the orchestrator). If a tool needs an authenticated API, use the `WRANGLE_EXTRA_` prefix mechanism (see SPEC.md). Never log secrets. `GITHUB_TOKEN` only where strictly necessary. The integration-test companion repo (see `test/integration/SPEC.md`) MUST NOT hold release signing keys, Cosign credentials, cross-repo tokens, GitHub App credentials, or SSH keys.
+Adapters do NOT receive secrets (env stripped by the orchestrator); a tool needing an authenticated API uses the `WRANGLE_EXTRA_` prefix mechanism (see SPEC.md). Never log secrets; use `GITHUB_TOKEN` only where strictly necessary. The integration-test companion repo (see `test/integration/SPEC.md`) MUST NOT hold release signing keys, Cosign credentials, cross-repo tokens, GitHub App credentials, or SSH keys.
 
 ## Contributing process
 
-- Branch from `main`, descriptive branch names.
-- All PRs must pass CI (`make test` via GitHub Actions); shellcheck cleanly; actionlint cleanly.
-- **No merge without an `LGTM` from the repository owner.** A PR may be merged only after the owner has commented `LGTM` on it; given that approval, it may be merged once CI is green. Green CI alone is never authorization to merge.
-- If a PR fully fixes a tracked issue, close it from the PR description with a GitHub closing keyword (`Fixes #NNN`) so the issue isn't left open after merge; if you're unsure whether the PR fully resolves the issue, ask the owner rather than guessing.
+- Branch from `main` with descriptive names; PRs must pass CI (`make test`), shellcheck, and actionlint cleanly.
+- **No merge without an `LGTM` from the repository owner** — green CI alone is never authorization to merge.
+- If a PR fully fixes a tracked issue, close it from the description with a closing keyword (`Fixes #NNN`); if unsure it fully resolves the issue, ask the owner.
 - Update the README and `gh_workflow_examples/` if the adoption interface changes.
-- For personal-environment preferences that shouldn't be checked in (your local test command, your shell, your editor's quirks), use `CLAUDE.local.md` — it's git-ignored.
+- For personal-environment preferences that shouldn't be checked in, use `CLAUDE.local.md` (git-ignored).
 
 ## Open work and future ideas
 
-Open conventions still missing mechanical enforcement, scoped feature work, and design ideas live as GitHub issues. Search there before filing a new issue or scoping a new PR — the work you want to do may already be tracked.
+Open conventions still missing mechanical enforcement, scoped feature work, and design ideas live as GitHub issues. Search there before filing a new issue or scoping a new PR.
