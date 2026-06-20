@@ -1,0 +1,190 @@
+{
+    // ====================================================================
+    // wrangle-strict-container-v1 — strict PolicySet for the container build type
+    // ====================================================================
+    //
+    // GENERATED from tools/gen_policies/policy.hjson.in — DO NOT EDIT.
+    // Run tools/gen_policies/gen.sh to regenerate; CI fails on drift.
+    //
+    // The tier build_and_publish_container.yml verifies real releases against by
+    // default. Additive over wrangle-provenance-container-v1: the three SLSA
+    // provenance tenets PLUS SBOM-present and the OSV / zizmor / wrangle-lint
+    // scan-clean tenets. It also requires an OpenSSF Scorecard aggregate score >= 7.0. Every added tenet is attest-always, so a
+    // missing attestation FAILS CLOSED (size > 0); a clean scan PASSES and only
+    // a real finding or tool error FAILs.
+    //
+    // Adopters who drop osv, zizmor, or wrangle-lint from `scan-tools` cannot
+    // satisfy this policy — they must select wrangle-provenance-container-v1 (or a
+    // policy matching the tools they run).
+    //
+    // -- Upstream references are SHA-PINNED -----------------------------------
+    // The carabiner-dev/policies locators below pin one commit; the SHA must be
+    // identical across every policies/*.hjson (policies/test.bats asserts it);
+    // bump together.
+    //
+    // -- Context model --------------------------------------------------------
+    // common.context bakes wrangle's build-system identity (builderId,
+    // buildType); the per-release buildPoint and vsa.resourceUri are supplied at
+    // verify time via actions/verify's `context` input.
+    // --------------------------------------------------------------------
+
+    id: "wrangle-strict-container-v1"
+    meta: {
+        description: "wrangle strict release policy for container: SLSA Build L3 provenance (builder/type/point) + SBOM present + OSV/zizmor/wrangle-lint scan clean plus OpenSSF Scorecard >= 7.0. Emits a SLSA VSA."
+        frameworks: [
+            {
+                id: "SLSA"
+                name: "Supply-Chain Levels for Software Artifacts"
+            }
+        ]
+    }
+
+    common: {
+        context: {
+            builderId: {
+                value: "https://github.com/TomHennen/wrangle/.github/workflows/build_and_publish_container.yml"
+            }
+            buildType: {
+                value: "https://actions.github.io/buildtypes/workflow/v1"
+            }
+            buildPoint: {
+                type: "string"
+            }
+            "vsa.resourceUri": {
+                type: "string"
+            }
+        }
+        // === AMPEL-IDENTITY-BINDING:START =================================
+        // policies/test.bats derives a logic-only variant by deleting everything
+        // between the START/END markers (and the per-policy `identities` refs)
+        // so the unsigned testdata fixtures can exercise tenet CEL. Preserve the
+        // markers if you edit this.
+        //
+        // The SLSA provenance MUST be signed by wrangle's reusable container build
+        // workflow's keyless identity (fail-closed); the regexp binds the
+        // workflow PATH and accepts any ref.
+        identities: [
+            {
+                id: "wrangle-builder"
+                sigstore: {
+                    mode: "regexp"
+                    issuer: "^https://token\\.actions\\.githubusercontent\\.com$"
+                    identity: "^https://github\\.com/TomHennen/wrangle/\\.github/workflows/build_and_publish_container\\.yml@.+$"
+                }
+            }
+        ]
+        // === AMPEL-IDENTITY-BINDING:END ===================================
+    }
+
+    policies: [
+        {
+            // 1. Built by the expected (wrangle) builder identity.
+            id: "slsa-builder-id"
+            source: { location: { uri: "git+https://github.com/carabiner-dev/policies@85078db9e808479feb0d1aec08299b8a93c85f11#slsa/slsa-builder-id.json" } }
+            identities: [ { ref: { id: "wrangle-builder" } } ]
+            meta: { controls: [ { framework: "SLSA", class: "BUILD", id: "LEVEL_3" } ] }
+        }
+        {
+            // 2. Built by the expected build type (GitHub Actions workflow).
+            id: "slsa-build-type"
+            source: { location: { uri: "git+https://github.com/carabiner-dev/policies@85078db9e808479feb0d1aec08299b8a93c85f11#slsa/slsa-build-type.json" } }
+            identities: [ { ref: { id: "wrangle-builder" } } ]
+            meta: { controls: [ { framework: "SLSA", class: "BUILD", id: "LEVEL_3" } ] }
+        }
+        {
+            // 3. Built from the expected source repository (build point).
+            id: "slsa-build-point"
+            source: { location: { uri: "git+https://github.com/carabiner-dev/policies@85078db9e808479feb0d1aec08299b8a93c85f11#slsa/slsa-build-point.json" } }
+            identities: [ { ref: { id: "wrangle-builder" } } ]
+            meta: { controls: [ { framework: "SLSA", class: "BUILD", id: "LEVEL_3" } ] }
+        }
+        {
+            // 4. An SBOM (SPDX or CycloneDX) is attested for the artifact.
+            id: "sbom-exists"
+            source: { location: { uri: "git+https://github.com/carabiner-dev/policies@85078db9e808479feb0d1aec08299b8a93c85f11#sbom/sbom-exists.json" } }
+        }
+        {
+            // 5. OSV scan reports a clean result. Reads wrangle's scan/v1
+            //    envelope; size > 0 fails closed when the scan is absent.
+            id: "osv-scan-clean"
+            meta: { description: "OSV scan reports no findings (wrangle scan/v1)" }
+            identities: [ { ref: { id: "wrangle-builder" } } ]
+            tenets: [
+                {
+                    predicates: { types: ["https://github.com/TomHennen/wrangle/attestation/scan/v1"] }
+                    outputs: {
+                        scans: { code: "predicates.filter(p, p.data.tool.name == 'osv-scanner')" }
+                    }
+                    code: "size(outputs.scans) > 0 && outputs.scans.all(p, p.data.result == 'clean')"
+                    assessment: { message: "OSV scan is clean" }
+                    error: {
+                        message: "OSV scan reported findings or no OSV scan attestation was found"
+                        guidance: "Resolve the OSV findings, or run osv in scan-tools so a clean scan/v1 attestation is produced"
+                    }
+                }
+            ]
+        }
+        {
+            // 6. zizmor scan reports a clean result.
+            id: "zizmor-scan-clean"
+            meta: { description: "zizmor scan reports no findings (wrangle scan/v1)" }
+            identities: [ { ref: { id: "wrangle-builder" } } ]
+            tenets: [
+                {
+                    predicates: { types: ["https://github.com/TomHennen/wrangle/attestation/scan/v1"] }
+                    outputs: {
+                        scans: { code: "predicates.filter(p, p.data.tool.name == 'zizmor')" }
+                    }
+                    code: "size(outputs.scans) > 0 && outputs.scans.all(p, p.data.result == 'clean')"
+                    assessment: { message: "zizmor scan is clean" }
+                    error: {
+                        message: "zizmor scan reported findings or no zizmor scan attestation was found"
+                        guidance: "Resolve the zizmor findings, or run zizmor in scan-tools so a clean scan/v1 attestation is produced"
+                    }
+                }
+            ]
+        }
+        {
+            // 7. wrangle-lint scan reports a clean result.
+            id: "wrangle-lint-scan-clean"
+            meta: { description: "wrangle-lint scan reports no findings (wrangle scan/v1)" }
+            identities: [ { ref: { id: "wrangle-builder" } } ]
+            tenets: [
+                {
+                    predicates: { types: ["https://github.com/TomHennen/wrangle/attestation/scan/v1"] }
+                    outputs: {
+                        scans: { code: "predicates.filter(p, p.data.tool.name == 'wrangle-lint')" }
+                    }
+                    code: "size(outputs.scans) > 0 && outputs.scans.all(p, p.data.result == 'clean')"
+                    assessment: { message: "wrangle-lint scan is clean" }
+                    error: {
+                        message: "wrangle-lint scan reported findings or no wrangle-lint scan attestation was found"
+                        guidance: "Resolve the wrangle-lint findings, or run wrangle-lint in scan-tools so a clean scan/v1 attestation is produced"
+                    }
+                }
+            ]
+        }
+        {
+            // 8. OpenSSF Scorecard aggregate score is at least 7.0. No upstream
+            //    policy computes the aggregate, so it is authored inline; -1.0
+            //    forces FAIL when the score is absent (fail-closed).
+            id: "wrangle-scorecard-min-score"
+            meta: { description: "OpenSSF Scorecard aggregate score is at least 7.0" }
+            identities: [ { ref: { id: "wrangle-builder" } } ]
+            tenets: [
+                {
+                    predicates: { types: ["https://scorecard.dev/result/v0.1"] }
+                    outputs: {
+                        score: { code: "has(predicates[0].data.score) ? double(predicates[0].data.score) : -1.0" }
+                    }
+                    code: "outputs.score >= 7.0"
+                    assessment: { message: "Scorecard aggregate score meets the >= 7.0 bar" }
+                    error: {
+                        message: "Scorecard aggregate score below 7.0 or no Scorecard attestation was found"
+                        guidance: "Raise the OpenSSF Scorecard score to at least 7.0 before release"
+                    }
+                }
+            ]
+        }
+    ]
+}

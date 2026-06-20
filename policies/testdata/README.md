@@ -29,6 +29,14 @@ The fixtures come in two families, matching the two PolicySet families:
   `wrangle-strict-v1`, which are generic and not yet migrated off the generator
   identity (deferred — #328).
 
+The **default/strict tier** fixtures (`good-default`, `good-strict-default`,
+`bad-{osv,zizmor,wrangle-lint}-{findings,absent}`, `bad-default-*`) are
+production-shape: v1 attest-build-provenance (go builder) + SPDX SBOM + one
+wrangle `scan/v1` envelope per tool (`osv-scanner`, `zizmor`, `wrangle-lint`),
+plus an OpenSSF Scorecard result for the strict rows. They back the per-eco
+`wrangle-default-go-v1` / `wrangle-strict-go-v1` (the go sibling stands in for
+all four ecos — the scan/SBOM/scorecard tenets are identical across them).
+
 | Bundle | Contents | Expected against the logic variant¹ |
 |--------|----------|------------------------------------------|
 | `good-npm.bundle.jsonl` | v1 attest-build-provenance, builder `build_and_publish_npm.yml` | provenance-npm-v1 **PASS** |
@@ -43,6 +51,17 @@ The fixtures come in two families, matching the two PolicySet families:
 | `bad-wrong-buildpoint.bundle.jsonl` | provenance whose source repo ≠ the buildPoint context + SBOM + clean OSV | default-v1 **FAIL** (slsa-build-point) |
 | `good-strict.bundle.jsonl` | `good.bundle` + OpenSSF Scorecard result (score 8.2) | strict-v1 **PASS** |
 | `bad-low-scorecard.bundle.jsonl` | `good.bundle` + Scorecard result (score 5.0) | strict-v1 **FAIL** (wrangle-scorecard-min-score) |
+| `good-default.bundle.jsonl` | v1 go provenance + SBOM + clean osv/zizmor/wrangle-lint `scan/v1` | default-go-v1 **PASS** |
+| `bad-osv-findings.bundle.jsonl` | as `good-default` but the osv-scanner scan reports `findings` | default-go-v1 **FAIL** (osv-scan-clean) |
+| `bad-osv-absent.bundle.jsonl` | as `good-default` but no osv-scanner `scan/v1` (size>0 fails closed) | default-go-v1 **FAIL** (osv-scan-clean) |
+| `bad-zizmor-findings.bundle.jsonl` | as `good-default` but the zizmor scan reports `findings` | default-go-v1 **FAIL** (zizmor-scan-clean) |
+| `bad-zizmor-absent.bundle.jsonl` | as `good-default` but no zizmor `scan/v1` | default-go-v1 **FAIL** (zizmor-scan-clean) |
+| `bad-wrangle-lint-findings.bundle.jsonl` | as `good-default` but the wrangle-lint scan reports `findings` | default-go-v1 **FAIL** (wrangle-lint-scan-clean) |
+| `bad-wrangle-lint-absent.bundle.jsonl` | as `good-default` but no wrangle-lint `scan/v1` | default-go-v1 **FAIL** (wrangle-lint-scan-clean) |
+| `bad-default-missing-sbom.bundle.jsonl` | as `good-default` but no SBOM | default-go-v1 **FAIL** (sbom-exists) |
+| `good-strict-default.bundle.jsonl` | `good-default` + OpenSSF Scorecard result (score 8.2) | strict-go-v1 **PASS** |
+| `bad-default-low-scorecard.bundle.jsonl` | `good-default` + Scorecard result (score 5.0) | strict-go-v1 **FAIL** (wrangle-scorecard-min-score) |
+| `bad-default-scorecard-absent.bundle.jsonl` | `good-default` with no Scorecard result (size>0 fails closed) | strict-go-v1 **FAIL** (wrangle-scorecard-min-score) |
 
 The per-eco PASS rows double as **cross-ecosystem isolation** checks: a sibling
 fixture is the "wrong builder" for another type's policy (e.g. `good-go` FAILs

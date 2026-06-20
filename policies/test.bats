@@ -70,6 +70,14 @@ setup() {
     PROVENANCE_PYTHON="$POLICIES_DIR/wrangle-provenance-python-v1.hjson"
     PROVENANCE_CONTAINER="$POLICIES_DIR/wrangle-provenance-container-v1.hjson"
 
+    # The per-eco default/strict tiers the build workflows verify real releases
+    # against, generated from tools/gen_policies/policy.hjson.in. The go siblings
+    # stand in for tenet-logic coverage: the generator makes the SBOM / scan /
+    # scorecard tenets byte-identical across ecos — only builderId differs, which
+    # the per-eco provenance tests already isolate.
+    DEFAULT_GO="$POLICIES_DIR/wrangle-default-go-v1.hjson"
+    STRICT_GO="$POLICIES_DIR/wrangle-strict-go-v1.hjson"
+
     # Logic-only variants for the tenet tests (see the file header).
     DEFAULT_LOGIC="$BATS_TEST_TMPDIR/default-logic.hjson"
     STRICT_LOGIC="$BATS_TEST_TMPDIR/strict-logic.hjson"
@@ -77,12 +85,16 @@ setup() {
     PROVENANCE_GO_LOGIC="$BATS_TEST_TMPDIR/provenance-go-logic.hjson"
     PROVENANCE_PYTHON_LOGIC="$BATS_TEST_TMPDIR/provenance-python-logic.hjson"
     PROVENANCE_CONTAINER_LOGIC="$BATS_TEST_TMPDIR/provenance-container-logic.hjson"
+    DEFAULT_GO_LOGIC="$BATS_TEST_TMPDIR/default-go-logic.hjson"
+    STRICT_GO_LOGIC="$BATS_TEST_TMPDIR/strict-go-logic.hjson"
     strip_identities "$DEFAULT" > "$DEFAULT_LOGIC"
     strip_identities "$STRICT"  > "$STRICT_LOGIC"
     strip_identities "$PROVENANCE_NPM" > "$PROVENANCE_NPM_LOGIC"
     strip_identities "$PROVENANCE_GO" > "$PROVENANCE_GO_LOGIC"
     strip_identities "$PROVENANCE_PYTHON" > "$PROVENANCE_PYTHON_LOGIC"
     strip_identities "$PROVENANCE_CONTAINER" > "$PROVENANCE_CONTAINER_LOGIC"
+    strip_identities "$DEFAULT_GO" > "$DEFAULT_GO_LOGIC"
+    strip_identities "$STRICT_GO" > "$STRICT_GO_LOGIC"
     # Structural self-check, both halves:
     # (a) Production side — a policy that shipped WITHOUT an identity gate would
     #     strip to a no-op, pass (b) vacuously, and ship admitting unsigned
@@ -93,7 +105,7 @@ setup() {
     #     admission survived. (The PASS tests are the functional half of (b): if
     #     the gate were still present, the unsigned good fixtures could not pass.)
     for p in "$DEFAULT" "$STRICT" "$PROVENANCE_NPM" "$PROVENANCE_GO" \
-             "$PROVENANCE_PYTHON" "$PROVENANCE_CONTAINER"; do
+             "$PROVENANCE_PYTHON" "$PROVENANCE_CONTAINER" "$DEFAULT_GO" "$STRICT_GO"; do
         grep -qE '^[[:space:]]*identities:' "$p" || {
             printf 'production policy %s has no identities admission — gate missing\n' "$p" >&2
             return 1
@@ -101,7 +113,8 @@ setup() {
     done
     if grep -qE '^[[:space:]]*identities:' "$DEFAULT_LOGIC" "$STRICT_LOGIC" \
             "$PROVENANCE_NPM_LOGIC" "$PROVENANCE_GO_LOGIC" \
-            "$PROVENANCE_PYTHON_LOGIC" "$PROVENANCE_CONTAINER_LOGIC"; then
+            "$PROVENANCE_PYTHON_LOGIC" "$PROVENANCE_CONTAINER_LOGIC" \
+            "$DEFAULT_GO_LOGIC" "$STRICT_GO_LOGIC"; then
         printf 'strip_identities left an identities admission in the logic variant\n' >&2
         return 1
     fi
@@ -110,6 +123,7 @@ setup() {
     export PROVENANCE_NPM PROVENANCE_GO PROVENANCE_PYTHON PROVENANCE_CONTAINER
     export PROVENANCE_NPM_LOGIC PROVENANCE_GO_LOGIC PROVENANCE_PYTHON_LOGIC
     export DEFAULT_LOGIC STRICT_LOGIC PROVENANCE_CONTAINER_LOGIC
+    export DEFAULT_GO STRICT_GO DEFAULT_GO_LOGIC STRICT_GO_LOGIC
 }
 
 # verify <policy> <fixture-bundle> [extra ampel args...]
@@ -269,6 +283,67 @@ expect_fail_closed() {
     expect_fail "$STRICT_LOGIC" "$TD/bad-low-scorecard.bundle.jsonl" "wrangle-scorecard-min-score"
 }
 
+# --- Per-eco default tier: SBOM + osv/zizmor/wrangle-lint scan-clean -------
+# The (b) tier the build workflows verify real releases against by default. The
+# go sibling exercises the SBOM + scan tenets; the scan tenets read wrangle's
+# scan/v1 envelope and fail closed when a tool's attestation is absent (size>0).
+
+@test "ampel policy: default-go-v1 PASSES a production-shape bundle (provenance + SBOM + clean scans)" {
+    local vsa="$BATS_TEST_TMPDIR/default-go-vsa.json"
+    run verify "$DEFAULT_GO_LOGIC" "$TD/good-default.bundle.jsonl" \
+        --attest-results --attest-format=vsa --results-path="$vsa" -f tty
+    [ "$status" -eq 0 ]
+    run jq -r '.predicate.verificationResult' "$vsa"
+    [ "$output" = "PASSED" ]
+    run jq -r '.predicate.verifiedLevels[0]' "$vsa"
+    [ "$output" = "SLSA_BUILD_LEVEL_3" ]
+}
+
+@test "ampel policy: default-go-v1 FAILS (osv) on an OSV scan with findings" {
+    expect_fail "$DEFAULT_GO_LOGIC" "$TD/bad-osv-findings.bundle.jsonl" "osv-scan-clean"
+}
+
+@test "ampel policy: default-go-v1 FAILS (osv) when the OSV scan attestation is absent" {
+    # size>0 is load-bearing: a missing scan attestation must fail closed, not
+    # vacuously pass on "no findings."
+    expect_fail "$DEFAULT_GO_LOGIC" "$TD/bad-osv-absent.bundle.jsonl" "osv-scan-clean"
+}
+
+@test "ampel policy: default-go-v1 FAILS (zizmor) on a zizmor scan with findings" {
+    expect_fail "$DEFAULT_GO_LOGIC" "$TD/bad-zizmor-findings.bundle.jsonl" "zizmor-scan-clean"
+}
+
+@test "ampel policy: default-go-v1 FAILS (zizmor) when the zizmor scan attestation is absent" {
+    expect_fail "$DEFAULT_GO_LOGIC" "$TD/bad-zizmor-absent.bundle.jsonl" "zizmor-scan-clean"
+}
+
+@test "ampel policy: default-go-v1 FAILS (wrangle-lint) on a wrangle-lint scan with findings" {
+    expect_fail "$DEFAULT_GO_LOGIC" "$TD/bad-wrangle-lint-findings.bundle.jsonl" "wrangle-lint-scan-clean"
+}
+
+@test "ampel policy: default-go-v1 FAILS (wrangle-lint) when the wrangle-lint scan attestation is absent" {
+    expect_fail "$DEFAULT_GO_LOGIC" "$TD/bad-wrangle-lint-absent.bundle.jsonl" "wrangle-lint-scan-clean"
+}
+
+@test "ampel policy: default-go-v1 FAILS (sbom-exists) when the SBOM is missing" {
+    expect_fail "$DEFAULT_GO_LOGIC" "$TD/bad-default-missing-sbom.bundle.jsonl" "sbom-exists"
+}
+
+# --- Per-eco strict tier: default + Scorecard >= 7.0 ----------------------
+
+@test "ampel policy: strict-go-v1 PASSES a production-shape bundle with Scorecard >= 7" {
+    run verify "$STRICT_GO_LOGIC" "$TD/good-strict-default.bundle.jsonl" -f tty
+    [ "$status" -eq 0 ]
+}
+
+@test "ampel policy: strict-go-v1 FAILS (scorecard) when the Scorecard score is below 7" {
+    expect_fail "$STRICT_GO_LOGIC" "$TD/bad-default-low-scorecard.bundle.jsonl" "wrangle-scorecard-min-score"
+}
+
+@test "ampel policy: strict-go-v1 FAILS (scorecard) when the Scorecard attestation is absent" {
+    expect_fail "$STRICT_GO_LOGIC" "$TD/bad-default-scorecard-absent.bundle.jsonl" "wrangle-scorecard-min-score"
+}
+
 # --- Identity enforcement (production policy: identity gate intact) --------
 
 @test "ampel policy: default-v1 (production) is FAIL-CLOSED — rejects an unsigned attestation on signer identity" {
@@ -310,6 +385,16 @@ expect_fail_closed() {
     # The container policy is what build_and_publish_container.yml verifies real
     # image provenance against, so its OWN identity gate must be proven fail-closed.
     expect_fail_closed "$PROVENANCE_CONTAINER" "$TD/good-container.bundle.jsonl"
+}
+
+# The default/strict tiers are the policies the build workflows verify real
+# releases against by default, so their own identity gates must be fail-closed.
+@test "ampel policy: default-go-v1 (production) is FAIL-CLOSED on signer identity" {
+    expect_fail_closed "$DEFAULT_GO" "$TD/good-default.bundle.jsonl"
+}
+
+@test "ampel policy: strict-go-v1 (production) is FAIL-CLOSED on signer identity" {
+    expect_fail_closed "$STRICT_GO" "$TD/good-strict-default.bundle.jsonl"
 }
 
 # --- Cross-file invariant --------------------------------------------------

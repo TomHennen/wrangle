@@ -501,9 +501,11 @@ FAKE
     [[ "$status" -ne 0 ]]
 }
 
-@test "container: verify job references the per-eco provenance policy" {
+@test "container: verify job threads the policy input, which defaults to the per-eco default tier" {
     local wf="$REPO_ROOT/.github/workflows/build_and_publish_container.yml"
-    run bash -c "sed -n '/^  verify:/,\$p' \"$wf\" | grep -F 'policy: policies/wrangle-provenance-container-v1.hjson'"
+    run bash -c "sed -n '/^  verify:/,\$p' \"$wf\" | grep -F 'policy: \${{ inputs.policy }}'"
+    [[ "$status" -eq 0 ]]
+    run bash -c "grep -F 'default: policies/wrangle-default-container-v1.hjson' \"$wf\""
     [[ "$status" -eq 0 ]]
 }
 

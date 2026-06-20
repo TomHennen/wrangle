@@ -75,6 +75,16 @@ on:
         required: false
         type: string
         default: ""
+      policy:
+        description: |
+          wrangle PolicySet the release is verified against (path under
+          policies/ or an ampel locator). Default wrangle-default-container-v1
+          requires provenance + SBOM + clean osv/zizmor/wrangle-lint scans;
+          adopters who drop any of those from scan-tools must pass a lighter
+          policy (e.g. policies/wrangle-provenance-container-v1.hjson).
+        required: false
+        type: string
+        default: policies/wrangle-default-container-v1.hjson
     secrets:
       gh_token:
         description: "GitHub token with write access"
@@ -262,7 +272,7 @@ jobs:
           build-type: container
           shortname: ${{ needs.prep.outputs.shortname }}
           subjects: ${{ needs.build.outputs.digest }}
-          policy: policies/wrangle-provenance-container-v1.hjson
+          policy: ${{ inputs.policy }}
           collector: oci:${{ needs.build.outputs.imagename }}@${{ needs.build.outputs.digest }}
           # resourceUri is the OCI image ref a container consumer fetches and
           # pins when verifying the VSA; the subject digest is the cryptographic bind.

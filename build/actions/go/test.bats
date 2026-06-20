@@ -1368,8 +1368,10 @@ func TestFails(t *testing.T) {
     [[ "$status" -ne 0 ]]
 }
 
-@test "go: verify job references the per-eco provenance policy" {
-    run bash -c "sed -n '/^  verify:/,\$p' \"$WORKFLOW\" | grep -F 'policy: policies/wrangle-provenance-go-v1.hjson'"
+@test "go: verify job threads the policy input, which defaults to the per-eco default tier" {
+    run bash -c "sed -n '/^  verify:/,\$p' \"$WORKFLOW\" | grep -F 'policy: \${{ inputs.policy }}'"
+    [[ "$status" -eq 0 ]]
+    run bash -c "grep -F 'default: policies/wrangle-default-go-v1.hjson' \"$WORKFLOW\""
     [[ "$status" -eq 0 ]]
 }
 
