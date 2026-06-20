@@ -49,7 +49,7 @@ jobs:
       # (root path), so the shortname is empty and the name is just "scan".
       # TODO: replace with $/actions/scan when GitHub ships $/ syntax (#136)
       - name: Source scan
-        uses: TomHennen/wrangle/actions/scan@56aa2ffe4d4b0f48a3c0e09ff2d458e16e25bdcb # main 2026-06-20
+        uses: TomHennen/wrangle/actions/scan@731eb4e95e4c53cce9dd8d57f0ba5c626517b39f # main 2026-06-20
         with:
           tools: ${{ inputs.tools }}
           artifact-name: scan

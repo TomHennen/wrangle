@@ -134,7 +134,7 @@ jobs:
           persist-credentials: false
 
       # TODO: replace with $/actions/scan when GitHub ships $/ syntax (#136)
-      - uses: TomHennen/wrangle/actions/scan@56aa2ffe4d4b0f48a3c0e09ff2d458e16e25bdcb # main 2026-06-20
+      - uses: TomHennen/wrangle/actions/scan@731eb4e95e4c53cce9dd8d57f0ba5c626517b39f # main 2026-06-20
         if: ${{ inputs.scan-tools != '' }}
         with:
           tools: ${{ inputs.scan-tools }}
@@ -161,7 +161,7 @@ jobs:
     # TODO: replace with $/build/actions/container when GitHub ships $/ syntax (#136)
     - name: "build and publish"
       id: build
-      uses: TomHennen/wrangle/build/actions/container@56aa2ffe4d4b0f48a3c0e09ff2d458e16e25bdcb # main 2026-06-20
+      uses: TomHennen/wrangle/build/actions/container@731eb4e95e4c53cce9dd8d57f0ba5c626517b39f # main 2026-06-20
       with:
         path: ${{ inputs.path }}
         imagename: ${{ inputs.imagename }}
@@ -261,7 +261,7 @@ jobs:
 
       # oci-target seeds provenance from the registry referrer, skipping the dist/provenance downloads.
       # TODO: replace with $/actions/verify_release when GitHub ships $/ syntax (#136)
-      - uses: TomHennen/wrangle/actions/verify_release@56aa2ffe4d4b0f48a3c0e09ff2d458e16e25bdcb # main 2026-06-20
+      - uses: TomHennen/wrangle/actions/verify_release@731eb4e95e4c53cce9dd8d57f0ba5c626517b39f # main 2026-06-20
         with:
           build-type: container
           shortname: ${{ needs.prep.outputs.shortname }}

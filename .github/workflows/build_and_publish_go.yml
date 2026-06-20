@@ -193,7 +193,7 @@ jobs:
           ref: ${{ inputs.ref || '' }}
 
       # TODO: replace with $/actions/scan when GitHub ships $/ syntax (#136)
-      - uses: TomHennen/wrangle/actions/scan@56aa2ffe4d4b0f48a3c0e09ff2d458e16e25bdcb # main 2026-06-20
+      - uses: TomHennen/wrangle/actions/scan@731eb4e95e4c53cce9dd8d57f0ba5c626517b39f # main 2026-06-20
         if: ${{ inputs.scan-tools != '' }}
         with:
           tools: ${{ inputs.scan-tools }}
@@ -225,7 +225,7 @@ jobs:
       # TODO: replace with $/build/actions/go/checks when GitHub ships $/ syntax (#136)
       # Self-pinned to PR HEAD until merge — bump-self-refs follow-up
       # repoints to the squashed merge SHA after this lands.
-      - uses: TomHennen/wrangle/build/actions/go/checks@56aa2ffe4d4b0f48a3c0e09ff2d458e16e25bdcb # main 2026-06-20
+      - uses: TomHennen/wrangle/build/actions/go/checks@731eb4e95e4c53cce9dd8d57f0ba5c626517b39f # main 2026-06-20
         id: checks
         with:
           path: ${{ inputs.path }}
@@ -286,7 +286,7 @@ jobs:
 
       # TODO: replace with $/build/actions/go/release when GitHub ships $/ syntax (#136)
       # Self-pinned to PR HEAD until merge.
-      - uses: TomHennen/wrangle/build/actions/go/release@56aa2ffe4d4b0f48a3c0e09ff2d458e16e25bdcb # main 2026-06-20
+      - uses: TomHennen/wrangle/build/actions/go/release@731eb4e95e4c53cce9dd8d57f0ba5c626517b39f # main 2026-06-20
         id: release
         with:
           path: ${{ inputs.path }}
@@ -377,7 +377,7 @@ jobs:
       # writes non-artifact bookkeeping into dist/ that is not released. This is
       # the same canonical subject set the VSA binds to.
       # TODO: replace with $/actions/attest_provenance when GitHub ships $/ syntax (#136)
-      - uses: TomHennen/wrangle/actions/attest_provenance@56aa2ffe4d4b0f48a3c0e09ff2d458e16e25bdcb # main 2026-06-20
+      - uses: TomHennen/wrangle/actions/attest_provenance@731eb4e95e4c53cce9dd8d57f0ba5c626517b39f # main 2026-06-20
         id: attest
         with:
           build-type: go
@@ -406,7 +406,7 @@ jobs:
       attestation-bundle-name: ${{ needs.prep.outputs.metadata }}
     steps:
       # TODO: replace with $/actions/verify_release when GitHub ships $/ syntax (#136)
-      - uses: TomHennen/wrangle/actions/verify_release@56aa2ffe4d4b0f48a3c0e09ff2d458e16e25bdcb # main 2026-06-20
+      - uses: TomHennen/wrangle/actions/verify_release@731eb4e95e4c53cce9dd8d57f0ba5c626517b39f # main 2026-06-20
         with:
           build-type: go
           shortname: ${{ needs.prep.outputs.shortname }}
