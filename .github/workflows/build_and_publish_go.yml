@@ -134,7 +134,7 @@ on:
         value: ${{ jobs.release.outputs.version }}
       dist-artifact-name:
         description: "Name of the uploaded dist/ artifact (download with this name to retrieve binaries + checksums.txt)"
-        value: ${{ jobs.release.outputs.dist-artifact-name }}
+        value: ${{ jobs.prep.outputs.dist }}
       provenance-artifact-name:
         description: "Name of the workflow artifact containing the SLSA provenance bundle — one JSON object per line, covering all dist subjects. Empty when should-release is false."
         value: ${{ jobs.attest.outputs.bundle-artifact-name }}
@@ -143,44 +143,43 @@ on:
         value: ${{ jobs.verify.outputs.attestation-bundle-name }}
       metadata-artifact-name:
         description: "Name of the unified metadata workflow artifact. Format: `go-metadata[-<shortname>]`. Contents and layout: docs/metadata_layout.md."
-        value: ${{ jobs.release.outputs.metadata-artifact-name }}
+        value: ${{ jobs.prep.outputs.metadata }}
       should-release:
         description: |
           "true" if the current event matches release-events; "false"
           otherwise. Wrangle gates the attest and verify jobs on this internally.
-        value: ${{ jobs.gate.outputs.should-release }}
+        value: ${{ jobs.prep.outputs.should-release }}
 
 jobs:
-  # Refuse trigger patterns known to expose this workflow to supply-chain
-  # attack classes (pull_request_target, workflow_run via
-  # pull_request_target). The guard MUST stay first under `jobs:`;
-  # every other job lists `guard` in its `needs:` so a refused
-  # invocation skips the entire workflow.
-  guard:
+  # MUST stay first under `jobs:`: prep's guard refuses unsafe triggers
+  # before any other job runs, and every job `needs: [prep]`. prep also
+  # decides should-release and derives the shared package names.
+  # docs/SPEC.md#trigger-model.
+  prep:
     runs-on: ubuntu-latest
-    permissions: {}    # reads env only — no workspace, no API, no secrets
-    steps:
-      # TODO: replace with $/actions/preflight_guard when GitHub ships $/ syntax (#136)
-      - uses: TomHennen/wrangle/actions/preflight_guard@56aa2ffe4d4b0f48a3c0e09ff2d458e16e25bdcb # main 2026-06-20
-
-  gate:
-    needs: [guard]
-    runs-on: ubuntu-latest
-    permissions: {}    # release_gate reads only env; no workspace, no API
+    permissions: {}    # guard/gate/names read env only — no workspace, no API, no secrets
     outputs:
-      should-release: ${{ steps.gate.outputs.should-release }}
+      should-release: ${{ steps.prep.outputs.should-release }}
+      shortname: ${{ steps.prep.outputs.shortname }}
+      dist: ${{ steps.prep.outputs.dist }}
+      scan: ${{ steps.prep.outputs.scan }}
+      checks: ${{ steps.prep.outputs.checks }}
+      metadata: ${{ steps.prep.outputs.metadata }}
+      metadata-pre: ${{ steps.prep.outputs.metadata-pre }}
     steps:
-      # TODO: replace with $/actions/release_gate when GitHub ships $/ syntax (#136)
-      - uses: TomHennen/wrangle/actions/release_gate@56aa2ffe4d4b0f48a3c0e09ff2d458e16e25bdcb # main 2026-06-20
-        id: gate
+      # TODO: replace with $/actions/prep when GitHub ships $/ syntax (#136)
+      - uses: TomHennen/wrangle/actions/prep@731eb4e95e4c53cce9dd8d57f0ba5c626517b39f # bootstrap: PR head until post-merge bump
+        id: prep
         with:
-          events: ${{ inputs.release-events }}
+          build-type: go
+          path: ${{ inputs.path }}
+          release-events: ${{ inputs.release-events }}
 
   # Source scan. A load-bearing (:fail) finding fails this job, which
   # blocks the release on release events (see release.if) — decoupled
   # scan/build runs can't gate publish.
   scan:
-    needs: [guard, gate]
+    needs: [prep]
     runs-on: ubuntu-latest
     permissions:
       actions: read
@@ -193,40 +192,30 @@ jobs:
           persist-credentials: false
           ref: ${{ inputs.ref || '' }}
 
-      # Shared name derivation so the scan and release jobs can't drift.
-      # TODO: replace with $/actions/package_metadata when GitHub ships $/ syntax (#136)
-      - uses: TomHennen/wrangle/actions/package_metadata@56aa2ffe4d4b0f48a3c0e09ff2d458e16e25bdcb # main 2026-06-20
-        id: names
-        if: ${{ inputs.scan-tools != '' }}
-        with:
-          build-type: go
-          path: ${{ inputs.path }}
-
       # TODO: replace with $/actions/scan when GitHub ships $/ syntax (#136)
       - uses: TomHennen/wrangle/actions/scan@56aa2ffe4d4b0f48a3c0e09ff2d458e16e25bdcb # main 2026-06-20
         if: ${{ inputs.scan-tools != '' }}
         with:
           tools: ${{ inputs.scan-tools }}
           # The release job folds this into the unified go-metadata.
-          artifact-name: ${{ steps.names.outputs.scan }}
+          artifact-name: ${{ needs.prep.outputs.scan }}
           # Cold on release: the scan gates an attested build, so a
           # poisoned tool cache must not be able to forge a passing scan.
-          go-cache: ${{ needs.gate.outputs.should-release == 'true' && '' || inputs.go-cache }}
+          go-cache: ${{ needs.prep.outputs.should-release == 'true' && '' || inputs.go-cache }}
 
   # Quality gates with `contents: read` only. `go test` executes
   # arbitrary adopter test code; the minimum-permissions posture
   # denies it any write capability against the repo.
   checks:
     if: ${{ inputs.run-tests }}
-    needs: [guard, gate]
+    needs: [prep]
     runs-on: ubuntu-latest
     permissions:
       contents: read
     outputs:
       # Internal transient: the release job folds govulncheck.json into the
-      # unified go-metadata under scan/govulncheck/. Root build ('.') has an
-      # empty shortname, so the name stays suffix-less.
-      checks-artifact-name: ${{ steps.checks.outputs.shortname && format('go-checks-{0}', steps.checks.outputs.shortname) || 'go-checks' }}
+      # unified go-metadata under scan/govulncheck/.
+      checks-artifact-name: ${{ needs.prep.outputs.checks }}
     steps:
       - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
         with:
@@ -248,13 +237,13 @@ jobs:
           # derived compiled output without re-derivation (same shape as
           # the uv-cache L3 gap). PR builds keep caching for fast
           # iteration; no provenance is produced.
-          cache: ${{ needs.gate.outputs.should-release == 'true' && 'disabled' || 'enabled' }}
+          cache: ${{ needs.prep.outputs.should-release == 'true' && 'disabled' || 'enabled' }}
 
       # Transient handoff to the release job, which folds govulncheck.json into
       # the unified metadata under scan/govulncheck/.
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
-          name: ${{ steps.checks.outputs.shortname && format('go-checks-{0}', steps.checks.outputs.shortname) || 'go-checks' }}
+          name: ${{ needs.prep.outputs.checks }}
           path: ${{ steps.checks.outputs.metadata-dir }}/
           if-no-files-found: warn   # govulncheck JSON is informational; not having it is OK
 
@@ -269,15 +258,14 @@ jobs:
   # run-tests: false would cascade through release/provenance/verify
   # and nothing would build. Documented behavior is "checks skipped,
   # release proceeds with quality gates unenforced," so allow skipped
-  # explicitly. A failed guard or gate still blocks release.
+  # explicitly. A failed prep still blocks release.
   release:
-    needs: [guard, gate, checks, scan]
+    needs: [prep, checks, scan]
     if: >
       always() && !cancelled() &&
-      needs.guard.result == 'success' &&
-      needs.gate.result == 'success' &&
+      needs.prep.result == 'success' &&
       (needs.checks.result == 'success' || needs.checks.result == 'skipped') &&
-      (needs.scan.result == 'success' || needs.gate.outputs.should-release != 'true')
+      (needs.scan.result == 'success' || needs.prep.outputs.should-release != 'true')
     runs-on: ubuntu-latest
     permissions:
       contents: write    # goreleaser creates the GitHub Release
@@ -285,10 +273,6 @@ jobs:
       hashes: ${{ steps.release.outputs.hashes }}
       version: ${{ steps.release.outputs.version }}
       module: ${{ steps.module.outputs.module }}
-      shortname: ${{ steps.release.outputs.shortname }}
-      dist-artifact-name: ${{ steps.names.outputs.dist }}
-      metadata-artifact-name: ${{ steps.names.outputs.metadata }}
-      metadata-pre-artifact-name: ${{ steps.names.outputs.metadata-pre }}
       metadata-dir: ${{ steps.release.outputs.metadata-dir }}
       # JSON array of dist filenames the verify job binds one VSA to each.
       dist-files: ${{ steps.distfiles.outputs.files }}
@@ -310,8 +294,8 @@ jobs:
           # publish == AND of (release-events gate) AND (tag push).
           # Both must hold for goreleaser to do a full publish; otherwise
           # it builds in --snapshot mode without uploading anything.
-          publish: ${{ needs.gate.outputs.should-release == 'true' && startsWith(github.ref, 'refs/tags/') }}
-          cache: ${{ needs.gate.outputs.should-release == 'true' && 'disabled' || 'enabled' }}
+          publish: ${{ needs.prep.outputs.should-release == 'true' && startsWith(github.ref, 'refs/tags/') }}
+          cache: ${{ needs.prep.outputs.should-release == 'true' && 'disabled' || 'enabled' }}
           install-zig: ${{ inputs.install-zig }}
 
       # The module path is the VSA resourceUri purl namespace; read it from the
@@ -324,13 +308,6 @@ jobs:
         run: |
           set -euo pipefail
           printf 'module=%s\n' "$(go -C "$INPUT_PATH" list -m | head -n1)" >> "$GITHUB_OUTPUT"
-
-      # TODO: replace with $/actions/package_metadata when GitHub ships $/ syntax (#136)
-      - uses: TomHennen/wrangle/actions/package_metadata@56aa2ffe4d4b0f48a3c0e09ff2d458e16e25bdcb # main 2026-06-20
-        id: names
-        with:
-          build-type: go
-          shortname: ${{ steps.release.outputs.shortname }}
 
       # Emit the dist filenames as a JSON array; the verify job binds one VSA per file.
       # Derived from the build's base64 `hashes` output (the "<sha256>  <name>" lines the
@@ -353,7 +330,7 @@ jobs:
 
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
-          name: ${{ steps.names.outputs.dist }}
+          name: ${{ needs.prep.outputs.dist }}
           path: ${{ inputs.path }}/dist/
           if-no-files-found: error
 
@@ -362,7 +339,7 @@ jobs:
         if: ${{ inputs.scan-tools != '' }}
         continue-on-error: true   # scan upload is best-effort
         with:
-          name: ${{ steps.names.outputs.scan }}
+          name: ${{ needs.prep.outputs.scan }}
           path: ${{ steps.release.outputs.metadata-dir }}/scan/
 
       # Fold govulncheck.json (from the checks job) into scan/govulncheck/.
@@ -371,14 +348,14 @@ jobs:
         if: ${{ inputs.run-tests }}
         continue-on-error: true
         with:
-          name: ${{ steps.names.outputs.checks }}
+          name: ${{ needs.prep.outputs.checks }}
           path: ${{ steps.release.outputs.metadata-dir }}/scan/govulncheck/
 
       # Non-release: this is the final unified metadata (sbom + scan/). On
       # release the verify job appends the bundle and owns the final upload.
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
-          name: ${{ needs.gate.outputs.should-release == 'true' && steps.names.outputs.metadata-pre || steps.names.outputs.metadata }}
+          name: ${{ needs.prep.outputs.should-release == 'true' && needs.prep.outputs.metadata-pre || needs.prep.outputs.metadata }}
           path: ${{ steps.release.outputs.metadata-dir }}/
           if-no-files-found: error
 
@@ -386,8 +363,8 @@ jobs:
   # reusable workflow as builder.id (its job_workflow_ref) and the Sigstore
   # signing identity
   attest:
-    if: ${{ needs.gate.outputs.should-release == 'true' }}
-    needs: [guard, gate, release]
+    if: ${{ needs.prep.outputs.should-release == 'true' }}
+    needs: [prep, release]
     runs-on: ubuntu-latest
     permissions:
       id-token: write       # OIDC for Sigstore keyless signing
@@ -404,7 +381,7 @@ jobs:
         id: attest
         with:
           build-type: go
-          shortname: ${{ needs.release.outputs.shortname }}
+          shortname: ${{ needs.prep.outputs.shortname }}
           subject-checksums: dist/checksums.txt
 
   # Emit one signed SLSA Verification Summary Attestation (VSA) per dist archive
@@ -418,21 +395,21 @@ jobs:
   # job gated on this reusable workflow is blocked, and (b) surfaces a
   # policy/tooling regression loudly. Keep fail: true for both effects.
   verify:
-    if: ${{ needs.gate.outputs.should-release == 'true' }}
-    needs: [guard, gate, release, attest]
+    if: ${{ needs.prep.outputs.should-release == 'true' }}
+    needs: [prep, release, attest]
     runs-on: ubuntu-latest
     permissions:
       id-token: write       # bnd keyless-signs each VSA via this workflow's OIDC identity
       attestations: write   # post each VSA to the GitHub attestation store
       contents: write       # attach the bundle to the release on tag pushes
     outputs:
-      attestation-bundle-name: ${{ needs.release.outputs.metadata-artifact-name }}
+      attestation-bundle-name: ${{ needs.prep.outputs.metadata }}
     steps:
       # TODO: replace with $/actions/verify_release when GitHub ships $/ syntax (#136)
       - uses: TomHennen/wrangle/actions/verify_release@56aa2ffe4d4b0f48a3c0e09ff2d458e16e25bdcb # main 2026-06-20
         with:
           build-type: go
-          shortname: ${{ needs.release.outputs.shortname }}
+          shortname: ${{ needs.prep.outputs.shortname }}
           dist-files: ${{ needs.release.outputs.dist-files }}
           policy: policies/wrangle-provenance-go-v1.hjson
           collector: jsonl:provenance/provenance.jsonl

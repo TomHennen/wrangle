@@ -57,22 +57,20 @@ on:
         default: ""
 
 jobs:
-  # Refuse trigger patterns known to expose this workflow to supply-chain
-  # attack classes (pull_request_target, workflow_run via pull_request_target).
-  # The guard MUST stay first under `jobs:`; every other job lists `guard`
-  # in its `needs:` so a refused invocation skips the entire workflow.
-  # Full trigger contract: docs/SPEC.md#trigger-model.
-  guard:
+  # MUST stay first under `jobs:`: prep's guard refuses unsafe triggers
+  # before any other job runs, and every job `needs: [prep]`. No build-type,
+  # so prep is guard-only (no release gate, no names). docs/SPEC.md#trigger-model.
+  prep:
     runs-on: ubuntu-latest
-    permissions: {}    # reads env only — no workspace, no API, no secrets
+    permissions: {}    # guard reads env only — no workspace, no API, no secrets
     steps:
-      # TODO: replace with $/actions/preflight_guard when GitHub ships $/ syntax (#136)
-      - uses: TomHennen/wrangle/actions/preflight_guard@56aa2ffe4d4b0f48a3c0e09ff2d458e16e25bdcb # main 2026-06-20
+      # TODO: replace with $/actions/prep when GitHub ships $/ syntax (#136)
+      - uses: TomHennen/wrangle/actions/prep@731eb4e95e4c53cce9dd8d57f0ba5c626517b39f # bootstrap: PR head until post-merge bump
 
   # Source scan. A load-bearing (:fail) finding fails the run alongside
   # the shell build/test (there is no artifact to gate publishing of).
   scan:
-    needs: [guard]
+    needs: [prep]
     runs-on: ubuntu-latest
     permissions:
       actions: read
@@ -95,7 +93,7 @@ jobs:
           go-cache: ${{ inputs.go-cache }}
 
   shell-build:
-    needs: [guard]
+    needs: [prep]
     runs-on: ubuntu-latest
     permissions:
       contents: read

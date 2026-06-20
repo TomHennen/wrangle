@@ -1,0 +1,78 @@
+name: Wrangle Prep
+description: >
+  The shared head-of-pipeline job for wrangle's reusable workflows. Always
+  refuses unsafe triggers (the preflight guard). When a build-type is given
+  it also decides should-release (the release gate) and derives the shared
+  package names, exposing them as outputs every downstream job reads
+  uniformly. An empty build-type is the guard-only mode for scan/CI
+  workflows that release nothing: the gate and name derivation are skipped,
+  should-release is false, and the name outputs are empty. Needs no
+  permissions and no checkout: every step reads env only and resolves from
+  the action's own path.
+
+inputs:
+  build-type:
+    description: "Build type the names are namespaced under (go, python, npm, container). Empty = guard-only mode."
+    required: false
+    default: ""
+  path:
+    description: "Path the shortname is derived from."
+    required: false
+    default: "."
+  release-events:
+    description: "Which events trigger release-time actions; passed to release_gate."
+    required: false
+    default: non-pull-request
+
+outputs:
+  should-release:
+    description: "true if release-time actions (provenance, publish, verify) should run; false in guard-only mode."
+    value: ${{ steps.gate.outputs.should-release || 'false' }}
+  shortname:
+    description: "The path-derived shortname namespacing per-build artifacts."
+    value: ${{ steps.names.outputs.shortname }}
+  dist:
+    description: "Name of the dist/ product artifact."
+    value: ${{ steps.names.outputs.dist }}
+  scan:
+    description: "Name of the source-scan output transient folded into the metadata."
+    value: ${{ steps.names.outputs.scan }}
+  checks:
+    description: "Name of the checks-job transient (go: govulncheck.json) folded into the metadata."
+    value: ${{ steps.names.outputs.checks }}
+  metadata:
+    description: "Name of the unified metadata artifact (sbom + scan/ + bundle)."
+    value: ${{ steps.names.outputs.metadata }}
+  metadata-pre:
+    description: "Name of the build job's pre-verify metadata transient (release runs)."
+    value: ${{ steps.names.outputs.metadata-pre }}
+  provenance-bundle:
+    description: "Name of the attest job's raw provenance bundle transient."
+    value: ${{ steps.names.outputs.provenance-bundle }}
+  metadata-dir:
+    description: "The unified metadata dir (metadata/<type>[/<shortname>]) the bundle and sbom + scan/ live under."
+    value: ${{ steps.names.outputs.metadata-dir }}
+
+runs:
+  using: composite
+  steps:
+    # Refuse unsafe triggers first, so a refused invocation fails prep and
+    # every downstream `needs: [prep]` job skips.
+    # TODO: replace with $/actions/preflight_guard when $/ syntax ships (#136)
+    - uses: TomHennen/wrangle/actions/preflight_guard@56aa2ffe4d4b0f48a3c0e09ff2d458e16e25bdcb # main 2026-06-20
+
+    # Gate + names run only for a real build type; guard-only mode skips them.
+    # TODO: replace with $/actions/release_gate when $/ syntax ships (#136)
+    - uses: TomHennen/wrangle/actions/release_gate@56aa2ffe4d4b0f48a3c0e09ff2d458e16e25bdcb # main 2026-06-20
+      id: gate
+      if: ${{ inputs.build-type != '' }}
+      with:
+        events: ${{ inputs.release-events }}
+
+    # TODO: replace with $/actions/package_metadata when $/ syntax ships (#136)
+    - uses: TomHennen/wrangle/actions/package_metadata@56aa2ffe4d4b0f48a3c0e09ff2d458e16e25bdcb # main 2026-06-20
+      id: names
+      if: ${{ inputs.build-type != '' }}
+      with:
+        build-type: ${{ inputs.build-type }}
+        path: ${{ inputs.path }}

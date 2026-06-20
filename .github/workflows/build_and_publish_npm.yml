@@ -110,7 +110,7 @@ on:
         value: ${{ jobs.build.outputs.tarball }}
       dist-artifact-name:
         description: "Name of the uploaded dist/ artifact (download with this name to publish)"
-        value: ${{ jobs.build.outputs.dist-artifact-name }}
+        value: ${{ jobs.prep.outputs.dist }}
       provenance-artifact-name:
         description: "Name of the workflow artifact containing the SLSA provenance bundle — one JSON object per line, covering all dist subjects. Empty when should-release is false."
         value: ${{ jobs.attest.outputs.bundle-artifact-name }}
@@ -119,47 +119,44 @@ on:
         value: ${{ jobs.verify.outputs.attestation-bundle-name }}
       metadata-artifact-name:
         description: "Name of the unified metadata workflow artifact. Format: `npm-metadata[-<shortname>]`. Contents and layout: docs/metadata_layout.md."
-        value: ${{ jobs.build.outputs.metadata-artifact-name }}
+        value: ${{ jobs.prep.outputs.metadata }}
       should-release:
         description: |
           "true" if the current event matches release-events and the caller
           should perform release-time actions (publish, attestation upload,
           etc.); "false" otherwise. Wrangle gates the attest and verify jobs on
           this internally; the caller's publish job should gate on it too.
-        value: ${{ jobs.gate.outputs.should-release }}
+        value: ${{ jobs.prep.outputs.should-release }}
 
 jobs:
-  # Refuse trigger patterns known to expose this workflow to supply-chain
-  # attack classes (pull_request_target, workflow_run via pull_request_target).
-  # The guard MUST stay first under `jobs:`; every other job lists `guard`
-  # in its `needs:` so a refused invocation skips the entire workflow.
-  # Full trigger contract: docs/SPEC.md#trigger-model.
-  guard:
+  # MUST stay first under `jobs:`: prep's guard refuses unsafe triggers
+  # before any other job runs, and every job `needs: [prep]`. prep also
+  # decides should-release and derives the shared package names.
+  # docs/SPEC.md#trigger-model.
+  prep:
     runs-on: ubuntu-latest
-    permissions: {}    # reads env only — no workspace, no API, no secrets
-    steps:
-      # TODO: replace with $/actions/preflight_guard when GitHub ships $/ syntax (#136)
-      - uses: TomHennen/wrangle/actions/preflight_guard@56aa2ffe4d4b0f48a3c0e09ff2d458e16e25bdcb # main 2026-06-20
-
-  gate:
-    needs: [guard]
-    runs-on: ubuntu-latest
-    permissions: {}    # release_gate reads only env; no workspace, no API
+    permissions: {}    # guard/gate/names read env only — no workspace, no API, no secrets
     outputs:
-      should-release: ${{ steps.gate.outputs.should-release }}
+      should-release: ${{ steps.prep.outputs.should-release }}
+      shortname: ${{ steps.prep.outputs.shortname }}
+      dist: ${{ steps.prep.outputs.dist }}
+      scan: ${{ steps.prep.outputs.scan }}
+      metadata: ${{ steps.prep.outputs.metadata }}
+      metadata-pre: ${{ steps.prep.outputs.metadata-pre }}
     steps:
-      # No checkout: release_gate resolves via ${{ github.action_path }}.
-      # TODO: replace with $/actions/release_gate when GitHub ships $/ syntax (#136)
-      - uses: TomHennen/wrangle/actions/release_gate@56aa2ffe4d4b0f48a3c0e09ff2d458e16e25bdcb # main 2026-06-20
-        id: gate
+      # TODO: replace with $/actions/prep when GitHub ships $/ syntax (#136)
+      - uses: TomHennen/wrangle/actions/prep@731eb4e95e4c53cce9dd8d57f0ba5c626517b39f # bootstrap: PR head until post-merge bump
+        id: prep
         with:
-          events: ${{ inputs.release-events }}
+          build-type: npm
+          path: ${{ inputs.path }}
+          release-events: ${{ inputs.release-events }}
 
   # Source scan. A load-bearing (:fail) finding fails this job, failing
   # the run so the caller's publish (gated on this workflow via needs:)
   # is blocked — decoupled scan/build runs can't gate publish.
   scan:
-    needs: [guard, gate]
+    needs: [prep]
     runs-on: ubuntu-latest
     permissions:
       actions: read
@@ -172,30 +169,20 @@ jobs:
           persist-credentials: false
           ref: ${{ inputs.ref || '' }}
 
-      # Shared name derivation so the scan and build jobs can't drift.
-      # TODO: replace with $/actions/package_metadata when GitHub ships $/ syntax (#136)
-      - uses: TomHennen/wrangle/actions/package_metadata@56aa2ffe4d4b0f48a3c0e09ff2d458e16e25bdcb # main 2026-06-20
-        id: names
-        if: ${{ inputs.scan-tools != '' }}
-        with:
-          build-type: npm
-          path: ${{ inputs.path }}
-
       # TODO: replace with $/actions/scan when GitHub ships $/ syntax (#136)
       - uses: TomHennen/wrangle/actions/scan@56aa2ffe4d4b0f48a3c0e09ff2d458e16e25bdcb # main 2026-06-20
         if: ${{ inputs.scan-tools != '' }}
         with:
           tools: ${{ inputs.scan-tools }}
           # The build job folds this into the unified npm-metadata.
-          artifact-name: ${{ steps.names.outputs.scan }}
+          artifact-name: ${{ needs.prep.outputs.scan }}
           # Cold on release: the scan gates an attested build, so a
           # poisoned tool cache must not be able to forge a passing scan.
-          go-cache: ${{ needs.gate.outputs.should-release == 'true' && '' || inputs.go-cache }}
+          go-cache: ${{ needs.prep.outputs.should-release == 'true' && '' || inputs.go-cache }}
 
   build:
-    # needs `gate` to read should-release for the conditional metadata upload,
-    # and `scan` to fold the untrusted scan output into the metadata dir.
-    needs: [guard, gate, scan]
+    # needs `scan` to fold the untrusted scan output into the metadata dir.
+    needs: [prep, scan]
     runs-on: ubuntu-latest
     permissions:
       contents: read    # minimal — no OIDC, no publish
@@ -207,10 +194,6 @@ jobs:
       # the VSA's resourceUri and the workflow re-exports it for publish gates.
       resource-uri: pkg:npm/${{ steps.pkgname.outputs.name }}@${{ steps.build.outputs.version }}
       tarball: ${{ steps.build.outputs.tarball }}
-      shortname: ${{ steps.build.outputs.shortname }}
-      dist-artifact-name: ${{ steps.names.outputs.dist }}
-      metadata-artifact-name: ${{ steps.names.outputs.metadata }}
-      metadata-pre-artifact-name: ${{ steps.names.outputs.metadata-pre }}
       metadata-dir: ${{ steps.build.outputs.metadata-dir }}
       # JSON array of dist filenames the verify job binds one VSA to each.
       dist-files: ${{ steps.distfiles.outputs.files }}
@@ -228,13 +211,6 @@ jobs:
           node-version: ${{ inputs.node-version }}
           run-tests: ${{ inputs.run-tests }}
           ignore-scripts: ${{ inputs.ignore-scripts }}
-
-      # TODO: replace with $/actions/package_metadata when GitHub ships $/ syntax (#136)
-      - uses: TomHennen/wrangle/actions/package_metadata@56aa2ffe4d4b0f48a3c0e09ff2d458e16e25bdcb # main 2026-06-20
-        id: names
-        with:
-          build-type: npm
-          shortname: ${{ steps.build.outputs.shortname }}
 
       # The npm composite doesn't emit the package name; read it from
       # package.json for the VSA resourceUri purl. Scoped names (@scope/pkg) pass through.
@@ -267,7 +243,7 @@ jobs:
 
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
-          name: ${{ steps.names.outputs.dist }}
+          name: ${{ needs.prep.outputs.dist }}
           path: ${{ inputs.path }}/dist/
 
       # Fold the untrusted scan job's output into the metadata dir as inert data.
@@ -275,14 +251,14 @@ jobs:
         if: ${{ inputs.scan-tools != '' }}
         continue-on-error: true   # scan upload is best-effort
         with:
-          name: ${{ steps.names.outputs.scan }}
+          name: ${{ needs.prep.outputs.scan }}
           path: ${{ steps.build.outputs.metadata-dir }}/scan/
 
       # Non-release: this is the final unified metadata (sbom + scan/). On
       # release the verify job appends the bundle and owns the final upload.
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
-          name: ${{ needs.gate.outputs.should-release == 'true' && steps.names.outputs.metadata-pre || steps.names.outputs.metadata }}
+          name: ${{ needs.prep.outputs.should-release == 'true' && needs.prep.outputs.metadata-pre || needs.prep.outputs.metadata }}
           path: ${{ steps.build.outputs.metadata-dir }}/
           if-no-files-found: error
 
@@ -290,9 +266,9 @@ jobs:
   # reusable workflow as builder.id (its job_workflow_ref) and the Sigstore
   # signing identity
   attest:
-    if: ${{ needs.gate.outputs.should-release == 'true' }}
+    if: ${{ needs.prep.outputs.should-release == 'true' }}
     # needs `scan` so a load-bearing finding blocks attestation + the caller's publish.
-    needs: [guard, gate, build, scan]
+    needs: [prep, build, scan]
     runs-on: ubuntu-latest
     permissions:
       id-token: write       # OIDC for Sigstore keyless signing
@@ -306,7 +282,7 @@ jobs:
         id: attest
         with:
           build-type: npm
-          shortname: ${{ needs.build.outputs.shortname }}
+          shortname: ${{ needs.prep.outputs.shortname }}
           subject-path: dist/*
 
   # Emit one signed SLSA Verification Summary Attestation (VSA) per dist artifact
@@ -317,21 +293,21 @@ jobs:
   # tenets follow once those are produced as signed attestations a registered
   # identity covers.
   verify:
-    if: ${{ needs.gate.outputs.should-release == 'true' }}
-    needs: [guard, gate, build, attest]
+    if: ${{ needs.prep.outputs.should-release == 'true' }}
+    needs: [prep, build, attest]
     runs-on: ubuntu-latest
     permissions:
       id-token: write       # bnd keyless-signs each VSA via this workflow's OIDC identity
       attestations: write   # post each VSA to the GitHub attestation store
       contents: write       # attach the bundle to the release on tag pushes
     outputs:
-      attestation-bundle-name: ${{ needs.build.outputs.metadata-artifact-name }}
+      attestation-bundle-name: ${{ needs.prep.outputs.metadata }}
     steps:
       # TODO: replace with $/actions/verify_release when GitHub ships $/ syntax (#136)
       - uses: TomHennen/wrangle/actions/verify_release@56aa2ffe4d4b0f48a3c0e09ff2d458e16e25bdcb # main 2026-06-20
         with:
           build-type: npm
-          shortname: ${{ needs.build.outputs.shortname }}
+          shortname: ${{ needs.prep.outputs.shortname }}
           dist-files: ${{ needs.build.outputs.dist-files }}
           policy: policies/wrangle-provenance-npm-v1.hjson
           collector: jsonl:provenance/provenance.jsonl

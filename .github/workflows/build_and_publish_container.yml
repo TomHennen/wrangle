@@ -94,63 +94,44 @@ on:
           "true" if the current event matches release-events; "false" otherwise.
           Wrangle gates the attest and verify jobs on this internally; callers can
           gate downstream release-time jobs on it too.
-        value: ${{ jobs.gate.outputs.should-release }}
+        value: ${{ jobs.prep.outputs.should-release }}
 
 jobs:
-  # Refuse trigger patterns known to expose this workflow to supply-chain
-  # attack classes (pull_request_target, workflow_run via pull_request_target).
-  # The guard MUST stay first under `jobs:`; every other job lists `guard`
-  # in its `needs:` so a refused invocation skips the entire workflow —
-  # critical for the container build type, whose docker push happens
-  # mid-composite (no verify step could roll back a pushed image).
-  # Full trigger contract: docs/SPEC.md#trigger-model.
-  guard:
+  # MUST stay first under `jobs:`: prep's guard refuses unsafe triggers
+  # before any other job runs, and every job `needs: [prep]`. prep also
+  # decides should-release and derives the shared package names.
+  # docs/SPEC.md#trigger-model.
+  prep:
     runs-on: ubuntu-latest
-    permissions: {}    # reads env only — no workspace, no API, no secrets
-    steps:
-      # TODO: replace with $/actions/preflight_guard when GitHub ships $/ syntax (#136)
-      - uses: TomHennen/wrangle/actions/preflight_guard@56aa2ffe4d4b0f48a3c0e09ff2d458e16e25bdcb # main 2026-06-20
-
-  gate:
-    needs: [guard]
-    runs-on: ubuntu-latest
-    permissions: {}    # release_gate reads only env; no workspace, no API
+    permissions: {}    # guard/gate/names read env only — no workspace, no API, no secrets
     outputs:
-      should-release: ${{ steps.gate.outputs.should-release }}
+      should-release: ${{ steps.prep.outputs.should-release }}
+      shortname: ${{ steps.prep.outputs.shortname }}
+      scan: ${{ steps.prep.outputs.scan }}
     steps:
-      # No checkout: release_gate resolves via ${{ github.action_path }}.
-      # TODO: replace with $/actions/release_gate when GitHub ships $/ syntax (#136)
-      - uses: TomHennen/wrangle/actions/release_gate@56aa2ffe4d4b0f48a3c0e09ff2d458e16e25bdcb # main 2026-06-20
-        id: gate
+      # TODO: replace with $/actions/prep when GitHub ships $/ syntax (#136)
+      - uses: TomHennen/wrangle/actions/prep@731eb4e95e4c53cce9dd8d57f0ba5c626517b39f # bootstrap: PR head until post-merge bump
+        id: prep
         with:
-          events: ${{ inputs.release-events }}
+          build-type: container
+          path: ${{ inputs.path }}
+          release-events: ${{ inputs.release-events }}
 
   # Source scan. The container push happens mid-composite in `build` and
   # is not release-gated, so a load-bearing (:fail) finding must block
   # `build` itself on every event — hence `build` needs `scan`.
   scan:
-    needs: [guard, gate]
+    needs: [prep]
     runs-on: ubuntu-latest
     permissions:
       actions: read
       contents: read
       security-events: write
-    outputs:
-      artifact-name: ${{ steps.names.outputs.scan }}
     steps:
       - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
         if: ${{ inputs.scan-tools != '' }}
         with:
           persist-credentials: false
-
-      # Shared name derivation so the scan and build jobs can't drift.
-      # TODO: replace with $/actions/package_metadata when GitHub ships $/ syntax (#136)
-      - uses: TomHennen/wrangle/actions/package_metadata@56aa2ffe4d4b0f48a3c0e09ff2d458e16e25bdcb # main 2026-06-20
-        id: names
-        if: ${{ inputs.scan-tools != '' }}
-        with:
-          build-type: container
-          path: ${{ inputs.path }}
 
       # TODO: replace with $/actions/scan when GitHub ships $/ syntax (#136)
       - uses: TomHennen/wrangle/actions/scan@56aa2ffe4d4b0f48a3c0e09ff2d458e16e25bdcb # main 2026-06-20
@@ -158,24 +139,20 @@ jobs:
         with:
           tools: ${{ inputs.scan-tools }}
           # The build job folds this into the unified container-metadata.
-          artifact-name: ${{ steps.names.outputs.scan }}
+          artifact-name: ${{ needs.prep.outputs.scan }}
           # Cold on release: the scan gates an attested build, so a
           # poisoned tool cache must not be able to forge a passing scan.
-          go-cache: ${{ needs.gate.outputs.should-release == 'true' && '' || inputs.go-cache }}
+          go-cache: ${{ needs.prep.outputs.should-release == 'true' && '' || inputs.go-cache }}
 
   build:
-    # needs `gate` so the build can read should-release and disable the
-    # BuildKit cache for release builds (SLSA L3 isolation — see the
-    # `cache:` input below and docs/SLSA_L3_AUDIT.md Finding 2).
     # needs `scan` so a load-bearing finding blocks the mid-composite push.
-    needs: [guard, gate, scan]
+    needs: [prep, scan]
     permissions:
       contents: read
       packages: write
     outputs:
       digest: ${{ steps.build.outputs.digest }}
       imagename: ${{ steps.build.outputs.imagename }}
-      shortname: ${{ steps.build.outputs.shortname }}
       metadata-artifact-name: ${{ steps.build.outputs.metadata-artifact-name }}
       metadata-pre-artifact-name: ${{ steps.build.outputs.metadata-pre-artifact-name }}
       metadata-dir: ${{ steps.build.outputs.metadata-dir }}
@@ -201,14 +178,14 @@ jobs:
         # `pr-cache` policy, which defaults to "isolated" (per-PR scope,
         # so PRs cannot poison each other) and can be widened to a fully
         # shared cache or tightened to read-only / disabled.
-        cache: ${{ needs.gate.outputs.should-release == 'true' && 'disabled' || inputs.pr-cache }}
+        cache: ${{ needs.prep.outputs.should-release == 'true' && 'disabled' || inputs.pr-cache }}
 
     # Fold the untrusted scan job's output into the metadata dir as inert data.
     - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
       if: ${{ always() && inputs.scan-tools != '' }}
       continue-on-error: true   # scan upload is best-effort
       with:
-        name: ${{ needs.scan.outputs.artifact-name }}
+        name: ${{ needs.prep.outputs.scan }}
         path: ${{ steps.build.outputs.metadata-dir }}/scan/
 
     # Non-release: this is the final unified metadata (sbom + scan/). On
@@ -216,7 +193,7 @@ jobs:
     - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
       if: always()
       with:
-        name: ${{ needs.gate.outputs.should-release == 'true' && steps.build.outputs.metadata-pre-artifact-name || steps.build.outputs.metadata-artifact-name }}
+        name: ${{ needs.prep.outputs.should-release == 'true' && steps.build.outputs.metadata-pre-artifact-name || steps.build.outputs.metadata-artifact-name }}
         path: ${{ steps.build.outputs.metadata-dir }}/
         if-no-files-found: warn
 
@@ -224,8 +201,8 @@ jobs:
   # reusable workflow as builder.id (its job_workflow_ref) and the Sigstore
   # signing identity
   attest:
-    if: ${{ needs.gate.outputs.should-release == 'true' }}
-    needs: [guard, gate, build]
+    if: ${{ needs.prep.outputs.should-release == 'true' }}
+    needs: [prep, build]
     runs-on: ubuntu-latest
     permissions:
       id-token: write       # OIDC for Sigstore keyless signing
@@ -254,8 +231,8 @@ jobs:
   # downstream caller jobs) rather than rolling back the live image. Needs
   # `attest` so the provenance referrer the collector reads already exists.
   verify:
-    if: ${{ needs.gate.outputs.should-release == 'true' }}
-    needs: [guard, gate, build, attest]
+    if: ${{ needs.prep.outputs.should-release == 'true' }}
+    needs: [prep, build, attest]
     runs-on: ubuntu-latest
     # No contents: write — the container caller grants only contents: read, so
     # requesting it here would be a startup-failing escalation; the bundle ships
@@ -287,7 +264,7 @@ jobs:
       - uses: TomHennen/wrangle/actions/verify_release@56aa2ffe4d4b0f48a3c0e09ff2d458e16e25bdcb # main 2026-06-20
         with:
           build-type: container
-          shortname: ${{ needs.build.outputs.shortname }}
+          shortname: ${{ needs.prep.outputs.shortname }}
           subjects: ${{ needs.build.outputs.digest }}
           policy: policies/wrangle-provenance-container-v1.hjson
           collector: oci:${{ needs.build.outputs.imagename }}@${{ needs.build.outputs.digest }}
