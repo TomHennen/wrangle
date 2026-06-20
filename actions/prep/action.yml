@@ -59,18 +59,18 @@ runs:
     # Refuse unsafe triggers first, so a refused invocation fails prep and
     # every downstream `needs: [prep]` job skips.
     # TODO: replace with $/actions/preflight_guard when $/ syntax ships (#136)
-    - uses: TomHennen/wrangle/actions/preflight_guard@44a586de9766492f29ae171a2a24feb0ec681957 # main 2026-06-20
+    - uses: TomHennen/wrangle/actions/preflight_guard@df26c2c314e81e1d9df29f2e1f282e53a5b762a4 # main 2026-06-20
 
     # Gate + names run only for a real build type; guard-only mode skips them.
     # TODO: replace with $/actions/release_gate when $/ syntax ships (#136)
-    - uses: TomHennen/wrangle/actions/release_gate@44a586de9766492f29ae171a2a24feb0ec681957 # main 2026-06-20
+    - uses: TomHennen/wrangle/actions/release_gate@df26c2c314e81e1d9df29f2e1f282e53a5b762a4 # main 2026-06-20
       id: gate
       if: ${{ inputs.build-type != '' }}
       with:
         events: ${{ inputs.release-events }}
 
     # TODO: replace with $/actions/package_metadata when $/ syntax ships (#136)
-    - uses: TomHennen/wrangle/actions/package_metadata@44a586de9766492f29ae171a2a24feb0ec681957 # main 2026-06-20
+    - uses: TomHennen/wrangle/actions/package_metadata@df26c2c314e81e1d9df29f2e1f282e53a5b762a4 # main 2026-06-20
       id: names
       if: ${{ inputs.build-type != '' }}
       with:
