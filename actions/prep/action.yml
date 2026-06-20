@@ -1,0 +1,72 @@
+name: Wrangle Prep
+description: >
+  The shared head-of-pipeline job for wrangle's reusable build workflows.
+  Runs the preflight guard (refuse unsafe triggers), the release gate
+  (decide should-release), and package-name derivation in one job, then
+  exposes the results as outputs every downstream job reads uniformly —
+  so the build type's shared values are computed once, not re-derived per
+  job. Needs no permissions and no checkout: every step resolves via
+  ${{ github.action_path }} and reads env only.
+
+inputs:
+  build-type:
+    description: "Build type the names are namespaced under (go, python, npm, container)."
+    required: true
+  path:
+    description: "Path the shortname is derived from."
+    required: false
+    default: "."
+  release-events:
+    description: "Which events trigger release-time actions; passed to release_gate."
+    required: false
+    default: non-pull-request
+
+outputs:
+  should-release:
+    description: "true if release-time actions (provenance, publish, verify) should run."
+    value: ${{ steps.gate.outputs.should-release }}
+  shortname:
+    description: "The path-derived shortname namespacing per-build artifacts."
+    value: ${{ steps.names.outputs.shortname }}
+  dist:
+    description: "Name of the dist/ product artifact."
+    value: ${{ steps.names.outputs.dist }}
+  scan:
+    description: "Name of the source-scan output transient folded into the metadata."
+    value: ${{ steps.names.outputs.scan }}
+  checks:
+    description: "Name of the checks-job transient (go: govulncheck.json) folded into the metadata."
+    value: ${{ steps.names.outputs.checks }}
+  metadata:
+    description: "Name of the unified metadata artifact (sbom + scan/ + bundle)."
+    value: ${{ steps.names.outputs.metadata }}
+  metadata-pre:
+    description: "Name of the build job's pre-verify metadata transient (release runs)."
+    value: ${{ steps.names.outputs.metadata-pre }}
+  provenance-bundle:
+    description: "Name of the attest job's raw provenance bundle transient."
+    value: ${{ steps.names.outputs.provenance-bundle }}
+  metadata-dir:
+    description: "The unified metadata dir (metadata/<type>[/<shortname>]) the bundle and sbom + scan/ live under."
+    value: ${{ steps.names.outputs.metadata-dir }}
+
+runs:
+  using: composite
+  steps:
+    # Refuse unsafe triggers first, so a refused invocation fails prep and
+    # every downstream `needs: [prep]` job skips.
+    # TODO: replace with $/actions/preflight_guard when $/ syntax ships (#136)
+    - uses: TomHennen/wrangle/actions/preflight_guard@6ddb817cf528110aff86879ca7fbf4ff84c52669 # main 2026-06-20
+
+    # TODO: replace with $/actions/release_gate when $/ syntax ships (#136)
+    - uses: TomHennen/wrangle/actions/release_gate@6ddb817cf528110aff86879ca7fbf4ff84c52669 # main 2026-06-20
+      id: gate
+      with:
+        events: ${{ inputs.release-events }}
+
+    # TODO: replace with $/actions/package_metadata when $/ syntax ships (#136)
+    - uses: TomHennen/wrangle/actions/package_metadata@6ddb817cf528110aff86879ca7fbf4ff84c52669 # main 2026-06-20
+      id: names
+      with:
+        build-type: ${{ inputs.build-type }}
+        path: ${{ inputs.path }}

@@ -6,15 +6,17 @@
 # actions/preflight_guard/test.bats — this file only checks the
 # workflow-level wiring:
 #
-#   1. The first job under `jobs:` is `guard:`.
-#   2. The `guard:` job has `permissions: {}` (least privilege).
-#   3. The `guard:` job invokes `actions/preflight_guard` via `uses:`.
-#   4. Every other job lists `guard` in its `needs:` so a refused
+#   1. The first job under `jobs:` is the head job — `guard` (runs the
+#      guard directly) or `prep` (runs the guard as its first step; see
+#      actions/prep/test.bats for the ordering guarantee).
+#   2. The head job has `permissions: {}` (least privilege).
+#   3. The head job invokes preflight_guard (guard) or prep via `uses:`.
+#   4. Every other job lists the head job in its `needs:` so a refused
 #      invocation skips the entire workflow.
 #
 # Grep-based; doesn't parse YAML. Tests break loudly if anyone refactors
 # the guard wiring out or accidentally adds a new job without the
-# `needs: [guard]` dependency.
+# head-job dependency.
 
 setup() {
     REPO_ROOT="$(cd "$BATS_TEST_DIRNAME/.." && pwd)"
@@ -36,6 +38,25 @@ setup() {
     done < <(find "$WORKFLOWS_DIR" -maxdepth 1 -name '*.yml' -type f -print0 | sort -z)
 }
 
+# First job under `jobs:` — the head job that gates the rest.
+head_job() {
+    awk '
+        /^jobs:$/                                  { in_jobs=1; next }
+        in_jobs && /^  [a-zA-Z][a-zA-Z0-9_-]*:$/   {
+            name=$1; sub(":", "", name); print name; exit
+        }
+    ' "$1"
+}
+
+# The `<job>:` block (its lines, up to the next top-level job).
+job_block() {
+    awk -v j="$2" '
+        $0 == "  " j ":"                        { in_block=1; print; next }
+        in_block && /^  [a-zA-Z][a-zA-Z0-9_-]*:$/ { in_block=0 }
+        in_block                                { print }
+    ' "$1"
+}
+
 @test "wiring: reusable-workflow discovery is non-empty" {
     # Fail closed: a broken glob or wrong dir would otherwise make every
     # per-workflow assertion below pass vacuously over an empty list.
@@ -45,60 +66,52 @@ setup() {
     }
 }
 
-@test "wiring: first job in each reusable workflow is guard" {
+@test "wiring: first job in each reusable workflow is the guard or prep head job" {
     # Defense against accidentally reordering the guard below a job that
     # could side-effect before the refusal fires.
     for wf in "${REUSABLE_WORKFLOWS[@]}"; do
-        first_job=$(awk '
-            /^jobs:$/                                  { in_jobs=1; next }
-            in_jobs && /^  [a-zA-Z][a-zA-Z0-9_-]*:$/   {
-                name=$1; sub(":", "", name); print name; exit
-            }
-        ' "$WORKFLOWS_DIR/$wf")
-        [[ "$first_job" == "guard" ]] || {
-            printf "First job in %s is '%s' not 'guard'\n" "$wf" "$first_job" >&2
+        first_job="$(head_job "$WORKFLOWS_DIR/$wf")"
+        [[ "$first_job" == "guard" || "$first_job" == "prep" ]] || {
+            printf "First job in %s is '%s' not 'guard' or 'prep'\n" "$wf" "$first_job" >&2
             return 1
         }
     done
 }
 
-@test "wiring: guard job invokes actions/preflight_guard via uses:" {
+@test "wiring: head job invokes preflight_guard or prep via uses:" {
+    # The guard runs directly (guard job) or as prep's first step. prep's
+    # guard-first ordering is asserted in actions/prep/test.bats.
     for wf in "${REUSABLE_WORKFLOWS[@]}"; do
-        guard_block=$(awk '
-            /^  guard:$/             { in_block=1; print; next }
-            in_block && /^  [a-z]/   { in_block=0 }
-            in_block                 { print }
-        ' "$WORKFLOWS_DIR/$wf")
-        echo "$guard_block" | grep -qE 'uses:[[:space:]]*TomHennen/wrangle/actions/preflight_guard@' || {
-            printf 'guard job in %s does not use TomHennen/wrangle/actions/preflight_guard\n' "$wf" >&2
-            printf '%s\n' "$guard_block" >&2
+        head="$(head_job "$WORKFLOWS_DIR/$wf")"
+        block="$(job_block "$WORKFLOWS_DIR/$wf" "$head")"
+        echo "$block" | grep -qE 'uses:[[:space:]]*TomHennen/wrangle/actions/(preflight_guard|prep)@' || {
+            printf 'head job in %s does not use preflight_guard or prep\n' "$wf" >&2
+            printf '%s\n' "$block" >&2
             return 1
         }
     done
 }
 
-@test "wiring: guard job has permissions: {}" {
+@test "wiring: head job has permissions: {}" {
     for wf in "${REUSABLE_WORKFLOWS[@]}"; do
-        guard_block=$(awk '
-            /^  guard:$/             { in_block=1; print; next }
-            in_block && /^  [a-z]/   { in_block=0 }
-            in_block                 { print }
-        ' "$WORKFLOWS_DIR/$wf")
-        echo "$guard_block" | grep -qE 'permissions: \{\}' || {
-            printf 'guard job in %s missing permissions: {}\n' "$wf" >&2
-            printf '%s\n' "$guard_block" >&2
+        head="$(head_job "$WORKFLOWS_DIR/$wf")"
+        block="$(job_block "$WORKFLOWS_DIR/$wf" "$head")"
+        echo "$block" | grep -qE 'permissions: \{\}' || {
+            printf 'head job in %s missing permissions: {}\n' "$wf" >&2
+            printf '%s\n' "$block" >&2
             return 1
         }
     done
 }
 
-@test "wiring: every non-guard job lists guard in its needs" {
+@test "wiring: every non-head job lists the head job in its needs" {
     # Failing the guard must skip every downstream job. The cheapest
-    # invariant to grep is "every non-guard job's needs: includes guard".
-    # Transitive gating via gate/build would also work, but the explicit
-    # form is easier to audit at a glance and breaks loudly if a later
-    # job is added without the guard dependency.
+    # invariant to grep is "every non-head job's needs: includes the head
+    # job". Transitive gating would also work, but the explicit form is
+    # easier to audit at a glance and breaks loudly if a later job is
+    # added without the head-job dependency.
     for wf in "${REUSABLE_WORKFLOWS[@]}"; do
+        head="$(head_job "$WORKFLOWS_DIR/$wf")"
         jobs=$(awk '
             /^jobs:$/                                  { in_jobs=1; next }
             in_jobs && /^[a-zA-Z]/                     { in_jobs=0 }
@@ -111,14 +124,10 @@ setup() {
             return 1
         }
         for job in $jobs; do
-            [[ "$job" == "guard" ]] && continue
-            block=$(awk -v j="$job" '
-                $0 == "  " j ":"                       { in_job=1; print; next }
-                in_job && /^  [a-zA-Z][a-zA-Z0-9_-]*:$/ { in_job=0 }
-                in_job                                 { print }
-            ' "$WORKFLOWS_DIR/$wf")
-            echo "$block" | grep -qE '^[[:space:]]*needs:.*\[.*\bguard\b.*\]' || {
-                printf "Job '%s' in %s does not list 'guard' in its needs:\n" "$job" "$wf" >&2
+            [[ "$job" == "$head" ]] && continue
+            block="$(job_block "$WORKFLOWS_DIR/$wf" "$job")"
+            echo "$block" | grep -qE "^[[:space:]]*needs:.*\[.*\b${head}\b.*\]" || {
+                printf "Job '%s' in %s does not list '%s' in its needs:\n" "$job" "$wf" "$head" >&2
                 printf '%s\n' "$block" >&2
                 return 1
             }
