@@ -116,9 +116,9 @@ teardown() {
     [[ "$status" -ne 0 ]]
 }
 
-@test "container: build job needs gate so it can read should-release" {
+@test "container: build job needs prep so it can read should-release" {
     local wf="$REPO_ROOT/.github/workflows/build_and_publish_container.yml"
-    run bash -c "sed -n '/^  build:/,/^  [a-z]/p' \"$wf\" | grep -E 'needs:.*gate'"
+    run bash -c "sed -n '/^  build:/,/^  [a-z]/p' \"$wf\" | grep -E 'needs:.*prep'"
     [[ "$status" -eq 0 ]]
 }
 
@@ -138,9 +138,9 @@ teardown() {
     [[ "$status" -eq 0 ]]
 }
 
-@test "container: scan job needs gate so go-cache can read should-release" {
+@test "container: scan job needs prep so go-cache can read should-release" {
     local wf="$REPO_ROOT/.github/workflows/build_and_publish_container.yml"
-    run bash -c "sed -n '/^  scan:/,/^  [a-z]/p' \"$wf\" | grep -E 'needs:.*gate'"
+    run bash -c "sed -n '/^  scan:/,/^  [a-z]/p' \"$wf\" | grep -E 'needs:.*prep'"
     [[ "$status" -eq 0 ]]
 }
 
@@ -353,11 +353,11 @@ FAKE
     [[ "$status" -eq 0 ]]
 }
 
-@test "container: reusable workflow has gate job calling release_gate" {
+@test "container: reusable workflow has prep job calling the prep action" {
     local wf="$REPO_ROOT/.github/workflows/build_and_publish_container.yml"
-    run grep -E '^  gate:' "$wf"
+    run grep -E '^  prep:' "$wf"
     [[ "$status" -eq 0 ]]
-    run grep -E 'TomHennen/wrangle/actions/release_gate' "$wf"
+    run grep -E 'TomHennen/wrangle/actions/prep@' "$wf"
     [[ "$status" -eq 0 ]]
 }
 

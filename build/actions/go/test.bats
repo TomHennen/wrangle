@@ -588,10 +588,11 @@ func main() {}
 
 # --- Reusable workflow tests ---
 
-@test "go: workflow has guard, gate, checks, release, attest, verify jobs" {
-    # attest (attest-build-provenance) + verify replace the removed
+@test "go: workflow has prep, scan, checks, release, attest, verify jobs" {
+    # prep (guard + gate + names) heads the pipeline; attest
+    # (attest-build-provenance) + verify replace the removed
     # slsa-github-generator provenance: and slsa-verifier verify: jobs.
-    for job in guard gate checks release attest verify; do
+    for job in prep scan checks release attest verify; do
         run grep -E "^  ${job}:" "$WORKFLOW"
         [[ "$status" -eq 0 ]]
     done
@@ -608,21 +609,20 @@ func main() {}
     section="$(awk '/^  [a-z][a-z_-]*:$/ { in_section = ($0 == "  release:") } in_section' "$WORKFLOW")"
     grep -qF "needs.checks.result == 'skipped'" <<<"$section"
     # And the if: must NOT be the trivial truthy default that would
-    # let release run even on a failed guard/gate.
-    grep -qE "needs\\.guard\\.result == 'success'" <<<"$section"
-    grep -qE "needs\\.gate\\.result == 'success'" <<<"$section"
+    # let release run even on a failed prep (guard + gate).
+    grep -qE "needs\\.prep\\.result == 'success'" <<<"$section"
 }
 
 @test "go: workflow never sources lib/shortname.sh from the adopter workspace" {
     # The scan/checks/release jobs check out the ADOPTER repo, where
     # lib/shortname.sh does not exist — sourcing it there only worked when
     # the adopter was wrangle itself (#469). The shortname/name derivation is
-    # delegated to the package_metadata composite, which sources the lib from
-    # its OWN action_path; no workflow run: block touches the adopter copy.
+    # delegated to the prep job (which runs package_metadata from its OWN
+    # action_path); no workflow run: block touches the adopter copy.
     run grep -F 'source lib/shortname.sh' "$WORKFLOW"
     [[ "$status" -ne 0 ]]
-    # The scan job derives the scan name via the package_metadata composite.
-    run bash -c "sed -n '/^  scan:/,/^  [a-z]/p' \"$WORKFLOW\" | grep -F 'TomHennen/wrangle/actions/package_metadata@'"
+    # The prep job derives the names via the prep action.
+    run grep -F 'TomHennen/wrangle/actions/prep@' "$WORKFLOW"
     [[ "$status" -eq 0 ]]
 }
 
@@ -660,9 +660,9 @@ func main() {}
     grep -qE "if:.*inputs\\.scan-tools != ''" <<<"$section"
 }
 
-@test "go: scan job needs gate so go-cache can read should-release" {
+@test "go: scan job needs prep so go-cache can read should-release" {
     section="$(awk '/^  [a-z][a-z_-]*:$/ { in_section = ($0 == "  scan:") } in_section' "$WORKFLOW")"
-    grep -qE 'needs:.*gate' <<<"$section"
+    grep -qE 'needs:.*prep' <<<"$section"
 }
 
 @test "go: scan job forces go-cache off on release" {
@@ -717,12 +717,12 @@ func main() {}
 @test "go: workflow checks + release jobs use namespaced metadata artifact names" {
     # The checks job's govulncheck output is an internal transient
     # (go-checks[-<sn>]) folded into the unified go-metadata[-<sn>] (#469).
-    # Derived inline (no adopter-workspace lib source); root stays clean.
-    run grep -F "format('go-checks-{0}'" "$WORKFLOW"
+    # The name comes from the prep job's checks output.
+    run grep -F 'needs.prep.outputs.checks' "$WORKFLOW"
     [[ "$status" -eq 0 ]]
-    # The release job's packaging names come from the package_metadata
-    # composite, seeded with the build type and the build's shortname output.
-    run grep -F 'TomHennen/wrangle/actions/package_metadata@' "$WORKFLOW"
+    # The release job's packaging names come from the prep job, seeded with
+    # the build type.
+    run grep -F 'TomHennen/wrangle/actions/prep@' "$WORKFLOW"
     [[ "$status" -eq 0 ]]
     run grep -F 'build-type: go' "$WORKFLOW"
     [[ "$status" -eq 0 ]]
