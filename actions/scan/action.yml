@@ -132,7 +132,7 @@ runs:
     # TODO: replace with $/tools/scorecard when $/ syntax ships (#136, #137)
     - name: Scorecard
       if: always() && contains(inputs.tools, 'scorecard') && github.event_name != 'pull_request'
-      uses: TomHennen/wrangle/tools/scorecard@44a586de9766492f29ae171a2a24feb0ec681957 # main 2026-06-20
+      uses: TomHennen/wrangle/tools/scorecard@03c5dd4cf97ac3cbb4ab64cfed884e80922c8856 # bootstrap placeholder — re-pinned after rebase
 
     # Dependency Review is PR-only — the upstream action requires
     # github.event.pull_request.base.sha / head.sha to compute the diff.
