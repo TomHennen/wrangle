@@ -125,7 +125,7 @@ The reusable workflow runs an `attest:` job that calls `actions/attest-build-pro
 
 The `attest:` job declares `id-token: write` (OIDC for Sigstore keyless signing), `attestations: write` (write the attestation to GitHub's store), and `contents: read` (`download-artifact` reads the same-run dist). It does **not** need `actions: read` (which the former generator required to detect the Actions environment).
 
-Provenance is gated on the `release-events` input (default `non-pull-request`). The reusable workflow runs a small `gate` job that calls `lib/release_gate.sh` and exposes a `should-release` output; the `attest:` job runs only when `should-release == 'true'`. On gated-out runs (e.g., PRs, or non-tag events when `release-events: tag-only`), only the build + test + SBOM steps run. See [`docs/SPEC.md`](../../../docs/SPEC.md) "Release-events gating" for the full predicate vocabulary.
+Provenance is gated on the `release-events` input (default `non-pull-request`). The `prep` job runs `actions/prep/release_gate.sh` and exposes a `should-release` output; the `attest:` job runs only when `needs.prep.outputs.should-release == 'true'`. On gated-out runs (e.g., PRs, or non-tag events when `release-events: tag-only`), only the build + test + SBOM steps run. See [`docs/SPEC.md`](../../../docs/SPEC.md) "Release-events gating" for the full predicate vocabulary.
 
 The separate `verify:` job (which emits the signed SLSA VSA) declares `contents: write` so it can attach the VSA to the GitHub release on tag pushes. Callers of this reusable workflow must therefore grant `contents: write` themselves for that job.
 
@@ -133,7 +133,7 @@ The separate `verify:` job (which emits the signed SLSA VSA) declares `contents:
 
 The `verify:` job runs `actions/verify`, which drives ampel against the provenance the `attest:` job produced. ampel verifies the provenance's Sigstore signature against the `wrangle-provenance-python-v1` PolicySet's `common.identities` — fail-closed, so only wrangle's reusable-workflow signer (`TomHennen/wrangle/.github/workflows/build_and_publish_python.yml`, both the Sigstore cert SAN and the provenance `builder.id`) passes — and checks the SLSA tenets, then emits the signed SLSA VSA.
 
-The job is gated on `should-release` (the same `gate` job that gates `attest:`); it is not opt-out-able. If verification fails, the job fails — and via standard `needs:` propagation the reusable workflow fails. The caller's publish job, gated on `should-release == 'true'`, is therefore blocked. This catches the "dist tampered with between wrangle's build and the caller's publish" case as a wrangle-owned guarantee rather than per-adopter boilerplate.
+The job is gated on `should-release` (the same `prep` gate that gates `attest:`); it is not opt-out-able. If verification fails, the job fails — and via standard `needs:` propagation the reusable workflow fails. The caller's publish job, gated on `should-release == 'true'`, is therefore blocked. This catches the "dist tampered with between wrangle's build and the caller's publish" case as a wrangle-owned guarantee rather than per-adopter boilerplate.
 
 ### 10. Publish (adopter workflow, gated on should-release)
 
@@ -183,106 +183,7 @@ Callers of this reusable workflow must grant `contents: write` so the validator 
 
 ## Reusable workflow
 
-`.github/workflows/build_and_publish_python.yml` runs build-and-test in one job (`build`), generates SLSA provenance in a second job (`attest`), and verifies that provenance and emits the signed SLSA VSA in a third (`verify`). Provenance comes from `actions/attest-build-provenance` run as a step *inside* the reusable workflow, not from a nested generator reusable workflow. Publishing lives in the adopter's calling workflow — see step 10 for why.
-
-```yaml
-on:
-  workflow_call:
-    inputs:
-      path:
-        required: false
-        type: string
-        default: "."
-      python-version:
-        required: false
-        type: string
-        default: ""
-      run-tests:
-        required: false
-        type: boolean
-        default: true
-      release-events:
-        required: false
-        type: string
-        default: non-pull-request
-    outputs:
-      hashes:
-        value: ${{ jobs.build.outputs.hashes }}
-      version:
-        value: ${{ jobs.build.outputs.version }}
-      dist-artifact-name:
-        value: ${{ jobs.build.outputs.dist-artifact-name }}
-      provenance-artifact-name:
-        value: ${{ jobs.attest.outputs.bundle-artifact-name }}
-
-jobs:
-  build:
-    runs-on: ubuntu-latest
-    permissions:
-      contents: read    # minimal — no OIDC, no publish
-    outputs:
-      hashes: ${{ steps.build.outputs.hashes }}
-      version: ${{ steps.build.outputs.version }}
-      shortname: ${{ steps.build.outputs.shortname }}
-      dist-artifact-name: ${{ steps.names.outputs.dist }}
-    steps:
-      - uses: actions/checkout@<sha>
-      # TODO: replace with $/ when GitHub ships $/ syntax (#136)
-      - uses: TomHennen/wrangle/build/actions/python@<sha>
-        id: build
-        with:
-          path: ${{ inputs.path }}
-          python-version: ${{ inputs.python-version }}
-          run-tests: ${{ inputs.run-tests }}
-      - id: names
-        env:
-          SHORTNAME: ${{ steps.build.outputs.shortname }}
-        run: |
-          printf 'dist=python-dist-%s\n' "$SHORTNAME" >> "$GITHUB_OUTPUT"
-          printf 'metadata=python-metadata-%s\n' "$SHORTNAME" >> "$GITHUB_OUTPUT"
-      - uses: actions/upload-artifact@<sha>
-        with:
-          name: ${{ steps.names.outputs.dist }}
-          path: ${{ inputs.path }}/dist/
-      - uses: actions/upload-artifact@<sha>
-        with:
-          name: ${{ steps.names.outputs.metadata }}
-          path: ${{ steps.build.outputs.metadata-dir }}/
-
-  gate:
-    runs-on: ubuntu-latest
-    outputs: { should-release: ${{ steps.gate.outputs.should-release }} }
-    steps:
-      - uses: actions/checkout@<sha>
-      - id: gate
-        env:
-          EVENTS_INPUT: ${{ inputs.release-events }}
-          EVENT_NAME: ${{ github.event_name }}
-          REF: ${{ github.ref }}
-        run: ./lib/release_gate.sh
-
-  attest:
-    if: ${{ needs.gate.outputs.should-release == 'true' }}
-    needs: [gate, build]
-    runs-on: ubuntu-latest
-    permissions:
-      id-token: write       # OIDC for Sigstore keyless signing
-      attestations: write   # write the attestation to GitHub's store
-      contents: read        # download-artifact reads the same-run dist
-    outputs:
-      bundle-artifact-name: python-provenance-bundle-${{ needs.build.outputs.shortname }}
-    steps:
-      - uses: actions/download-artifact@<sha>
-        with:
-          name: ${{ needs.build.outputs.dist-artifact-name }}
-          path: dist/
-      - uses: actions/attest-build-provenance@<sha>
-        id: attest
-        with:
-          subject-path: dist/*
-```
-
-The `verify` job (omitted above for brevity) verifies the provenance against the wrangle PolicySet and emits the signed SLSA VSA via `actions/verify`, attaching it to the release on tag pushes; it needs `id-token: write` and `contents: write`. The publish job lives in the adopter's calling workflow (see `gh_workflow_examples/build_python.yml`), which depends on this reusable workflow's `dist-artifact-name`, `provenance-artifact-name`, `hashes`, and `should-release` outputs.
+[`build_and_publish_python.yml`](../../../.github/workflows/build_and_publish_python.yml) heads with the shared `prep` job (`actions/prep`) — the trigger guard, the release-events gate exposing `should-release`, and the derived artifact names — and every other job runs `needs: [prep]`. `build` builds, tests, scans, and uploads the `dist/` and metadata artifacts; `attest` generates SLSA provenance from `actions/attest-build-provenance` (`subject-path: dist/*`) run as a step *inside* the reusable workflow, not from a nested generator; `verify` verifies that provenance and emits the signed SLSA VSA. `attest` and `verify` are gated on `needs.prep.outputs.should-release == 'true'`, so gated-out runs build, test, and scan only. Inputs and outputs live in the workflow file; the outputs an adopter consumes are listed under "Outputs" above. Publishing lives in the adopter's calling workflow (see [`gh_workflow_examples/build_python.yml`](../../../gh_workflow_examples/build_python.yml)) — step 10 explains why — and depends on this workflow's `dist-artifact-name`, `provenance-artifact-name`, `hashes`, and `should-release` outputs.
 
 ## Security model
 

@@ -49,7 +49,7 @@ The stale `cyclonedx-gomod` reference in [`docs/docker_best_practices.md`](../..
 - **Same shape as python, npm, and container.** The composite owns build/test/SBOM/lint and emits `dist/`; the `attest:` job (a separate job inside wrangle's reusable workflow) calls `actions/attest-build-provenance` over the dist; the `verify:` job then verifies that provenance (ampel against the wrangle PolicySet, fail-closed) and emits the signed VSA. Consistency keeps the per-build-type cognitive load low.
 - **Preserves the test/SBOM/lint seam.** Wrangle's value-add steps slot between "build" and "provenance" the same way they do for python — the build action emits `dist/`, runs syft against it, runs gating, and then hands off. There's nowhere new to learn.
 - **Same L3 isolation as the ecosystem-specific Go builder.** L3 comes from the provenance being produced by an isolated, trusted builder; wrangle's reusable workflow *is* that builder, and the `attest:` step runs inside it, so its `job_workflow_ref` is both the Sigstore cert SAN and the provenance `builder.id`. Per the L3 audit, switching to `builder_go_slsa3.yml` would not close any conformance gap this approach leaves open.
-- **`lib/release_gate.sh` works either way.** Wrangle gates the `attest:` job with `if: ${{ needs.gate.outputs.should-release == 'true' }}`. That predicate-on-the-job pattern is build-type-agnostic.
+- **`actions/prep/release_gate.sh` works either way.** Wrangle gates the `attest:` job with `if: ${{ needs.prep.outputs.should-release == 'true' }}`. That predicate-on-the-job pattern is build-type-agnostic.
 
 #### Cosign `sign-blob` on top of SLSA — not picked
 
@@ -150,7 +150,7 @@ Across both binary releases and the validation-only sub-shape, wrangle adds the 
 - **Test gating** — tests must pass before SLSA provenance is generated (binary mode) or before the workflow declares success (validate-only mode).
 - **Vulnscan** via the existing source-scan infrastructure (OSV-Scanner against `go.sum`).
 - **Lint** via `gofmt` + `golangci-lint`.
-- **Release-events gating** — the `release_gate` job decides whether to run the `attest`/`verify` jobs at all (binary mode); the same predicate vocabulary as python.
+- **Release-events gating** — the `prep` job's release gate decides whether to run the `attest`/`verify` jobs at all (binary mode); the same predicate vocabulary as python.
 - **Checksum-pinned handoff** to `actions/attest-build-provenance` (binary mode) — the attest step reads `dist/checksums.txt` directly, no string interpolation across job boundaries, no surface for a hash-substitution attack.
 - **Consistent metadata layout, step summary, and artifact upload naming** — same shape as every other build type.
 - **One-line adoption** — a single `uses:` line replaces a multi-step workflow.
@@ -169,7 +169,7 @@ The build artifact differs across the two modes (release binaries vs. nothing), 
 
 Practical notes for whoever picks up the implementation PR.
 
-- **Match python's reusable-workflow shape.** `build_and_publish_go.yml` mirrors `build_and_publish_python.yml`: a `checks`/`release` build pair, a `gate` job (`lib/release_gate.sh`), an `attest` job (`actions/attest-build-provenance`, gated on `should-release`), and a `verify` job (`actions/verify` verifying the provenance against the wrangle PolicySet and emitting the signed VSA, gated on `should-release`). Outputs follow the unified naming: `metadata-artifact-name`, `dist-artifact-name`, `provenance-artifact-name`, `should-release`.
+- **Match python's reusable-workflow shape.** `build_and_publish_go.yml` mirrors `build_and_publish_python.yml`: a `prep` job (`actions/prep/release_gate.sh`) heading the pipeline, a `checks`/`release` build pair, an `attest` job (`actions/attest-build-provenance`, gated on `should-release`), and a `verify` job (`actions/verify` verifying the provenance against the wrangle PolicySet and emitting the signed VSA, gated on `should-release`). Outputs follow the unified naming: `metadata-artifact-name`, `dist-artifact-name`, `provenance-artifact-name`, `should-release`.
 - **Goreleaser invocation.** Use `goreleaser/goreleaser-action` SHA-pinned, with `args: release --clean`. Set `-trimpath` and `-buildvcs=false` defaults via `.goreleaser.yml` template the action ships, or document them as a hard requirement on the adopter's config.
 - **Subjects.** Pass `subject-checksums: dist/checksums.txt` to `actions/attest-build-provenance` — not a `dist/*` glob: goreleaser writes non-artifact bookkeeping (`artifacts.json`, `config.yaml`, `metadata.json`) and per-target build subdirs into `dist/` that are not released artifacts. The checksums file is the canonical released-artifact set, and the same set the VSA binds to.
 - **`::stop-commands::` guard around build/test invocations.** The ecosystem-specific Go builder wraps the compile step in a `::stop-commands::` directive so workflow-command injection via build-tool stdout is neutralized. Wrangle adopted this for its existing build types in #230 via the shared `lib/stop_commands_guard.sh` helper; the Go build action MUST use the same helper around `goreleaser` and `go test` invocations. See npm's `build/actions/npm/build_and_pack.sh` and python's `build/actions/python/run_tests.sh` for the invocation pattern.
