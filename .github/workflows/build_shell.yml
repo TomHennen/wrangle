@@ -67,7 +67,7 @@ jobs:
     permissions: {}    # reads env only — no workspace, no API, no secrets
     steps:
       # TODO: replace with $/actions/preflight_guard when GitHub ships $/ syntax (#136)
-      - uses: TomHennen/wrangle/actions/preflight_guard@e2c02faae2a71abf78a65cb7df5fae4bb00f7597 # main 2026-06-20
+      - uses: TomHennen/wrangle/actions/preflight_guard@d6e78fa6b948ef8fad7d68bc9690ef987683d07f # rationalize-release-assets-489 2026-06-20
 
   # Source scan. A load-bearing (:fail) finding fails the run alongside
   # the shell build/test (there is no artifact to gate publishing of).
@@ -88,7 +88,7 @@ jobs:
       # Bootstrap pin (docs/e2e_testing.md): scan must resolve the branch
       # version so its dependency-review wrapper honors the repo's native
       # config file. Bump to main post-merge via tools/bump_action_pins.sh.
-      - uses: TomHennen/wrangle/actions/scan@e2c02faae2a71abf78a65cb7df5fae4bb00f7597 # main 2026-06-20
+      - uses: TomHennen/wrangle/actions/scan@d6e78fa6b948ef8fad7d68bc9690ef987683d07f # rationalize-release-assets-489 2026-06-20
         if: ${{ inputs.scan-tools != '' }}
         with:
           tools: ${{ inputs.scan-tools }}
@@ -121,7 +121,7 @@ jobs:
         # setup-script input and multi-path bats — the main-pinned version
         # would ignore setup-script and fail the dogfooded integration bats.
         # Bump to main post-merge via tools/bump_action_pins.sh.
-        uses: TomHennen/wrangle/build/actions/shell@e2c02faae2a71abf78a65cb7df5fae4bb00f7597 # main 2026-06-20
+        uses: TomHennen/wrangle/build/actions/shell@d6e78fa6b948ef8fad7d68bc9690ef987683d07f # rationalize-release-assets-489 2026-06-20
         with:
           scan-path: ${{ inputs.scan-path }}
           bats-path: ${{ inputs.bats-path }}
