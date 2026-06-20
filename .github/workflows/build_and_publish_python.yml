@@ -75,6 +75,16 @@ on:
         required: false
         type: string
         default: ""
+      policy:
+        description: |
+          wrangle PolicySet the release is verified against (path under
+          policies/ or an ampel locator). Default wrangle-default-python-v1
+          requires provenance + SBOM + clean osv/zizmor/wrangle-lint scans;
+          adopters who drop any of those from scan-tools must pass a lighter
+          policy (e.g. policies/wrangle-provenance-python-v1.hjson).
+        required: false
+        type: string
+        default: policies/wrangle-default-python-v1.hjson
     outputs:
       hashes:
         description: "Base64-encoded SHA-256 hashes of built artifacts (for SLSA provenance)"
@@ -122,7 +132,7 @@ jobs:
       metadata-pre: ${{ steps.prep.outputs.metadata-pre }}
     steps:
       # TODO: replace with $/actions/prep when GitHub ships $/ syntax (#136)
-      - uses: TomHennen/wrangle/actions/prep@e514a8f6e8bb916e586ce56c1e891e0a83603448 # main 2026-06-20
+      - uses: TomHennen/wrangle/actions/prep@77c9a27406443b985d13315f663b23e535bafd25 # policy-capstone-497-impl 2026-06-20
         id: prep
         with:
           build-type: python
@@ -141,7 +151,7 @@ jobs:
       security-events: write
     steps:
       # TODO: replace with $/actions/scan when GitHub ships $/ syntax (#136)
-      - uses: TomHennen/wrangle/actions/scan@e514a8f6e8bb916e586ce56c1e891e0a83603448 # main 2026-06-20
+      - uses: TomHennen/wrangle/actions/scan@77c9a27406443b985d13315f663b23e535bafd25 # policy-capstone-497-impl 2026-06-20
         if: ${{ inputs.scan-tools != '' }}
         with:
           checkout: "true"
@@ -175,7 +185,7 @@ jobs:
           ref: ${{ inputs.ref || '' }}
 
       # TODO: replace with $/build/actions/python when GitHub ships $/ syntax (#136)
-      - uses: TomHennen/wrangle/build/actions/python@e514a8f6e8bb916e586ce56c1e891e0a83603448 # main 2026-06-20
+      - uses: TomHennen/wrangle/build/actions/python@77c9a27406443b985d13315f663b23e535bafd25 # policy-capstone-497-impl 2026-06-20
         id: build
         with:
           path: ${{ inputs.path }}
@@ -261,7 +271,7 @@ jobs:
       bundle-artifact-name: ${{ steps.attest.outputs.bundle-artifact-name }}
     steps:
       # TODO: replace with $/actions/attest_provenance when GitHub ships $/ syntax (#136)
-      - uses: TomHennen/wrangle/actions/attest_provenance@e514a8f6e8bb916e586ce56c1e891e0a83603448 # main 2026-06-20
+      - uses: TomHennen/wrangle/actions/attest_provenance@77c9a27406443b985d13315f663b23e535bafd25 # policy-capstone-497-impl 2026-06-20
         id: attest
         with:
           build-type: python
@@ -287,12 +297,12 @@ jobs:
       attestation-bundle-name: ${{ needs.prep.outputs.metadata }}
     steps:
       # TODO: replace with $/actions/verify_release when GitHub ships $/ syntax (#136)
-      - uses: TomHennen/wrangle/actions/verify_release@e514a8f6e8bb916e586ce56c1e891e0a83603448 # main 2026-06-20
+      - uses: TomHennen/wrangle/actions/verify_release@77c9a27406443b985d13315f663b23e535bafd25 # policy-capstone-497-impl 2026-06-20
         with:
           build-type: python
           shortname: ${{ needs.prep.outputs.shortname }}
           dist-files: ${{ needs.build.outputs.dist-files }}
-          policy: policies/wrangle-provenance-python-v1.hjson
+          policy: ${{ inputs.policy }}
           collector: jsonl:provenance/provenance.jsonl
           # resourceUri names the package the VSAs cover (pkg:pypi, PEP
           # 503-normalized); the consumer/gate check pins it. Each subject

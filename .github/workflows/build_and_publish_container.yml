@@ -75,6 +75,16 @@ on:
         required: false
         type: string
         default: ""
+      policy:
+        description: |
+          wrangle PolicySet the release is verified against (path under
+          policies/ or an ampel locator). Default wrangle-default-container-v1
+          requires provenance + SBOM + clean osv/zizmor/wrangle-lint scans;
+          adopters who drop any of those from scan-tools must pass a lighter
+          policy (e.g. policies/wrangle-provenance-container-v1.hjson).
+        required: false
+        type: string
+        default: policies/wrangle-default-container-v1.hjson
     secrets:
       gh_token:
         description: "GitHub token with write access"
@@ -110,7 +120,7 @@ jobs:
       scan: ${{ steps.prep.outputs.scan }}
     steps:
       # TODO: replace with $/actions/prep when GitHub ships $/ syntax (#136)
-      - uses: TomHennen/wrangle/actions/prep@e514a8f6e8bb916e586ce56c1e891e0a83603448 # main 2026-06-20
+      - uses: TomHennen/wrangle/actions/prep@77c9a27406443b985d13315f663b23e535bafd25 # policy-capstone-497-impl 2026-06-20
         id: prep
         with:
           build-type: container
@@ -129,7 +139,7 @@ jobs:
       security-events: write
     steps:
       # TODO: replace with $/actions/scan when GitHub ships $/ syntax (#136)
-      - uses: TomHennen/wrangle/actions/scan@e514a8f6e8bb916e586ce56c1e891e0a83603448 # main 2026-06-20
+      - uses: TomHennen/wrangle/actions/scan@77c9a27406443b985d13315f663b23e535bafd25 # policy-capstone-497-impl 2026-06-20
         if: ${{ inputs.scan-tools != '' }}
         with:
           checkout: "true"
@@ -157,7 +167,7 @@ jobs:
     # TODO: replace with $/build/actions/container when GitHub ships $/ syntax (#136)
     - name: "build and publish"
       id: build
-      uses: TomHennen/wrangle/build/actions/container@e514a8f6e8bb916e586ce56c1e891e0a83603448 # main 2026-06-20
+      uses: TomHennen/wrangle/build/actions/container@77c9a27406443b985d13315f663b23e535bafd25 # policy-capstone-497-impl 2026-06-20
       with:
         path: ${{ inputs.path }}
         imagename: ${{ inputs.imagename }}
@@ -257,12 +267,12 @@ jobs:
 
       # oci-target seeds provenance from the registry referrer, skipping the dist/provenance downloads.
       # TODO: replace with $/actions/verify_release when GitHub ships $/ syntax (#136)
-      - uses: TomHennen/wrangle/actions/verify_release@e514a8f6e8bb916e586ce56c1e891e0a83603448 # main 2026-06-20
+      - uses: TomHennen/wrangle/actions/verify_release@77c9a27406443b985d13315f663b23e535bafd25 # policy-capstone-497-impl 2026-06-20
         with:
           build-type: container
           shortname: ${{ needs.prep.outputs.shortname }}
           subjects: ${{ needs.build.outputs.digest }}
-          policy: policies/wrangle-provenance-container-v1.hjson
+          policy: ${{ inputs.policy }}
           collector: oci:${{ needs.build.outputs.imagename }}@${{ needs.build.outputs.digest }}
           # resourceUri is the OCI image ref a container consumer fetches and
           # pins when verifying the VSA; the subject digest is the cryptographic bind.
