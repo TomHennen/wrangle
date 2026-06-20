@@ -11,10 +11,15 @@ RUN apt-get update -q && \
         make \
         gcc \
         libc6-dev \
+        parallel \
         python3 \
         python3-venv \
         zip \
     && rm -rf /var/lib/apt/lists/*
+
+# GNU parallel backs `bats --jobs`; its first-run citation notice is silenced
+# once per HOME so it never pollutes test output.
+RUN mkdir -p /root/.parallel && touch /root/.parallel/will-cite
 
 # python3 + python3-venv host the isolated, hash-pinned venvs that zizmor,
 # ast-grep, and wrangle-workflow-lint's PyYAML each install into (each tool

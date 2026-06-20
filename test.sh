@@ -45,10 +45,16 @@ docker build -t "$IMAGE_NAME" -f "$SCRIPT_DIR/test/Dockerfile" "$SCRIPT_DIR"
 # Map the script-level alias to the Makefile target list. Array form so
 # `quick` can pass multiple targets to one `make` invocation without
 # leaning on word-splitting (and the SC2086 disable that used to require).
+#
+# The full suites' layers are independent, so `-j` runs them concurrently and
+# `-Otarget` keeps each layer's output grouped (#530). Single-target runs skip
+# the flags: there's nothing to parallelize, and integration wants live output
+# rather than the buffering `-Otarget` imposes.
+MAKE_FLAGS=()
 case "$TEST_TARGET" in
-    ci)    MAKE_TARGETS=(all) ;;
-    quick) MAKE_TARGETS=(lint shellcheck shellstyle workflowstyle gotest bats) ;;
-    *)     MAKE_TARGETS=("$TEST_TARGET") ;;
+    ci|all|test) MAKE_TARGETS=(all); MAKE_FLAGS=(-Otarget -j) ;;
+    quick)       MAKE_TARGETS=(lint shellcheck shellstyle workflowstyle gotest bats); MAKE_FLAGS=(-Otarget -j) ;;
+    *)           MAKE_TARGETS=("$TEST_TARGET") ;;
 esac
 
 # The repo mount is read-only, so the integration installs need a writable
@@ -61,11 +67,21 @@ esac
 # container would re-download and re-build everything per run — slow, and
 # big enough to exhaust the container layer. setup_integration.sh creates
 # $GOTMPDIR (go refuses a nonexistent one).
-DOCKER_ENV=()
+#
+# Unit suites reuse the same volume for the gotest layer's build + module
+# caches — wrangle-attest's module graph is ~700MB to fetch and compile, so a
+# cold container pays ~30s every run (#530). GOPATH stays at the image default
+# so the go build-type's govulncheck install-cache in $GOPATH/bin is untouched.
+# This warms only repeat local runs; CI runners are ephemeral, so the volume is
+# empty there and gotest still builds cold — the test suite never consumes a
+# cross-build cache, keeping it off release builds' cache-isolation surface
+# (SPEC.md §"Cache isolation is part of the L3 claim").
+DOCKER_ENV=(-v wrangle-test-gocache:/godata)
 if [[ "$TEST_TARGET" == "integration" ]]; then
     DOCKER_ENV+=(-e WRANGLE_BIN_DIR=/tmp/wrangle/bin -e WRANGLE_METADATA_DIR=/tmp/wrangle/metadata)
-    DOCKER_ENV+=(-v wrangle-test-gocache:/godata)
     DOCKER_ENV+=(-e GOPATH=/godata/gopath -e GOCACHE=/godata/gocache -e GOTMPDIR=/godata/tmp)
+else
+    DOCKER_ENV+=(-e GOCACHE=/godata/gocache -e GOMODCACHE=/godata/gomodcache)
 fi
 
 # Run the requested test suite
@@ -76,4 +92,4 @@ docker run --rm \
     -w /wrangle \
     ${DOCKER_ENV[@]+"${DOCKER_ENV[@]}"} \
     "$IMAGE_NAME" \
-    make "${MAKE_TARGETS[@]}"
+    make ${MAKE_FLAGS[@]+"${MAKE_FLAGS[@]}"} "${MAKE_TARGETS[@]}"
