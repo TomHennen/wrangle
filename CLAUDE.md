@@ -41,9 +41,7 @@ The per-build-type READMEs, `docs/verifying_artifacts.md`, the top-level `README
 
 ## Shell scripts
 
-Every script starts with the exact preamble `set -euo pipefail` then `set -f` — supersets (`set -Eeuo pipefail`) and decompositions (`set -e -u -o pipefail`) are rejected. Add `set -E` on its own line after if you need ERR trap inheritance. Scripts needing globbing wrap it in a narrowly-scoped `set +f` / `set -f` with a comment; sourced libs restore `set -f` before returning. Double-quote every expansion, use `$(…)` not backticks, `[[ ]]` not `[ ]`, and `printf` not `echo` for output that may contain user data. A `# shellcheck disable` needs a justifying comment.
-
-Mechanically enforced by `tools/wrangle-shell-lint/` (WSL001–007; `curl | sh` is WSL006, `set +f` outside a subshell is WSL007).
+Every script starts with the exact preamble `set -euo pipefail` then `set -f` (disable globbing) — one canonical form, so supersets (`set -Eeuo pipefail`) and decompositions (`set -e -u -o pipefail`) are rejected; add `set -E` on its own line after if you need ERR trap inheritance. Scripts needing globbing wrap it in a narrowly-scoped `set +f` / `set -f` with a comment, and sourced libs restore `set -f` before returning. Everything else (quoting, `$(…)` over backticks, `[[ ]]`, `printf` for user data) is `tools/wrangle-shell-lint/` territory — WSL001–007, where `curl | sh` is WSL006 and `set +f` outside a subshell is WSL007.
 
 ## GitHub Actions
 
@@ -51,7 +49,7 @@ Mechanically enforced by `tools/wrangle-shell-lint/` (WSL001–007; `curl | sh` 
 - **No expression injection.** NEVER interpolate `${{ inputs.* }}`, `${{ github.event.* }}`, or any attacker-controllable expression directly in a `run:` block — always thread through `env:` first.
 - **No copy-paste across workflows.** A `run:` block or step sequence appearing in more than two workflow files → extract to a composite or shared script.
 
-## Pointers to DEP_MGMT.md and SPEC.md
+## Dependencies & pinning
 
 - **Action reference pinning** — required pin format per context, the `@main` prohibition, and self-reference bumping: [DEP_MGMT.md](DEP_MGMT.md).
 - **Installing and verifying tools** — install-method decision tree, integrity-tier ladder, and freshness-first rule: [DEP_MGMT.md](DEP_MGMT.md). Install-script mechanics (`lib/download_verify.sh`, `$WRANGLE_BIN_DIR`, idempotency, atomic `mv`) are the Install Script Interface contract in SPEC.md.
@@ -61,19 +59,17 @@ Mechanically enforced by `tools/wrangle-shell-lint/` (WSL001–007; `curl | sh` 
 
 Adapters take `<src_dir>` (read-only) and `<output_dir>` (writable), write `output.sarif` (SARIF 2.1.0), exit 0 (no findings) / 1 (findings) / 2 (tool error). Do not write outside `output_dir` or access secrets (env is stripped by the orchestrator). `jq` exit codes are checked — malformed SARIF MUST cause exit 2, not silent success.
 
-## Per-tool directory layout
+## Layout & path resolution
 
 Tools live in `tools/<name>/`. Three patterns: **adapter** (`adapter.sh` + `test.bats`, binary from a tools/go.mod `tool` directive or a bespoke `install.sh` for tools no package manager ships; wired into `actions/scan/action.yml`); **action** (`action.yml` + `test.bats`) for tools with official GitHub Actions; **developer tooling** (whatever it needs + `test.bats`) for things used only during development, not by adopters (e.g. `bump_action_pins`, `wrangle-shell-lint`).
 
 An action's own helper scripts live in its `actions/<name>/` directory beside `action.yml`, **with their bats next to them** (`actions/<name>/*.bats`). `lib/` is only for helpers shared across multiple actions/tools (`env.sh`, `sanitize.sh`, `download_verify.sh`); `test/` holds shared-lib and cross-cutting tests.
 
-## Path resolution
-
-Scripts resolve paths relative to their own location via `SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"`, never relative to `$PWD`. The scan action at `actions/scan/` must remain at that depth — moving it breaks all adopters.
+Scripts resolve paths relative to their own location via `SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"`, never `$PWD`. The scan action at `actions/scan/` must remain at that depth — moving it breaks all adopters.
 
 ## Testing
 
-Run `make test` before pushing — it's the exact suite CI runs. With the host toolchain installed (the pinned set in `test/Dockerfile`: shellcheck, bats, ast-grep, actionlint, PyYAML, Go, zizmor), run it directly, or a single layer (`make bats`, `make shellcheck`). Otherwise use `./test.sh`, which runs the same suite in the pinned container; `./test.sh quick` skips zizmor for inner-loop iteration. The test-layer breakdown is in SPEC.md §Testing Strategy. Beyond that:
+Run `make test` before pushing — it's the exact suite CI runs. With the host toolchain installed (the pinned set in `test/Dockerfile`), run it directly, or a single layer (`make bats`, `make shellcheck`). Otherwise use `./test.sh`, which runs the same suite in the pinned container; `./test.sh quick` skips zizmor for inner-loop iteration. The test-layer breakdown is in SPEC.md §Testing Strategy. Beyond that:
 
 - **Prefer real tools/binaries over shims/mocks.** A shim is acceptable only with a one-line comment saying why a real tool can't be used.
 - **Unit vs. integration is decided by the *dependency*, not the container.** A test needing a real binary or network is an integration test (dedicated CI job, also runs locally when prereqs are present), kept out of the unit suite so that suite stays deterministic. A bats test lives next to the script it covers.
@@ -93,17 +89,11 @@ Wrangle uses its own workflows. If a wrangle feature does not work on the wrangl
 
 A PR that changes a composite action (or a file it reads, like a `policies/*.hjson` PolicySet) and wires it into a reusable workflow needs a **bootstrap pin**: the nested `uses: TomHennen/wrangle/actions/<name>@<sha>` self-reference is fetched from its pinned (main) SHA, not the PR head, so the integration test otherwise runs the old action. The pin → merge → bump lifecycle and the `check_pin_ancestry` control are in [docs/e2e_testing.md](docs/e2e_testing.md).
 
-## Permissions
+## Security
 
-Workflows request minimum required permissions — never blanket `permissions: write-all`. The standard set for source scanning is `actions: read`, `contents: read`, `security-events: write`. Add more only as needed, with a comment explaining why.
-
-## Input validation
-
-The orchestrator validates tool names against `^[a-z][a-z0-9_-]*$`. Any new input that flows into a shell command or file path MUST be validated against a strict allowlist or regex before use.
-
-## Secrets
-
-Adapters do NOT receive secrets (env stripped by the orchestrator); a tool needing an authenticated API uses the `WRANGLE_EXTRA_` prefix mechanism (see SPEC.md). Never log secrets; use `GITHUB_TOKEN` only where strictly necessary. The integration-test companion repo (see `test/integration/SPEC.md`) MUST NOT hold release signing keys, Cosign credentials, cross-repo tokens, GitHub App credentials, or SSH keys.
+- **Least privilege.** Workflows request minimum permissions — never blanket `permissions: write-all`; the standard set for source scanning is `actions: read`, `contents: read`, `security-events: write`. Add more only as needed, with a comment explaining why.
+- **Validate every new input.** The orchestrator checks tool names against `^[a-z][a-z0-9_-]*$`; any new input flowing into a shell command or file path MUST be checked against a strict allowlist or regex before use.
+- **Secrets.** Adapters do NOT receive secrets (env stripped by the orchestrator); a tool needing an authenticated API uses the `WRANGLE_EXTRA_` prefix (see SPEC.md). Never log secrets; use `GITHUB_TOKEN` only where strictly necessary. The integration-test companion repo (`test/integration/SPEC.md`) MUST NOT hold release signing keys, Cosign credentials, cross-repo tokens, GitHub App credentials, or SSH keys.
 
 ## Contributing process
 
