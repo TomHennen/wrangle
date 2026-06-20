@@ -76,6 +76,15 @@ scan-tools: "osv zizmor scorecard:info wrangle-lint"
 
 `osv`, `zizmor`, and `wrangle-lint` stay blocking on real findings.
 
+## An OSV finding I can't fix yet is blocking the release — what do I do?
+
+The default policy gates on a clean OSV scan, so an unfixed advisory blocks the
+release. To waive one you can't fix yet, suppress it in
+[`osv-scanner.toml`](https://google.github.io/osv-scanner/configuration/) with a
+`reason` — osv-scanner applies that config natively, so the advisory is excluded
+from the scan result. Keep the reason honest and drop the suppression once a fix
+ships.
+
 ## Why these tools and not others?
 
 They seemed good for the job. wrangle isn't a ranking of every scanner or
