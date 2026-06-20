@@ -17,7 +17,7 @@ Scorecard's value is the aggregate **score**, which appears only in `--format=js
 
 ## Why informational-only
 
-Scorecard assesses repo-level security posture (branch protection, dependency update practices, etc.), not per-change vulnerabilities. A low score is a maintenance signal, not a reason to block a PR. Adopters can override this by using `scorecard:fail` in the tools input; score-threshold gating itself is the tenet-activation work (#497).
+Scorecard assesses repo-level security posture (branch protection, dependency update practices, etc.), not per-change vulnerabilities. A low score is a maintenance signal, not a reason to block a PR. `scorecard:fail` has no blocking effect today — with no SARIF there are no findings to gate on, so the run only logs a warning; score-threshold gating is the tenet-activation work (#497).
 
 ## Docker mount constraint
 
