@@ -28,18 +28,18 @@ you trust one signature instead of re-running the policy engine.
 
 | Build type | VSA location | `resourceUri` to expect | Signing workflow |
 |---|---|---|---|
-| Go | GitHub release, flat `<artifact>` + `<artifact>.intoto.jsonl` (+ `<type>-metadata-<sn>.zip`) | `pkg:golang/<module-path>@<version>` (the `module` directive in `go.mod`) | `build_and_publish_go.yml` |
-| Python | GitHub release, flat `<artifact>` + `<artifact>.intoto.jsonl` (+ `<type>-metadata-<sn>.zip`) | `pkg:pypi/<name>@<version>` (name [PEP 503-normalized](https://peps.python.org/pep-0503/#normalized-names)) | `build_and_publish_python.yml` |
-| npm | GitHub release, flat `<artifact>` + `<artifact>.intoto.jsonl` (+ `<type>-metadata-<sn>.zip`) | `pkg:npm/<name>@<version>` (scoped names verbatim, e.g. `pkg:npm/@scope/pkg@1.2.3`) | `build_and_publish_npm.yml` |
+| Go | GitHub release, `<artifact>.intoto.jsonl` | `pkg:golang/<module-path>@<version>` (the `module` directive in `go.mod`) | `build_and_publish_go.yml` |
+| Python | GitHub release, `<artifact>.intoto.jsonl` | `pkg:pypi/<name>@<version>` (name [PEP 503-normalized](https://peps.python.org/pep-0503/#normalized-names)) | `build_and_publish_python.yml` |
+| npm | GitHub release, `<artifact>.intoto.jsonl` | `pkg:npm/<name>@<version>` (scoped names verbatim, e.g. `pkg:npm/@scope/pkg@1.2.3`) | `build_and_publish_npm.yml` |
 | Container | VSA as its own OCI referrer on the image digest; combined `<artifact>.intoto.jsonl` (workflow artifact) | `<imagename>@sha256:<digest>` | `build_and_publish_container.yml` |
 
 ## What's on the GitHub release
 
-For Go, Python, and npm, a tag push attaches a flat verify-pair per artifact —
+For Go, Python, and npm, a tag push attaches a verify-pair per artifact —
 the dist `<artifact>` and its `<artifact>.intoto.jsonl` bundle — so a consumer
 downloads both by name and verifies. The build's SBOM and scan results ride in
 a single `<type>-metadata-<sn>.zip` (the same [unified metadata
-layout](metadata_layout.md)), not as separate flat assets. (Go's dist archives
+layout](metadata_layout.md)), not as separate assets. (Go's dist archives
 and `checksums.txt` are attached by goreleaser; wrangle adds the bundle + zip.)
 Container builds publish no release — the VSA is an OCI referrer on the image
 digest (see below). Adopters can suppress the attach with the verify action's
