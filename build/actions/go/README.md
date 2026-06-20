@@ -44,7 +44,7 @@ Push a `v`-prefixed semver tag (e.g. `v1.2.3`) and wrangle runs the full pipelin
 - **Checks before bytes ship** — gofmt, `go vet`, `go test`, govulncheck run in a read-only job; a failure blocks the release job.
 - **An SPDX SBOM, scan findings (incl. govulncheck), and the signed bundle** in one `go-metadata-<sn>` workflow artifact ([what's in it](../../../docs/metadata_layout.md)).
 - **SLSA Build L3 provenance** tying each artifact to the workflow that built it ([the requirements it meets](../../../docs/REQUIREMENTS_MAPPING.md)).
-- **A signed VSA** attached to the release, so downstream users can verify your artifacts with one command.
+- **Release assets on tag pushes** — goreleaser attaches the dist archives + `checksums.txt`; wrangle adds each `<archive>.intoto.jsonl` bundle (signed VSA + provenance) and a `go-metadata-<sn>.zip` with the SBOM + scan results. Downstream users verify with one command.
 
 ## Good to know
 

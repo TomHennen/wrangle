@@ -41,7 +41,7 @@ These steps set up [npm Trusted Publishing](https://docs.npmjs.com/trusted-publi
 - **Source scan** built in — vulnerable dependencies (OSV), unsafe workflow patterns (Zizmor), and more ([details](../../../actions/scan/README.md)); a load-bearing finding blocks publish.
 - **An SPDX SBOM, scan findings, and the signed bundle** in one `npm-metadata-<sn>` workflow artifact ([what's in it](../../../docs/metadata_layout.md)).
 - **SLSA Build L3 provenance** ([the requirements it meets](../../../docs/REQUIREMENTS_MAPPING.md)), in addition to the L2 attestation `npm publish --provenance` writes to the registry.
-- **A signed VSA** attached to the release on tag pushes, so downstream users can verify the tarball with one command.
+- **Release assets on tag pushes** — the tarball and its `<tarball>.intoto.jsonl` bundle (signed VSA + provenance) as a flat verify-pair, plus an `npm-metadata-<sn>.zip` with the SBOM + scan results. Downstream users verify with one command.
 
 ## Your publish job
 
