@@ -118,7 +118,7 @@
                     code: "size(outputs.scans) > 0 && outputs.scans.all(p, p.data.result == 'clean')"
                     assessment: { message: "OSV scan is clean" }
                     error: {
-                        message: "OSV scan reported findings or no OSV scan attestation was found"
+                        message: "OSV scan reported findings or no OSV scan attestation was found. To release despite an advisory you cannot fix yet, suppress it in osv-scanner.toml with a reason."
                         guidance: "Resolve the OSV findings, or run osv in scan-tools so a clean scan/v1 attestation is produced"
                     }
                 }
