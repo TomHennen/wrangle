@@ -66,13 +66,10 @@ wrangle_subject_arg() {
     printf -- '--subject-hash=sha256:%s\n' "${digest%% *}"
 }
 
-# Build the ampel verify arg vector for one subject, one arg per line for
-# mapfile. $1 is the subject; $2 the unsigned-VSA output path; $3 (optional) a
-# JSONL of engine-signed build-metadata statements (SBOM + scan/v1) added as a
-# second jsonl: collector so the policy verdict — and the emitted VSA — cover the
-# SBOM and scan tenets, not only the provenance the first collector seeds. It
-# must be a collector, not --attestation: --attestation parses a single
-# statement, but the metadata JSONL holds one line per signed statement.
+# Build the ampel verify arg vector (one arg per line for mapfile). $1 = subject;
+# $2 = unsigned-VSA output; $3 (optional) = signed-metadata JSONL, added as a second
+# jsonl: collector so the verdict (and VSA) cover the SBOM/scan tenets. Must be a
+# collector, not --attestation (which parses only one statement; metadata is multi-line).
 wrangle_ampel_verify_args() {
     local subject="$1" results_path="$2" metadata="${3:-}"
     # Capture (not process-substitute) so a subject-hashing failure aborts.
@@ -218,13 +215,9 @@ wrangle_push_bundle() {
     wrangle_retry_once /dev/null cosign "${args[@]}"
 }
 
-# Build the wrangle-attest arg vector that turns the build metadata into signed
-# in-toto statements (one signed Sigstore-bundle JSONL line per statement), one
-# arg per line for mapfile. $1 is the pre-formed subject arg (--subject=<digest>
-# or --artifact=<file>); $2 the JSONL output path. METADATA_ROOT holds the
-# build's wrangle_attestation_metadata.json files (the SBOM's, the scan tools'
-# scan/v1); COMMIT is the scanned git commit woven into the scan/v1 envelope
-# only, ignored by the SBOM passthrough.
+# Build the wrangle-attest arg vector (one arg per line for mapfile) that signs the
+# build metadata into in-toto statements. $1 = subject arg (--subject=<digest> or
+# --artifact=<file>); $2 = output JSONL path.
 wrangle_attest_args() {
     printf '%s\n' \
         --metadata-root="$METADATA_ROOT" \
@@ -234,17 +227,9 @@ wrangle_attest_args() {
         --out="$2"
 }
 
-# For one subject, build and sign the SBOM (and any other build-metadata)
-# statement(s) via the engine into the JSONL at $2 (one signed Sigstore bundle
-# per line). No-op leaving $2 empty when METADATA_ROOT is unset/empty (a build
-# that produced no metadata). $1 is the subject. A digest subject (container)
-# passes through as --subject; a file subject is handed to the engine via
-# --artifact, which self-digests it to the same sha256 the VSA binds to. The
-# engine signs in the same trusted process as the VSA and fails closed on a
-# malformed manifest, an unreadable artifact, or a signing failure, so an absent
-# statement is a real gap, not a silent skip. Signed here — before ampel — so
-# the policy evaluates against the SBOM/scan statements (fed as a second
-# collector), not only the provenance the first collector seeds.
+# Sign subject $1's build-metadata statements (SBOM + scan/v1) into the JSONL at $2,
+# one signed bundle per line; leaves $2 empty when there's no metadata. Signed
+# before ampel so the policy can evaluate them via a second collector. Fails closed.
 wrangle_sign_metadata_statements() {
     [[ -z "${METADATA_ROOT:-}" || ! -d "${METADATA_ROOT:-}" ]] && return 0
     local subject="$1" stmts="$2" subject_arg
