@@ -173,6 +173,7 @@ runs:
         BUNDLE_OUT: ${{ inputs.bundle-out }}
         BUILD_TYPE: ${{ inputs.build-type }}
         DIST_DIR: ${{ inputs.dist-dir }}
+        METADATA_ROOT: ${{ inputs.metadata-dir }}
         METADATA_ZIP_NAME: ${{ inputs.artifact-name }}.zip
         GH_TOKEN: ${{ github.token }}
       run: |

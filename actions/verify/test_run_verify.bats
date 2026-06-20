@@ -811,13 +811,16 @@ SHIM
     export GITHUB_REF_NAME="v1.2.3"
 }
 
-# Stage the metadata dir (bundles) + a dist dir whose <artifact> files match
-# each bundle's <artifact>.intoto.jsonl name, plus the env the attach reads.
+# Stage the metadata dir (bundles + sbom) + a dist dir whose <artifact> files
+# match each bundle's <artifact>.intoto.jsonl name, plus the env the attach
+# reads. Production wires bundle-out and metadata-dir to the same dir, so the
+# sbom (and the metadata zip's other contents) live under METADATA_ROOT.
 _stage_release_assets() {
+    export METADATA_ROOT="$BUNDLE_OUT"
     mkdir -p "$BUNDLE_OUT" "$TEST_DIR/dist"
     : > "$BUNDLE_OUT/a.tgz.intoto.jsonl"
     : > "$BUNDLE_OUT/b.whl.intoto.jsonl"
-    : > "$BUNDLE_OUT/sbom.spdx.json"
+    : > "$METADATA_ROOT/sbom.spdx.json"
     : > "$TEST_DIR/dist/a.tgz"
     : > "$TEST_DIR/dist/b.whl"
     export DIST_DIR="$TEST_DIR/dist"
@@ -886,6 +889,42 @@ _require_zip() {
     run zip -sf "$GH_KEEP_ZIP"
     [[ "$output" == *"a.tgz.intoto.jsonl"* ]]
     [[ "$output" == *"sbom.spdx.json"* ]]
+}
+
+# The metadata zip is sourced from METADATA_ROOT, not BUNDLE_OUT: a sbom that
+# lives only under METADATA_ROOT must still land in the zip.
+@test "run_verify attach: the metadata zip is taken from METADATA_ROOT, not BUNDLE_OUT" {
+    _require_zip
+    _install_gh_shim
+    _stage_release_assets
+    export METADATA_ROOT="$TEST_DIR/meta"
+    mkdir -p "$METADATA_ROOT"
+    : > "$METADATA_ROOT/sbom.spdx.json"
+    mkdir -p "$METADATA_ROOT/scan/osv"
+    : > "$METADATA_ROOT/scan/osv/output.sarif"
+    rm -f "$BUNDLE_OUT/sbom.spdx.json"
+    export BUILD_TYPE="python"
+    export GH_VIEW_SEQ="0"
+    export GH_KEEP_ZIP="$TEST_DIR/kept.zip"
+    run "$SCRIPT" attach
+    [[ "$status" -eq 0 ]]
+    run zip -sf "$GH_KEEP_ZIP"
+    [[ "$output" == *"sbom.spdx.json"* ]]
+    [[ "$output" == *"scan/osv/output.sarif"* ]]
+}
+
+# Two subjects resolving to the same bundle basename would clobber/cross-wire on
+# upload (assets attach by basename) — fail closed before any upload.
+@test "run_verify attach: duplicate bundle basename fails closed" {
+    _install_gh_shim
+    _stage_release_assets
+    mkdir -p "$BUNDLE_OUT/sub"
+    : > "$BUNDLE_OUT/sub/a.tgz.intoto.jsonl"   # same basename as $BUNDLE_OUT/a.tgz.intoto.jsonl
+    export BUILD_TYPE="python"
+    export GH_VIEW_SEQ="0"
+    run "$SCRIPT" attach
+    [[ "$status" -ne 0 ]]
+    [[ "$output" == *"duplicate release-asset basename"* ]]
 }
 
 @test "run_verify attach: missing release skips create and upload, exits 0" {

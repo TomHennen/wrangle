@@ -9,7 +9,8 @@
 #          OCI_TARGET set it is additionally pushed as its own OCI referrer.
 #   attach upload the rationalized asset set (per-subject dist + bundle, and one
 #          <type>-metadata-<sn>.zip) to the GitHub release for the current tag,
-#          if one exists. Inputs: BUILD_TYPE, DIST_DIR, METADATA_ZIP_NAME.
+#          if one exists. Inputs: BUNDLE_OUT, BUILD_TYPE, DIST_DIR,
+#          METADATA_ROOT (zipped into the metadata asset), METADATA_ZIP_NAME.
 #
 # Arg-builder functions are pure so unit tests can assert the CLI shape offline.
 # Inputs arrive as env vars: SUBJECTS (newline-separated), POLICY, COLLECTOR,
@@ -344,6 +345,15 @@ wrangle_attach_release() {
         printf 'wrangle: failed to enumerate bundles under %s\n' "$BUNDLE_OUT" >&2
         return 1
     fi
+    # Fail closed before any upload if two bundles share a basename: assets attach
+    # by basename, so a collision would clobber or cross-wire a release asset.
+    local dup
+    dup="$(tr '\0' '\n' < "$listing" | sed 's#.*/##' | sort | uniq -d | head -n1)"
+    if [[ -n "$dup" ]]; then
+        rm -f "$listing"
+        printf 'wrangle: duplicate release-asset basename %s — refusing to clobber\n' "$dup" >&2
+        return 1
+    fi
     while IFS= read -r -d '' bundle; do
         gh release upload "$ref" "$bundle" --clobber
         # Attach the dist sibling alongside its bundle (skip go — goreleaser owns it).
@@ -369,7 +379,7 @@ wrangle_attach_metadata_zip() {
     local ref="$1" zip
     zip="${RUNNER_TEMP:-/tmp}/$METADATA_ZIP_NAME"
     rm -f "$zip"
-    ( cd "$BUNDLE_OUT" && zip -r -q "$zip" . )
+    ( cd "$METADATA_ROOT" && zip -r -q "$zip" . )
     gh release upload "$ref" "$zip" --clobber
     rm -f "$zip"
 }
