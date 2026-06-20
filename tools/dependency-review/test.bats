@@ -6,6 +6,19 @@
 # vulnerable_changes_to_sarif.sh converter and collect_outputs.sh
 # orchestration script, using fixture JSON.
 
+load "../../test/lib/bats_helpers"
+
+# Helper: write a SARIF fixture with $1 findings to $2.
+make_sarif() {
+    local count="$1" dst="$2" results="[]"
+    if [[ "$count" -gt 0 ]]; then
+        results="$(jq -n --argjson n "$count" '[range($n) | {"ruleId":"TEST-\(.)","message":{"text":"x"}}]')"
+    fi
+    jq -n --argjson r "$results" \
+        '{"version":"2.1.0","runs":[{"tool":{"driver":{"name":"dependency-review"}},"results":$r}]}' \
+        > "$dst"
+}
+
 setup() {
     ORIG_DIR="$(pwd)"
     export ORIG_DIR
@@ -109,10 +122,12 @@ teardown() {
 
 @test "dependency-review: action.yml delegates SARIF collection to a script, not inline shell" {
     # Per CLAUDE.md, run: blocks with logic must be extracted to scripts.
-    # The collection step's run: block should be a single script call.
+    # The collection step's run: block must be a single script call — scope the
+    # no-conditionals check to it.
     grep -q 'collect_outputs.sh' "$TOOL_DIR/action.yml"
-    # No conditionals/loops left inline in the action.
-    ! grep -Eq '^\s+(if|for|while) ' "$TOOL_DIR/action.yml"
+    run awk '/^    - name: Collect dependency review output/{flag=1;next} flag && /^    - name:/{flag=0} flag' "$TOOL_DIR/action.yml"
+    [ "$status" -eq 0 ]
+    ! printf '%s\n' "$output" | grep -Eq '^\s+(if|for|while) '
 }
 
 # --- Tool-error marker (issue #222) ---
@@ -129,14 +144,17 @@ teardown() {
     [ -x "$TOOL_DIR/mark_error.sh" ]
 }
 
-@test "dependency-review: action.yml writes the scan/v1 manifest, gated and via env" {
-    # The manifest step must exist, gate on the SARIF via hashFiles (skipped
-    # when the tool didn't run), thread the SARIF path through env: (no ${{ }}
-    # in run:), and call write_scan_manifest.sh with the dependency-review token.
-    grep -q "hashFiles('.wrangle/metadata/dependency-review/output.sarif') != ''" "$TOOL_DIR/action.yml"
-    grep -Eq 'write_scan_manifest\.sh" dependency-review ' "$TOOL_DIR/action.yml"
+@test "dependency-review: action.yml writes the scan/v1 manifest, gated always() and via env" {
+    # The manifest step must exist, gate on always() (not hashFiles, which
+    # silently skipped the runtime file in #492), thread the SARIF path through
+    # env: (no ${{ }} in run:), and call write_scan_manifest.sh with the
+    # dependency-review token. The no-SARIF / error-marker edge cases live in the
+    # script — covered directly by test/test_write_scan_manifest.bats.
     run awk '/^    - name: Write scan manifest/{flag=1;next} flag && /^    - name:/{flag=0} flag' "$TOOL_DIR/action.yml"
     [ "$status" -eq 0 ]
+    printf '%s\n' "$output" | grep -q 'if: always()$'
+    printf '%s\n' "$output" | grep -Eq 'write_scan_manifest\.sh" dependency-review '
+    ! printf '%s\n' "$output" | grep -q 'hashFiles'
     ! printf '%s\n' "$output" | grep -q 'run:.*\${{'
 }
 

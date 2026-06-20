@@ -25,9 +25,11 @@ main() {
         return 2
     fi
     local tool_name="$1" sarif_path="$2"
+    # No SARIF means the tool didn't run (or produced nothing) — no result to
+    # attest, so no-op. Every caller wants this; centralizing it here keeps the
+    # action-pattern steps a bare invocation.
     if [[ ! -f "$sarif_path" ]]; then
-        printf 'write_scan_manifest: SARIF not found: %s\n' "$sarif_path" >&2
-        return 2
+        return 0
     fi
     local metadata_dir result_file
     metadata_dir="$(dirname "$sarif_path")"
@@ -35,8 +37,7 @@ main() {
 
     # Action-pattern tools (zizmor, dependency-review) write an error marker
     # when the run failed and any SARIF on disk is an empty fallback. Don't
-    # attest that: an attestation must claim a real scan result. (run.sh's
-    # adapter path gates on tool_status and never calls here on error.)
+    # attest that: an attestation must claim a real scan result.
     if [[ -f "$metadata_dir/error" ]]; then
         return 0
     fi

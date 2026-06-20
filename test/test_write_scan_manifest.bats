@@ -63,17 +63,20 @@ EOF
     [[ ! -f "$TEST_DIR/osv/wrangle_attestation_metadata.json" ]]
 }
 
-@test "write_scan_manifest: missing SARIF fails (exit 2)" {
+@test "write_scan_manifest: absent SARIF no-ops (exit 0, no manifest)" {
+    # Tool didn't run / produced nothing — no result to attest. Every caller
+    # relies on this no-op so the action-pattern steps stay a bare invocation.
     run "$SCRIPT" osv-scanner "$TEST_DIR/osv/absent.sarif"
-    [[ "$status" -eq 2 ]]
+    [[ "$status" -eq 0 ]]
+    [[ ! -f "$TEST_DIR/osv/wrangle_attestation_metadata.json" ]]
 }
 
-@test "write_scan_manifest: skips (no manifest, exit 0) when an error marker is present" {
+@test "write_scan_manifest: error marker no-ops (exit 0, no manifest)" {
     write_sarif '' "2.3.8"
     printf 'tool error\n' > "$TEST_DIR/osv/error"
     run "$SCRIPT" osv-scanner "$SARIF"
     [[ "$status" -eq 0 ]]
-    [[ ! -f "$TEST_DIR/osv/manifest.json" ]]
+    [[ ! -f "$TEST_DIR/osv/wrangle_attestation_metadata.json" ]]
 }
 
 @test "write_scan_manifest: usage error on wrong arg count" {
