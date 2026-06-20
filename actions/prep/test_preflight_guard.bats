@@ -1,6 +1,6 @@
 #!/usr/bin/env bats
 
-# Tests for lib/preflight_guard.sh — the trigger refusal logic prep runs at
+# Tests for preflight_guard.sh — the trigger refusal logic prep runs at
 # the head of every reusable workflow. Two flavors:
 #
 #   - Behavioral: run the script directly with EVENT_NAME / OUTER_EVENT set,
@@ -10,9 +10,8 @@
 #     or strips the env-passthrough pattern.
 
 setup() {
-    REPO_ROOT="$(cd "$(dirname "$BATS_TEST_FILENAME")/.." && pwd)"
-    SCRIPT="$REPO_ROOT/lib/preflight_guard.sh"
-    PREP="$REPO_ROOT/actions/prep/action.yml"
+    SCRIPT="$BATS_TEST_DIRNAME/preflight_guard.sh"
+    PREP="$BATS_TEST_DIRNAME/action.yml"
 }
 
 # --- behavioral ---
@@ -57,7 +56,7 @@ setup() {
 }
 
 @test "structure: prep delegates to the script" {
-    run grep 'lib/preflight_guard.sh' "$PREP"
+    run grep 'preflight_guard.sh' "$PREP"
     [[ "$status" -eq 0 ]]
 }
 

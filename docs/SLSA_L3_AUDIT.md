@@ -1228,7 +1228,7 @@ wrangle already uses to gate provenance creation. The pattern:
   signs over are derived without consulting any cross-build cache.
 
 This composes naturally with wrangle's existing release-gate vocabulary
-([`lib/release_gate.sh`](../lib/release_gate.sh)).
+([`actions/prep/release_gate.sh`](../actions/prep/release_gate.sh)).
 Adopters who set `release-events: tag-only` already pay no provenance cost on
 default-branch pushes; they would similarly pay no cache cost on tag pushes
 and benefit from full caching everywhere else.

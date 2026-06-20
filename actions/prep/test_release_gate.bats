@@ -1,9 +1,9 @@
 #!/usr/bin/env bats
 
-# Tests for lib/release_gate.sh
+# Tests for release_gate.sh
 
 setup() {
-    SCRIPT="$BATS_TEST_DIRNAME/../lib/release_gate.sh"
+    SCRIPT="$BATS_TEST_DIRNAME/release_gate.sh"
     TEST_DIR="$(mktemp -d)"
     export TEST_DIR
     export GITHUB_OUTPUT="$TEST_DIR/output"

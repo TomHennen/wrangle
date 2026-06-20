@@ -11,8 +11,8 @@ setup() {
 }
 
 @test "prep: runs preflight_guard before the gate and names steps" {
-    guard_line="$(grep -n 'lib/preflight_guard.sh' "$ACTION" | head -1 | cut -d: -f1)"
-    gate_line="$(grep -n 'lib/release_gate.sh' "$ACTION" | head -1 | cut -d: -f1)"
+    guard_line="$(grep -n 'preflight_guard.sh' "$ACTION" | head -1 | cut -d: -f1)"
+    gate_line="$(grep -n 'release_gate.sh' "$ACTION" | head -1 | cut -d: -f1)"
     names_line="$(grep -n 'lib/derive_names.sh' "$ACTION" | head -1 | cut -d: -f1)"
     [ -n "$guard_line" ] && [ -n "$gate_line" ] && [ -n "$names_line" ]
     [ "$guard_line" -lt "$gate_line" ]
