@@ -47,6 +47,13 @@ tool_block_has() {
     grep -q 'OCI_TARGET: ${{ inputs.oci-target }}' "$ACTION"
 }
 
+@test "attach step is gated on both attach-to-release and attach-release-assets and threads the asset env" {
+    grep -Fq "inputs.attach-to-release == 'true' && inputs.attach-release-assets == 'true'" "$ACTION"
+    grep -Fq 'BUILD_TYPE: ${{ inputs.build-type }}' "$ACTION"
+    grep -Fq 'DIST_DIR: ${{ inputs.dist-dir }}' "$ACTION"
+    grep -Fq 'METADATA_ZIP_NAME: ${{ inputs.artifact-name }}.zip' "$ACTION"
+}
+
 @test "verify does not build the whole tool set or the scan-only binaries" {
     # `go install tool` would rebuild osv-scanner et al. that verify never runs.
     ! grep -Eq 'install[[:space:]]+tool([[:space:]]|$)' "$ACTION"

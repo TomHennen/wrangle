@@ -44,3 +44,11 @@ setup() {
     run grep -F "inputs.oci-target == '' && 'provenance/provenance.jsonl'" "$ACTION"
     [ "$status" -eq 0 ]
 }
+
+@test "verify_release: threads build-type and attach-release-assets to the release attach" {
+    run grep -F 'attach-release-assets: ${{ inputs.attach-release-assets }}' "$ACTION"
+    [ "$status" -eq 0 ]
+    # build-type drives the go-vs-others dist distinction in the attach step.
+    run grep -F 'build-type: ${{ inputs.build-type }}' "$ACTION"
+    [ "$status" -eq 0 ]
+}
