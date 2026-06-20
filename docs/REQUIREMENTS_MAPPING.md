@@ -166,14 +166,16 @@ Post-v1.0 — see [`ampel_research.md`](ampel_research.md).
 
 | Field | Spec level | Verdict | Evidence |
 |---|---|---|---|
-| `buildDefinition`, `runDetails` | REQUIRED L1 | MEETS | Emitted by `attest-build-provenance`. |
-| `buildType` | REQUIRED L1 | MEETS | `https://actions.github.io/buildtypes/workflow/v1`; `slsa-build-type` tenet. |
-| `externalParameters` | REQUIRED L1; **complete at L3** | MEETS | Control-plane workflow invocation (repo, ref, workflow path); source repo bound by `slsa-build-point`. |
+| `buildDefinition`, `runDetails` | REQUIRED L1 | MEETS | Emitted by `attest-build-provenance`. Checked by [tests]. |
+| `buildType` | REQUIRED L1 | MEETS | `https://actions.github.io/buildtypes/workflow/v1`; `slsa-build-type` tenet. Checked by [tests]. |
+| `externalParameters` | REQUIRED L1; **complete at L3** | MEETS | Control-plane workflow invocation (repo, ref, workflow path); source repo bound by `slsa-build-point`. Checked by [tests]. |
 | `internalParameters` | optional | N/A | Not relied on. |
-| `resolvedDependencies` | best-effort (through L3) | MEETS (disclosed limitation) | Best-effort is satisfied by the source repo + digest; the **transitive dependency closure is not enumerated** — do not read the provenance as an attestation of every dependency. |
-| `runDetails.builder.id` | REQUIRED L1; **different build modes MUST use a different `builder.id`** (SHOULD use a different signer) | MEETS — see *builder identity* below | per-type signer SAN + baked `builderId` in `wrangle-provenance-<type>-v1.hjson`. |
-| `metadata.invocationId/startedOn/finishedOn` | no required level | MEETS | Emitted by `attest-build-provenance` where present (control-plane populated; none required). |
+| `resolvedDependencies` | best-effort (through L3) | MEETS (disclosed limitation) | Best-effort is satisfied by the source repo + digest; the **transitive dependency closure is not enumerated** — do not read the provenance as an attestation of every dependency. Checked by [tests]. |
+| `runDetails.builder.id` | REQUIRED L1; **different build modes MUST use a different `builder.id`** (SHOULD use a different signer) | MEETS — see *builder identity* below | per-type signer SAN + baked `builderId` in `wrangle-provenance-<type>-v1.hjson`. Checked by [tests]. |
+| `metadata.invocationId/startedOn/finishedOn` | no required level | MEETS | Emitted by `attest-build-provenance` where present (`invocationId` only; `startedOn`/`finishedOn` not emitted). Checked by [tests]. |
 | `builderDependencies`, `builder.version`, `byproducts` | optional | N/A | Not used. |
+
+[tests]: ../test/consumer/verify_consumer_provenance.bats
 
 **Builder identity.** wrangle sets `builder.id` to the reusable workflow's own path —
 `https://github.com/TomHennen/wrangle/.github/workflows/build_and_publish_go.yml@<ref>`
