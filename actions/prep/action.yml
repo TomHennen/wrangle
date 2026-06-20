@@ -7,8 +7,8 @@ description: >
   uniformly. An empty build-type is the guard-only mode for scan/CI
   workflows that release nothing: the gate and name derivation are skipped,
   should-release is false, and the name outputs are empty. Needs no
-  permissions and no checkout: every step resolves via
-  ${{ github.action_path }} and reads env only.
+  permissions and no checkout: every step reads env only and resolves from
+  the action's own path.
 
 inputs:
   build-type:
