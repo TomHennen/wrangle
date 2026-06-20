@@ -116,14 +116,17 @@ make_sarif() {
     ! grep -E 'run:.*\$\{\{ *steps\.zizmor' "$TOOL_DIR/action.yml"
 }
 
-@test "zizmor: action.yml writes the scan/v1 manifest, gated and via env" {
-    # The manifest step must exist, gate on the SARIF via hashFiles (so it's
-    # skipped when the tool didn't run), thread the SARIF path through env:
-    # (no ${{ }} in run:), and call write_scan_manifest.sh with the zizmor token.
-    grep -q "hashFiles('.wrangle/metadata/zizmor/output.sarif') != ''" "$TOOL_DIR/action.yml"
-    grep -Eq 'write_scan_manifest\.sh" zizmor ' "$TOOL_DIR/action.yml"
+@test "zizmor: action.yml writes the scan/v1 manifest, gated always() and via env" {
+    # The manifest step must exist, gate on always() (not hashFiles, which
+    # silently skipped the runtime file in #492), thread the SARIF path through
+    # env: (no ${{ }} in run:), and call write_scan_manifest.sh with the zizmor
+    # token. The no-SARIF / error-marker edge cases live in the script — covered
+    # directly by test/test_write_scan_manifest.bats.
     run awk '/^    - name: Write scan manifest/{flag=1;next} flag && /^    - name:/{flag=0} flag' "$TOOL_DIR/action.yml"
     [ "$status" -eq 0 ]
+    printf '%s\n' "$output" | grep -q 'if: always()$'
+    printf '%s\n' "$output" | grep -Eq 'write_scan_manifest\.sh" zizmor '
+    ! printf '%s\n' "$output" | grep -q 'hashFiles'
     ! printf '%s\n' "$output" | grep -q 'run:.*\${{'
 }
 

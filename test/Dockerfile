@@ -13,6 +13,7 @@ RUN apt-get update -q && \
         libc6-dev \
         python3 \
         python3-venv \
+        zip \
     && rm -rf /var/lib/apt/lists/*
 
 # python3 + python3-venv host the isolated, hash-pinned venvs that zizmor,

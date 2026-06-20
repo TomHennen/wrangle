@@ -93,6 +93,8 @@ Each build produces two workflow artifacts (zipfiles):
 
 The reusable workflow exposes both names as the `dist-artifact-name` and `metadata-artifact-name` outputs so you don't have to hardcode them. For the full file layout — and which `scan/` subdirs appear on a given event — see [docs/metadata_layout.md](docs/metadata_layout.md).
 
+On a **tag push with a GitHub Release**, wrangle also attaches each dist `<artifact>` and its `<artifact>.intoto.jsonl` bundle (a flat verify-pair) plus one `<type>-metadata-<sn>.zip` holding the SBOM + scan results. Go's dist + `checksums.txt` come from goreleaser. See [docs/verifying_artifacts.md](docs/verifying_artifacts.md); suppress with the verify action's `attach-release-assets: false`.
+
 To find them in the UI: click **Actions** → your wrangle workflow → the run → scroll to **Artifacts**. The URL looks like `https://github.com/<owner>/<repo>/actions/runs/<id>#artifacts`. For a live example, see a run in the [wrangle-test companion repo](https://github.com/TomHennen/wrangle-test/actions). Per-ecosystem details are in the [ecosystem READMEs](#ecosystems) above.
 
 ## How Wrangle Works

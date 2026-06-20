@@ -44,7 +44,11 @@ inputs:
     required: false
     default: ""
   attach-to-release:
-    description: 'When "true" (default) and the run is a tag push, attach the bundle to the release.'
+    description: 'When "true" (default) and the run is a tag push, attach the rationalized asset set to the release.'
+    required: false
+    default: "true"
+  attach-release-assets:
+    description: 'When "true" (default) attach the per-subject dist + bundle and the metadata zip. Set "false" to suppress.'
     required: false
     default: "true"
 
@@ -78,7 +82,7 @@ runs:
         path: ${{ steps.names.outputs.metadata-dir }}/
 
     # TODO: replace with $/actions/verify when GitHub ships $/ syntax (#136)
-    - uses: TomHennen/wrangle/actions/verify@6ddb817cf528110aff86879ca7fbf4ff84c52669 # main 2026-06-20
+    - uses: TomHennen/wrangle/actions/verify@56aa2ffe4d4b0f48a3c0e09ff2d458e16e25bdcb # main 2026-06-20
       with:
         dist-files: ${{ inputs.dist-files }}
         subjects: ${{ inputs.subjects }}
@@ -94,4 +98,8 @@ runs:
         context: ${{ inputs.context }}
         oci-target: ${{ inputs.oci-target }}
         attach-to-release: ${{ inputs.attach-to-release }}
+        attach-release-assets: ${{ inputs.attach-release-assets }}
+        # go's dist is owned by goreleaser on the release; wrangle skips it.
+        build-type: ${{ inputs.build-type }}
+        dist-dir: dist
         fail: "true"

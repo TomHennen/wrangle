@@ -798,7 +798,9 @@ case "$1 $2" in
     n=$(cat "$GH_VIEW_N" 2>/dev/null || echo 0); n=$((n + 1)); printf '%s' "$n" > "$GH_VIEW_N"
     code=$(printf '%s' "$GH_VIEW_SEQ" | cut -d' ' -f"$n"); exit "${code:-1}" ;;
   "release create") exit "${GH_CREATE_CODE:-0}" ;;
-  "release upload") exit "${GH_UPLOAD_CODE:-0}" ;;
+  "release upload")
+    [[ -n "${GH_KEEP_ZIP:-}" && "$4" == *.zip ]] && cp "$4" "$GH_KEEP_ZIP"
+    exit "${GH_UPLOAD_CODE:-0}" ;;
 esac
 exit 0
 SHIM
@@ -809,23 +811,126 @@ SHIM
     export GITHUB_REF_NAME="v1.2.3"
 }
 
-@test "run_verify attach: every per-artifact bundle is uploaded to the existing release" {
-    _install_gh_shim
-    mkdir -p "$BUNDLE_OUT"
+# Stage the metadata dir (bundles + sbom) + a dist dir whose <artifact> files
+# match each bundle's <artifact>.intoto.jsonl name, plus the env the attach
+# reads. Production wires bundle-out and metadata-dir to the same dir, so the
+# sbom (and the metadata zip's other contents) live under METADATA_ROOT.
+_stage_release_assets() {
+    export METADATA_ROOT="$BUNDLE_OUT"
+    mkdir -p "$BUNDLE_OUT" "$TEST_DIR/dist"
     : > "$BUNDLE_OUT/a.tgz.intoto.jsonl"
     : > "$BUNDLE_OUT/b.whl.intoto.jsonl"
-    export GH_VIEW_SEQ="0"            # first view succeeds (release exists)
+    : > "$METADATA_ROOT/sbom.spdx.json"
+    : > "$TEST_DIR/dist/a.tgz"
+    : > "$TEST_DIR/dist/b.whl"
+    export DIST_DIR="$TEST_DIR/dist"
+    export METADATA_ZIP_NAME="python-metadata.zip"
+}
+
+# zip is the only external command the metadata-zip step needs that the unit
+# host may lack; gate the asserts that exercise it.
+_require_zip() {
+    command -v zip >/dev/null 2>&1 || skip_or_fail "zip not installed"
+}
+
+@test "run_verify attach: per subject uploads the dist artifact and its bundle, plus one metadata zip" {
+    _require_zip
+    _install_gh_shim
+    _stage_release_assets
+    export BUILD_TYPE="python"
+    export GH_VIEW_SEQ="0"            # release exists
     run "$SCRIPT" attach
     [[ "$status" -eq 0 ]]
     grep -qx "release upload v1.2.3 $BUNDLE_OUT/a.tgz.intoto.jsonl --clobber" "$GH_LOG"
     grep -qx "release upload v1.2.3 $BUNDLE_OUT/b.whl.intoto.jsonl --clobber" "$GH_LOG"
-    ! grep -q "release create" "$GH_LOG"   # create must be skipped
+    grep -qx "release upload v1.2.3 $DIST_DIR/a.tgz --clobber" "$GH_LOG"
+    grep -qx "release upload v1.2.3 $DIST_DIR/b.whl --clobber" "$GH_LOG"
+    grep -q "release upload v1.2.3 .*python-metadata.zip --clobber" "$GH_LOG"
+    ! grep -q "release create" "$GH_LOG"   # wrangle never creates the release
+}
+
+@test "run_verify attach: go skips the dist (goreleaser owns it) but still attaches bundle + metadata zip" {
+    _require_zip
+    _install_gh_shim
+    _stage_release_assets
+    export BUILD_TYPE="go"
+    export GH_VIEW_SEQ="0"
+    run "$SCRIPT" attach
+    [[ "$status" -eq 0 ]]
+    grep -qx "release upload v1.2.3 $BUNDLE_OUT/a.tgz.intoto.jsonl --clobber" "$GH_LOG"
+    grep -q "release upload v1.2.3 .*python-metadata.zip --clobber" "$GH_LOG"
+    # The dist itself is goreleaser's to attach — wrangle must not double-attach.
+    ! grep -q "release upload v1.2.3 $DIST_DIR/a.tgz --clobber" "$GH_LOG"
+    ! grep -q "release upload v1.2.3 $DIST_DIR/b.whl --clobber" "$GH_LOG"
+}
+
+@test "run_verify attach: a bundle whose dist is missing fails closed (no orphan bundle)" {
+    _install_gh_shim
+    _stage_release_assets
+    export BUILD_TYPE="python"
+    rm -f "$DIST_DIR/a.tgz"          # orphan: bundle present, dist gone
+    export GH_VIEW_SEQ="0"
+    run "$SCRIPT" attach
+    [[ "$status" -ne 0 ]]
+    [[ "$output" == *"not found"* ]]
+}
+
+@test "run_verify attach: the metadata zip carries the bundles and the sbom" {
+    _require_zip
+    _install_gh_shim
+    _stage_release_assets
+    export BUILD_TYPE="python"
+    export GH_VIEW_SEQ="0"
+    # The gh shim copies the uploaded metadata zip aside so its contents can be
+    # asserted without re-zipping or needing unzip (`zip -sf` lists in-place).
+    export GH_KEEP_ZIP="$TEST_DIR/kept.zip"
+    run "$SCRIPT" attach
+    [[ "$status" -eq 0 ]]
+    run zip -sf "$GH_KEEP_ZIP"
+    [[ "$output" == *"a.tgz.intoto.jsonl"* ]]
+    [[ "$output" == *"sbom.spdx.json"* ]]
+}
+
+# The metadata zip is sourced from METADATA_ROOT, not BUNDLE_OUT: a sbom that
+# lives only under METADATA_ROOT must still land in the zip.
+@test "run_verify attach: the metadata zip is taken from METADATA_ROOT, not BUNDLE_OUT" {
+    _require_zip
+    _install_gh_shim
+    _stage_release_assets
+    export METADATA_ROOT="$TEST_DIR/meta"
+    mkdir -p "$METADATA_ROOT"
+    : > "$METADATA_ROOT/sbom.spdx.json"
+    mkdir -p "$METADATA_ROOT/scan/osv"
+    : > "$METADATA_ROOT/scan/osv/output.sarif"
+    rm -f "$BUNDLE_OUT/sbom.spdx.json"
+    export BUILD_TYPE="python"
+    export GH_VIEW_SEQ="0"
+    export GH_KEEP_ZIP="$TEST_DIR/kept.zip"
+    run "$SCRIPT" attach
+    [[ "$status" -eq 0 ]]
+    run zip -sf "$GH_KEEP_ZIP"
+    [[ "$output" == *"sbom.spdx.json"* ]]
+    [[ "$output" == *"scan/osv/output.sarif"* ]]
+}
+
+# Two subjects resolving to the same bundle basename would clobber/cross-wire on
+# upload (assets attach by basename) — fail closed before any upload.
+@test "run_verify attach: duplicate bundle basename fails closed" {
+    _install_gh_shim
+    _stage_release_assets
+    mkdir -p "$BUNDLE_OUT/sub"
+    : > "$BUNDLE_OUT/sub/a.tgz.intoto.jsonl"   # same basename as $BUNDLE_OUT/a.tgz.intoto.jsonl
+    export BUILD_TYPE="python"
+    export GH_VIEW_SEQ="0"
+    run "$SCRIPT" attach
+    [[ "$status" -ne 0 ]]
+    [[ "$output" == *"duplicate release-asset basename"* ]]
 }
 
 @test "run_verify attach: missing release skips create and upload, exits 0" {
     _install_gh_shim
-    mkdir -p "$BUNDLE_OUT"
-    : > "$BUNDLE_OUT/a.tgz.intoto.jsonl"
+    _stage_release_assets
+    export BUILD_TYPE="python"
     export GH_VIEW_SEQ="1"            # view fails (no release)
     run "$SCRIPT" attach
     [[ "$status" -eq 0 ]]            # no release is not an error — bundle stays the artifact
