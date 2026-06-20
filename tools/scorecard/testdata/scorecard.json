@@ -1,0 +1,29 @@
+{
+  "date": "2026-06-20T00:00:00Z",
+  "repo": {
+    "name": "github.com/TomHennen/wrangle",
+    "commit": "5741a1afbdffa5eb9ab95dd212ce8c310631e355"
+  },
+  "scorecard": {
+    "version": "v5.2.1",
+    "commit": "unknown"
+  },
+  "score": 7.4,
+  "checks": [
+    {
+      "name": "Binary-Artifacts",
+      "score": 10,
+      "reason": "no binaries found in the repo"
+    },
+    {
+      "name": "Branch-Protection",
+      "score": 3,
+      "reason": "branch protection is not maximal on development and all release branches"
+    },
+    {
+      "name": "Token-Permissions",
+      "score": 9,
+      "reason": "detected GitHub workflow tokens with excessive permissions"
+    }
+  ]
+}

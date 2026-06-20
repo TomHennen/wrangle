@@ -946,7 +946,7 @@ All install scripts MUST use `wrangle_download_verify` rather than implementing 
 
 ### Shared Tool Helpers
 
-`lib/sarif_to_md.sh` converts SARIF 2.1.0 to a human-readable markdown table. It is the default formatter for action-pattern tools that don't have a tool-specific formatter. Tools with richer output (e.g., Scorecard's `sarif_to_markdown.sh`) may use their own formatter instead.
+`lib/sarif_to_md.sh` converts SARIF 2.1.0 to a human-readable markdown table. It is the default formatter for action-pattern tools that don't have a tool-specific formatter. Tools with richer output (e.g., Scorecard's `json_to_markdown.sh`, which renders its JSON score) may use their own formatter instead.
 
 ```
 # Usage: sarif_to_md.sh <sarif_file>

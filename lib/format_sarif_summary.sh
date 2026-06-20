@@ -58,6 +58,12 @@ while IFS= read -r -d '' dir; do
         # Sanitize tool name before embedding in markdown
         safe_tool="$(printf '%s' "$tool" | wrangle_sanitize_output)"
         printf '| %s | %s | [Details](#%s-details) |\n' "$safe_tool" "$tool_status" "$safe_tool"
+    elif [[ -f "${dir}/output.md" ]]; then
+        # SARIF-exception tools (scorecard) report no findings; their
+        # markdown carries the result. Surface a row so the tool isn't
+        # silently absent from the summary table.
+        safe_tool="$(printf '%s' "$tool" | wrangle_sanitize_output)"
+        printf '| %s | %s | [Details](#%s-details) |\n' "$safe_tool" "See details" "$safe_tool"
     fi
 done < <(find "$METADATA_DIR" -mindepth 1 -maxdepth 1 -type d -print0 2>/dev/null | sort -z)
 

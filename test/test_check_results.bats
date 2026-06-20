@@ -111,6 +111,15 @@ create_sarif() {
     [ "$status" -eq 0 ]
 }
 
+# A :fail tool with no SARIF (e.g. scorecard, which produces JSON not SARIF)
+# must not crash or block — it contributes no findings here. Score-threshold
+# gating is the policy/tenet work (#497), not this gate.
+@test "check_results: missing SARIF with fail policy is not an error" {
+    create_sarif "osv" 0
+    run "$ORIG_DIR/lib/check_results.sh" "$METADATA" "osv" "scorecard:fail"
+    [ "$status" -eq 0 ]
+}
+
 @test "check_results: malformed SARIF with fail policy causes failure" {
     mkdir -p "$METADATA/bad"
     echo "not json" > "$METADATA/bad/output.sarif"

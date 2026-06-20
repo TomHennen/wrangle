@@ -27,6 +27,13 @@ func TestBuildStatementGolden(t *testing.T) {
 			golden:     "testdata/sbom.statement.json",
 		},
 		{
+			name:       "scorecard passthrough",
+			manifest:   `{"predicate-type":"https://scorecard.dev/result/v0.1","result-file":"output.json"}`,
+			resultName: "output.json",
+			result:     `{"date":"2026-06-20T00:00:00Z","repo":{"name":"github.com/TomHennen/wrangle"},"score":7.4,"checks":[{"name":"Branch-Protection","score":3,"reason":"not maximal"}]}`,
+			golden:     "testdata/scorecard.statement.json",
+		},
+		{
 			name:       "scan/v1 sarif envelope",
 			manifest:   `{"predicate-type":"https://github.com/TomHennen/wrangle/attestation/scan/v1","result-file":"output.sarif","tool":{"name":"zizmor","version":"1.13.0"},"result":"findings"}`,
 			resultName: "output.sarif",
@@ -58,6 +65,45 @@ func TestBuildStatementGolden(t *testing.T) {
 			}
 			assertGolden(t, tc.golden, got)
 		})
+	}
+}
+
+// Scorecard's value is the score; verify the passthrough predicate carries
+// predicateType and predicate.score verbatim (a downstream tenet gates on it).
+func TestBuildStatementScorecardScore(t *testing.T) {
+	dir := t.TempDir()
+	writeFile(t, dir, "wrangle_attestation_metadata.json", `{"predicate-type":"https://scorecard.dev/result/v0.1","result-file":"output.json"}`)
+	writeFile(t, dir, "output.json", `{"score":7.4,"checks":[{"name":"Branch-Protection","score":3}]}`)
+	m, err := parseManifest(filepath.Join(dir, "wrangle_attestation_metadata.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	subj, err := newSubject(testArtifactDigest)
+	if err != nil {
+		t.Fatal(err)
+	}
+	stmt, err := buildStatement(m, subj, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	got, err := marshalStatement(stmt)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var parsed struct {
+		PredicateType string `json:"predicateType"`
+		Predicate     struct {
+			Score float64 `json:"score"`
+		} `json:"predicate"`
+	}
+	if err := json.Unmarshal(got, &parsed); err != nil {
+		t.Fatal(err)
+	}
+	if parsed.PredicateType != predicateScorecard {
+		t.Fatalf("predicateType = %q, want %q", parsed.PredicateType, predicateScorecard)
+	}
+	if parsed.Predicate.Score != 7.4 {
+		t.Fatalf("predicate.score = %v, want 7.4", parsed.Predicate.Score)
 	}
 }
 

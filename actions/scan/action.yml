@@ -28,8 +28,9 @@ inputs:
       Scan runs in its own job; a build workflow passes a per-build name
       (e.g. python-scan-python) and its build job downloads that into the
       unified metadata/<type>/<sn>/scan/ tree. The standalone scan workflow
-      passes scan-<sn>. The artifact holds <tool>/output.{sarif,md} — the
-      scan/ subtree's contents, no scan/ prefix.
+      passes scan-<sn>. The artifact holds <tool>/output.* plus any
+      wrangle_attestation_metadata.json — the scan/ subtree's contents, no
+      scan/ prefix.
     required: false
     default: "wrangle-scan-results"
   checkout:
@@ -213,13 +214,9 @@ runs:
     # (advanced-security: true). Adding a wrangle upload here would create
     # a duplicate code scanning configuration.
 
-    - name: Upload Scorecard SARIF
-      if: always() && contains(inputs.tools, 'scorecard') && github.event_name != 'pull_request'
-      uses: github/codeql-action/upload-sarif@8aad20d150bbac5944a9f9d289da16a4b0d87c1e # v4.36.2
-      continue-on-error: true
-      with:
-        sarif_file: ${{ github.workspace }}/.wrangle/metadata/scorecard/output.sarif
-        category: wrangle/scorecard
+    # Scorecard does not upload to the Security tab: its value is the score,
+    # carried by the scorecard.dev/result/v0.1 attestation, not SARIF
+    # findings (informational-only, cf #203).
 
     # Skip Code Scanning upload on a dep-review tool error: collect_outputs.sh
     # / mark_error.sh write the error marker exactly when the upstream
@@ -236,7 +233,8 @@ runs:
         sarif_file: ${{ github.workspace }}/.wrangle/metadata/dependency-review/output.sarif
         category: wrangle/dependency-review
 
-    # The scan job uploads its tool output (<tool>/output.{sarif,md}) as a
+    # The scan job uploads its tool output (<tool>/output.* plus any
+    # wrangle_attestation_metadata.json the engine later signs) as a
     # workflow artifact. A build workflow's build job downloads it into the
     # unified metadata/<type>/<sn>/scan/ tree and owns the final upload; the
     # standalone scan workflow's artifact-name is the consumer-facing scan-<sn>.

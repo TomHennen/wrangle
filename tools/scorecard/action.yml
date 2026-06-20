@@ -23,32 +23,25 @@ runs:
     - name: Run Scorecard
       # Scorecard commonly fails on PR events — it requires GITHUB_TOKEN
       # with specific scopes and only fully works on default branch pushes.
-      # continue-on-error prevents this from blocking SARIF collection.
+      # continue-on-error prevents this from blocking result collection.
       continue-on-error: true
       uses: ossf/scorecard-action@4eaacf0543bb3f2c246792bd56e8cdeffafb205a # v2.4.3
       with:
-        results_file: ${{ github.workspace }}/.wrangle/metadata/scorecard/output.sarif
-        results_format: sarif
+        results_file: ${{ github.workspace }}/.wrangle/metadata/scorecard/output.json
+        results_format: json
         publish_results: false
 
-    - name: Ensure SARIF exists
+    - name: Attest and format results
       if: always()
       shell: bash
       env:
         SCORECARD_DIR: ${{ github.action_path }}
+        WRANGLE_ROOT: ${{ github.action_path }}/../..
       run: |
         set -euo pipefail
-        "$SCORECARD_DIR/ensure_sarif.sh" "${GITHUB_WORKSPACE}/.wrangle/metadata/scorecard/output.sarif"
-
-    - name: Format results
-      if: always()
-      shell: bash
-      env:
-        SCORECARD_DIR: ${{ github.action_path }}
-      run: |
-        set -euo pipefail
-        SARIF_FILE="${GITHUB_WORKSPACE}/.wrangle/metadata/scorecard/output.sarif"
-        MD_FILE="${GITHUB_WORKSPACE}/.wrangle/metadata/scorecard/output.md"
-        if [[ -f "$SARIF_FILE" ]]; then
-          "$SCORECARD_DIR/sarif_to_markdown.sh" "$SARIF_FILE" > "$MD_FILE"
+        METADATA_DIR="${GITHUB_WORKSPACE}/.wrangle/metadata/scorecard"
+        if [[ -f "$METADATA_DIR/output.json" ]]; then
+          "$WRANGLE_ROOT/lib/write_attest_manifest.sh" \
+            "$METADATA_DIR" "https://scorecard.dev/result/v0.1" "output.json"
+          "$SCORECARD_DIR/json_to_markdown.sh" "$METADATA_DIR/output.json" > "$METADATA_DIR/output.md"
         fi

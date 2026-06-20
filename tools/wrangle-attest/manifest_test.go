@@ -27,6 +27,10 @@ func TestParseManifestFailClosed(t *testing.T) {
 			content: `{"predicate-type":"https://spdx.dev/Document","result-file":"sbom.spdx.json"}`,
 		},
 		{
+			name:    "valid scorecard passthrough",
+			content: `{"predicate-type":"https://scorecard.dev/result/v0.1","result-file":"output.json"}`,
+		},
+		{
 			name:    "valid scan/v1 with tool and result",
 			content: `{"predicate-type":"https://github.com/TomHennen/wrangle/attestation/scan/v1","result-file":"output.sarif","tool":{"name":"zizmor","version":"1.0"},"result":"findings"}`,
 		},
