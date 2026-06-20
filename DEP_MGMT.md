@@ -106,7 +106,9 @@ whatever is already set.
 - **`make bump-action-pins`** rewrites wrangle's own self-references after a
   composite changes, across `.github/workflows/`, `actions/`, `build/`, and
   `tools/` (the shared `tools/self_ref_pin_paths.sh` set, which
-  `check_pin_ancestry` reuses).
+  `check_pin_ancestry` reuses). **`make converge-action-pins`** repeats the bump
+  across commits when a nested chain needs more than one cycle — land its commits
+  as a merge commit (see [docs/e2e_testing.md](docs/e2e_testing.md)).
 - **Manual today:** the binary+provenance installs (branch 2) and the base-image
   digest. Automating that surface — ideally one mechanism that also covers
   wrangle's own self-references — is #264.
