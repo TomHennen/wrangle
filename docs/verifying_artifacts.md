@@ -60,6 +60,8 @@ is PASSED at SLSA Build L3. The policy is wrangle-hosted and fetched by
 locator, so you author nothing. Both `--context` values are required;
 omitting one is a hard error, never a weaker check.
 
+![Verifying a release artifact's wrangle VSA with a single ampel verify command](../assets/images/vsa_verification.gif)
+
 For file artifacts (Go / Python / npm), download the artifact and its
 `<artifact>.intoto.jsonl` bundle from the release, then — ampel reads the JSONL
 bundle and self-selects the VSA matching `--subject`:

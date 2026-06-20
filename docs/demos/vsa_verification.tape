@@ -1,8 +1,8 @@
 # vsa_verification.tape — downstream VSA verification with ampel (jsonl collector).
-# Render from the repo root:  vhs assets/vsa_verification.tape
+# Render from this directory:  cd docs/demos && vhs vsa_verification.tape  (see README.md)
 # The command, policy, collector, and checks mirror build/actions/*/README.md;
-# the output is produced by assets/demo/vsa_verify_demo.sh (shimmed in as `ampel`).
-Output assets/images/vsa_verification.gif
+# the output is produced by vsa_verify_demo.sh (shimmed in as `ampel`).
+Output ../../assets/images/vsa_verification.gif
 
 Set Shell bash
 Set Theme "Catppuccin Mocha"
@@ -17,7 +17,7 @@ Type `export PS1='$ '`
 Enter
 Type `export PS2='> '`
 Enter
-Type `mkdir -p /tmp/vsa-demo && ln -sf "$PWD/assets/demo/vsa_verify_demo.sh" /tmp/vsa-demo/ampel`
+Type `mkdir -p /tmp/vsa-demo && ln -sf "$PWD/vsa_verify_demo.sh" /tmp/vsa-demo/ampel`
 Enter
 Type `export PATH="/tmp/vsa-demo:$PATH"`
 Enter
