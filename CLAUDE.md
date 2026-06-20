@@ -32,7 +32,7 @@ Then check the diff against the conventions below. After findings are addressed,
 
 ## Adopter-facing docs
 
-The per-build-type READMEs, `docs/verifying_artifacts.md`, the top-level `README.md`, and the workflow examples are **quick-start docs, not specifications.** Keep them at the altitude of *what the adopter does*, in the top-level `README.md`'s benefit-first, second-person voice. Mechanism, rationale, and exhaustive rules live in `SPEC.md` (or the relevant upstream spec) and get a *link*.
+The per-build-type READMEs, `docs/verifying_artifacts.md`, the top-level `README.md`, and the workflow examples are **quick-start docs, not specifications.** Keep them at the altitude of *what the adopter does*, in the `README.md`'s benefit-first, second-person voice. Mechanism, rationale, and exhaustive rules live in `SPEC.md` (or the relevant upstream spec) and get a *link*.
 
 - **State the fact, link the spec — don't reproduce it** ("the name is PEP 503-normalized (link)", not the algorithm).
 - **Don't enumerate what a source of truth already lists** (workflow inputs/outputs live in the workflow file — point to it; copies drift).
@@ -55,9 +55,9 @@ Every script starts with the exact preamble `set -euo pipefail` then `set -f` (d
 - **Installing and verifying tools** — install-method decision tree, integrity-tier ladder, and freshness-first rule: [DEP_MGMT.md](DEP_MGMT.md). Install-script mechanics (`lib/download_verify.sh`, `$WRANGLE_BIN_DIR`, idempotency, atomic `mv`) are the Install Script Interface contract in SPEC.md.
 - **Pin drift across files** — single-source or a divergence-fail test: [DEP_MGMT.md § Drift](DEP_MGMT.md#drift).
 
-## Adapter contract (full contract: SPEC.md §Adapter Script Interface)
+## Adapter contract (full: SPEC.md §Adapter Script Interface)
 
-Adapters take `<src_dir>` (read-only) and `<output_dir>` (writable), write `output.sarif` (SARIF 2.1.0), exit 0 (no findings) / 1 (findings) / 2 (tool error). Do not write outside `output_dir` or access secrets (env is stripped by the orchestrator). `jq` exit codes are checked — malformed SARIF MUST cause exit 2, not silent success.
+Adapters take `<src_dir>` (read-only) and `<output_dir>` (writable), write `output.sarif` (SARIF 2.1.0), exit 0 (no findings) / 1 (findings) / 2 (tool error). Do not write outside `output_dir` or access secrets. `jq` exit codes are checked — malformed SARIF MUST cause exit 2, not silent success.
 
 ## Layout & path resolution
 
