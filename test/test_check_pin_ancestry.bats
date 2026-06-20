@@ -25,13 +25,14 @@ pin_workflow() {
         > "$REPO/.github/workflows/x.yml"
 }
 
-# write_composite <sha> — write+commit actions/comp pinning actions/inner at
-# <sha>, then print the commit it lives at.
+# write_composite <sha> — commit actions/comp pinning actions/inner at <sha>
+# (committed, not just written, so the transitive walk can git-show it at the
+# returned sha), then print that commit.
 write_composite() {
     mkdir -p "$REPO/actions/comp"
     printf '      - uses: TomHennen/wrangle/actions/inner@%s # pin\n' "$1" \
         > "$REPO/actions/comp/action.yml"
-    git -C "$REPO" add -A
+    git -C "$REPO" add actions/comp/action.yml
     git -C "$REPO" commit -q -m comp
     git -C "$REPO" rev-parse HEAD
 }
@@ -88,11 +89,8 @@ write_composite() {
 }
 
 @test "check_pin_ancestry: FAILS on a false-green — the pinned composite resolves a stale nested pin even when the working-tree copy is current" {
-    # The window a literal-pin check misses: after one re-bump cycle the
-    # workflow's comp@<merge> still resolves a comp/action.yml that nests the
-    # orphaned inner@<branch>, while the working-tree comp nests the fixed
-    # inner@<ancestor>. Every literal sha is an ancestor (flat check green) yet
-    # the release path resolves stale inner code — the transitive walk must red.
+    # Every literal sha is an ancestor (a flat check passes), but comp@s resolves
+    # a comp/action.yml that still nests the orphaned inner@<branch>.
     local a; a="$(commit "$REPO" A)"
     git -C "$REPO" checkout -q -b feature
     local orphan; orphan="$(commit "$REPO" ORPHAN)"   # inner's branch sha

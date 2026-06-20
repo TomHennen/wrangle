@@ -2,34 +2,15 @@
 set -euo pipefail
 set -f
 
-# tools/check_pin_ancestry.sh — fail if any wrangle self-reference action pin
-# resolves to a sha that is not reachable from HEAD. The walk is transitive:
-# every declared pin is resolved AT its pinned sha (git show <sha>:<path>) and
-# the self-ref pins nested inside that resolved action.yml are walked too, so a
-# 2-level chain (workflow -> verify_release -> verify, or scan -> tools/*) is
-# held to the invariant at every hop.
+# Fail if any wrangle self-reference pin resolves to a sha not reachable from
+# HEAD. Transitive: each pin is resolved at its pinned sha (git show <sha>:<path>)
+# and the pins nested in that action.yml are walked too, so a chain like
+# workflow -> verify_release -> verify holds at every hop. A working-tree-only
+# check false-greens after one re-bump of such a chain; a nested sha whose commit
+# is absent fails closed. Needs full history (CI runs it with fetch-depth: 0).
+# Bootstrap-pin lifecycle and re-bump recovery: docs/e2e_testing.md.
 #
-# Why transitive: a literal-pin-only check reads the action.yml in the working
-# tree, but what actually runs on main is the action.yml AS OF the pinned sha.
-# After a single post-merge re-bump the two diverge — the workflow's
-# verify_release@<merge> still resolves a verify_release/action.yml that nests
-# the orphaned verify@<branch>, even though the working-tree copy already nests
-# the fixed verify@<merge>. A literal check goes green there (false green) while
-# the release path resolves stale code; the transitive walk catches it.
-#
-# Why reachable-from-HEAD: a "bootstrap pin" (see test/integration/SPEC.md
-# §Known limitations) points a self-reference at a BRANCH sha so the integration
-# test can exercise a not-yet-merged change. On a PR, HEAD includes the branch,
-# so the pin passes; a SQUASH merge orphans the branch sha, after which HEAD ==
-# main no longer reaches it and this check goes red, forcing the re-bump
-# (tools/bump_action_pins.sh <main-sha>). This needs full history — the CI job
-# checks out with fetch-depth: 0.
-#
-# A nested sha whose commit object is absent fails closed (UNREACHABLE), never
-# silently skipped.
-#
-# Exit: 0 if every resolved pin is reachable, 1 if any is missing/unreachable,
-# 2 on a usage/environment error.
+# Exit: 0 all reachable, 1 missing/unreachable, 2 usage/environment error.
 
 REPO_PREFIX="${WRANGLE_PINS_REPO:-TomHennen/wrangle}"
 
@@ -56,10 +37,8 @@ fi
 escaped_prefix="$(printf '%s' "$REPO_PREFIX" | sed 's/\./\\./g')"
 pin_re="${escaped_prefix}/[^@[:space:]]+@[0-9a-f]{40}"
 
-# Seed the walk with the pins declared in the working tree. Restricted to YAML
-# and skipping fixtures/ so action/workflow files are searched but shell
-# scripts, SPEC.md, and lint fixtures (which carry placeholder shas) can't
-# false-match.
+# Seed from pins declared in the working tree. YAML only, skipping fixtures/, so
+# shell scripts and lint placeholders can't false-match.
 mapfile -t root_refs < <(
     grep -rhoE --include='*.yml' --include='*.yaml' --exclude-dir=fixtures \
         "$pin_re" "${search_dirs[@]}" 2>/dev/null | sort -u
@@ -70,8 +49,7 @@ if [[ ${#root_refs[@]} -eq 0 ]]; then
     exit 0
 fi
 
-# BFS over "<via>|<ref>" entries; <via> is the human-readable resolution context
-# so an unreachable nested pin names the parent that pulled it in.
+# BFS; <via> carries the parent so an unreachable nested pin names its source.
 declare -A visited=()
 queue=()
 for ref in "${root_refs[@]}"; do
@@ -106,9 +84,8 @@ while [[ ${#queue[@]} -gt 0 ]]; do
         continue
     fi
 
-    # Resolve the action AT its pinned sha and enqueue the self-ref pins nested
-    # inside it. A subpath with no action.yml at that sha is a leaf (the ref may
-    # name a reusable workflow, not a composite) — nothing further to walk.
+    # Resolve the action at its pinned sha and walk the pins nested inside it.
+    # No action.yml at that sha = leaf (the ref may be a reusable workflow).
     content="$(git -C "$repo_root" show "$sha:$subpath/action.yml" 2>/dev/null)" \
         || content="$(git -C "$repo_root" show "$sha:$subpath/action.yaml" 2>/dev/null)" \
         || content=""
