@@ -46,6 +46,7 @@ jobs:
   build:
     # Maximum the caller grants; wrangle's internal jobs each drop to the subset they actually need.
     permissions:
+      # The attach targets an existing GitHub Release (a draft is fine); create one for the tag before this runs, or the assets stay workflow artifacts.
       contents: write   # wrangle's verify job attaches the VSA to the release on tags; GitHub validates at startup even on non-tag runs
       id-token: write   # OIDC for Sigstore signing
       attestations: write   # wrangle's attest job writes GitHub-issued SLSA provenance

@@ -45,6 +45,11 @@ Container builds publish no release — the VSA is an OCI referrer on the image
 digest (see below). Adopters can suppress the attach with the verify action's
 `attach-release-assets: false`.
 
+wrangle attaches to an existing GitHub Release and never creates one. Go is
+automatic (goreleaser creates the Release inline). For Python and npm, create a
+Release for the tag (a draft is fine) before the workflow runs, or the assets
+stay workflow artifacts instead — see the per-language build READMEs.
+
 ## Recommended: `ampel verify` (one command)
 
 [ampel](https://github.com/carabiner-dev/ampel) ≥ v1.3.0 (one Go binary)
