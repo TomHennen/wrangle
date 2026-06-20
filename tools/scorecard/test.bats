@@ -81,9 +81,11 @@ teardown() {
 }
 
 @test "scorecard: no manifest written when JSON absent" {
-    # The action.yml guards the manifest drop on [[ -f output.json ]]; with
-    # no JSON present, nothing empty is attested. Mirror that guard here.
-    [[ -f "$TMP_DIR/output.json" ]] || true
+    # Drive action.yml's [[ -f output.json ]] guard: with no output.json the
+    # manifest helper is never invoked, so nothing empty is attested.
+    if [[ -f "$TMP_DIR/output.json" ]]; then
+        run "$WRITE_MANIFEST" "$TMP_DIR" "https://scorecard.dev/result/v0.1" "output.json"
+    fi
     [ ! -f "$TMP_DIR/wrangle_attestation_metadata.json" ]
 }
 
@@ -117,18 +119,22 @@ JSON
     [[ "$output" == *"see docs"* ]]
 }
 
-@test "json_to_markdown: truncates checks at WRANGLE_MAX_SUMMARY bytes" {
+@test "json_to_markdown: truncates checks at WRANGLE_MAX_SUMMARY bytes, exit 0" {
+    # Many checks with long reasons so output far exceeds the cap and jq/sed
+    # are still streaming when head closes the pipe — the case that SIGPIPEs a
+    # pipe-into-head under pipefail into a false exit 2.
     {
         printf '{"score":5,"checks":['
-        for i in $(seq 1 200); do
+        for i in $(seq 1 2000); do
             [[ "$i" -gt 1 ]] && printf ','
-            printf '{"name":"C%d","score":%d,"reason":"reason-%d"}' "$i" "$((i % 11))" "$i"
+            printf '{"name":"Check-%d","score":%d,"reason":"a reasonably long reason string number %d that pads the output"}' "$i" "$((i % 11))" "$i"
         done
         printf ']}'
     } > "$TMP_DIR/in.json"
-    WRANGLE_MAX_SUMMARY=200 run "$SCRIPT" "$TMP_DIR/in.json"
+    WRANGLE_MAX_SUMMARY=256 run "$SCRIPT" "$TMP_DIR/in.json"
     [ "$status" -eq 0 ]
-    [[ "${#output}" -lt 500 ]]
+    [[ "$output" == *"Aggregate score: 5 / 10"* ]]
+    [[ "${#output}" -lt 600 ]]
 }
 
 @test "json_to_markdown: missing file exits 1" {

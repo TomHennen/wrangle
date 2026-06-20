@@ -36,8 +36,13 @@ printf '%s\n' 'Check | Score | Reason'
 printf '%s\n' '----- | ----- | ------'
 
 # Per-check rows; strip HTML and collapse newlines so each check stays on one row.
-if ! jq -r '(.checks // [])[] | "\(.name) | \(.score) | \(.reason)"' "$JSON_FILE" 2>/dev/null \
-    | sed 's/<[^>]*>//g' | head -c "$MAX_OUTPUT"; then
+# Capture, then cap with a substring instead of piping into head: a pipe into
+# head closes at the byte cap, SIGPIPEs the producer, and pipefail turns a valid
+# truncation into a false error.
+if ! checks="$(jq -r '(.checks // [])[] | "\(.name) | \(.score) | \(.reason)"' "$JSON_FILE" 2>/dev/null | sed 's/<[^>]*>//g')"; then
     printf 'Error: failed to parse Scorecard checks\n' >&2
     exit 2
 fi
+
+# Cap in a C-locale subshell so the substring is byte-indexed (matching the cap).
+( export LC_ALL=C; printf '%s\n' "${checks:0:$MAX_OUTPUT}" )

@@ -111,13 +111,26 @@ create_sarif() {
     [ "$status" -eq 0 ]
 }
 
-# A :fail tool with no SARIF (e.g. scorecard, which produces JSON not SARIF)
-# must not crash or block — it contributes no findings here. Score-threshold
-# gating is the policy/tenet work (#497), not this gate.
+# A :fail tool with no SARIF and nothing else (skipped, e.g. Scorecard on PRs)
+# must not crash, block, or warn — it simply contributed nothing.
 @test "check_results: missing SARIF with fail policy is not an error" {
     create_sarif "osv" 0
-    run "$ORIG_DIR/lib/check_results.sh" "$METADATA" "osv" "scorecard:fail"
+    run "$ORIG_DIR/lib/check_results.sh" "$METADATA" "osv" "passthrough:fail"
     [ "$status" -eq 0 ]
+    [[ "$output" != *"has no effect"* ]]
+}
+
+# A passthrough tool that ran (manifest + result, no SARIF) under :fail can
+# never block, so warn rather than fail-open silently — but do not fail the run.
+# Score-based gating is the follow-up work (#497).
+@test "check_results: fail policy on a passthrough tool warns, does not block" {
+    mkdir -p "$METADATA/passthrough"
+    printf '{"score":5}' > "$METADATA/passthrough/output.json"
+    jq -n '{"predicate-type":"https://scorecard.dev/result/v0.1","result-file":"output.json"}' \
+        > "$METADATA/passthrough/wrangle_attestation_metadata.json"
+    run "$ORIG_DIR/lib/check_results.sh" "$METADATA" "passthrough:fail"
+    [ "$status" -eq 0 ]
+    [[ "$output" == *"passthrough:fail has no effect without SARIF findings"* ]]
 }
 
 @test "check_results: malformed SARIF with fail policy causes failure" {
