@@ -30,7 +30,7 @@ jobs:
     permissions: {}    # reads env only — no workspace, no API, no secrets
     steps:
       # TODO: replace with $/actions/preflight_guard when GitHub ships $/ syntax (#136)
-      - uses: TomHennen/wrangle/actions/preflight_guard@86a4848607f685cd129890ae73b07df101a1be9b # feat/phase2-scan-attest-420 2026-06-19
+      - uses: TomHennen/wrangle/actions/preflight_guard@6ddb817cf528110aff86879ca7fbf4ff84c52669 # main 2026-06-20
 
   check-change:
     needs: [guard]
@@ -51,7 +51,7 @@ jobs:
       # (root path), so the shortname is empty and the name is just "scan".
       # TODO: replace with $/actions/scan when GitHub ships $/ syntax (#136)
       - name: Source scan
-        uses: TomHennen/wrangle/actions/scan@86a4848607f685cd129890ae73b07df101a1be9b # feat/phase2-scan-attest-420 2026-06-19
+        uses: TomHennen/wrangle/actions/scan@6ddb817cf528110aff86879ca7fbf4ff84c52669 # main 2026-06-20
         with:
           tools: ${{ inputs.tools }}
           artifact-name: scan
