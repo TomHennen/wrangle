@@ -170,6 +170,34 @@ teardown() {
     [[ "${found_att:-0}" -eq 1 ]]
 }
 
+@test "run_verify: ampel args feed the signed metadata JSONL to the policy as a second collector" {
+    # The SBOM/scan tenets fail closed unless ampel evaluates the policy against
+    # the engine-signed metadata, so the verdict (and VSA) must cover it. It must
+    # be a jsonl: collector, not --attestation: the metadata is multi-statement
+    # JSONL and --attestation parses only a single statement.
+    local meta="$TEST_DIR/meta.jsonl"
+    mapfile -t args < <(wrangle_ampel_verify_args "sha256:abc" "$VSA" "$meta")
+    printf '%s\n' "${args[@]}" | grep -qx -- "--collector=jsonl:$meta"
+    # The metadata is never routed through --attestation (single-statement only).
+    if printf '%s\n' "${args[@]}" | grep -qx -- "--attestation"; then return 1; fi
+}
+
+@test "run_verify: ampel args omit the metadata collector when none was signed" {
+    mapfile -t args < <(wrangle_ampel_verify_args "sha256:abc" "$VSA" "")
+    # Only the seed collector remains — no jsonl: collector for the metadata.
+    [[ "$(printf '%s\n' "${args[@]}" | grep -c -- "--collector=")" -eq 1 ]]
+}
+
+@test "run_verify: ampel args carry both the seed collector and the metadata collector" {
+    # The provenance seed collector and the metadata collector coexist (ampel
+    # --collector is repeatable), so neither shadows the other.
+    local meta="$TEST_DIR/meta.jsonl"
+    mapfile -t args < <(wrangle_ampel_verify_args "sha256:abc" "$VSA" "$meta")
+    [[ "$(printf '%s\n' "${args[@]}" | grep -c -- "--collector=")" -eq 2 ]]
+    printf '%s\n' "${args[@]}" | grep -qx -- "--collector=$COLLECTOR"
+    printf '%s\n' "${args[@]}" | grep -qx -- "--collector=jsonl:$meta"
+}
+
 @test "run_verify: ampel arg vector is accepted by the real ampel parser" {
     # The real ampel rejects an unknown flag with a non-"subject" error; a bad
     # subject means every flag in our vector parsed. Confirms the flag names
@@ -582,6 +610,48 @@ STUB
     run jq -e . "$b"; [[ "$status" -eq 0 ]]
 }
 
+@test "run_verify: run feeds the signed metadata to ampel and appends it to the bundle" {
+    # With a metadata dir, the SBOM/scan statements must be signed BEFORE ampel
+    # and fed to it as a second jsonl: collector (so the verdict/VSA cover the
+    # scan tenets), then delivered in the bundle. ampel records its own args so
+    # the wiring is provable; wrangle-attest emits a deterministic signed line.
+    cat > "$TEST_DIR/ampel" <<STUB
+#!/bin/bash
+printf '%s\n' "\$@" >> "$TEST_DIR/ampel-args"
+for a in "\$@"; do case "\$a" in --results-path=*) printf '{"unsigned":1}\n' > "\${a#--results-path=}";; esac; done
+printf 'report\n'
+STUB
+    cat > "$TEST_DIR/bnd" <<STUB
+#!/bin/bash
+[[ "\$1" == "push" ]] && exit 0
+printf '{"signed":'; cat "\$2"; printf '}\n'
+STUB
+    cat > "$TEST_DIR/wrangle-attest" <<STUB
+#!/bin/bash
+for a in "\$@"; do case "\$a" in --out=*) out="\${a#--out=}";; esac; done
+printf '{"signedStatement":{"predicateType":"https://spdx.dev/Document"}}\n' > "\$out"
+STUB
+    chmod +x "$TEST_DIR/ampel" "$TEST_DIR/bnd" "$TEST_DIR/wrangle-attest"
+    export PATH="$TEST_DIR:$PATH"
+    export GITHUB_STEP_SUMMARY="$TEST_DIR/summary.md"; : > "$GITHUB_STEP_SUMMARY"
+    : > "$TEST_DIR/ampel-args"
+    export OCI_TARGET=""
+    export METADATA_ROOT="$TEST_DIR/meta"; mkdir -p "$METADATA_ROOT"
+    printf '{"provenance":1}\n' > "$BUNDLE_IN"
+    local sha; sha="$(printf '0%.0s' {1..64})"
+    export SUBJECTS="sha256:$sha"
+
+    run "$SCRIPT" run
+    [[ "$status" -eq 0 ]]
+    # ampel was handed the signed metadata JSONL as a jsonl: collector, so the
+    # policy evaluated against it (single arg: --collector=jsonl:<file>).
+    grep -qE -- "^--collector=jsonl:.*/meta\." "$TEST_DIR/ampel-args"
+    # The signed metadata statement also landed in the delivered bundle.
+    local bundle; bundle="$BUNDLE_OUT/$(ls "$BUNDLE_OUT")"
+    grep -q '"signedStatement"' "$bundle"
+    grep -q '"https://spdx.dev/Document"' "$bundle"
+}
+
 @test "run_verify: run pushes only the VSA statement as the referrer for an OCI target" {
     # Container path: provenance fetched via cosign download; the combined
     # provenance+VSA bundle is written for the workflow artifact, but only the
@@ -668,10 +738,10 @@ STUB
 
 # --- build-metadata (SBOM) statement emission ---
 
-@test "run_verify: emit_metadata is a no-op when METADATA_ROOT is unset" {
-    # npm/go/python/container without a metadata dir: nothing is appended and the
-    # engine isn't invoked. A wrangle-attest stub that fails proves the path
-    # returns 0 untouched.
+@test "run_verify: sign_metadata is a no-op leaving the JSONL empty when METADATA_ROOT is unset" {
+    # npm/go/python/container without a metadata dir: the engine isn't invoked and
+    # the output file stays empty. A wrangle-attest stub that fails proves the
+    # path returns 0 without calling it.
     cat > "$TEST_DIR/wrangle-attest" <<'STUB'
 #!/bin/bash
 exit 1
@@ -679,39 +749,67 @@ STUB
     chmod +x "$TEST_DIR/wrangle-attest"
     export PATH="$TEST_DIR:$PATH"
     unset METADATA_ROOT
-    local bundle="$TEST_DIR/bundle.jsonl"
-    printf '{"provenance":1}\n' > "$bundle"
-    run wrangle_emit_metadata_statements "sha256:$(printf '0%.0s' {1..64})" "$bundle"
+    local stmts="$TEST_DIR/meta.jsonl"; : > "$stmts"
+    run wrangle_sign_metadata_statements "sha256:$(printf '0%.0s' {1..64})" "$stmts"
+    [[ "$status" -eq 0 ]]
+    [[ ! -s "$stmts" ]]
+}
+
+@test "run_verify: append_metadata is a no-op on an empty statements file" {
+    # A build with no metadata signs nothing, so the append step must leave the
+    # bundle untouched (and not push).
+    cat > "$TEST_DIR/bnd" <<'STUB'
+#!/bin/bash
+exit 1
+STUB
+    chmod +x "$TEST_DIR/bnd"
+    export PATH="$TEST_DIR:$PATH"
+    local bundle="$TEST_DIR/bundle.jsonl"; printf '{"provenance":1}\n' > "$bundle"
+    local stmts="$TEST_DIR/meta.jsonl"; : > "$stmts"
+    run wrangle_append_metadata_statements "$stmts" "$bundle"
     [[ "$status" -eq 0 ]]
     [[ "$(wc -l < "$bundle")" -eq 1 ]]
 }
 
-@test "run_verify: emit_metadata appends and pushes the engine's signed statement" {
+@test "run_verify: sign_metadata writes the engine's signed statement to the JSONL" {
     # The engine signs keyless (network/OIDC), so a stub wrangle-attest emits a
-    # deterministic compact signed line — this exercises the shell glue (append +
-    # store + referrer), not the engine (Go-unit-tested; dispatch-e2e for keyless).
+    # deterministic compact signed line — this exercises the shell glue (sign ->
+    # file), not the engine (Go-unit-tested; dispatch-e2e for keyless).
     cat > "$TEST_DIR/wrangle-attest" <<STUB
 #!/bin/bash
 subj=""
 for a in "\$@"; do case "\$a" in --subject=*) subj="\${a#--subject=}";; --out=*) out="\${a#--out=}";; esac; done
 printf '{"signedStatement":{"predicateType":"https://spdx.dev/Document","subject":[{"digest":{"sha256":"%s"}}]}}\n' "\${subj#sha256:}" > "\$out"
 STUB
+    chmod +x "$TEST_DIR/wrangle-attest"
+    export PATH="$TEST_DIR:$PATH"
+    export METADATA_ROOT="$TEST_DIR/meta"; mkdir -p "$METADATA_ROOT"
+    local sha; sha="$(printf '0%.0s' {1..64})"
+    local stmts="$TEST_DIR/meta.jsonl"; : > "$stmts"
+    run wrangle_sign_metadata_statements "sha256:$sha" "$stmts"
+    [[ "$status" -eq 0 ]]
+    [[ "$(wc -l < "$stmts")" -eq 1 ]]
+    [[ "$(jq -r '.signedStatement.predicateType' "$stmts")" == "https://spdx.dev/Document" ]]
+    [[ "$(jq -r '.signedStatement.subject[0].digest.sha256' "$stmts")" == "$sha" ]]
+}
+
+@test "run_verify: append_metadata appends each signed line to the bundle and pushes it" {
     # push records the file it was handed so store delivery is provable.
     cat > "$TEST_DIR/bnd" <<STUB
 #!/bin/bash
 [[ "\$1" == "push" ]] && { cat "\$4" >> "$TEST_DIR/pushed"; exit 0; }
 exit 0
 STUB
-    chmod +x "$TEST_DIR/wrangle-attest" "$TEST_DIR/bnd"
+    chmod +x "$TEST_DIR/bnd"
     export PATH="$TEST_DIR:$PATH"
-    export METADATA_ROOT="$TEST_DIR/meta"; mkdir -p "$METADATA_ROOT"
     export GITHUB_REPOSITORY="o/r"
     export OCI_TARGET=""
     : > "$TEST_DIR/pushed"
-    local bundle="$TEST_DIR/bundle.jsonl"
-    printf '{"provenance":1}\n' > "$bundle"
+    local bundle="$TEST_DIR/bundle.jsonl"; printf '{"provenance":1}\n' > "$bundle"
     local sha; sha="$(printf '0%.0s' {1..64})"
-    run wrangle_emit_metadata_statements "sha256:$sha" "$bundle"
+    local stmts="$TEST_DIR/meta.jsonl"
+    printf '{"signedStatement":{"predicateType":"https://spdx.dev/Document","subject":[{"digest":{"sha256":"%s"}}]}}\n' "$sha" > "$stmts"
+    run wrangle_append_metadata_statements "$stmts" "$bundle"
     [[ "$status" -eq 0 ]]
     # Seeded provenance line plus exactly one appended signed statement.
     [[ "$(wc -l < "$bundle")" -eq 2 ]]
@@ -720,7 +818,7 @@ STUB
     [[ "$(jq -r '.signedStatement.subject[0].digest.sha256' "$TEST_DIR/pushed")" == "$sha" ]]
 }
 
-@test "run_verify: emit_metadata hands a file subject to the engine via --artifact" {
+@test "run_verify: sign_metadata hands a file subject to the engine via --artifact" {
     # go/npm/python subjects are dist files: the engine self-digests them via
     # --artifact, so the shell passes the path, never a precomputed digest.
     cat > "$TEST_DIR/wrangle-attest" <<STUB
@@ -732,15 +830,9 @@ STUB
     chmod +x "$TEST_DIR/wrangle-attest"
     export PATH="$TEST_DIR:$PATH"
     export METADATA_ROOT="$TEST_DIR/meta"; mkdir -p "$METADATA_ROOT"
-    export OCI_TARGET=""
-    cat > "$TEST_DIR/bnd" <<'STUB'
-#!/bin/bash
-exit 0
-STUB
-    chmod +x "$TEST_DIR/bnd"
+    local stmts="$TEST_DIR/meta.jsonl"; : > "$stmts"
     mkdir -p "$TEST_DIR/dist"; printf 'AAA\n' > "$TEST_DIR/dist/a.tgz"
-    local bundle="$TEST_DIR/bundle.jsonl"; printf '{"provenance":1}\n' > "$bundle"
-    run wrangle_emit_metadata_statements "$TEST_DIR/dist/a.tgz" "$bundle"
+    run wrangle_sign_metadata_statements "$TEST_DIR/dist/a.tgz" "$stmts"
     [[ "$status" -eq 0 ]]
     grep -qx -- "--artifact=$TEST_DIR/dist/a.tgz" "$TEST_DIR/attest-args"
     ! grep -q -- "--subject=" "$TEST_DIR/attest-args"
@@ -764,7 +856,7 @@ STUB
     [[ "$(jq -r '.subject[0].digest.sha256' "$out")" == "$sha" ]]
 }
 
-@test "run_verify: emit_metadata fails closed when the real engine sees a malformed manifest" {
+@test "run_verify: sign_metadata fails closed when the real engine sees a malformed manifest" {
     # The real engine fails closed at discoverManifests — before newSigner — so a
     # malformed top-level manifest aborts hermetically (no OIDC/network). Drive
     # the real binary to prove genuine engine fail-closed, not a stubbed exit.
@@ -775,11 +867,9 @@ STUB
     export METADATA_ROOT="$TEST_DIR/meta"; mkdir -p "$METADATA_ROOT"
     export WRANGLE_RETRY_DELAY=0
     printf 'not json\n' > "$METADATA_ROOT/wrangle_attestation_metadata.json"
-    local bundle="$TEST_DIR/bundle.jsonl"; printf '{"provenance":1}\n' > "$bundle"
-    run wrangle_emit_metadata_statements "sha256:$(printf '0%.0s' {1..64})" "$bundle"
+    local stmts="$TEST_DIR/meta.jsonl"; : > "$stmts"
+    run wrangle_sign_metadata_statements "sha256:$(printf '0%.0s' {1..64})" "$stmts"
     [[ "$status" -ne 0 ]]
-    # Nothing appended: the seeded provenance line is untouched.
-    [[ "$(wc -l < "$bundle")" -eq 1 ]]
 }
 
 # --- attach to release (wrangle_attach_release) ---

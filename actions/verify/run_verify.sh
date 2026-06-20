@@ -67,15 +67,21 @@ wrangle_subject_arg() {
 }
 
 # Build the ampel verify arg vector for one subject, one arg per line for
-# mapfile. $1 is the subject; $2 the unsigned-VSA output path.
+# mapfile. $1 is the subject; $2 the unsigned-VSA output path; $3 (optional) a
+# JSONL of engine-signed build-metadata statements (SBOM + scan/v1) added as a
+# second jsonl: collector so the policy verdict — and the emitted VSA — cover the
+# SBOM and scan tenets, not only the provenance the first collector seeds. It
+# must be a collector, not --attestation: --attestation parses a single
+# statement, but the metadata JSONL holds one line per signed statement.
 wrangle_ampel_verify_args() {
-    local subject="$1" results_path="$2"
+    local subject="$1" results_path="$2" metadata="${3:-}"
     # Capture (not process-substitute) so a subject-hashing failure aborts.
     local subject_arg
     subject_arg="$(wrangle_subject_arg "$subject")"
     local args=(verify "$subject_arg"
-        --collector="$COLLECTOR"
-        --policy="$(wrangle_resolve_policy "$POLICY")"
+        --collector="$COLLECTOR")
+    [[ -n "$metadata" ]] && args+=(--collector="jsonl:$metadata")
+    args+=(--policy="$(wrangle_resolve_policy "$POLICY")"
         --exit-code="$FAIL"
         --attest-results
         --attest-format=vsa
@@ -131,11 +137,12 @@ wrangle_read_subjects() {
 }
 
 # ampel verify one subject -> unsigned VSA at $2, streaming the report to the
-# step summary. $1 is the subject.
+# step summary. $1 is the subject; $3 (optional) the engine-signed metadata
+# JSONL fed to the policy alongside the collector.
 wrangle_verify_emit_vsa() {
-    local subject="$1" results_path="$2"
+    local subject="$1" results_path="$2" metadata="${3:-}"
     local args report rc=0
-    mapfile -t args < <(wrangle_ampel_verify_args "$subject" "$results_path")
+    mapfile -t args < <(wrangle_ampel_verify_args "$subject" "$results_path" "$metadata")
     # Fail closed: an aborted arg builder (e.g. a subject file we couldn't hash)
     # yields a short/empty vector, never a silently mis-verified subject.
     if [[ "${args[0]:-}" != "verify" || "${args[1]:-}" != --subject* ]]; then
@@ -228,30 +235,36 @@ wrangle_attest_args() {
 }
 
 # For one subject, build and sign the SBOM (and any other build-metadata)
-# statement(s) via the engine, then append each signed line to the bundle and
-# post each to the store. No-op when METADATA_ROOT is unset/empty (a build that
-# produced no metadata). $1 is the subject, $2 the bundle file. A digest subject
-# (container) passes through as --subject; a file subject is handed to the
-# engine via --artifact, which self-digests it to the same sha256 the VSA binds
-# to. The engine signs in the same trusted process as the VSA and fails closed
-# on a malformed manifest, an unreadable artifact, or a signing failure (no
-# partial bundle), so an absent statement is a real gap, not a silent skip.
-wrangle_emit_metadata_statements() {
+# statement(s) via the engine into the JSONL at $2 (one signed Sigstore bundle
+# per line). No-op leaving $2 empty when METADATA_ROOT is unset/empty (a build
+# that produced no metadata). $1 is the subject. A digest subject (container)
+# passes through as --subject; a file subject is handed to the engine via
+# --artifact, which self-digests it to the same sha256 the VSA binds to. The
+# engine signs in the same trusted process as the VSA and fails closed on a
+# malformed manifest, an unreadable artifact, or a signing failure, so an absent
+# statement is a real gap, not a silent skip. Signed here — before ampel — so
+# the policy evaluates against the SBOM/scan statements (fed as a second
+# collector), not only the provenance the first collector seeds.
+wrangle_sign_metadata_statements() {
     [[ -z "${METADATA_ROOT:-}" || ! -d "${METADATA_ROOT:-}" ]] && return 0
-    local subject="$1" bundle="$2" subject_arg
+    local subject="$1" stmts="$2" subject_arg
     if [[ "$subject" =~ ^[a-z0-9]+:[a-f0-9]+$ ]]; then
         subject_arg="--subject=$subject"
     else
         subject_arg="--artifact=$subject"
     fi
-    local stmts args
-    stmts="$(mktemp "${RUNNER_TEMP:-/tmp}/attest.XXXXXX")"
+    local args
     mapfile -t args < <(wrangle_attest_args "$subject_arg" "$stmts")
-    wrangle_retry_once /dev/null wrangle-attest "${args[@]}" || { rm -f "$stmts"; return 1; }
-    # Each line is one signed Sigstore bundle (compact JSONL): appended to the
-    # bundle, posted to the store, and pushed alone as the OCI referrer (cosign
-    # attach rejects multi-line).
-    local line_file
+    wrangle_retry_once /dev/null wrangle-attest "${args[@]}"
+}
+
+# Append each signed metadata line at $1 to the bundle $2, post each to the
+# store, and push each alone as the OCI referrer (cosign attach rejects
+# multi-line). No-op on an empty/absent file (no metadata for this build).
+wrangle_append_metadata_statements() {
+    local stmts="$1" bundle="$2"
+    [[ -s "$stmts" ]] || return 0
+    local line_file line
     line_file="$(mktemp "${RUNNER_TEMP:-/tmp}/attestline.XXXXXX")"
     while IFS= read -r line; do
         [[ -z "$line" ]] && continue
@@ -260,7 +273,7 @@ wrangle_emit_metadata_statements() {
         wrangle_push_store "$line_file"
         wrangle_push_bundle "$line_file"
     done < "$stmts"
-    rm -f "$stmts" "$line_file"
+    rm -f "$line_file"
 }
 
 # Post the signed VSA at $1 to the GitHub attestation store (all build types).
@@ -301,13 +314,22 @@ wrangle_run() {
     wrangle_seed_bundle "$seed"
 
     tmp_vsa="$(mktemp "${RUNNER_TEMP:-/tmp}/vsa.XXXXXX")"
-    local vsa_line
+    local vsa_line meta_stmts
     vsa_line="$(mktemp "${RUNNER_TEMP:-/tmp}/vsaline.XXXXXX")"
+    meta_stmts="$(mktemp "${RUNNER_TEMP:-/tmp}/meta.XXXXXX")"
     local bundle
     for subject in "${WRANGLE_SUBJECTS[@]}"; do
         bundle="$BUNDLE_OUT/$(wrangle_bundle_name "$subject")"
         cp "$seed" "$bundle"
-        wrangle_verify_emit_vsa "$subject" "$tmp_vsa"
+        # Sign the SBOM/scan statements first so ampel evaluates the policy
+        # against them (a second collector), then bind the verdict into the VSA.
+        # Pass the file to ampel only when it holds statements — the extra
+        # collector is omitted for a build with no metadata dir.
+        : > "$meta_stmts"
+        wrangle_sign_metadata_statements "$subject" "$meta_stmts"
+        local meta_arg=""
+        [[ -s "$meta_stmts" ]] && meta_arg="$meta_stmts"
+        wrangle_verify_emit_vsa "$subject" "$tmp_vsa" "$meta_arg"
         wrangle_sign_vsa "$tmp_vsa"
         # Flatten bnd's pretty statement to one JSON line: appended to the bundle,
         # posted to the store, and pushed alone as the OCI referrer (cosign attach
@@ -316,11 +338,10 @@ wrangle_run() {
         cat "$vsa_line" >> "$bundle"
         wrangle_push_store "$vsa_line"
         wrangle_push_bundle "$vsa_line"
-        # Append the build-metadata statements (SBOM, …) bound to this same
-        # single-sha256 subject, signed and delivered alongside the VSA.
-        wrangle_emit_metadata_statements "$subject" "$bundle"
+        # Deliver the same signed SBOM/scan statements alongside the VSA.
+        wrangle_append_metadata_statements "$meta_stmts" "$bundle"
     done
-    rm -f "$tmp_vsa" "$vsa_line" "$seed"
+    rm -f "$tmp_vsa" "$vsa_line" "$meta_stmts" "$seed"
 }
 
 # Attach the rationalized asset set to the current tag's GitHub release, if one
