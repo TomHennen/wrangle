@@ -129,6 +129,17 @@ teardown() {
     [ -x "$TOOL_DIR/mark_error.sh" ]
 }
 
+@test "dependency-review: action.yml writes the scan/v1 manifest, gated and via env" {
+    # The manifest step must exist, gate on the SARIF via hashFiles (skipped
+    # when the tool didn't run), thread the SARIF path through env: (no ${{ }}
+    # in run:), and call write_scan_manifest.sh with the dependency-review token.
+    grep -q "hashFiles('.wrangle/metadata/dependency-review/output.sarif') != ''" "$TOOL_DIR/action.yml"
+    grep -Eq 'write_scan_manifest\.sh" dependency-review ' "$TOOL_DIR/action.yml"
+    run awk '/^    - name: Write scan manifest/{flag=1;next} flag && /^    - name:/{flag=0} flag' "$TOOL_DIR/action.yml"
+    [ "$status" -eq 0 ]
+    ! printf '%s\n' "$output" | grep -q 'run:.*\${{'
+}
+
 @test "mark_error: empty VULNERABLE_CHANGES writes error marker" {
     META="$TMP_DIR/meta-err-empty"
     METADATA_DIR="$META" OUTCOME=failure VULNERABLE_CHANGES='' \
