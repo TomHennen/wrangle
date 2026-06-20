@@ -1,17 +1,20 @@
 name: Wrangle Prep
 description: >
-  The shared head-of-pipeline job for wrangle's reusable build workflows.
-  Runs the preflight guard (refuse unsafe triggers), the release gate
-  (decide should-release), and package-name derivation in one job, then
-  exposes the results as outputs every downstream job reads uniformly —
-  so the build type's shared values are computed once, not re-derived per
-  job. Needs no permissions and no checkout: every step resolves via
+  The shared head-of-pipeline job for wrangle's reusable workflows. Always
+  refuses unsafe triggers (the preflight guard). When a build-type is given
+  it also decides should-release (the release gate) and derives the shared
+  package names, exposing them as outputs every downstream job reads
+  uniformly. An empty build-type is the guard-only mode for scan/CI
+  workflows that release nothing: the gate and name derivation are skipped,
+  should-release is false, and the name outputs are empty. Needs no
+  permissions and no checkout: every step resolves via
   ${{ github.action_path }} and reads env only.
 
 inputs:
   build-type:
-    description: "Build type the names are namespaced under (go, python, npm, container)."
-    required: true
+    description: "Build type the names are namespaced under (go, python, npm, container). Empty = guard-only mode."
+    required: false
+    default: ""
   path:
     description: "Path the shortname is derived from."
     required: false
@@ -23,8 +26,8 @@ inputs:
 
 outputs:
   should-release:
-    description: "true if release-time actions (provenance, publish, verify) should run."
-    value: ${{ steps.gate.outputs.should-release }}
+    description: "true if release-time actions (provenance, publish, verify) should run; false in guard-only mode."
+    value: ${{ steps.gate.outputs.should-release || 'false' }}
   shortname:
     description: "The path-derived shortname namespacing per-build artifacts."
     value: ${{ steps.names.outputs.shortname }}
@@ -58,15 +61,18 @@ runs:
     # TODO: replace with $/actions/preflight_guard when $/ syntax ships (#136)
     - uses: TomHennen/wrangle/actions/preflight_guard@6ddb817cf528110aff86879ca7fbf4ff84c52669 # main 2026-06-20
 
+    # Gate + names run only for a real build type; guard-only mode skips them.
     # TODO: replace with $/actions/release_gate when $/ syntax ships (#136)
     - uses: TomHennen/wrangle/actions/release_gate@6ddb817cf528110aff86879ca7fbf4ff84c52669 # main 2026-06-20
       id: gate
+      if: ${{ inputs.build-type != '' }}
       with:
         events: ${{ inputs.release-events }}
 
     # TODO: replace with $/actions/package_metadata when $/ syntax ships (#136)
     - uses: TomHennen/wrangle/actions/package_metadata@6ddb817cf528110aff86879ca7fbf4ff84c52669 # main 2026-06-20
       id: names
+      if: ${{ inputs.build-type != '' }}
       with:
         build-type: ${{ inputs.build-type }}
         path: ${{ inputs.path }}

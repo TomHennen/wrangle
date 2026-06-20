@@ -97,13 +97,10 @@ on:
         value: ${{ jobs.prep.outputs.should-release }}
 
 jobs:
-  # Refuse unsafe triggers, decide should-release, and derive the shared
-  # package names — once, as job outputs every downstream job reads. The
-  # guard runs first inside prep, so prep MUST stay first under `jobs:` and
-  # every other job lists `prep` in its `needs:` so a refused invocation
-  # skips the entire workflow — critical for the container build type, whose
-  # docker push happens mid-composite (no verify step could roll back a
-  # pushed image). Full trigger contract: docs/SPEC.md#trigger-model.
+  # MUST stay first under `jobs:`: prep's guard refuses unsafe triggers
+  # before any other job runs, and every job `needs: [prep]`. prep also
+  # decides should-release and derives the shared package names.
+  # docs/SPEC.md#trigger-model.
   prep:
     runs-on: ubuntu-latest
     permissions: {}    # guard/gate/names read env only — no workspace, no API, no secrets
@@ -148,9 +145,6 @@ jobs:
           go-cache: ${{ needs.prep.outputs.should-release == 'true' && '' || inputs.go-cache }}
 
   build:
-    # needs `prep` so the build can read should-release and disable the
-    # BuildKit cache for release builds (SLSA L3 isolation — see the
-    # `cache:` input below and docs/SLSA_L3_AUDIT.md Finding 2).
     # needs `scan` so a load-bearing finding blocks the mid-composite push.
     needs: [prep, scan]
     permissions:

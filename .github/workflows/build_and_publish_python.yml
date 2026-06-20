@@ -106,11 +106,10 @@ on:
         value: ${{ jobs.prep.outputs.should-release }}
 
 jobs:
-  # Refuse unsafe triggers, decide should-release, and derive the shared
-  # package names — once, as job outputs every downstream job reads. The
-  # guard runs first inside prep, so prep MUST stay first under `jobs:` and
-  # every other job lists `prep` in its `needs:` so a refused invocation
-  # skips the entire workflow. Full trigger contract: docs/SPEC.md#trigger-model.
+  # MUST stay first under `jobs:`: prep's guard refuses unsafe triggers
+  # before any other job runs, and every job `needs: [prep]`. prep also
+  # decides should-release and derives the shared package names.
+  # docs/SPEC.md#trigger-model.
   prep:
     runs-on: ubuntu-latest
     permissions: {}    # guard/gate/names read env only — no workspace, no API, no secrets
@@ -159,10 +158,7 @@ jobs:
           go-cache: ${{ needs.prep.outputs.should-release == 'true' && '' || inputs.go-cache }}
 
   build:
-    # needs `prep` to read should-release (disables the uv cache for release
-    # builds — SLSA L3 isolation, see the `cache:` input below and
-    # docs/SLSA_L3_AUDIT.md Finding 1) and the shared artifact names. needs
-    # `scan` so the untrusted scan job's output can be folded into the
+    # needs `scan` so the untrusted scan job's output can be folded into the
     # unified metadata dir as inert data before upload.
     needs: [prep, scan]
     runs-on: ubuntu-latest

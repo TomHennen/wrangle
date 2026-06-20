@@ -1,9 +1,9 @@
 #!/usr/bin/env bats
 
 # Structural tests for actions/prep/action.yml — the shared head-of-pipeline
-# composite the reusable build workflows run as their first job. Asserts the
-# three sub-actions are wired in the guard-first order and that the gate and
-# names outputs are surfaced for downstream jobs.
+# composite every reusable workflow runs as its first job. Asserts the three
+# sub-actions are wired in the guard-first order, that the gate and names
+# outputs are surfaced, and that an empty build-type is guard-only.
 
 setup() {
     REPO_ROOT="$(cd "$BATS_TEST_DIRNAME/../.." && pwd)"
@@ -24,15 +24,23 @@ setup() {
     [ "$status" -eq 0 ]
 }
 
+@test "prep: gate and names are skipped in guard-only mode (empty build-type)" {
+    # Both the gate and names steps must be gated on a non-empty build-type
+    # so a scan/CI workflow heads with prep without deriving release/names.
+    run grep -cF "if: \${{ inputs.build-type != '' }}" "$ACTION"
+    [ "$status" -eq 0 ]
+    [ "$output" -eq 2 ]
+}
+
+@test "prep: should-release falls back to false when the gate is skipped" {
+    run grep -F "value: \${{ steps.gate.outputs.should-release || 'false' }}" "$ACTION"
+    [ "$status" -eq 0 ]
+}
+
 @test "prep: names derives from build-type + path" {
     run grep -F 'build-type: ${{ inputs.build-type }}' "$ACTION"
     [ "$status" -eq 0 ]
     run grep -F 'path: ${{ inputs.path }}' "$ACTION"
-    [ "$status" -eq 0 ]
-}
-
-@test "prep: surfaces should-release from the gate step" {
-    run grep -F 'value: ${{ steps.gate.outputs.should-release }}' "$ACTION"
     [ "$status" -eq 0 ]
 }
 
