@@ -299,6 +299,35 @@ expect_fail_closed() {
     [ "$output" = "SLSA_BUILD_LEVEL_3" ]
 }
 
+# The verify job (actions/verify) feeds ampel TWO collectors: the provenance
+# seed and a second jsonl: of the engine-signed SBOM/scan statements. This is
+# the #541 regression — evaluating against the provenance-only collector failed
+# every scan tenet. Reproduce the exact wiring: provenance in one collector, the
+# four metadata statements in a second, and assert the verdict matches the
+# single-collector PASS. The provenance-only half asserts the bug fails closed.
+@test "ampel policy: default-go-v1 PASSES via the verify-job's split collectors (provenance + metadata)" {
+    local prov="$BATS_TEST_TMPDIR/prov.jsonl" meta="$BATS_TEST_TMPDIR/meta.jsonl"
+    head -1 "$TD/good-default.bundle.jsonl" > "$prov"
+    tail -n +2 "$TD/good-default.bundle.jsonl" > "$meta"
+    run "$AMPEL" verify -p "$DEFAULT_GO_LOGIC" -s "$SUBJECT" \
+        -c "jsonl:$prov" -c "jsonl:$meta" -x "$CTX" -f tty
+    [ "$status" -eq 0 ]
+}
+
+@test "ampel policy: default-go-v1 FAILS on the provenance-only collector (the #541 bug)" {
+    local prov="$BATS_TEST_TMPDIR/prov.jsonl"
+    head -1 "$TD/good-default.bundle.jsonl" > "$prov"
+    local rs="$BATS_TEST_TMPDIR/resultset.json"
+    run "$AMPEL" verify -p "$DEFAULT_GO_LOGIC" -s "$SUBJECT" -c "jsonl:$prov" -x "$CTX" \
+        --attest-results --attest-format=ampel --results-path="$rs" -f tty
+    [ "$status" -ne 0 ]
+    [ -s "$rs" ]
+    run jq -r '.predicate.results[] | select(.policy.id == "sbom-exists") | .status' "$rs"
+    [ "$output" = "FAIL" ]
+    run jq -r '.predicate.results[] | select(.policy.id == "osv-scan-clean") | .status' "$rs"
+    [ "$output" = "FAIL" ]
+}
+
 @test "ampel policy: default-go-v1 FAILS (osv) on an OSV scan with findings" {
     expect_fail "$DEFAULT_GO_LOGIC" "$TD/bad-osv-findings.bundle.jsonl" "osv-scan-clean"
 }

@@ -267,7 +267,7 @@ jobs:
 
       # oci-target seeds provenance from the registry referrer, skipping the dist/provenance downloads.
       # TODO: replace with $/actions/verify_release when GitHub ships $/ syntax (#136)
-      - uses: TomHennen/wrangle/actions/verify_release@cd0e0042b4b04786f965af4e9563ba742e5a53cf # main 2026-06-20
+      - uses: TomHennen/wrangle/actions/verify_release@a5afc97a46de3989346ef7b390b634489c0ba73f # fix-541-scan-collector 2026-06-20
         with:
           build-type: container
           shortname: ${{ needs.prep.outputs.shortname }}
