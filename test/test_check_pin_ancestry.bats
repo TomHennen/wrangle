@@ -25,6 +25,18 @@ pin_workflow() {
         > "$REPO/.github/workflows/x.yml"
 }
 
+# write_composite <sha> — commit actions/comp pinning actions/inner at <sha>
+# (committed, not just written, so the transitive walk can git-show it at the
+# returned sha), then print that commit.
+write_composite() {
+    mkdir -p "$REPO/actions/comp"
+    printf '      - uses: TomHennen/wrangle/actions/inner@%s # pin\n' "$1" \
+        > "$REPO/actions/comp/action.yml"
+    git -C "$REPO" add actions/comp/action.yml
+    git -C "$REPO" commit -q -m comp
+    git -C "$REPO" rev-parse HEAD
+}
+
 @test "check_pin_ancestry: PASSES when the pin is an ancestor of HEAD" {
     local a; a="$(commit "$REPO" A)"
     commit "$REPO" B >/dev/null
@@ -74,6 +86,35 @@ pin_workflow() {
     run bash -c "cd '$REPO' && '$SCRIPT'"
     [ "$status" -eq 1 ]
     [[ "$output" == *UNREACHABLE* ]]
+}
+
+@test "check_pin_ancestry: FAILS on a false-green — the pinned composite resolves a stale nested pin even when the working-tree copy is current" {
+    # Every literal sha is an ancestor (a flat check passes), but comp@s resolves
+    # a comp/action.yml that still nests the orphaned inner@<branch>.
+    local a; a="$(commit "$REPO" A)"
+    git -C "$REPO" checkout -q -b feature
+    local orphan; orphan="$(commit "$REPO" ORPHAN)"   # inner's branch sha
+    git -C "$REPO" checkout -q -
+    local s; s="$(write_composite "$orphan")"          # comp@s nests inner@orphan
+    # Working tree reflects a cycle-1 bump: comp now nests the reachable inner@a,
+    # but the workflow still pins comp@s (where comp nests inner@orphan).
+    printf '      - uses: TomHennen/wrangle/actions/inner@%s # pin\n' "$a" \
+        > "$REPO/actions/comp/action.yml"
+    printf '      - uses: TomHennen/wrangle/actions/comp@%s # pin\n' "$s" \
+        > "$REPO/.github/workflows/x.yml"
+    run bash -c "cd '$REPO' && '$SCRIPT'"
+    [ "$status" -eq 1 ]
+    [[ "$output" == *UNREACHABLE* ]]
+    [[ "$output" == *"$orphan"* ]]
+}
+
+@test "check_pin_ancestry: PASSES when a pinned composite resolves a nested pin that is an ancestor" {
+    local a; a="$(commit "$REPO" A)"
+    local s; s="$(write_composite "$a")"               # comp@s nests inner@a (ancestor)
+    printf '      - uses: TomHennen/wrangle/actions/comp@%s # pin\n' "$s" \
+        > "$REPO/.github/workflows/x.yml"
+    run bash -c "cd '$REPO' && '$SCRIPT'"
+    [ "$status" -eq 0 ]
 }
 
 @test "check_pin_ancestry: validates real YAML pins while ignoring placeholders in non-YAML and fixtures/" {

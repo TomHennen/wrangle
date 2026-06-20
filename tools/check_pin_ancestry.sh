@@ -2,28 +2,15 @@
 set -euo pipefail
 set -f
 
-# tools/check_pin_ancestry.sh — fail if any wrangle self-reference action pin
-# is not reachable from HEAD. Walks every tree that may carry such pins (the
-# shared tools/self_ref_pin_paths.sh set), not just .github/workflows, so a
-# nested pin in a composite is held to the same reachability invariant.
+# Fail if any wrangle self-reference pin resolves to a sha not reachable from
+# HEAD. Transitive: each pin is resolved at its pinned sha (git show <sha>:<path>)
+# and the pins nested in that action.yml are walked too, so a chain like
+# workflow -> verify_release -> verify holds at every hop. A working-tree-only
+# check false-greens after one re-bump of such a chain; a nested sha whose commit
+# is absent fails closed. Needs full history (CI runs it with fetch-depth: 0).
+# Bootstrap-pin lifecycle and re-bump recovery: docs/e2e_testing.md.
 #
-# Why this exists: a "bootstrap pin" (see test/integration/SPEC.md §Known
-# limitations) points a nested `TomHennen/wrangle/...@<sha>` self-reference at a
-# BRANCH sha so the integration test can exercise an action/policy change that
-# is not yet on main. That pin is reachable from HEAD on the PR branch (so this
-# check is green there), but a SQUASH merge orphans the branch sha — after which
-# release-showcase.yml (which tags every push to main) and any other main-side
-# caller can no longer resolve the action. This check turns that silent
-# post-merge breakage into a red CI check that forces the re-bump
-# (tools/bump_action_pins.sh <main-sha>).
-#
-# Reachable-from-HEAD is the correct invariant: on a PR, HEAD includes the
-# branch, so a bootstrap pin passes; on main after a squash, HEAD == main and
-# the orphaned sha is not an ancestor, so it fails. This needs full history —
-# the CI job that runs it checks out with fetch-depth: 0.
-#
-# Exit: 0 if every pin is reachable, 1 if any is missing/unreachable, 2 on a
-# usage/environment error.
+# Exit: 0 all reachable, 1 missing/unreachable, 2 usage/environment error.
 
 REPO_PREFIX="${WRANGLE_PINS_REPO:-TomHennen/wrangle}"
 
@@ -46,37 +33,69 @@ if [[ ${#search_dirs[@]} -eq 0 ]]; then
     exit 2
 fi
 
-# Collect the unique 40-hex shas pinned on a TomHennen/wrangle/...@<sha> ref.
-# Restricted to YAML and skipping fixtures/ so action/workflow files are
-# searched but shell scripts, SPEC.md, and lint fixtures (which carry
-# placeholder shas) can't false-match.
 # The prefix's '.' is escaped so an org/repo name can't act as a regex wildcard.
 escaped_prefix="$(printf '%s' "$REPO_PREFIX" | sed 's/\./\\./g')"
-mapfile -t shas < <(
+pin_re="${escaped_prefix}/[^@[:space:]]+@[0-9a-f]{40}"
+
+# Seed from pins declared in the working tree. YAML only, skipping fixtures/, so
+# shell scripts and lint placeholders can't false-match.
+mapfile -t root_refs < <(
     grep -rhoE --include='*.yml' --include='*.yaml' --exclude-dir=fixtures \
-        "${escaped_prefix}/[^@[:space:]]+@[0-9a-f]{40}" "${search_dirs[@]}" 2>/dev/null \
-        | grep -oE '[0-9a-f]{40}$' | sort -u
+        "$pin_re" "${search_dirs[@]}" 2>/dev/null | sort -u
 )
 
-if [[ ${#shas[@]} -eq 0 ]]; then
+if [[ ${#root_refs[@]} -eq 0 ]]; then
     printf 'check_pin_ancestry: no %s pins found in the pin paths\n' "$REPO_PREFIX"
     exit 0
 fi
 
+# BFS; <via> carries the parent so an unreachable nested pin names its source.
+declare -A visited=()
+queue=()
+for ref in "${root_refs[@]}"; do
+    queue+=("declared|$ref")
+done
+
 rc=0
-for sha in "${shas[@]}"; do
+checked=0
+while [[ ${#queue[@]} -gt 0 ]]; do
+    via="${queue[0]%%|*}"
+    ref="${queue[0]#*|}"
+    queue=("${queue[@]:1}")
+
+    rest="${ref#"$REPO_PREFIX"/}"
+    subpath="${rest%@*}"
+    sha="${rest##*@}"
+    key="$subpath@$sha"
+    [[ -n "${visited[$key]:-}" ]] && continue
+    visited[$key]=1
+    checked=$((checked + 1))
+
     if ! git -C "$repo_root" cat-file -e "${sha}^{commit}" 2>/dev/null; then
-        printf 'UNREACHABLE: %s — commit not present (shallow clone? the job needs fetch-depth: 0)\n' "$sha" >&2
+        printf 'UNREACHABLE: %s@%s — commit not present (shallow clone? the job needs fetch-depth: 0) [via %s]\n' \
+            "$subpath" "$sha" "$via" >&2
         rc=1
         continue
     fi
     if ! git -C "$repo_root" merge-base --is-ancestor "$sha" HEAD 2>/dev/null; then
-        printf 'UNREACHABLE: %s — not an ancestor of HEAD (orphaned by a squash merge? re-bump with tools/bump_action_pins.sh <main-sha>)\n' "$sha" >&2
+        printf 'UNREACHABLE: %s@%s — not an ancestor of HEAD (orphaned by a squash merge? re-bump with tools/bump_action_pins.sh <main-sha>) [via %s]\n' \
+            "$subpath" "$sha" "$via" >&2
         rc=1
+        continue
     fi
+
+    # Resolve the action at its pinned sha and walk the pins nested inside it.
+    # No action.yml at that sha = leaf (the ref may be a reusable workflow).
+    content="$(git -C "$repo_root" show "$sha:$subpath/action.yml" 2>/dev/null)" \
+        || content="$(git -C "$repo_root" show "$sha:$subpath/action.yaml" 2>/dev/null)" \
+        || content=""
+    [[ -z "$content" ]] && continue
+    while IFS= read -r nested; do
+        [[ -n "$nested" ]] && queue+=("${subpath}@${sha:0:9}|$nested")
+    done < <(printf '%s\n' "$content" | grep -hoE "$pin_re" | sort -u)
 done
 
 if [[ "$rc" -eq 0 ]]; then
-    printf 'check_pin_ancestry: all %d wrangle self-ref pin(s) reachable from HEAD\n' "${#shas[@]}"
+    printf 'check_pin_ancestry: all %d wrangle self-ref pin(s) reachable from HEAD\n' "$checked"
 fi
 exit "$rc"
