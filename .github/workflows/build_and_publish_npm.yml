@@ -145,7 +145,7 @@ jobs:
       metadata-pre: ${{ steps.prep.outputs.metadata-pre }}
     steps:
       # TODO: replace with $/actions/prep when GitHub ships $/ syntax (#136)
-      - uses: TomHennen/wrangle/actions/prep@1546eddfe43e1b74cbc27618cb48c91d96726579 # bootstrap: PR head until post-merge bump
+      - uses: TomHennen/wrangle/actions/prep@89ff2eb2523c6475e53f337e6d67e7ca0a78522d # bootstrap: PR head until post-merge bump
         id: prep
         with:
           build-type: npm

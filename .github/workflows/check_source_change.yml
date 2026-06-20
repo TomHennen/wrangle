@@ -28,7 +28,7 @@ jobs:
     permissions: {}    # guard reads env only — no workspace, no API, no secrets
     steps:
       # TODO: replace with $/actions/prep when GitHub ships $/ syntax (#136)
-      - uses: TomHennen/wrangle/actions/prep@6ddb817cf528110aff86879ca7fbf4ff84c52669 # main 2026-06-20
+      - uses: TomHennen/wrangle/actions/prep@89ff2eb2523c6475e53f337e6d67e7ca0a78522d # bootstrap: PR head until post-merge bump
 
   check-change:
     needs: [prep]
