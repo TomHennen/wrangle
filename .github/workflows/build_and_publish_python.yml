@@ -132,7 +132,7 @@ jobs:
       metadata-pre: ${{ steps.prep.outputs.metadata-pre }}
     steps:
       # TODO: replace with $/actions/prep when GitHub ships $/ syntax (#136)
-      - uses: TomHennen/wrangle/actions/prep@1e572138aaddd4fd5ac69340ebd7c1c88cba0fe6 # main 2026-06-20
+      - uses: TomHennen/wrangle/actions/prep@cd0e0042b4b04786f965af4e9563ba742e5a53cf # main 2026-06-20
         id: prep
         with:
           build-type: python
@@ -151,7 +151,7 @@ jobs:
       security-events: write
     steps:
       # TODO: replace with $/actions/scan when GitHub ships $/ syntax (#136)
-      - uses: TomHennen/wrangle/actions/scan@1e572138aaddd4fd5ac69340ebd7c1c88cba0fe6 # main 2026-06-20
+      - uses: TomHennen/wrangle/actions/scan@cd0e0042b4b04786f965af4e9563ba742e5a53cf # main 2026-06-20
         if: ${{ inputs.scan-tools != '' }}
         with:
           checkout: "true"
@@ -185,7 +185,7 @@ jobs:
           ref: ${{ inputs.ref || '' }}
 
       # TODO: replace with $/build/actions/python when GitHub ships $/ syntax (#136)
-      - uses: TomHennen/wrangle/build/actions/python@1e572138aaddd4fd5ac69340ebd7c1c88cba0fe6 # main 2026-06-20
+      - uses: TomHennen/wrangle/build/actions/python@cd0e0042b4b04786f965af4e9563ba742e5a53cf # main 2026-06-20
         id: build
         with:
           path: ${{ inputs.path }}
@@ -271,7 +271,7 @@ jobs:
       bundle-artifact-name: ${{ steps.attest.outputs.bundle-artifact-name }}
     steps:
       # TODO: replace with $/actions/attest_provenance when GitHub ships $/ syntax (#136)
-      - uses: TomHennen/wrangle/actions/attest_provenance@1e572138aaddd4fd5ac69340ebd7c1c88cba0fe6 # main 2026-06-20
+      - uses: TomHennen/wrangle/actions/attest_provenance@cd0e0042b4b04786f965af4e9563ba742e5a53cf # main 2026-06-20
         id: attest
         with:
           build-type: python
@@ -297,7 +297,7 @@ jobs:
       attestation-bundle-name: ${{ needs.prep.outputs.metadata }}
     steps:
       # TODO: replace with $/actions/verify_release when GitHub ships $/ syntax (#136)
-      - uses: TomHennen/wrangle/actions/verify_release@1e572138aaddd4fd5ac69340ebd7c1c88cba0fe6 # main 2026-06-20
+      - uses: TomHennen/wrangle/actions/verify_release@cd0e0042b4b04786f965af4e9563ba742e5a53cf # main 2026-06-20
         with:
           build-type: python
           shortname: ${{ needs.prep.outputs.shortname }}
