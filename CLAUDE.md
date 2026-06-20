@@ -6,7 +6,7 @@ Read `docs/SPEC.md` before contributing. It is the source of truth for architect
 
 ## How to think about wrangle conventions
 
-1. **Mechanical enforcement beats prose.** If a rule can be enforced by a lint, test, or CI check, do that — don't put it here. CLAUDE.md describes only what can't (yet) be mechanically caught.
+1. **Mechanical enforcement beats prose.** If a rule can be enforced by a lint, test, or CI check, add it there and link that check — don't restate it here. CLAUDE.md describes only what can't (yet) be mechanically caught.
 2. **Prefer language parsers over grep for code analysis.** AST tools (ast-grep, shellcheck, mvdan/sh, semgrep) beat regex/awk for any code-rule enforcer.
 3. **One sentence per rule.** What → here; why → linked issue or commit message.
 4. **Read upstream docs before integrating a tool.** Custom code (install.sh, CLI shims, verification logic) is the fallback, not the default. The adopting PR's description must note what upstream install paths and verification mechanisms exist, and why the chosen one was picked.
@@ -26,9 +26,8 @@ Then check the diff against the conventions below. After findings are addressed,
 
 ## Comments
 
-**Default to no comment.** Add one only for a genuinely non-obvious constraint, kept to one short line. Never restate what the code does, narrate rationale or history, or reference PR numbers, review threads, or policy docs — the rule lives in the doc, the comment states the constraint.
-
-**Describe current behavior, not history.** A reader who never saw the prior version is the audience — never "replaces the old X", "previously…", or "now does Y instead of Z". Migration rationale belongs in the PR, not the committed code.
+- **Default to no comment.** Add one only for a genuinely non-obvious constraint, kept to one short line. Never restate what the code does, narrate rationale or history, or reference PR numbers, review threads, or policy docs — the rule lives in the doc, the comment states the constraint.
+- **Describe current behavior, not history.** A reader who never saw the prior version is the audience — never "replaces the old X", "previously…", or "now does Y instead of Z". Migration rationale belongs in the PR, not the committed code.
 
 ## Adopter-facing docs
 
@@ -41,13 +40,12 @@ The per-build-type READMEs, `docs/verifying_artifacts.md`, the top-level `README
 
 ## Shell scripts
 
-Every script starts with the exact preamble `set -euo pipefail` then `set -f` (disable globbing) — one canonical form, so supersets (`set -Eeuo pipefail`) and decompositions (`set -e -u -o pipefail`) are rejected; add `set -E` on its own line after if you need ERR trap inheritance. Scripts needing globbing wrap it in a narrowly-scoped `set +f` / `set -f` with a comment, and sourced libs restore `set -f` before returning. Everything else (quoting, `$(…)` over backticks, `[[ ]]`, `printf` for user data) is `tools/wrangle-shell-lint/` territory — WSL001–007, where `curl | sh` is WSL006 and `set +f` outside a subshell is WSL007.
+All shell conventions — preamble form, quoting, `printf` over `echo`, `[[ ]]` over `[ ]`, `curl | sh`, globbing / `set +f`, justified suppressions — are enforced by `tools/wrangle-shell-lint/` (WSL001–007) and `shellcheck`; the rule list lives there. Add new mechanical shell rules to the linter, not here.
 
 ## GitHub Actions
 
-- **Inline shell ≤ 10 physical lines** (preamble, blanks, comments all count); longer or anything with logic → extract to a script. Enforced by `tools/wrangle-workflow-lint/` (WWL001).
-- **No expression injection.** NEVER interpolate `${{ inputs.* }}`, `${{ github.event.* }}`, or any attacker-controllable expression directly in a `run:` block — always thread through `env:` first.
-- **No copy-paste across workflows.** A `run:` block or step sequence appearing in more than two workflow files → extract to a composite or shared script.
+- **No copy-paste across workflows.** A `run:` block or step sequence appearing in more than two workflow files → extract to a composite or shared script. (The one rule here not yet mechanically caught.)
+- Inline-shell length and expression injection (`${{ inputs.* }}` / `${{ github.event.* }}` or other attacker-controllable expressions in a `run:` body) are caught by `tools/wrangle-workflow-lint/` (WWL001–002) and zizmor; thread such expressions through `env:` first.
 
 ## Dependencies & pinning
 
@@ -57,15 +55,22 @@ Every script starts with the exact preamble `set -euo pipefail` then `set -f` (d
 
 ## Adapter contract (full: SPEC.md §Adapter Script Interface)
 
-Adapters take `<src_dir>` (read-only) and `<output_dir>` (writable), write `output.sarif` (SARIF 2.1.0), exit 0 (no findings) / 1 (findings) / 2 (tool error). Do not write outside `output_dir` or access secrets. `jq` exit codes are checked — malformed SARIF MUST cause exit 2, not silent success.
+- Take `<src_dir>` (read-only) and `<output_dir>` (writable); write `output.sarif` (SARIF 2.1.0).
+- Exit 0 (no findings) / 1 (findings) / 2 (tool error) — malformed SARIF MUST exit 2 (checked via `jq` exit codes), not silent success.
+- Do not write outside `output_dir` or access secrets.
 
 ## Layout & path resolution
 
-Tools live in `tools/<name>/`. Three patterns: **adapter** (`adapter.sh` + `test.bats`, binary from a tools/go.mod `tool` directive or a bespoke `install.sh` for tools no package manager ships; wired into `actions/scan/action.yml`); **action** (`action.yml` + `test.bats`) for tools with official GitHub Actions; **developer tooling** (whatever it needs + `test.bats`) for things used only during development, not by adopters (e.g. `bump_action_pins`, `wrangle-shell-lint`).
+Tools live in `tools/<name>/`, in one of three patterns:
 
-An action's own helper scripts live in its `actions/<name>/` directory beside `action.yml`, **with their bats next to them** (`actions/<name>/*.bats`). `lib/` is only for helpers shared across multiple actions/tools (`env.sh`, `sanitize.sh`, `download_verify.sh`); `test/` holds shared-lib and cross-cutting tests.
+- **adapter** — `adapter.sh` + `test.bats`; binary from a tools/go.mod `tool` directive or a bespoke `install.sh` for tools no package manager ships; wired into `actions/scan/action.yml`.
+- **action** — `action.yml` + `test.bats`, for tools with official GitHub Actions.
+- **developer tooling** — whatever it needs + `test.bats`, for things used only during development, not by adopters (e.g. `bump_action_pins`, `wrangle-shell-lint`).
 
-Scripts resolve paths relative to their own location via `SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"`, never `$PWD`. The scan action at `actions/scan/` must remain at that depth — moving it breaks all adopters.
+Beyond the per-tool directory:
+
+- An action's own helper scripts live beside its `action.yml` in `actions/<name>/`, with their bats next to them (`actions/<name>/*.bats`). `lib/` is only for helpers shared across actions/tools (`env.sh`, `sanitize.sh`, `download_verify.sh`); `test/` holds shared-lib and cross-cutting tests.
+- Scripts resolve paths via `SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"`, never `$PWD`. The scan action at `actions/scan/` must stay at that depth — moving it breaks all adopters.
 
 ## Testing
 
@@ -79,7 +84,7 @@ Run `make test` before pushing — it's the exact suite CI runs. With the host t
 ## Supply chain discipline
 
 - **No `curl | sh` anywhere.** All binary downloads go through `lib/download_verify.sh`.
-- **No auto-merge of dependency updates.** Adopt new upstream versions after a delay (aim for 7 days) to let the community discover supply chain attacks first.
+- **No auto-merge of dependency updates.** Adopt new upstream versions after a delay (7-day cooldown, enforced by `wrangle-lint` WL005) to let the community discover supply chain attacks first.
 - **No downloading checksums from the same source as binaries.** Checksums are hardcoded; version + checksum updates are always a single atomic commit.
 - **Avoid linter/scanner suppressions; do it right.** Restructure the code so the finding goes away rather than adding `# zizmor: ignore[...]` / `# shellcheck disable=...`. Suppressions are for genuine false positives only, with a one-line justification.
 
