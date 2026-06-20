@@ -175,6 +175,14 @@ Post-v1.0 — see [`ampel_research.md`](ampel_research.md).
 | `metadata.invocationId/startedOn/finishedOn` | no required level | MEETS | Emitted by `attest-build-provenance` where present (control-plane populated; none required). |
 | `builderDependencies`, `builder.version`, `byproducts` | optional | N/A | Not used. |
 
+These cells are artifact-backed, not prose-only: `test/consumer/verify_consumer_provenance.bats`
+verifies a real signed `attest-build-provenance` capture per artifact-producing build type
+(go, python, npm, container) against the shipped `wrangle-provenance-<type>-v1.hjson`, then
+asserts each field above (predicate type, `buildType`, per-type `builder.id`,
+`externalParameters` keys, `metadata.invocationId`, `resolvedDependencies` shape) — so a
+provenance-shape change that voids a MEETS cell fails CI. `metadata.startedOn/finishedOn` are
+not emitted, which is why the row scopes to "where present".
+
 **Builder identity.** wrangle sets `builder.id` to the reusable workflow's own path —
 `https://github.com/TomHennen/wrangle/.github/workflows/build_and_publish_go.yml@<ref>`
 for Go, `…/build_and_publish_python.yml@<ref>` for Python, and so on (verified on a
