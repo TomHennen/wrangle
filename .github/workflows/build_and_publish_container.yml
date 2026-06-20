@@ -109,7 +109,7 @@ jobs:
     permissions: {}    # reads env only — no workspace, no API, no secrets
     steps:
       # TODO: replace with $/actions/preflight_guard when GitHub ships $/ syntax (#136)
-      - uses: TomHennen/wrangle/actions/preflight_guard@101e5e1f688d904c8dd08c7ce878540f1aef9790 # rationalize-release-assets-489 2026-06-20
+      - uses: TomHennen/wrangle/actions/preflight_guard@6b0927ce2930018873c5470d41d1ba09491569de # rationalize-release-assets-489 2026-06-20
 
   gate:
     needs: [guard]
@@ -120,7 +120,7 @@ jobs:
     steps:
       # No checkout: release_gate resolves via ${{ github.action_path }}.
       # TODO: replace with $/actions/release_gate when GitHub ships $/ syntax (#136)
-      - uses: TomHennen/wrangle/actions/release_gate@101e5e1f688d904c8dd08c7ce878540f1aef9790 # rationalize-release-assets-489 2026-06-20
+      - uses: TomHennen/wrangle/actions/release_gate@6b0927ce2930018873c5470d41d1ba09491569de # rationalize-release-assets-489 2026-06-20
         id: gate
         with:
           events: ${{ inputs.release-events }}
@@ -145,7 +145,7 @@ jobs:
 
       # Shared name derivation so the scan and build jobs can't drift.
       # TODO: replace with $/actions/package_metadata when GitHub ships $/ syntax (#136)
-      - uses: TomHennen/wrangle/actions/package_metadata@101e5e1f688d904c8dd08c7ce878540f1aef9790 # rationalize-release-assets-489 2026-06-20
+      - uses: TomHennen/wrangle/actions/package_metadata@6b0927ce2930018873c5470d41d1ba09491569de # rationalize-release-assets-489 2026-06-20
         id: names
         if: ${{ inputs.scan-tools != '' }}
         with:
@@ -153,7 +153,7 @@ jobs:
           path: ${{ inputs.path }}
 
       # TODO: replace with $/actions/scan when GitHub ships $/ syntax (#136)
-      - uses: TomHennen/wrangle/actions/scan@101e5e1f688d904c8dd08c7ce878540f1aef9790 # rationalize-release-assets-489 2026-06-20
+      - uses: TomHennen/wrangle/actions/scan@6b0927ce2930018873c5470d41d1ba09491569de # rationalize-release-assets-489 2026-06-20
         if: ${{ inputs.scan-tools != '' }}
         with:
           tools: ${{ inputs.scan-tools }}
@@ -184,7 +184,7 @@ jobs:
     # TODO: replace with $/build/actions/container when GitHub ships $/ syntax (#136)
     - name: "build and publish"
       id: build
-      uses: TomHennen/wrangle/build/actions/container@101e5e1f688d904c8dd08c7ce878540f1aef9790 # rationalize-release-assets-489 2026-06-20
+      uses: TomHennen/wrangle/build/actions/container@6b0927ce2930018873c5470d41d1ba09491569de # rationalize-release-assets-489 2026-06-20
       with:
         path: ${{ inputs.path }}
         imagename: ${{ inputs.imagename }}
@@ -284,7 +284,7 @@ jobs:
 
       # oci-target seeds provenance from the registry referrer, skipping the dist/provenance downloads.
       # TODO: replace with $/actions/verify_release when GitHub ships $/ syntax (#136)
-      - uses: TomHennen/wrangle/actions/verify_release@101e5e1f688d904c8dd08c7ce878540f1aef9790 # rationalize-release-assets-489 2026-06-20
+      - uses: TomHennen/wrangle/actions/verify_release@6b0927ce2930018873c5470d41d1ba09491569de # rationalize-release-assets-489 2026-06-20
         with:
           build-type: container
           shortname: ${{ needs.build.outputs.shortname }}
