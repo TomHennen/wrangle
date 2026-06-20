@@ -75,6 +75,30 @@ setup() {
     [[ "$output" == *'default: "wrangle-scan-results"'* ]]
 }
 
+@test "scan: optional checkout is opt-in, gated on the checkout input" {
+    run grep -F "if: inputs.checkout == 'true'" "$ACTION_DIR/action.yml"
+    [ "$status" -eq 0 ]
+    run grep -F 'persist-credentials: false' "$ACTION_DIR/action.yml"
+    [ "$status" -eq 0 ]
+    run grep -F 'ref: ${{ inputs.ref }}' "$ACTION_DIR/action.yml"
+    [ "$status" -eq 0 ]
+}
+
+@test "scan: checkout defaults to false so self-checkout callers don't double-checkout" {
+    run bash -c "grep -A10 '^  checkout:' '$ACTION_DIR/action.yml' | grep -m1 'default:'"
+    [ "$status" -eq 0 ]
+    [[ "$output" == *'default: "false"'* ]]
+}
+
+@test "scan: checkout step precedes the tool steps (source exists before scanning)" {
+    # The tools scan $GITHUB_WORKSPACE, so an opt-in checkout must run before
+    # the wrangle setup + tool steps.
+    checkout_line="$(grep -n 'Check out source' "$ACTION_DIR/action.yml" | head -1 | cut -d: -f1)"
+    setup_line="$(grep -n 'Set up wrangle' "$ACTION_DIR/action.yml" | head -1 | cut -d: -f1)"
+    [ -n "$checkout_line" ] && [ -n "$setup_line" ]
+    [ "$checkout_line" -lt "$setup_line" ]
+}
+
 @test "scan: references zizmor action" {
     run grep 'uses:.*tools/zizmor' "$ACTION_DIR/action.yml"
     [ "$status" -eq 0 ]

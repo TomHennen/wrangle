@@ -131,7 +131,7 @@ teardown() {
 }
 
 @test "container: scan steps are gated on scan-tools so empty disables scanning" {
-    # scan-tools: "" skips both steps; the scan job then concludes success
+    # scan-tools: "" skips the scan step; the scan job then concludes success
     # and never blocks the build/push.
     local wf="$REPO_ROOT/.github/workflows/build_and_publish_container.yml"
     run bash -c "sed -n '/^  scan:/,/^  [a-z]/p' \"$wf\" | grep -E \"if:.*inputs.scan-tools != ''\""

@@ -724,7 +724,7 @@ write_pkg_json() {
 }
 
 @test "npm: scan steps are gated on scan-tools so empty disables scanning" {
-    # scan-tools: "" skips both steps; the scan job then concludes success
+    # scan-tools: "" skips the scan step; the scan job then concludes success
     # and never blocks the attest/publish path.
     run bash -c "sed -n '/^  scan:/,/^  [a-z]/p' \"$WORKFLOW\" | grep -E \"if:.*inputs.scan-tools != ''\""
     [[ "$status" -eq 0 ]]
