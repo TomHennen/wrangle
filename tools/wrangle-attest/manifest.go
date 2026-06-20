@@ -21,6 +21,17 @@ const (
 	predicateScanV1    = "https://github.com/TomHennen/wrangle/attestation/scan/v1"
 )
 
+// scanTools is the allowlist of honored <root>/scan/<tool>/ subdirectories. A
+// build-time dependency could plant scan/<faketool>/wrangle_attestation_metadata.json
+// at a canonical-shaped path; only the tools wrangle actually runs are signed.
+var scanTools = map[string]bool{
+	"osv":               true,
+	"zizmor":            true,
+	"wrangle-lint":      true,
+	"scorecard":         true,
+	"dependency-review": true,
+}
+
 // manifest is the tool↔engine contract written next to each native result.
 // `result-file` is resolved relative to the manifest's own directory so a
 // producer cannot escape its metadata dir or reach an absolute path.
@@ -67,9 +78,25 @@ func (m *manifest) validate() error {
 	return nil
 }
 
-// resultPath is the absolute path to the manifest's native result file.
-func (m *manifest) resultPath() string {
-	return filepath.Join(m.dir, m.ResultFile)
+// resultPath is the absolute path to the manifest's native result file, with
+// symlinks resolved and asserted to stay within the manifest's own directory.
+// filepath.IsLocal in validate blocks lexical `..`/absolute paths but follows
+// symlinks; a result-file symlinked out of its dir would otherwise read a
+// sibling artifact or an arbitrary file into a wrangle-signed predicate.
+func (m *manifest) resultPath() (string, error) {
+	realDir, err := filepath.EvalSymlinks(m.dir)
+	if err != nil {
+		return "", fmt.Errorf("result-file dir: %w", err)
+	}
+	realPath, err := filepath.EvalSymlinks(filepath.Join(m.dir, m.ResultFile))
+	if err != nil {
+		return "", fmt.Errorf("result-file: %w", err)
+	}
+	rel, err := filepath.Rel(realDir, realPath)
+	if err != nil || rel == ".." || strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
+		return "", fmt.Errorf("result-file %q resolves outside the manifest directory", m.ResultFile)
+	}
+	return realPath, nil
 }
 
 const manifestFile = "wrangle_attestation_metadata.json"
@@ -110,11 +137,19 @@ func discoverManifests(roots []string) ([]manifest, error) {
 		}
 	}
 	sort.Slice(found, func(i, j int) bool { return found[i].dir < found[j].dir })
+	seen := make(map[string]bool, len(found))
+	for _, m := range found {
+		if seen[m.dir] {
+			return nil, fmt.Errorf("duplicate manifest directory %q", m.dir)
+		}
+		seen[m.dir] = true
+	}
 	return found, nil
 }
 
-// scanToolDirs returns the immediate child directories of <root>/scan/. A
-// missing scan/ dir is not an error. Non-directory entries are skipped; the
+// scanToolDirs returns the honored child directories of <root>/scan/: only the
+// allowlisted tool names (scanTools), never a bare scan/* glob. A missing scan/
+// dir is not an error. Non-directory entries and unknown names are skipped; the
 // lookup never recurses below scan/<tool>/.
 func scanToolDirs(root string) ([]string, error) {
 	scanRoot := filepath.Join(root, "scan")
@@ -127,7 +162,7 @@ func scanToolDirs(root string) ([]string, error) {
 	}
 	var dirs []string
 	for _, e := range entries {
-		if e.IsDir() {
+		if e.IsDir() && scanTools[e.Name()] {
 			dirs = append(dirs, filepath.Join(scanRoot, e.Name()))
 		}
 	}

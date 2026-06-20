@@ -179,6 +179,64 @@ func TestDiscoverManifestsScanBounded(t *testing.T) {
 	}
 }
 
+// A scan/<faketool>/ dir outside the allowlist is ignored — not signed, not an
+// error — while an allowlisted sibling is still honored. Closes the "plant
+// scan/evil/wrangle_attestation_metadata.json at a canonical-shaped path" forge.
+func TestDiscoverManifestsScanAllowlist(t *testing.T) {
+	root := t.TempDir()
+	writeFile(t, root, "scan/zizmor/wrangle_attestation_metadata.json", `{"predicate-type":"https://github.com/TomHennen/wrangle/attestation/scan/v1","result-file":"output.sarif","tool":{"name":"zizmor","version":"1.0"},"result":"clean"}`)
+	writeFile(t, root, "scan/evil/wrangle_attestation_metadata.json", `{"predicate-type":"https://evil.example/x","result-file":"r.json"}`)
+	got, err := discoverManifests([]string{root})
+	if err != nil {
+		t.Fatalf("a non-allowlisted scan dir must not cause an error: %v", err)
+	}
+	if len(got) != 1 || got[0].PredicateType != predicateScanV1 {
+		t.Fatalf("expected only the allowlisted zizmor manifest, got %d", len(got))
+	}
+}
+
+// A result-file symlinked out of its manifest dir is rejected at read time, even
+// though it is lexically local. Closes the "symlink result-file to a sibling
+// artifact / arbitrary file and get its content signed" forge.
+func TestResultPathSymlinkEscape(t *testing.T) {
+	root := t.TempDir()
+	outside := filepath.Join(t.TempDir(), "secret.json")
+	if err := os.WriteFile(outside, []byte(`{"x":1}`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	mdir := filepath.Join(root, "md")
+	if err := os.MkdirAll(mdir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(outside, filepath.Join(mdir, "sbom.spdx.json")); err != nil {
+		t.Fatal(err)
+	}
+	m := manifest{PredicateType: predicateSPDX, ResultFile: "sbom.spdx.json", dir: mdir}
+	if _, err := m.resultPath(); err == nil {
+		t.Fatal("expected symlinked result-file to be rejected")
+	}
+}
+
+// A result-file symlink that stays within the manifest dir resolves normally —
+// the containment check rejects escapes, not all symlinks.
+func TestResultPathSymlinkInDir(t *testing.T) {
+	dir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dir, "real.json"), []byte(`{"x":1}`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink("real.json", filepath.Join(dir, "sbom.spdx.json")); err != nil {
+		t.Fatal(err)
+	}
+	m := manifest{PredicateType: predicateSPDX, ResultFile: "sbom.spdx.json", dir: dir}
+	got, err := m.resultPath()
+	if err != nil {
+		t.Fatalf("an in-dir symlink must resolve: %v", err)
+	}
+	if want, _ := filepath.EvalSymlinks(filepath.Join(dir, "real.json")); got != want {
+		t.Fatalf("resultPath = %q, want %q", got, want)
+	}
+}
+
 // A malformed manifest at an honored scan/<tool>/ location fails closed.
 func TestDiscoverManifestsScanFailClosed(t *testing.T) {
 	root := t.TempDir()

@@ -35,7 +35,11 @@ func buildStatement(m manifest, subject *intoto.ResourceDescriptor, commit strin
 // statement. Passthrough types embed the JSON object as-is; the scan/v1 type
 // wraps SARIF in {tool, scannedCommit, result, sarif}.
 func buildPredicate(m manifest, commit string) (*structpb.Struct, error) {
-	raw, err := os.ReadFile(m.resultPath())
+	path, err := m.resultPath()
+	if err != nil {
+		return nil, err
+	}
+	raw, err := os.ReadFile(path)
 	if err != nil {
 		return nil, fmt.Errorf("result-file: %w", err)
 	}

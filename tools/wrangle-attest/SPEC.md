@@ -63,10 +63,16 @@ wrangle-attest --metadata-root <dir>... (--subject sha256:<hex> | --artifact <fi
 ```
 
 Honors the canonical top-level `<root>/wrangle_attestation_metadata.json` plus,
-for each immediate child dir of `<root>/scan/`, `<root>/scan/<tool>/wrangle_attestation_metadata.json`
-(a bounded one-level lookup, no recursion). Any other `wrangle_attestation_metadata.json`
-deeper in the tree or outside those two locations is ignored (a build-time
-dependency could plant one to forge a wrangle-signed attestation).
+for each allowlisted tool dir under `<root>/scan/` (`osv`, `zizmor`,
+`wrangle-lint`, `scorecard`, `dependency-review`),
+`<root>/scan/<tool>/wrangle_attestation_metadata.json` (a bounded one-level
+lookup, no recursion). Any other `wrangle_attestation_metadata.json` — deeper in
+the tree, outside those locations, or under a non-allowlisted `scan/<dir>/` — is
+ignored (a build-time dependency could plant one to forge a wrangle-signed
+attestation). The discovered set is deduplicated by directory and signed in a
+deterministic order. A `result-file` is read only after its symlink-resolved
+real path is asserted to stay within the manifest's own directory, so a symlink
+can't pull a sibling artifact or an arbitrary file into a signed predicate.
 Builds one Statement per honored manifest bound to the subject and writes them
 all to `--out` as JSONL. `--commit` is woven into the `scan/v1` envelope only;
 passthrough predicates ignore it.
