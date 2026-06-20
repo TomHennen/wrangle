@@ -65,7 +65,7 @@ jobs:
     permissions: {}    # guard reads env only — no workspace, no API, no secrets
     steps:
       # TODO: replace with $/actions/prep when GitHub ships $/ syntax (#136)
-      - uses: TomHennen/wrangle/actions/prep@664df2f26c43826bf2e42be001d7b8a5df5ff362 # bootstrap: PR head until post-merge bump
+      - uses: TomHennen/wrangle/actions/prep@731eb4e95e4c53cce9dd8d57f0ba5c626517b39f # bootstrap: PR head until post-merge bump
 
   # Source scan. A load-bearing (:fail) finding fails the run alongside
   # the shell build/test (there is no artifact to gate publishing of).
