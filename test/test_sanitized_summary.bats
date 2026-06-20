@@ -181,6 +181,16 @@ teardown() {
     [[ "$output" != *"TEST-001"* ]]
 }
 
+@test "sanitized summary: passthrough tool (output.md, no SARIF) gets a score row" {
+    mkdir -p "$TEST_DIR/metadata/scorecard"
+    printf '%s' "Aggregate score: 7.4 / 10" > "$TEST_DIR/metadata/scorecard/output.md"
+
+    output=$("$FORMATTER" "$TEST_DIR/metadata")
+
+    [[ "$output" == *"| scorecard | Score (see details) |"* ]]
+    [[ "$output" == *"Aggregate score: 7.4 / 10"* ]]
+}
+
 @test "sanitized summary: SARIF fallback sanitizes injection content" {
     mkdir -p "$TEST_DIR/metadata/injected"
     cp "$ORIG_DIR/test/fixtures/injection.sarif" "$TEST_DIR/metadata/injected/output.sarif"

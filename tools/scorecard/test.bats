@@ -4,7 +4,8 @@
 #
 # Action-pattern tools wrap an upstream GitHub Action, so there is no
 # install.sh or adapter.sh to unit-test. These tests validate the
-# action.yml structure and that supporting files are correct.
+# action.yml structure, the JSON markdown renderer, and the attestation
+# manifest drop.
 #
 # Full integration testing happens in CI when the scan action invokes
 # tools/scorecard/action.yml against the wrangle repo itself (dogfooding).
@@ -14,8 +15,12 @@ setup() {
     export ORIG_DIR
     TMP_DIR="$(mktemp -d "${TMPDIR:-/tmp}/scorecard-bats-XXXXXX")"
     export TMP_DIR
-    SCRIPT="$ORIG_DIR/tools/scorecard/sarif_to_markdown.sh"
+    SCRIPT="$ORIG_DIR/tools/scorecard/json_to_markdown.sh"
     export SCRIPT
+    WRITE_MANIFEST="$ORIG_DIR/lib/write_attest_manifest.sh"
+    export WRITE_MANIFEST
+    FIXTURE="$ORIG_DIR/tools/scorecard/testdata/scorecard.json"
+    export FIXTURE
 }
 
 teardown() {
@@ -32,7 +37,21 @@ teardown() {
     grep -q 'ossf/scorecard-action@[0-9a-f]\{40\}' "$ORIG_DIR/tools/scorecard/action.yml"
 }
 
-@test "scorecard: sarif_to_markdown.sh exists and is executable" {
+@test "scorecard: action.yml runs scorecard in json format" {
+    grep -q 'results_format: json' "$ORIG_DIR/tools/scorecard/action.yml"
+    grep -q 'results_file:.*scorecard/output.json' "$ORIG_DIR/tools/scorecard/action.yml"
+}
+
+@test "scorecard: action.yml does not emit SARIF" {
+    ! grep -q 'output.sarif' "$ORIG_DIR/tools/scorecard/action.yml"
+    ! grep -q 'results_format: sarif' "$ORIG_DIR/tools/scorecard/action.yml"
+}
+
+@test "scorecard: scan action no longer uploads scorecard SARIF to Security tab" {
+    ! grep -q 'category: wrangle/scorecard' "$ORIG_DIR/actions/scan/action.yml"
+}
+
+@test "scorecard: json_to_markdown.sh exists and is executable" {
     [ -x "$SCRIPT" ]
 }
 
@@ -44,126 +63,94 @@ teardown() {
     [ ! -f "$ORIG_DIR/tools/scorecard/adapter.sh" ]
 }
 
-# --- ensure_sarif.sh behavioral tests ---
-
-@test "ensure_sarif: writes a valid empty SARIF when the file is missing" {
-    run "$ORIG_DIR/tools/scorecard/ensure_sarif.sh" "$TMP_DIR/out.sarif"
-    [ "$status" -eq 0 ]
-    [ -f "$TMP_DIR/out.sarif" ]
-    run jq -e '.version == "2.1.0" and (.runs[0].results | length) == 0' "$TMP_DIR/out.sarif"
-    [ "$status" -eq 0 ]
-}
-
-@test "ensure_sarif: leaves an existing SARIF untouched" {
-    printf '{"version":"2.1.0","runs":[{"tool":{"driver":{"name":"scorecard"}},"results":[{"ruleId":"R"}]}]}' > "$TMP_DIR/out.sarif"
-    run "$ORIG_DIR/tools/scorecard/ensure_sarif.sh" "$TMP_DIR/out.sarif"
-    [ "$status" -eq 0 ]
-    # The pre-existing result must survive — the script must not overwrite.
-    run jq -e '.runs[0].results[0].ruleId == "R"' "$TMP_DIR/out.sarif"
-    [ "$status" -eq 0 ]
-}
-
-@test "ensure_sarif: usage error with no args" {
-    run "$ORIG_DIR/tools/scorecard/ensure_sarif.sh"
-    [ "$status" -eq 1 ]
-    [[ "$output" == *"Usage:"* ]]
-}
-
 @test "scorecard: action.yml writes to wrangle metadata directory" {
     grep -q '\.wrangle/metadata/scorecard' "$ORIG_DIR/tools/scorecard/action.yml"
 }
 
-# --- sarif_to_markdown.sh behavioral tests ---
+# --- attestation manifest tests ---
 
-@test "sarif_to_markdown: emits header and a row per result" {
-    cat > "$TMP_DIR/in.sarif" <<'SARIF'
-{
-  "version": "2.1.0",
-  "runs": [{
-    "tool": {"driver": {"name": "scorecard"}},
-    "results": [
-      {"ruleId": "Token-Permissions",
-       "message": {"text": "Job permissions too broad"},
-       "locations": [{"physicalLocation": {"artifactLocation": {"uri": ".github/workflows/ci.yml"}}}]}
-    ]
-  }]
-}
-SARIF
-    run "$SCRIPT" "$TMP_DIR/in.sarif"
+@test "scorecard: manifest written when JSON present, with scorecard predicate" {
+    cp "$FIXTURE" "$TMP_DIR/output.json"
+    run "$WRITE_MANIFEST" "$TMP_DIR" "https://scorecard.dev/result/v0.1" "output.json"
     [ "$status" -eq 0 ]
-    [[ "$output" == *"Rule Name | Location | Message"* ]]
-    [[ "$output" == *"--------- | -------- | -------"* ]]
-    [[ "$output" == *"Token-Permissions | .github/workflows/ci.yml | Job permissions too broad"* ]]
-}
-
-@test "sarif_to_markdown: empty results -> header only, exit 0" {
-    cat > "$TMP_DIR/in.sarif" <<'SARIF'
-{"version":"2.1.0","runs":[{"tool":{"driver":{"name":"scorecard"}},"results":[]}]}
-SARIF
-    run "$SCRIPT" "$TMP_DIR/in.sarif"
+    [ -f "$TMP_DIR/wrangle_attestation_metadata.json" ]
+    run jq -e '."predicate-type" == "https://scorecard.dev/result/v0.1"' "$TMP_DIR/wrangle_attestation_metadata.json"
     [ "$status" -eq 0 ]
-    [[ "$output" == *"Rule Name | Location | Message"* ]]
-    # No data rows.
-    body=$(printf '%s\n' "$output" | tail -n +3)
-    [[ -z "$body" ]]
+    run jq -e '."result-file" == "output.json"' "$TMP_DIR/wrangle_attestation_metadata.json"
+    [ "$status" -eq 0 ]
 }
 
-@test "sarif_to_markdown: strips HTML tags from message text (no summary HTML rendering)" {
-    # Scorecard messages occasionally include <a> tags pointing at the
-    # remediation docs. The summary renders as markdown, so HTML must be
-    # stripped to prevent confusing rendering — and to defeat any
-    # attacker-influenced markup if scorecard ever surfaced upstream text.
-    cat > "$TMP_DIR/in.sarif" <<'SARIF'
-{
-  "version": "2.1.0",
-  "runs": [{
-    "tool": {"driver": {"name": "scorecard"}},
-    "results": [
-      {"ruleId": "R", "message": {"text": "see <a href=\"x\">docs</a> for details"},
-       "locations": [{"physicalLocation": {"artifactLocation": {"uri": "f"}}}]}
-    ]
-  }]
+@test "scorecard: no manifest written when JSON absent" {
+    # Drive action.yml's [[ -f output.json ]] guard: with no output.json the
+    # manifest helper is never invoked, so nothing empty is attested.
+    if [[ -f "$TMP_DIR/output.json" ]]; then
+        run "$WRITE_MANIFEST" "$TMP_DIR" "https://scorecard.dev/result/v0.1" "output.json"
+    fi
+    [ ! -f "$TMP_DIR/wrangle_attestation_metadata.json" ]
 }
-SARIF
-    run "$SCRIPT" "$TMP_DIR/in.sarif"
+
+# --- json_to_markdown.sh behavioral tests ---
+
+@test "json_to_markdown: emits aggregate score and a checks table" {
+    run "$SCRIPT" "$FIXTURE"
+    [ "$status" -eq 0 ]
+    [[ "$output" == *"Aggregate score: 7.4 / 10"* ]]
+    [[ "$output" == *"Check | Score | Reason"* ]]
+    [[ "$output" == *"----- | ----- | ------"* ]]
+    [[ "$output" == *"Binary-Artifacts | 10 | no binaries found in the repo"* ]]
+    [[ "$output" == *"Branch-Protection | 3 | "* ]]
+}
+
+@test "json_to_markdown: missing checks -> score line + header only, exit 0" {
+    printf '{"score":5.0}' > "$TMP_DIR/in.json"
+    run "$SCRIPT" "$TMP_DIR/in.json"
+    [ "$status" -eq 0 ]
+    [[ "$output" == *"Aggregate score: 5.0 / 10"* ]]
+    [[ "$output" == *"Check | Score | Reason"* ]]
+}
+
+@test "json_to_markdown: strips HTML tags from reason text" {
+    cat > "$TMP_DIR/in.json" <<'JSON'
+{"score":1,"checks":[{"name":"R","score":0,"reason":"see <a href=\"x\">docs</a>"}]}
+JSON
+    run "$SCRIPT" "$TMP_DIR/in.json"
     [ "$status" -eq 0 ]
     [[ "$output" != *"<a"* ]]
-    [[ "$output" != *"</a>"* ]]
-    [[ "$output" == *"see docs for details"* ]]
+    [[ "$output" == *"see docs"* ]]
 }
 
-@test "sarif_to_markdown: truncates output at WRANGLE_MAX_SUMMARY bytes" {
-    # Step summaries have a hard 1 MiB cap; one verbose scorecard run can
-    # blow past it. The truncation is the protection.
+@test "json_to_markdown: truncates checks at WRANGLE_MAX_SUMMARY bytes, exit 0" {
+    # Many checks with long reasons so output far exceeds the cap and jq/sed
+    # are still streaming when head closes the pipe — the case that SIGPIPEs a
+    # pipe-into-head under pipefail into a false exit 2.
     {
-        printf '{"version":"2.1.0","runs":[{"tool":{"driver":{"name":"scorecard"}},"results":['
-        # 200 results × ~120 bytes each ~= 24 KiB of body.
-        for i in $(seq 1 200); do
+        printf '{"score":5,"checks":['
+        for i in $(seq 1 2000); do
             [[ "$i" -gt 1 ]] && printf ','
-            printf '{"ruleId":"R%d","message":{"text":"msg-%d"},"locations":[{"physicalLocation":{"artifactLocation":{"uri":"f%d"}}}]}' "$i" "$i" "$i"
+            printf '{"name":"Check-%d","score":%d,"reason":"a reasonably long reason string number %d that pads the output"}' "$i" "$((i % 11))" "$i"
         done
-        printf ']}]}'
-    } > "$TMP_DIR/in.sarif"
-    WRANGLE_MAX_SUMMARY=200 run "$SCRIPT" "$TMP_DIR/in.sarif"
+        printf ']}'
+    } > "$TMP_DIR/in.json"
+    WRANGLE_MAX_SUMMARY=256 run "$SCRIPT" "$TMP_DIR/in.json"
     [ "$status" -eq 0 ]
-    # Output must be bounded by the header lines + 200-byte truncated body.
-    [[ "${#output}" -lt 500 ]]
+    [[ "$output" == *"Aggregate score: 5 / 10"* ]]
+    [[ "${#output}" -lt 600 ]]
 }
 
-@test "sarif_to_markdown: missing file exits 1" {
-    run "$SCRIPT" "$TMP_DIR/does-not-exist.sarif"
+@test "json_to_markdown: missing file exits 1" {
+    run "$SCRIPT" "$TMP_DIR/does-not-exist.json"
     [ "$status" -eq 1 ]
-    [[ "$output" == *"SARIF file not found"* ]]
+    [[ "$output" == *"JSON file not found"* ]]
 }
 
-@test "sarif_to_markdown: invalid JSON exits 2" {
-    printf 'not json {{{' > "$TMP_DIR/in.sarif"
-    run "$SCRIPT" "$TMP_DIR/in.sarif"
+@test "json_to_markdown: invalid JSON exits 2" {
+    printf 'not json {{{' > "$TMP_DIR/in.json"
+    run "$SCRIPT" "$TMP_DIR/in.json"
     [ "$status" -eq 2 ]
     [[ "$output" == *"invalid JSON"* ]]
 }
 
-@test "sarif_to_markdown: usage error with no args" {
+@test "json_to_markdown: usage error with no args" {
     run "$SCRIPT"
     [ "$status" -eq 1 ]
     [[ "$output" == *"Usage:"* ]]

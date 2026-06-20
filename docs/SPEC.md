@@ -769,7 +769,7 @@ The install scripts include OS/arch detection (`linux/darwin`, `amd64/arm64`) as
 **Action pattern** (wraps upstream GitHub Action):
 
 1. Create `tools/foo/` directory with:
-   - `action.yml` — composite action that wraps the upstream action. Must pin the upstream action to a full commit SHA. Must write SARIF output to `$WRANGLE_METADATA_DIR/foo/output.sarif` (workspace-relative, set by the scan action via `$GITHUB_ENV`). Must also produce human-readable output as `output.md` (via `lib/sarif_to_md.sh` or a tool-specific formatter) or `output.txt` for the step summary details section. Must print a log attribution banner (via `lib/tool_banner.sh`) as the first step.
+   - `action.yml` — composite action that wraps the upstream action. Must pin the upstream action to a full commit SHA. Must write SARIF output to `$WRANGLE_METADATA_DIR/foo/output.sarif` (workspace-relative, set by the scan action via `$GITHUB_ENV`) — OR, for a passthrough tool (see SARIF exception), write its native result plus a `wrangle_attestation_metadata.json` manifest instead of SARIF. Must also produce human-readable output as `output.md` (via `lib/sarif_to_md.sh` or a tool-specific formatter) or `output.txt` for the step summary details section. Must print a log attribution banner (via `lib/tool_banner.sh`) as the first step.
    - `test.bats` — structural tests (action.yml exists, SHA pinned, etc.)
 2. Add a `uses: ./tools/foo` step in `actions/scan/action.yml`
 
@@ -835,12 +835,14 @@ The reusable workflow exists so adopters get a clean `uses:` interface with `wor
 
 ### SARIF as the universal output format
 
-All tools produce SARIF 2.1.0. This enables:
+Most tools produce SARIF 2.1.0. This enables:
 - Upload to GitHub Code Scanning (appears in Security tab)
 - Consistent programmatic processing across tools
 - A single summary formatter for all tools
 
 Human-readable output (markdown/text) is optional and used only for step summaries.
+
+**SARIF exception (passthrough tools).** A tool whose value isn't per-finding (e.g. Scorecard's aggregate score) MAY emit no SARIF: it writes its native result plus a `wrangle_attestation_metadata.json` manifest (see Shared Tool Helpers) for the wrangle-attest engine, and an `output.md` for the step summary. For such a tool a missing `output.sarif` is treated as "no findings" — `lib/check_results.sh`, `lib/log_findings.sh`, and `lib/format_sarif_summary.sh` skip the SARIF path. A `:fail` policy therefore can't block on a passthrough tool; score-based gating is tracked in #497.
 
 ### Per-tool SARIF uploads (not merged)
 
@@ -946,7 +948,7 @@ All install scripts MUST use `wrangle_download_verify` rather than implementing 
 
 ### Shared Tool Helpers
 
-`lib/sarif_to_md.sh` converts SARIF 2.1.0 to a human-readable markdown table. It is the default formatter for action-pattern tools that don't have a tool-specific formatter. Tools with richer output (e.g., Scorecard's `sarif_to_markdown.sh`) may use their own formatter instead.
+`lib/sarif_to_md.sh` converts SARIF 2.1.0 to a human-readable markdown table. It is the default formatter for action-pattern tools that don't have a tool-specific formatter. Tools with richer output (e.g., Scorecard's `json_to_markdown.sh`, which renders its JSON score) may use their own formatter instead.
 
 ```
 # Usage: sarif_to_md.sh <sarif_file>

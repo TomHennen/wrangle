@@ -1,0 +1,25 @@
+{
+  "_type": "https://in-toto.io/Statement/v1",
+  "predicate": {
+    "checks": [
+      {
+        "name": "Branch-Protection",
+        "reason": "not maximal",
+        "score": 3
+      }
+    ],
+    "date": "2026-06-20T00:00:00Z",
+    "repo": {
+      "name": "github.com/TomHennen/wrangle"
+    },
+    "score": 7.4
+  },
+  "predicateType": "https://scorecard.dev/result/v0.1",
+  "subject": [
+    {
+      "digest": {
+        "sha256": "011b95c8e47c538646a2c01df5373fe703381cd415c847357b3d563563eb1d95"
+      }
+    }
+  ]
+}

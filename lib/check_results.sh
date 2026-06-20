@@ -74,6 +74,15 @@ for spec in "$@"; do
     if [[ ! -f "$sarif" ]]; then
         # No SARIF means the tool didn't run or didn't produce output.
         # Not an error — the tool may have been skipped (e.g., Scorecard on PRs).
+        manifest="${METADATA_DIR}/${tool}/wrangle_attestation_metadata.json"
+        if [[ "$policy" == "fail" && -f "$manifest" ]]; then
+            result_file="$(jq -r '."result-file" // empty' "$manifest" 2>/dev/null || true)"
+            if [[ -n "$result_file" && -f "${METADATA_DIR}/${tool}/${result_file}" ]]; then
+                # A passthrough tool ran (manifest + result present) but emits no
+                # SARIF, so :fail can never block. Warn rather than fail-open.
+                printf 'wrangle: %s:fail has no effect without SARIF findings — score-based gating tracked in #497\n' "$tool" >&2
+            fi
+        fi
         continue
     fi
 
