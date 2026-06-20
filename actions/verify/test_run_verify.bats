@@ -939,6 +939,34 @@ _require_zip() {
     if grep -q "release upload" "$GH_LOG"; then return 1; fi
 }
 
+# The verify job has no checkout, so gh resolves the base repo from GH_REPO
+# alone; without it `release view` can't find the release and the attach
+# silently no-ops even when a release exists. Drive a gh shim whose `release
+# view` succeeds ONLY when GH_REPO names the expected repo, and prove the attach
+# proceeds to upload (rather than hitting the no-release branch).
+@test "run_verify attach: resolves the release via GH_REPO and proceeds to upload" {
+    _require_zip
+    cat > "$TEST_DIR/gh" <<'SHIM'
+#!/usr/bin/env bash
+printf '%s\n' "$*" >> "$GH_LOG"
+case "$1 $2" in
+  "release view") [[ "${GH_REPO:-}" == "o/r" ]] && exit 0 || exit 1 ;;
+esac
+exit 0
+SHIM
+    chmod +x "$TEST_DIR/gh"
+    export PATH="$TEST_DIR:$PATH"
+    export GH_LOG="$TEST_DIR/gh.log"; : > "$GH_LOG"
+    export GITHUB_REF_NAME="v1.2.3"
+    export GH_REPO="o/r"
+    _stage_release_assets
+    export BUILD_TYPE="python"
+    run "$SCRIPT" attach
+    [[ "$status" -eq 0 ]]
+    [[ "$output" != *"workflow artifact only"* ]]
+    grep -qx "release upload v1.2.3 $BUNDLE_OUT/a.tgz.intoto.jsonl --clobber" "$GH_LOG"
+}
+
 # --- wrangle_retry_once -----------------------------------------------------
 
 # Shim whose first invocation fails after partial output and whose second

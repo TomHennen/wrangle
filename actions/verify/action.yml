@@ -176,5 +176,8 @@ runs:
         METADATA_ROOT: ${{ inputs.metadata-dir }}
         METADATA_ZIP_NAME: ${{ inputs.artifact-name }}.zip
         GH_TOKEN: ${{ github.token }}
+        # The verify job has no checkout, so gh has no git remote to infer the
+        # base repo from; set it explicitly or every gh release call no-ops.
+        GH_REPO: ${{ github.repository }}
       run: |
         "$WRANGLE_ROOT/actions/verify/run_verify.sh" attach

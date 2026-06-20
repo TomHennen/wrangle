@@ -52,6 +52,8 @@ tool_block_has() {
     grep -Fq 'BUILD_TYPE: ${{ inputs.build-type }}' "$ACTION"
     grep -Fq 'DIST_DIR: ${{ inputs.dist-dir }}' "$ACTION"
     grep -Fq 'METADATA_ZIP_NAME: ${{ inputs.artifact-name }}.zip' "$ACTION"
+    # No checkout in the verify job, so gh needs GH_REPO to resolve the release.
+    grep -Fq 'GH_REPO: ${{ github.repository }}' "$ACTION"
 }
 
 @test "verify does not build the whole tool set or the scan-only binaries" {
