@@ -45,6 +45,11 @@ Container builds publish no release — the VSA is an OCI referrer on the image
 digest (see below). Adopters can suppress the attach with the verify action's
 `attach-release-assets: false`.
 
+For Python and npm, wrangle attaches to an existing Release and never creates
+one, so create a published Release for the tag (a draft won't be found) before
+the workflow runs, or the assets stay workflow artifacts — see the per-language
+build READMEs.
+
 ## Recommended: `ampel verify` (one command)
 
 [ampel](https://github.com/carabiner-dev/ampel) ≥ v1.3.0 (one Go binary)
