@@ -2,9 +2,9 @@
 
 # Structural tests asserting that every reusable workflow in
 # .github/workflows/ wires the preflight guard correctly. The guard's
-# own refusal-logic tests live next to the action source in
-# actions/preflight_guard/test.bats; prep's guard-first ordering is in
-# actions/prep/test.bats. This file only checks the workflow-level
+# own refusal-logic tests live in test/test_preflight_guard.bats; prep's
+# guard-first ordering is in actions/prep/test.bats. This file only checks
+# the workflow-level
 # wiring — every reusable workflow heads with the `prep` job:
 #
 #   1. The first job under `jobs:` is `prep`.

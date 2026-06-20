@@ -617,7 +617,7 @@ func main() {}
     # The scan/checks/release jobs check out the ADOPTER repo, where
     # lib/shortname.sh does not exist — sourcing it there only worked when
     # the adopter was wrangle itself (#469). The shortname/name derivation is
-    # delegated to the prep job (which runs package_metadata from its OWN
+    # delegated to the prep job (which runs lib/derive_names.sh from its OWN
     # action_path); no workflow run: block touches the adopter copy.
     run grep -F 'source lib/shortname.sh' "$WORKFLOW"
     [[ "$status" -ne 0 ]]

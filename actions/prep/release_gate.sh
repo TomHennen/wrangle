@@ -2,11 +2,11 @@
 # release_gate.sh — decide whether release-time side effects (provenance,
 # publish, etc.) should run for the current event.
 #
-# Required env (set by the composite action wrapper):
+# Required env (set by prep's step that runs it):
 #   EVENTS_INPUT  — caller's release-events value
 #   EVENT_NAME    — github.event_name
 #   REF           — github.ref
-#   GITHUB_OUTPUT — set by GitHub Actions for action outputs
+#   GITHUB_OUTPUT — set by GitHub Actions for step outputs
 #
 # Writes `should-release=true|false` to $GITHUB_OUTPUT.
 # Exits 0 on a successful decision, 2 on invalid input.

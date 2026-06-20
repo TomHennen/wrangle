@@ -1,12 +1,12 @@
 #!/usr/bin/env bats
 
-# Tests for actions/package_metadata/derive_names.sh — the shared
-# artifact-name derivation the four reusable build workflows call so the
-# names can't drift between build types.
+# Tests for lib/derive_names.sh — the shared artifact-name derivation the
+# four reusable build workflows call so the names can't drift between build
+# types.
 
 setup() {
-    REPO_ROOT="$(cd "$BATS_TEST_DIRNAME/../.." && pwd)"
-    SCRIPT="$REPO_ROOT/actions/package_metadata/derive_names.sh"
+    REPO_ROOT="$(cd "$BATS_TEST_DIRNAME/.." && pwd)"
+    SCRIPT="$REPO_ROOT/lib/derive_names.sh"
     GITHUB_OUTPUT="$BATS_TEST_TMPDIR/out"
     export GITHUB_OUTPUT
     : > "$GITHUB_OUTPUT"

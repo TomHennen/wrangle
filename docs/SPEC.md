@@ -198,9 +198,9 @@ This "fail on anything that weakens security guarantees" approach is stricter th
 
 ### Release-events gating
 
-Every wrangle build-type reusable workflow MUST expose a `release-events` input that controls whether release-time side effects (SLSA provenance generation; in some build types, publish) run for a given event. The default is `non-pull-request`. Internally the workflow MUST delegate the decision to the shared composite action `actions/release_gate/`, which exposes a `should-release` output. The reusable workflow then:
+Every wrangle build-type reusable workflow MUST expose a `release-events` input that controls whether release-time side effects (SLSA provenance generation; in some build types, publish) run for a given event. The default is `non-pull-request`. Internally the workflow heads with the `prep` job, whose gate step runs [`actions/prep/release_gate.sh`](../actions/prep/release_gate.sh) and exposes a `should-release` output. The reusable workflow then:
 
-1. Gates its own provenance job on `needs.gate.outputs.should-release == 'true'`.
+1. Gates its own provenance job on `needs.prep.outputs.should-release == 'true'`.
 2. Re-exports `should-release` as a workflow output so the caller's publish job (when one exists) can gate on the same value — keeping wrangle's internal gating and the caller's downstream gating in lockstep.
 
 Supported `release-events` shorthands:
@@ -869,7 +869,7 @@ Wrangle runs security tools on behalf of adopting repositories. This makes it a 
 
 ### Trigger Model
 
-Every wrangle reusable workflow runs a `guard` job at the head of `jobs:` (the [`actions/preflight_guard`](../actions/preflight_guard/action.yml) composite action). Refusal fails the workflow; every other job declares `needs: [guard]` so a refused invocation skips the entire run — no OIDC tokens minted, no privileged actions executed, no docker push, no provenance generation.
+Every wrangle reusable workflow runs the `prep` job at the head of `jobs:`, whose first step runs [`actions/prep/preflight_guard.sh`](../actions/prep/preflight_guard.sh). Refusal fails the workflow; every other job declares `needs: [prep]` so a refused invocation skips the entire run — no OIDC tokens minted, no privileged actions executed, no docker push, no provenance generation.
 
 **Triggers wrangle's reusable workflows are designed for:**
 
@@ -892,17 +892,17 @@ Every wrangle reusable workflow runs a `guard` job at the head of `jobs:` (the [
 
 Wrangle's reusable workflows have two kinds of checks that sit at workflow start. Different mechanisms, different jobs to gate downstream on:
 
-| | `actions/preflight_guard` | `actions/release_gate` |
+| | `actions/prep/preflight_guard.sh` | `actions/prep/release_gate.sh` |
 |---|---|---|
 | **What it does** | Refuses the workflow run if the trigger is unsafe | Decides whether release-time actions should run this event/ref |
 | **Mechanism** | Fails (`exit 1`) on a refused trigger | Outputs `should-release: true/false` |
-| **Downstream uses it as** | `needs: [guard]` — fail propagation | `if: needs.gate.outputs.should-release == 'true'` — signal branching |
+| **Downstream uses it as** | `needs: [prep]` — fail propagation | `if: needs.prep.outputs.should-release == 'true'` — signal branching |
 | **What happens on a "no"** | Whole workflow fails; everything skips | Workflow succeeds; non-release jobs (build, test) still run; release-time jobs (provenance, publish) skip |
 | **Why this shape** | A green ✅ with everything skipped would hide the misconfiguration — fail-loud is the security-relevant property | Legit non-release events (PR builds) should still run build/test, just not provenance/publish |
 
 The `_guard` / `_gate` suffix is the name's contract: `_guard` = abort on fail, `_gate` = signal and let downstream branch.
 
-**Adding refusal categories:** add the check to `actions/preflight_guard/preflight_guard.sh`, add a matching row to the "refuses" list above, and add a structural assertion to `actions/preflight_guard/test.bats`.
+**Adding refusal categories:** add the check to `actions/prep/preflight_guard.sh`, add a matching row to the "refuses" list above, and add a structural assertion to `actions/prep/test_preflight_guard.bats`.
 
 ### Integrity Verification
 

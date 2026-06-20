@@ -159,7 +159,7 @@ Practical things the implementer will hit. Not contract-design speculation; that
   9. Write `sbom.spdx.json` into the unified `metadata/npm/<shortname>/` directory; the scan job's `scan/` output and (on release) the verify job's `.intoto.jsonl` bundle are folded into the same directory.
 - **Reusable workflow shape mirrors python's:**
   1. `build` job runs the composite (steps above), uploads `npm-dist-<shortname>` and `npm-metadata-<shortname>` artifacts.
-  2. `gate` job runs `actions/release_gate` and exposes `should-release`.
+  2. `gate` job runs `lib/release_gate.sh` and exposes `should-release`.
   3. `attest` job (gated on `should-release`) runs `actions/attest-build-provenance` with `subject-path: dist/*` and uploads the signed bundle. Export the bundle's artifact name as `provenance-artifact-name` so it can be downloaded by name.
   4. `verify` job (gated on `should-release`) runs `actions/verify` per dist artifact: ampel verifies the provenance against the wrangle PolicySet (fail-closed against `common.identities` + the SLSA tenets), emits the signed SLSA VSA, and attaches it to the release on tag pushes. Verify failure fails the workflow; the adopter's publish (gated on `needs:`) is blocked.
 - **Reflection on `package.json`.** Steps 3 and 4 are conditional on `"scripts.build"` and `"scripts.test"` being defined. Use `jq` against `package.json` rather than running `npm run build` and catching the "missing script" exit code — clearer logs.

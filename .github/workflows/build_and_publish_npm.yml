@@ -56,7 +56,7 @@ on:
             - tag-only: push to refs/tags/* only.
             - main-and-tags: push to refs/heads/main or refs/tags/*.
             - <comma-separated event_name list>: matches if github.event_name
-              is in the list. See actions/release_gate for full vocabulary.
+              is in the list. See actions/prep/release_gate.sh for full vocabulary.
         required: false
         type: string
         default: non-pull-request

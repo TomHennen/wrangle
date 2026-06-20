@@ -1,14 +1,13 @@
 #!/bin/bash
 # Emit the per-build packaging artifact names to $GITHUB_OUTPUT.
-# Runs from the wrangle checkout so it can source lib/shortname.sh.
 # Usage: derive_names.sh <build-type> <shortname> [<path>]
 
 set -euo pipefail
 set -f  # processes external arguments — disable globbing per CLAUDE.md
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-# shellcheck source=lib/shortname.sh
-source "$SCRIPT_DIR/../../lib/shortname.sh"
+# shellcheck source=shortname.sh
+source "$SCRIPT_DIR/shortname.sh"
 
 main() {
     if [[ $# -lt 2 || $# -gt 3 ]]; then

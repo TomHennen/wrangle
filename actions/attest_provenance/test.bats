@@ -10,8 +10,8 @@ setup() {
     ACTION="$REPO_ROOT/actions/attest_provenance/action.yml"
 }
 
-@test "attest_provenance: computes names via package_metadata's derive_names.sh" {
-    run grep -F 'package_metadata/derive_names.sh' "$ACTION"
+@test "attest_provenance: computes names via lib/derive_names.sh" {
+    run grep -F 'lib/derive_names.sh' "$ACTION"
     [ "$status" -eq 0 ]
 }
 

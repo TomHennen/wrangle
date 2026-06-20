@@ -4,7 +4,7 @@
 # fast; downstream jobs with `needs: [guard]` skip via standard
 # `needs:` propagation.
 #
-# Required env (set by the composite action wrapper):
+# Required env (set by prep's step that runs it):
 #   EVENT_NAME   — github.event_name
 #   OUTER_EVENT  — github.event.workflow_run.event (empty unless event is
 #                  workflow_run)
