@@ -155,7 +155,7 @@ jobs:
       metadata-pre: ${{ steps.prep.outputs.metadata-pre }}
     steps:
       # TODO: replace with $/actions/prep when GitHub ships $/ syntax (#136)
-      - uses: TomHennen/wrangle/actions/prep@e514a8f6e8bb916e586ce56c1e891e0a83603448 # main 2026-06-20
+      - uses: TomHennen/wrangle/actions/prep@0e182938a217c11f93591d3f7dcf2ccc1e94f7cc # policy-capstone-497-impl 2026-06-20
         id: prep
         with:
           build-type: npm
@@ -174,7 +174,7 @@ jobs:
       security-events: write
     steps:
       # TODO: replace with $/actions/scan when GitHub ships $/ syntax (#136)
-      - uses: TomHennen/wrangle/actions/scan@e514a8f6e8bb916e586ce56c1e891e0a83603448 # main 2026-06-20
+      - uses: TomHennen/wrangle/actions/scan@0e182938a217c11f93591d3f7dcf2ccc1e94f7cc # policy-capstone-497-impl 2026-06-20
         if: ${{ inputs.scan-tools != '' }}
         with:
           checkout: "true"
@@ -210,7 +210,7 @@ jobs:
           ref: ${{ inputs.ref || '' }}
 
       # TODO: replace with $/build/actions/npm when GitHub ships $/ syntax (#136)
-      - uses: TomHennen/wrangle/build/actions/npm@e514a8f6e8bb916e586ce56c1e891e0a83603448 # main 2026-06-20
+      - uses: TomHennen/wrangle/build/actions/npm@0e182938a217c11f93591d3f7dcf2ccc1e94f7cc # policy-capstone-497-impl 2026-06-20
         id: build
         with:
           path: ${{ inputs.path }}
@@ -284,7 +284,7 @@ jobs:
       bundle-artifact-name: ${{ steps.attest.outputs.bundle-artifact-name }}
     steps:
       # TODO: replace with $/actions/attest_provenance when GitHub ships $/ syntax (#136)
-      - uses: TomHennen/wrangle/actions/attest_provenance@e514a8f6e8bb916e586ce56c1e891e0a83603448 # main 2026-06-20
+      - uses: TomHennen/wrangle/actions/attest_provenance@0e182938a217c11f93591d3f7dcf2ccc1e94f7cc # policy-capstone-497-impl 2026-06-20
         id: attest
         with:
           build-type: npm
@@ -310,7 +310,7 @@ jobs:
       attestation-bundle-name: ${{ needs.prep.outputs.metadata }}
     steps:
       # TODO: replace with $/actions/verify_release when GitHub ships $/ syntax (#136)
-      - uses: TomHennen/wrangle/actions/verify_release@e514a8f6e8bb916e586ce56c1e891e0a83603448 # main 2026-06-20
+      - uses: TomHennen/wrangle/actions/verify_release@0e182938a217c11f93591d3f7dcf2ccc1e94f7cc # policy-capstone-497-impl 2026-06-20
         with:
           build-type: npm
           shortname: ${{ needs.prep.outputs.shortname }}
