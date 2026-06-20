@@ -37,6 +37,5 @@ A nested chain (`workflow → verify_release → verify`, `scan → tools/*`) ta
 ### Recovery
 If `check_pin_ancestry` is red on main (or a showcase run failed to resolve a wrangle action):
 
-1. `tools/bump_action_pins.sh <main-sha>` — repoints every wrangle self-ref pin to a SHA reachable from main.
-2. Push it (a dedicated one-line bump PR, or fold it into the next PR).
-3. The check goes green and the next showcase resolves the action.
+1. `tools/bump_action_pins.sh <main-sha>` — repoints every wrangle self-ref pin to a SHA reachable from main. Push it (a dedicated one-line bump PR, or fold it into the next PR); the check goes green and the next showcase resolves the action.
+2. For a nested chain that needs more than one bump cycle, `tools/converge_action_pins.sh` loops bump + commit until the check is green. Land its commits as a **merge commit** (not a squash), or the intermediate pins re-orphan.
