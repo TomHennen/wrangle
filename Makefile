@@ -1,4 +1,4 @@
-.PHONY: all test lint shellcheck shellstyle workflowstyle gotest bats zizmor integration bump-action-pins
+.PHONY: all test lint shellcheck shellstyle workflowstyle gotest bats zizmor integration bump-action-pins converge-action-pins
 
 # bash, not the default sh: the integration recipe sources lib/env.sh,
 # whose `set -o pipefail` dash doesn't reliably support.
@@ -76,6 +76,12 @@ zizmor:
 #        make bump-action-pins SHA=<sha>   # bump to a specific SHA
 bump-action-pins:
 	@./tools/bump_action_pins.sh $(SHA)
+
+# Loop bump + commit until check_pin_ancestry is green (a nested chain needs one
+# commit per level). Land the result as a merge commit, not a squash.
+# See tools/converge_action_pins.sh and #539.
+converge-action-pins:
+	@./tools/converge_action_pins.sh
 
 # Update a binary-download tool's version and hardcoded checksum. Go-module
 # tools (osv-scanner, cosign, ampel, bnd) are pinned in tools/go.mod and
