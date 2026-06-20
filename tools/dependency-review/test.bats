@@ -123,8 +123,7 @@ teardown() {
 @test "dependency-review: action.yml delegates SARIF collection to a script, not inline shell" {
     # Per CLAUDE.md, run: blocks with logic must be extracted to scripts.
     # The collection step's run: block must be a single script call — scope the
-    # no-conditionals check to it (the manifest step keeps a small [[ -f ]]
-    # guard for the "tool didn't run" case, like zizmor's).
+    # no-conditionals check to it.
     grep -q 'collect_outputs.sh' "$TOOL_DIR/action.yml"
     run awk '/^    - name: Collect dependency review output/{flag=1;next} flag && /^    - name:/{flag=0} flag' "$TOOL_DIR/action.yml"
     [ "$status" -eq 0 ]
@@ -145,58 +144,15 @@ teardown() {
     [ -x "$TOOL_DIR/mark_error.sh" ]
 }
 
-# --- e2e: the real "Write scan manifest" step produces the manifest ---
-
-# Drives action.yml's actual step (run-block + env), not a facsimile, over a
-# collected SARIF — the gap #492 slipped through: structure-only asserts let
-# the hashFiles gate silently skip the step while the SARIF was on disk.
-
-@test "dependency-review e2e: collected SARIF → scan/v1 manifest lands beside it" {
-    bats_python >/dev/null 2>&1 || skip_or_fail "PyYAML python3 unavailable"
-    local ws="$TMP_DIR/ws"
-    mkdir -p "$ws/.wrangle/metadata/dependency-review"
-    make_sarif 0 "$ws/.wrangle/metadata/dependency-review/output.sarif"
-
-    run run_composite_step "$TOOL_DIR/action.yml" "Write scan manifest" "$ws" "$TOOL_DIR"
-    [ "$status" -eq 0 ]
-    [ -f "$ws/.wrangle/metadata/dependency-review/wrangle_attestation_metadata.json" ]
-    jq -e '.["predicate-type"] | endswith("/scan/v1")' \
-        "$ws/.wrangle/metadata/dependency-review/wrangle_attestation_metadata.json" >/dev/null
-    jq -e '.tool.name == "dependency-review" and .result == "clean"' \
-        "$ws/.wrangle/metadata/dependency-review/wrangle_attestation_metadata.json" >/dev/null
-}
-
-@test "dependency-review e2e: error marker → no manifest (don't attest an errored audit)" {
-    bats_python >/dev/null 2>&1 || skip_or_fail "PyYAML python3 unavailable"
-    local ws="$TMP_DIR/ws-err"
-    mkdir -p "$ws/.wrangle/metadata/dependency-review"
-    make_sarif 0 "$ws/.wrangle/metadata/dependency-review/output.sarif"
-    printf 'tool error\n' > "$ws/.wrangle/metadata/dependency-review/error"
-
-    run run_composite_step "$TOOL_DIR/action.yml" "Write scan manifest" "$ws" "$TOOL_DIR"
-    [ "$status" -eq 0 ]
-    [ ! -f "$ws/.wrangle/metadata/dependency-review/wrangle_attestation_metadata.json" ]
-}
-
-@test "dependency-review e2e: no SARIF (tool didn't run) → no manifest, no crash" {
-    bats_python >/dev/null 2>&1 || skip_or_fail "PyYAML python3 unavailable"
-    local ws="$TMP_DIR/ws-norun"
-    mkdir -p "$ws/.wrangle/metadata/dependency-review"
-
-    run run_composite_step "$TOOL_DIR/action.yml" "Write scan manifest" "$ws" "$TOOL_DIR"
-    [ "$status" -eq 0 ]
-    [ ! -f "$ws/.wrangle/metadata/dependency-review/wrangle_attestation_metadata.json" ]
-}
-
-@test "dependency-review: action.yml writes the scan/v1 manifest, gated and via env" {
-    # The manifest step must exist, guard the "tool didn't run" case with an
-    # in-shell [[ -f ]] (not hashFiles, which silently skipped the runtime
-    # file in #492), thread the SARIF path through env: (no ${{ }} in run:),
-    # and call write_scan_manifest.sh with the dependency-review token.
+@test "dependency-review: action.yml writes the scan/v1 manifest, gated always() and via env" {
+    # The manifest step must exist, gate on always() (not hashFiles, which
+    # silently skipped the runtime file in #492), thread the SARIF path through
+    # env: (no ${{ }} in run:), and call write_scan_manifest.sh with the
+    # dependency-review token. The no-SARIF / error-marker edge cases live in the
+    # script — covered directly by test/test_write_scan_manifest.bats.
     run awk '/^    - name: Write scan manifest/{flag=1;next} flag && /^    - name:/{flag=0} flag' "$TOOL_DIR/action.yml"
     [ "$status" -eq 0 ]
     printf '%s\n' "$output" | grep -q 'if: always()$'
-    printf '%s\n' "$output" | grep -q '\[\[ -f "\$SARIF" \]\]'
     printf '%s\n' "$output" | grep -Eq 'write_scan_manifest\.sh" dependency-review '
     ! printf '%s\n' "$output" | grep -q 'hashFiles'
     ! printf '%s\n' "$output" | grep -q 'run:.*\${{'
