@@ -113,15 +113,19 @@ runs:
     # Leave the scan/v1 manifest the trusted verify job's wrangle-attest engine
     # wraps + signs. The "don't attest an errored audit" gating lives in the
     # script: write_scan_manifest.sh runs after mark_error.sh and skips when the
-    # error marker is present. The hashFiles guard here only suppresses the "tool
-    # didn't run" case (no SARIF), keeping the step a single script call.
+    # error marker is present. The "tool didn't run" case (no SARIF) is guarded
+    # by the in-shell [[ -f ]] — hashFiles() in a composite step if: did not
+    # see this runtime-created file and silently skipped the step (#492).
     # PR-only: the sign/verify flow runs on release/push, never on a PR, so this
     # manifest is produced but never signed — inert on a PR by construction.
     - name: Write scan manifest
-      if: always() && hashFiles('.wrangle/metadata/dependency-review/output.sarif') != ''
+      if: always()
       shell: bash
       env:
         WRANGLE_ROOT: ${{ github.action_path }}/../..
         SARIF: ${{ github.workspace }}/.wrangle/metadata/dependency-review/output.sarif
       run: |
-        "$WRANGLE_ROOT/lib/write_scan_manifest.sh" dependency-review "$SARIF"
+        set -euo pipefail
+        if [[ -f "$SARIF" ]]; then
+          "$WRANGLE_ROOT/lib/write_scan_manifest.sh" dependency-review "$SARIF"
+        fi

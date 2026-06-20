@@ -117,18 +117,64 @@ make_sarif() {
 }
 
 @test "zizmor: action.yml writes the scan/v1 manifest, gated and via env" {
-    # The manifest step must exist, gate on the SARIF via hashFiles (so it's
-    # skipped when the tool didn't run), thread the SARIF path through env:
-    # (no ${{ }} in run:), and call write_scan_manifest.sh with the zizmor token.
-    grep -q "hashFiles('.wrangle/metadata/zizmor/output.sarif') != ''" "$TOOL_DIR/action.yml"
-    grep -Eq 'write_scan_manifest\.sh" zizmor ' "$TOOL_DIR/action.yml"
+    # The manifest step must exist, guard the "tool didn't run" case with an
+    # in-shell [[ -f ]] (not hashFiles, which silently skipped the runtime
+    # file in #492), thread the SARIF path through env: (no ${{ }} in run:),
+    # and call write_scan_manifest.sh with the zizmor token.
     run awk '/^    - name: Write scan manifest/{flag=1;next} flag && /^    - name:/{flag=0} flag' "$TOOL_DIR/action.yml"
     [ "$status" -eq 0 ]
+    printf '%s\n' "$output" | grep -q 'if: always()$'
+    printf '%s\n' "$output" | grep -q '\[\[ -f "\$SARIF" \]\]'
+    printf '%s\n' "$output" | grep -Eq 'write_scan_manifest\.sh" zizmor '
+    ! printf '%s\n' "$output" | grep -q 'hashFiles'
     ! printf '%s\n' "$output" | grep -q 'run:.*\${{'
 }
 
 @test "zizmor: collect_sarif.sh exists and is executable" {
     [ -x "$TOOL_DIR/collect_sarif.sh" ]
+}
+
+# --- e2e: the real "Write scan manifest" step produces the manifest ---
+
+# Drives action.yml's actual step (run-block + env), not a facsimile, over a
+# collected SARIF — the gap #492 slipped through: structure-only asserts let
+# the hashFiles gate silently skip the step while the SARIF was on disk.
+
+@test "zizmor e2e: collected SARIF → scan/v1 manifest lands beside it" {
+    bats_python >/dev/null 2>&1 || skip_or_fail "PyYAML python3 unavailable"
+    local ws="$TMP_DIR/ws"
+    mkdir -p "$ws/.wrangle/metadata/zizmor"
+    make_sarif 0 "$ws/.wrangle/metadata/zizmor/output.sarif"
+
+    run run_composite_step "$TOOL_DIR/action.yml" "Write scan manifest" "$ws" "$TOOL_DIR"
+    [ "$status" -eq 0 ]
+    [ -f "$ws/.wrangle/metadata/zizmor/wrangle_attestation_metadata.json" ]
+    jq -e '.["predicate-type"] | endswith("/scan/v1")' \
+        "$ws/.wrangle/metadata/zizmor/wrangle_attestation_metadata.json" >/dev/null
+    jq -e '.tool.name == "zizmor" and .result == "clean"' \
+        "$ws/.wrangle/metadata/zizmor/wrangle_attestation_metadata.json" >/dev/null
+}
+
+@test "zizmor e2e: error marker → no manifest (don't attest an errored audit)" {
+    bats_python >/dev/null 2>&1 || skip_or_fail "PyYAML python3 unavailable"
+    local ws="$TMP_DIR/ws-err"
+    mkdir -p "$ws/.wrangle/metadata/zizmor"
+    make_sarif 0 "$ws/.wrangle/metadata/zizmor/output.sarif"
+    printf 'tool error\n' > "$ws/.wrangle/metadata/zizmor/error"
+
+    run run_composite_step "$TOOL_DIR/action.yml" "Write scan manifest" "$ws" "$TOOL_DIR"
+    [ "$status" -eq 0 ]
+    [ ! -f "$ws/.wrangle/metadata/zizmor/wrangle_attestation_metadata.json" ]
+}
+
+@test "zizmor e2e: no SARIF (tool didn't run) → no manifest, no crash" {
+    bats_python >/dev/null 2>&1 || skip_or_fail "PyYAML python3 unavailable"
+    local ws="$TMP_DIR/ws-norun"
+    mkdir -p "$ws/.wrangle/metadata/zizmor"
+
+    run run_composite_step "$TOOL_DIR/action.yml" "Write scan manifest" "$ws" "$TOOL_DIR"
+    [ "$status" -eq 0 ]
+    [ ! -f "$ws/.wrangle/metadata/zizmor/wrangle_attestation_metadata.json" ]
 }
 
 # --- detection canary: real zizmor still flags a known-bad workflow ---
