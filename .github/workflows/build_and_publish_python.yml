@@ -122,7 +122,7 @@ jobs:
       metadata-pre: ${{ steps.prep.outputs.metadata-pre }}
     steps:
       # TODO: replace with $/actions/prep when GitHub ships $/ syntax (#136)
-      - uses: TomHennen/wrangle/actions/prep@731eb4e95e4c53cce9dd8d57f0ba5c626517b39f # bootstrap: PR head until post-merge bump
+      - uses: TomHennen/wrangle/actions/prep@428325083b9ffed4b41fa5ad9abc146bcb8aded8 # main 2026-06-20
         id: prep
         with:
           build-type: python
@@ -147,7 +147,7 @@ jobs:
           ref: ${{ inputs.ref || '' }}
 
       # TODO: replace with $/actions/scan when GitHub ships $/ syntax (#136)
-      - uses: TomHennen/wrangle/actions/scan@56aa2ffe4d4b0f48a3c0e09ff2d458e16e25bdcb # main 2026-06-20
+      - uses: TomHennen/wrangle/actions/scan@428325083b9ffed4b41fa5ad9abc146bcb8aded8 # main 2026-06-20
         if: ${{ inputs.scan-tools != '' }}
         with:
           tools: ${{ inputs.scan-tools }}
@@ -179,7 +179,7 @@ jobs:
           ref: ${{ inputs.ref || '' }}
 
       # TODO: replace with $/build/actions/python when GitHub ships $/ syntax (#136)
-      - uses: TomHennen/wrangle/build/actions/python@56aa2ffe4d4b0f48a3c0e09ff2d458e16e25bdcb # main 2026-06-20
+      - uses: TomHennen/wrangle/build/actions/python@428325083b9ffed4b41fa5ad9abc146bcb8aded8 # main 2026-06-20
         id: build
         with:
           path: ${{ inputs.path }}
@@ -265,7 +265,7 @@ jobs:
       bundle-artifact-name: ${{ steps.attest.outputs.bundle-artifact-name }}
     steps:
       # TODO: replace with $/actions/attest_provenance when GitHub ships $/ syntax (#136)
-      - uses: TomHennen/wrangle/actions/attest_provenance@56aa2ffe4d4b0f48a3c0e09ff2d458e16e25bdcb # main 2026-06-20
+      - uses: TomHennen/wrangle/actions/attest_provenance@428325083b9ffed4b41fa5ad9abc146bcb8aded8 # main 2026-06-20
         id: attest
         with:
           build-type: python
@@ -291,7 +291,7 @@ jobs:
       attestation-bundle-name: ${{ needs.prep.outputs.metadata }}
     steps:
       # TODO: replace with $/actions/verify_release when GitHub ships $/ syntax (#136)
-      - uses: TomHennen/wrangle/actions/verify_release@56aa2ffe4d4b0f48a3c0e09ff2d458e16e25bdcb # main 2026-06-20
+      - uses: TomHennen/wrangle/actions/verify_release@428325083b9ffed4b41fa5ad9abc146bcb8aded8 # main 2026-06-20
         with:
           build-type: python
           shortname: ${{ needs.prep.outputs.shortname }}
