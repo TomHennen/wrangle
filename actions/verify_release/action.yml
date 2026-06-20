@@ -44,7 +44,11 @@ inputs:
     required: false
     default: ""
   attach-to-release:
-    description: 'When "true" (default) and the run is a tag push, attach the bundle to the release.'
+    description: 'When "true" (default) and the run is a tag push, attach the rationalized asset set to the release.'
+    required: false
+    default: "true"
+  attach-release-assets:
+    description: 'When "true" (default) attach the per-subject dist + bundle and the metadata zip. Set "false" to suppress.'
     required: false
     default: "true"
 
@@ -94,4 +98,8 @@ runs:
         context: ${{ inputs.context }}
         oci-target: ${{ inputs.oci-target }}
         attach-to-release: ${{ inputs.attach-to-release }}
+        attach-release-assets: ${{ inputs.attach-release-assets }}
+        # go's dist is owned by goreleaser on the release; wrangle skips it.
+        build-type: ${{ inputs.build-type }}
+        dist-dir: dist
         fail: "true"

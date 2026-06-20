@@ -75,9 +75,21 @@ inputs:
     required: false
     default: "true"
   attach-to-release:
-    description: 'When "true" (default) and the run is a tag push, attach the bundle to the release.'
+    description: 'When "true" (default) and the run is a tag push, attach the rationalized asset set to the release.'
     required: false
     default: "true"
+  attach-release-assets:
+    description: 'When "true" (default) attach the per-subject dist + bundle and the metadata zip. Set "false" to suppress the release-asset attach.'
+    required: false
+    default: "true"
+  build-type:
+    description: "Build type (go/python/npm/container) — for go, goreleaser owns the dist on the release so wrangle attaches the bundle + metadata zip only."
+    required: false
+    default: ""
+  dist-dir:
+    description: "Directory holding the dist files, attached per subject alongside their bundles."
+    required: false
+    default: "dist"
   metadata-dir:
     description: >
       Directory holding the build's metadata (the build job's metadata artifact:
@@ -151,14 +163,17 @@ runs:
         path: ${{ inputs.bundle-out }}/
         if-no-files-found: error
 
-    # On a tag push, attach every bundle to the GitHub release if one exists
-    # (wrangle does not create releases).
-    - name: Attach bundles to release
-      if: github.ref_type == 'tag' && inputs.attach-to-release == 'true'
+    # On a tag push, attach the rationalized asset set to the GitHub release if
+    # one exists (wrangle does not create releases).
+    - name: Attach assets to release
+      if: github.ref_type == 'tag' && inputs.attach-to-release == 'true' && inputs.attach-release-assets == 'true'
       shell: bash
       env:
         WRANGLE_ROOT: ${{ github.action_path }}/../..
         BUNDLE_OUT: ${{ inputs.bundle-out }}
+        BUILD_TYPE: ${{ inputs.build-type }}
+        DIST_DIR: ${{ inputs.dist-dir }}
+        METADATA_ZIP_NAME: ${{ inputs.artifact-name }}.zip
         GH_TOKEN: ${{ github.token }}
       run: |
         "$WRANGLE_ROOT/actions/verify/run_verify.sh" attach

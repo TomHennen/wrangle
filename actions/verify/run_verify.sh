@@ -7,7 +7,9 @@
 #          never lives on disk across a step boundary. Each signed VSA is also
 #          posted to the GitHub attestation store (by-digest discovery); with
 #          OCI_TARGET set it is additionally pushed as its own OCI referrer.
-#   attach upload every bundle to the GitHub release for the current tag, if any.
+#   attach upload the rationalized asset set (per-subject dist + bundle, and one
+#          <type>-metadata-<sn>.zip) to the GitHub release for the current tag,
+#          if one exists. Inputs: BUILD_TYPE, DIST_DIR, METADATA_ZIP_NAME.
 #
 # Arg-builder functions are pure so unit tests can assert the CLI shape offline.
 # Inputs arrive as env vars: SUBJECTS (newline-separated), POLICY, COLLECTOR,
@@ -320,16 +322,22 @@ wrangle_run() {
     rm -f "$tmp_vsa" "$vsa_line" "$seed"
 }
 
-# Attach every bundle to the current tag's GitHub release, if one exists
-# (wrangle never creates releases). Enumerate via a temp file, not a process
-# substitution, so a find that dies mid-traversal fails closed.
+# Attach the rationalized asset set to the current tag's GitHub release, if one
+# exists (wrangle never creates releases). Per subject: the <artifact> dist file
+# and its <artifact>.intoto.jsonl bundle (flat); once per build: a
+# <type>-metadata-<sn>.zip of the metadata dir (sbom + scan/ + bundles). The
+# dist is attached alongside its bundle so no bundle is orphaned without its
+# artifact. For the go build type goreleaser owns the dist + checksums.txt on
+# the release (#463), so wrangle attaches the bundle + metadata zip only.
+# Enumerate via a temp file, not a process substitution, so a find that dies
+# mid-traversal fails closed.
 wrangle_attach_release() {
     local ref="$GITHUB_REF_NAME"
     if ! gh release view "$ref" >/dev/null 2>&1; then
         printf 'wrangle: no GitHub release for %s; the bundles are the workflow artifact only.\n' "$ref" >&2
         return 0
     fi
-    local listing bundle
+    local listing bundle base dist rc=0
     listing="$(mktemp "${RUNNER_TEMP:-/tmp}/bundles.XXXXXX")"
     if ! find "$BUNDLE_OUT" -type f -name '*.intoto.jsonl' -print0 | sort -z > "$listing"; then
         rm -f "$listing"
@@ -338,8 +346,32 @@ wrangle_attach_release() {
     fi
     while IFS= read -r -d '' bundle; do
         gh release upload "$ref" "$bundle" --clobber
+        # Attach the dist sibling alongside its bundle (skip go — goreleaser owns it).
+        [[ "${BUILD_TYPE:-}" == "go" ]] && continue
+        base="${bundle##*/}"
+        dist="${DIST_DIR:-dist}/${base%.intoto.jsonl}"
+        if [[ -f "$dist" ]]; then
+            gh release upload "$ref" "$dist" --clobber
+        else
+            printf 'wrangle: dist file %s for bundle %s not found\n' "$dist" "$bundle" >&2
+            rc=1
+            break
+        fi
     done < "$listing"
     rm -f "$listing"
+    [[ "$rc" -ne 0 ]] && return "$rc"
+    wrangle_attach_metadata_zip "$ref"
+}
+
+# Zip the metadata dir (sbom + scan/ + bundles) and attach it once per build as
+# <type>-metadata-<sn>.zip. The SBOM rides inside this zip, not as a flat asset.
+wrangle_attach_metadata_zip() {
+    local ref="$1" zip
+    zip="${RUNNER_TEMP:-/tmp}/$METADATA_ZIP_NAME"
+    rm -f "$zip"
+    ( cd "$BUNDLE_OUT" && zip -r -q "$zip" . )
+    gh release upload "$ref" "$zip" --clobber
+    rm -f "$zip"
 }
 
 main() {
