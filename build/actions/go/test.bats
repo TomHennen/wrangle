@@ -654,7 +654,7 @@ func main() {}
 }
 
 @test "go: scan steps are gated on scan-tools so empty disables scanning (job concludes success)" {
-    # The behavior contract: scan-tools: "" skips both steps, so the scan
+    # The behavior contract: scan-tools: "" skips the scan step, so the scan
     # job succeeds and never blocks release.
     section="$(awk '/^  [a-z][a-z_-]*:$/ { in_section = ($0 == "  scan:") } in_section' "$WORKFLOW")"
     grep -qE "if:.*inputs\\.scan-tools != ''" <<<"$section"

@@ -32,10 +32,34 @@ inputs:
       scan/ subtree's contents, no scan/ prefix.
     required: false
     default: "wrangle-scan-results"
+  checkout:
+    description: >
+      When "true", check out the calling repo before scanning, so a caller
+      whose scan job does nothing else can drop its own checkout step.
+      Default "false": the caller is responsible for the checkout (the tools
+      scan $GITHUB_WORKSPACE, which must already hold the source).
+    required: false
+    default: "false"
+  ref:
+    description: >
+      Git ref to check out when checkout is "true". Empty (default) uses the
+      triggering SHA. Ignored when checkout is "false".
+    required: false
+    default: ""
 
 runs:
   using: "composite"
   steps:
+    # Checked-out source must exist before any tool runs (they scan
+    # $GITHUB_WORKSPACE); opt-in so callers that check out themselves don't
+    # double-checkout.
+    - name: Check out source
+      if: inputs.checkout == 'true'
+      uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
+      with:
+        persist-credentials: false
+        ref: ${{ inputs.ref }}
+
     - name: Set up wrangle
       shell: bash
       env:

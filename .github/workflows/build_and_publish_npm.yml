@@ -163,16 +163,12 @@ jobs:
       contents: read
       security-events: write
     steps:
-      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
-        if: ${{ inputs.scan-tools != '' }}
-        with:
-          persist-credentials: false
-          ref: ${{ inputs.ref || '' }}
-
       # TODO: replace with $/actions/scan when GitHub ships $/ syntax (#136)
-      - uses: TomHennen/wrangle/actions/scan@428325083b9ffed4b41fa5ad9abc146bcb8aded8 # main 2026-06-20
+      - uses: TomHennen/wrangle/actions/scan@1a88f8d6c755caf27fb6516332dd04a5d482f9c9 # bootstrap: PR head until post-merge bump
         if: ${{ inputs.scan-tools != '' }}
         with:
+          checkout: "true"
+          ref: ${{ inputs.ref || '' }}
           tools: ${{ inputs.scan-tools }}
           # The build job folds this into the unified npm-metadata.
           artifact-name: ${{ needs.prep.outputs.scan }}
