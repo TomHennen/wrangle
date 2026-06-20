@@ -27,12 +27,12 @@ In that case, for the duration of the PR:
 3. Note the bootstrap pin in the PR description.
 
 ### Merge however you like — the check tells you when to bump
-A branch SHA can't become a main SHA until the code is on main, so a bootstrap pin is always bumped post-merge. You don't have to manage the merge method to make this safe — `tools/check_pin_ancestry.sh` (in the `integration` CI job, `fetch-depth: 0`) is the control. It asserts every wrangle self-ref pin is reachable from `HEAD`: green on the PR (the branch SHA is an ancestor of the branch), and after merge:
+A branch SHA can't become a main SHA until the code is on main, so a bootstrap pin is always bumped post-merge. You don't have to manage the merge method to make this safe — `tools/check_pin_ancestry.sh` (in the `integration` CI job, `fetch-depth: 0`) is the control. It resolves every wrangle self-ref pin at its pinned SHA — following the pins nested inside each composite at that SHA, not just the working-tree copy — and asserts each is reachable from `HEAD`: green on the PR (the branch SHA is an ancestor of the branch), and after merge:
 
 - **Red on main** → a pin is unreachable (you squashed a bootstrap pin, or forgot a bump). Run `tools/bump_action_pins.sh <main-sha>` and push. Until you do, main is red and the unattended showcase can't resolve that action.
 - **Green** → every pin resolves; bump at leisure (it just refreshes the SHA and the `# main` label).
 
-Merging a bootstrap-pin PR as a **merge commit** keeps the branch SHA reachable, so the check stays green and there's no red window — a convenience, not a requirement. Squash-and-bump-after works equally well. Either way the check can't be silently forgotten: a stale or orphaned pin fails CI on main rather than degrading quietly.
+A nested chain (`workflow → verify_release → verify`, `scan → tools/*`) takes one bump cycle per nesting level under squash: a commit can't pin itself, so editing an *inner* action needs the bump repeated until the check is green (#539). Because the check follows nested resolution, it stays red through the intermediate cycles rather than passing on a half-converged chain. Merging the bootstrap-pin PR as a **merge commit** keeps every branch SHA reachable, so a chain of any depth converges with no re-bump and no red window — a convenience, not a requirement.
 
 ### Recovery
 If `check_pin_ancestry` is red on main (or a showcase run failed to resolve a wrangle action):
