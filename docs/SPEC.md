@@ -1189,7 +1189,7 @@ and a config layer doesn't reduce the irreducible per-adopter inputs
 
 Theme: prove the full scan→attest→policy→consumer loop end-to-end. Today the
 VSA attests **build provenance only**. The release PolicySets already require
-SBOM and OSV tenets ([`policies/wrangle-default-v1.hjson`](../policies/wrangle-default-v1.hjson)),
+SBOM and OSV tenets ([`policies/wrangle-default-go-v1.hjson`](../policies/wrangle-default-go-v1.hjson)),
 but nothing produces and signs the attestations those tenets consume — so they
 cannot pass on a real release. v0.3 builds that producer side, so the VSA comes
 to mean "scanned, has an SBOM, clean," and a consumer can verify it from the
@@ -1209,9 +1209,10 @@ and the adopter-facing workflow-policy work are explicitly deferred to v0.4
       of the tenets the PolicySets already require. Tracking: [#420](https://github.com/TomHennen/wrangle/issues/420)
 - [ ] Deliver those attestations (and the VSA) to GitHub's attestation store —
       the one-command consumer path. Tracking: [#372](https://github.com/TomHennen/wrangle/issues/372)
-- [ ] Close the consumer half: make `wrangle-default-v1` / `wrangle-strict-v1`
-      satisfiable against the new attestations rather than retiring them.
-      Tracking: [#328](https://github.com/TomHennen/wrangle/issues/328)
+- [x] Close the consumer half: a consumer verifies the delivered VSA with
+      `wrangle-vsa-consumer-v1`. The generic generator-identity
+      `wrangle-default-v1` / `wrangle-strict-v1` are retired in favour of the
+      per-eco `wrangle-{default,strict}-<eco>-v1` tiers. Tracking: [#328](https://github.com/TomHennen/wrangle/issues/328)
 - [ ] Bundle the per-build attestations into a single in-toto JSONL so delivery
       is one file. Tracking: [#181](https://github.com/TomHennen/wrangle/issues/181)
 - [ ] Resolve the intermittent verify failure where one tenet fails to match a
