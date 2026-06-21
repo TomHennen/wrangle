@@ -37,11 +37,11 @@ main() {
 
     {
         printf 'dist=%s\n' "$(artifact_name "${type}-dist" "$shortname")"
-        printf 'scan=%s\n' "$(artifact_name "${type}-scan" "$shortname")"
-        printf 'checks=%s\n' "$(artifact_name "${type}-checks" "$shortname")"
+        printf 'scan=%s\n' "$(artifact_name "internal-${type}-scan" "$shortname")"
+        printf 'checks=%s\n' "$(artifact_name "internal-${type}-checks" "$shortname")"
         printf 'metadata=%s\n' "$(artifact_name "${type}-metadata" "$shortname")"
-        printf 'metadata-pre=%s\n' "$(artifact_name "${type}-premeta" "$shortname")"
-        printf 'bundles=%s\n' "$(artifact_name "${type}-bundles" "$shortname")"
+        printf 'metadata-pre=%s\n' "$(artifact_name "internal-${type}-premeta" "$shortname")"
+        printf 'bundles=%s\n' "$(artifact_name "internal-${type}-bundles" "$shortname")"
         printf 'metadata-dir=%s\n' "$(metadata_dir "$type" "$shortname")"
         printf 'shortname=%s\n' "$shortname"
     } >> "$GITHUB_OUTPUT"

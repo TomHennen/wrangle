@@ -80,7 +80,7 @@ outputs:
     description: "Name of the unified metadata workflow artifact: `container-metadata[-<shortname>]`."
     value: ${{ steps.meta_dir.outputs.metadata-artifact-name }}
   metadata-pre-artifact-name:
-    description: "Name of the internal pre-bundle metadata transient: `container-premeta[-<shortname>]`."
+    description: "Name of the internal pre-bundle metadata transient: `internal-container-premeta[-<shortname>]`."
     value: ${{ steps.meta_dir.outputs.metadata-pre-artifact-name }}
 
 runs:
@@ -237,7 +237,7 @@ runs:
         {
           printf 'metadata-dir=%s\n' "$METADATA_DIR"
           printf 'metadata-artifact-name=%s\n' "$(artifact_name container-metadata "$SHORTNAME")"
-          printf 'metadata-pre-artifact-name=%s\n' "$(artifact_name container-premeta "$SHORTNAME")"
+          printf 'metadata-pre-artifact-name=%s\n' "$(artifact_name internal-container-premeta "$SHORTNAME")"
         } >> "$GITHUB_OUTPUT"
 
     - name: Extract SBOM from built image

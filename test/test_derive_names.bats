@@ -16,11 +16,11 @@ setup() {
     run "$SCRIPT" go ""
     [ "$status" -eq 0 ]
     grep -qx 'dist=go-dist' "$GITHUB_OUTPUT"
-    grep -qx 'scan=go-scan' "$GITHUB_OUTPUT"
-    grep -qx 'checks=go-checks' "$GITHUB_OUTPUT"
+    grep -qx 'scan=internal-go-scan' "$GITHUB_OUTPUT"
+    grep -qx 'checks=internal-go-checks' "$GITHUB_OUTPUT"
     grep -qx 'metadata=go-metadata' "$GITHUB_OUTPUT"
-    grep -qx 'metadata-pre=go-premeta' "$GITHUB_OUTPUT"
-    grep -qx 'bundles=go-bundles' "$GITHUB_OUTPUT"
+    grep -qx 'metadata-pre=internal-go-premeta' "$GITHUB_OUTPUT"
+    grep -qx 'bundles=internal-go-bundles' "$GITHUB_OUTPUT"
 }
 
 @test "package_metadata: subdir build appends the shortname" {
@@ -28,8 +28,8 @@ setup() {
     [ "$status" -eq 0 ]
     grep -qx 'dist=python-dist-services_api' "$GITHUB_OUTPUT"
     grep -qx 'metadata=python-metadata-services_api' "$GITHUB_OUTPUT"
-    grep -qx 'metadata-pre=python-premeta-services_api' "$GITHUB_OUTPUT"
-    grep -qx 'bundles=python-bundles-services_api' "$GITHUB_OUTPUT"
+    grep -qx 'metadata-pre=internal-python-premeta-services_api' "$GITHUB_OUTPUT"
+    grep -qx 'bundles=internal-python-bundles-services_api' "$GITHUB_OUTPUT"
 }
 
 @test "package_metadata: each build type namespaces its names" {
@@ -57,21 +57,21 @@ setup() {
 @test "package_metadata: derives the shortname from a path (scan-job mode)" {
     run "$SCRIPT" python "" services/api
     [ "$status" -eq 0 ]
-    grep -qx 'scan=python-scan-services_api' "$GITHUB_OUTPUT"
+    grep -qx 'scan=internal-python-scan-services_api' "$GITHUB_OUTPUT"
     grep -qx 'shortname=services_api' "$GITHUB_OUTPUT"
 }
 
 @test "package_metadata: root path derives an empty shortname" {
     run "$SCRIPT" go "" .
     [ "$status" -eq 0 ]
-    grep -qx 'scan=go-scan' "$GITHUB_OUTPUT"
+    grep -qx 'scan=internal-go-scan' "$GITHUB_OUTPUT"
     grep -qx 'shortname=' "$GITHUB_OUTPUT"
 }
 
 @test "package_metadata: explicit shortname wins over path" {
     run "$SCRIPT" npm given ignored/path
     [ "$status" -eq 0 ]
-    grep -qx 'scan=npm-scan-given' "$GITHUB_OUTPUT"
+    grep -qx 'scan=internal-npm-scan-given' "$GITHUB_OUTPUT"
 }
 
 @test "package_metadata: rejects a shortname with a path separator" {

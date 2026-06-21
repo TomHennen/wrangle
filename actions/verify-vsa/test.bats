@@ -292,9 +292,9 @@ EOF
         case "$name" in *-metadata*) matched="$matched $name" ;; esac
     done
     # Transients and the dist/scan siblings must never match, all four types.
-    for name in go-premeta go-premeta-cmd_foo container-premeta container-premeta-svc \
-                python-premeta python-premeta-pkg npm-premeta \
-                go-dist go-scan container-dist container-scan; do
+    for name in internal-go-premeta internal-go-premeta-cmd_foo internal-container-premeta internal-container-premeta-svc \
+                internal-python-premeta internal-python-premeta-pkg internal-npm-premeta \
+                go-dist internal-go-scan container-dist internal-container-scan; do
         case "$name" in *-metadata*) missed="$missed $name" ;; esac
     done
     [[ "$matched" == " go-metadata go-metadata-cmd_foo container-metadata container-metadata-svc python-metadata python-metadata-pkg npm-metadata npm-metadata-pkg" ]]
