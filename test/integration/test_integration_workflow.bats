@@ -41,6 +41,11 @@ setup() {
     [[ "$status" -eq 0 ]]
 }
 
+@test "integration-test.yml passes wrangle run id through env" {
+    run grep 'WRANGLE_RUN_ID:' "$WORKFLOW"
+    [[ "$status" -eq 0 ]]
+}
+
 @test "integration-test.yml uses per-PR concurrency group" {
     run grep 'concurrency:' "$WORKFLOW"
     [[ "$status" -eq 0 ]]
@@ -104,9 +109,38 @@ setup() {
     [[ "$status" -eq 0 ]]
 }
 
-@test "dispatch.sh cleans up ephemeral branch on exit" {
+@test "dispatch.sh cleans up ephemeral tag on exit" {
     run grep 'trap cleanup EXIT' "$DISPATCH"
     [[ "$status" -eq 0 ]]
+}
+
+@test "dispatch.sh validates pr_number is numeric before use" {
+    run grep 'PR_NUMBER" =~ \^\[0-9\]+\$' "$DISPATCH"
+    [[ "$status" -eq 0 ]]
+}
+
+@test "dispatch.sh validates run_id is numeric before use" {
+    run grep 'WRANGLE_RUN_ID" =~ \^\[0-9\]+\$' "$DISPATCH"
+    [[ "$status" -eq 0 ]]
+}
+
+@test "dispatch.sh pushes a 0.0.0-pr.<n>.<runid> tag, not a branch" {
+    run grep 'TAG_NAME="0.0.0-pr.\${PR_NUMBER}.\${WRANGLE_RUN_ID}"' "$DISPATCH"
+    [[ "$status" -eq 0 ]]
+    run grep 'git push origin "refs/tags/' "$DISPATCH"
+    [[ "$status" -eq 0 ]]
+}
+
+@test "dispatch.sh rejects a non-numeric pr_number (fail closed)" {
+    run env GH_TOKEN=x "$DISPATCH" \
+        0000000000000000000000000000000000000000 'evil;rm' 123
+    [[ "$status" -eq 2 ]]
+}
+
+@test "dispatch.sh rejects a non-numeric run_id (fail closed)" {
+    run env GH_TOKEN=x "$DISPATCH" \
+        0000000000000000000000000000000000000000 123 'evil;rm'
+    [[ "$status" -eq 2 ]]
 }
 
 @test "dispatch.sh uses shallow single-branch clone" {

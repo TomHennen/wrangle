@@ -2,10 +2,20 @@
 set -euo pipefail
 set -f
 
-# Dispatch an integration test by pushing an ephemeral branch to the companion
+# Dispatch an integration test by pushing an ephemeral tag to the companion
 # repo, then waiting for the resulting workflow run to complete.
 #
-# Usage: dispatch.sh <wrangle_sha> <pr_number>
+# The tag is `0.0.0-pr.<pr_number>.<wrangle_run_id>` (both numeric). It puts the
+# companion run in a tag context, so wrangle's tag-gated verify creates a
+# temporary release and attaches the attested asset set that the companion's
+# golden job asserts (TomHennen/wrangle#506). The tag is valid semver so
+# wrangle's goreleaser-based go build accepts it (a non-semver tag hard-fails
+# goreleaser's release step); it carries no `v` prefix so it never matches the
+# companion's showcase `tags: ["v*"]` trigger. The companion's
+# cleanup-integration.yml reaper prunes the tag + release — it matches
+# `^0\.0\.0-pr\.[0-9]+\.[0-9]+$`, which only this numeric tag shape satisfies.
+#
+# Usage: dispatch.sh <wrangle_sha> <pr_number> <wrangle_run_id>
 #
 # Environment:
 #   GH_TOKEN          PAT with contents:write on the companion repo
@@ -20,8 +30,21 @@ set -f
 #   1  Companion run failed or was cancelled
 #   2  Could not dispatch or locate the run (infrastructure / template error)
 
-WRANGLE_SHA="${1:?Usage: dispatch.sh <wrangle_sha> <pr_number>}"
-PR_NUMBER="${2:?Usage: dispatch.sh <wrangle_sha> <pr_number>}"
+WRANGLE_SHA="${1:?Usage: dispatch.sh <wrangle_sha> <pr_number> <wrangle_run_id>}"
+PR_NUMBER="${2:?Usage: dispatch.sh <wrangle_sha> <pr_number> <wrangle_run_id>}"
+WRANGLE_RUN_ID="${3:?Usage: dispatch.sh <wrangle_sha> <pr_number> <wrangle_run_id>}"
+
+# Numeric-only allowlist: both segments flow into the pushed tag name and into
+# git/gh commands. Reject (fail closed) anything that isn't all-digits before
+# any command sees the value.
+if [[ ! "$PR_NUMBER" =~ ^[0-9]+$ ]]; then
+    printf 'ERROR: PR_NUMBER must be numeric (got %q)\n' "$PR_NUMBER" >&2
+    exit 2
+fi
+if [[ ! "$WRANGLE_RUN_ID" =~ ^[0-9]+$ ]]; then
+    printf 'ERROR: WRANGLE_RUN_ID must be numeric (got %q)\n' "$WRANGLE_RUN_ID" >&2
+    exit 2
+fi
 
 COMPANION_REPO="${COMPANION_REPO:-tomhennen/wrangle-test}"
 WRANGLE_REPO="${WRANGLE_REPO:-TomHennen/wrangle}"
@@ -30,16 +53,17 @@ POLL_INTERVAL="${POLL_INTERVAL:-10}"
 LOCATE_TIMEOUT="${LOCATE_TIMEOUT:-120}"
 
 SHORT_SHA="${WRANGLE_SHA:0:7}"
-BRANCH_NAME="integration/pr-${PR_NUMBER}-${SHORT_SHA}"
+TAG_NAME="0.0.0-pr.${PR_NUMBER}.${WRANGLE_RUN_ID}"
 GENERATED_FILE=".github/workflows/test-wrangle.yml"
-CLEANUP_BRANCH=""
+CLEANUP_TAG=""
 
 # shellcheck disable=SC2317 # invoked indirectly via trap
 cleanup() {
-    if [[ -n "$CLEANUP_BRANCH" ]]; then
-        printf 'Cleaning up: deleting branch %s from %s\n' "$CLEANUP_BRANCH" "$COMPANION_REPO"
-        gh api "repos/${COMPANION_REPO}/git/refs/heads/${CLEANUP_BRANCH}" \
+    if [[ -n "$CLEANUP_TAG" ]]; then
+        printf 'Cleaning up: deleting tag %s from %s\n' "$CLEANUP_TAG" "$COMPANION_REPO"
+        gh api "repos/${COMPANION_REPO}/git/refs/tags/${CLEANUP_TAG}" \
             --method DELETE 2>/dev/null || true
+        gh release delete "$CLEANUP_TAG" --repo "$COMPANION_REPO" --yes 2>/dev/null || true
     fi
 }
 trap cleanup EXIT
@@ -126,14 +150,13 @@ if [[ -n "$MISSING_WORKFLOWS" ]]; then
 fi
 printf 'All reusable workflows are covered by the template.\n'
 
-# --- Create ephemeral branch and push ---
+# --- Create the generated-workflow commit and push it as an ephemeral tag ---
 
-printf 'Creating branch %s\n' "$BRANCH_NAME"
+printf 'Creating ephemeral tag %s\n' "$TAG_NAME"
 
 cd "$WORK_DIR"
-git checkout -b "$BRANCH_NAME"
 
-# Write generated workflow file
+# Write generated workflow file onto a detached commit; only the tag is pushed.
 mkdir -p "$(dirname "$GENERATED_FILE")"
 printf '%s\n' "$GENERATED_CONTENT" > "$GENERATED_FILE"
 
@@ -141,44 +164,48 @@ git add "$GENERATED_FILE"
 git -c user.name="wrangle-integration" -c user.email="wrangle-integration@noreply" \
     commit -m "Integration test for wrangle PR #${PR_NUMBER} at ${SHORT_SHA}" --quiet
 
-# Push and record branch for cleanup
-if ! git push origin "$BRANCH_NAME" 2>&1; then
-    printf 'ERROR: Failed to push branch %s to %s\n' "$BRANCH_NAME" "$COMPANION_REPO" >&2
+git tag "$TAG_NAME"
+
+# Push the tag and record it for cleanup. The tag context is what makes
+# wrangle's verify produce a real release for the golden to assert.
+if ! git push origin "refs/tags/${TAG_NAME}" 2>&1; then
+    printf 'ERROR: Failed to push tag %s to %s\n' "$TAG_NAME" "$COMPANION_REPO" >&2
     exit 2
 fi
-CLEANUP_BRANCH="$BRANCH_NAME"
+CLEANUP_TAG="$TAG_NAME"
 
 PUSHED_SHA="$(git rev-parse HEAD)"
-printf 'Pushed ephemeral branch %s (commit: %s)\n' "$BRANCH_NAME" "$PUSHED_SHA"
+printf 'Pushed ephemeral tag %s (commit: %s)\n' "$TAG_NAME" "$PUSHED_SHA"
 
 # --- Locate the dispatched run ---
-# Poll workflow runs filtered by the pushed commit's SHA.
+# A tag push fires event=push with head_sha = the tagged commit, so the
+# locate poll is keyed identically to the prior branch-push flow.
 
 printf 'Waiting for companion run to appear...\n'
 
-RUN_ID=""
+COMPANION_RUN_ID=""
 elapsed=0
-while [[ -z "$RUN_ID" ]] && [[ "$elapsed" -lt "$LOCATE_TIMEOUT" ]]; do
+while [[ -z "$COMPANION_RUN_ID" ]] && [[ "$elapsed" -lt "$LOCATE_TIMEOUT" ]]; do
     sleep "$POLL_INTERVAL"
     elapsed=$((elapsed + POLL_INTERVAL))
 
-    RUN_ID="$(gh api \
+    COMPANION_RUN_ID="$(gh api \
         "repos/${COMPANION_REPO}/actions/runs?head_sha=${PUSHED_SHA}&event=push" \
         --jq '.workflow_runs[0].id // empty' 2>/dev/null || true)"
 done
 
-if [[ -z "$RUN_ID" ]]; then
+if [[ -z "$COMPANION_RUN_ID" ]]; then
     printf 'ERROR: Could not locate companion run within %ds (head_sha=%s)\n' \
         "$LOCATE_TIMEOUT" "$PUSHED_SHA" >&2
     exit 2
 fi
 
-printf 'Found run: %s\n' "$RUN_ID"
+printf 'Found run: %s\n' "$COMPANION_RUN_ID"
 
 # --- Wait for completion ---
 
-printf 'Watching run %s...\n' "$RUN_ID"
-if gh run watch "$RUN_ID" --repo "$COMPANION_REPO" --exit-status; then
+printf 'Watching run %s...\n' "$COMPANION_RUN_ID"
+if gh run watch "$COMPANION_RUN_ID" --repo "$COMPANION_REPO" --exit-status; then
     printf 'Companion run succeeded.\n'
     exit 0
 else
