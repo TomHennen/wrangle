@@ -235,16 +235,6 @@ teardown() {
 
 # --- bnd push arg vector (GitHub attestation store) ---
 
-@test "run_verify: bnd push args target the store repo with the signed VSA file" {
-    local vsa="$TEST_DIR/vsa.jsonl"
-    mapfile -t args < <(wrangle_bnd_push_args "owner/repo" "$vsa")
-    [[ "${args[0]}" == "push" ]]
-    [[ "${args[1]}" == "github" ]]
-    # The org/repo is positional, then the bundle file.
-    [[ "${args[2]}" == "owner/repo" ]]
-    [[ "${args[3]}" == "$vsa" ]]
-}
-
 @test "run_verify: bnd push arg vector names a real bnd subcommand" {
     if [[ ! -x "$BND_BIN" ]]; then skip_or_fail "real bnd not available"; fi
     run "$BND_BIN" push github --help

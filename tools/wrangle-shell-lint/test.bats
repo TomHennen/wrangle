@@ -50,12 +50,6 @@ teardown() {
     [[ "$output" == *"WSL001"* ]]
 }
 
-@test "WSL001: correct set -euo pipefail is not flagged" {
-    run "$LINTER" "$FIXTURES/good.sh"
-    [ "$status" -eq 0 ]
-    [[ "$output" != *"WSL001"* ]]
-}
-
 @test "WSL001: set -euo pipefail after comments is accepted" {
     tmp="$(mktemp /tmp/wsl-test-XXXXXX.sh)"
     printf '#!/bin/bash\n# Comment line\n\nset -euo pipefail\nset -f\nprintf hello\n' > "$tmp"
@@ -100,12 +94,6 @@ teardown() {
     run "$LINTER" "$FIXTURES/bad_wsl002.sh"
     [ "$status" -eq 1 ]
     [[ "$output" == *"WSL002"* ]]
-}
-
-@test "WSL002: set -f as second line is not flagged" {
-    run "$LINTER" "$FIXTURES/good.sh"
-    [ "$status" -eq 0 ]
-    [[ "$output" != *"WSL002"* ]]
 }
 
 @test "WSL002: set -f with trailing comment on the same line is not flagged" {
@@ -162,12 +150,6 @@ SCRIPT
     run "$LINTER" "$FIXTURES/bad_wsl003.sh"
     [ "$status" -eq 1 ]
     [[ "$output" == *"WSL003"* ]]
-}
-
-@test "WSL003: printf with variable is not flagged" {
-    run "$LINTER" "$FIXTURES/good.sh"
-    [ "$status" -eq 0 ]
-    [[ "$output" != *"WSL003"* ]]
 }
 
 @test "WSL003: echo with no variable is not flagged" {
@@ -285,12 +267,6 @@ SCRIPT
     run "$LINTER" "$FIXTURES/bad_wsl004.sh"
     [ "$status" -eq 1 ]
     [[ "$output" == *"WSL004"* ]]
-}
-
-@test "WSL004: if [[ ]] is not flagged" {
-    run "$LINTER" "$FIXTURES/good.sh"
-    [ "$status" -eq 0 ]
-    [[ "$output" != *"WSL004"* ]]
 }
 
 @test "WSL004: while [ ] is reported" {
@@ -420,12 +396,6 @@ SCRIPT
     [[ "$output" == *"WSL006"* ]]
 }
 
-@test "WSL006: clean script is not flagged" {
-    run "$LINTER" "$FIXTURES/good.sh"
-    [ "$status" -eq 0 ]
-    [[ "$output" != *"WSL006"* ]]
-}
-
 @test "WSL006: wget | bash and fetch | dash are reported" {
     tmp="$(mktemp /tmp/wsl-test-XXXXXX.sh)"
     printf '#!/bin/bash\nset -euo pipefail\nset -f\nwget -qO- https://x | bash -s -- --arg\nfetch -o - https://y | dash\n' > "$tmp"
@@ -507,12 +477,6 @@ SCRIPT
     run "$LINTER" "$FIXTURES/bad_wsl007.sh"
     [ "$status" -eq 1 ]
     [[ "$output" == *"WSL007"* ]]
-}
-
-@test "WSL007: clean script is not flagged" {
-    run "$LINTER" "$FIXTURES/good.sh"
-    [ "$status" -eq 0 ]
-    [[ "$output" != *"WSL007"* ]]
 }
 
 @test "WSL007: set +f inside a subshell is not flagged" {

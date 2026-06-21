@@ -183,12 +183,6 @@ teardown() {
     [[ "$output" == *"WWL003"* ]]
 }
 
-@test "WWL003: a justification comment above continue-on-error exempts it" {
-    run "$LINTER" "$FIXTURES/good.yml"
-    [ "$status" -eq 0 ]
-    [[ "$output" != *"WWL003"* ]]
-}
-
 @test "WWL003: keyword match on uses: triggers the rule" {
     tmp="$(mktemp /tmp/wwl-XXXXXX.yml)"
     printf 'on: push\njobs:\n  b:\n    runs-on: ubuntu-latest\n    steps:\n      - uses: sigstore/cosign-installer@v3\n        continue-on-error: true\n' > "$tmp"

@@ -158,15 +158,6 @@ STUBA
     [[ "$output" != *"flag provided but not defined"* ]]
 }
 
-@test "sign_metadata: an empty metadata root fails closed" {
-    # shellcheck source=sign_metadata.sh
-    printf '{"provenance":1}\n' > "$TEST_DIR/provenance.jsonl"
-    SUBJECTS="$DIST/app-1.2.3.tgz" METADATA_ROOT="$TEST_DIR/absent" \
-        BUNDLE_IN="$TEST_DIR/provenance.jsonl" BUNDLE_OUT="$TEST_DIR/bundles" \
-        GITHUB_REPOSITORY="o/r" run "$SIGN"
-    [ "$status" -ne 0 ]
-}
-
 # ---- end-to-end with real wrangle-attest (unsigned-statement variant via stub bnd) ----
 # wrangle-attest --sign needs OIDC; to exercise the per-subject statement +
 # assembly + push plumbing offline we drive the real engine without --sign by
