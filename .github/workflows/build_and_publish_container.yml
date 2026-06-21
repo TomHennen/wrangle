@@ -120,7 +120,7 @@ jobs:
       scan: ${{ steps.prep.outputs.scan }}
     steps:
       # TODO: replace with $/actions/prep when GitHub ships $/ syntax (#136)
-      - uses: TomHennen/wrangle/actions/prep@8d07711faa1fae341bcb09d381f046cec2e003ee # declutter-artifacts-493 2026-06-21
+      - uses: TomHennen/wrangle/actions/prep@0ae21912101fc1deb6290c44bfb41aceb96219e0 # claude/trim-redundant-unit-tests 2026-06-21
         id: prep
         with:
           build-type: container
@@ -139,7 +139,7 @@ jobs:
       security-events: write
     steps:
       # TODO: replace with $/actions/scan when GitHub ships $/ syntax (#136)
-      - uses: TomHennen/wrangle/actions/scan@8d07711faa1fae341bcb09d381f046cec2e003ee # declutter-artifacts-493 2026-06-21
+      - uses: TomHennen/wrangle/actions/scan@0ae21912101fc1deb6290c44bfb41aceb96219e0 # claude/trim-redundant-unit-tests 2026-06-21
         if: ${{ inputs.scan-tools != '' }}
         with:
           checkout: "true"
@@ -168,7 +168,7 @@ jobs:
     # TODO: replace with $/build/actions/container when GitHub ships $/ syntax (#136)
     - name: "build and publish"
       id: build
-      uses: TomHennen/wrangle/build/actions/container@8d07711faa1fae341bcb09d381f046cec2e003ee # declutter-artifacts-493 2026-06-21
+      uses: TomHennen/wrangle/build/actions/container@0ae21912101fc1deb6290c44bfb41aceb96219e0 # claude/trim-redundant-unit-tests 2026-06-21
       with:
         path: ${{ inputs.path }}
         imagename: ${{ inputs.imagename }}
@@ -245,7 +245,7 @@ jobs:
       # image's bundle the verify job appends the VSA to. cosign is built from
       # tools/go.mod here.
       # TODO: replace with $/actions/attest_metadata_oci when GitHub ships $/ syntax (#136)
-      - uses: TomHennen/wrangle/actions/attest_metadata_oci@8d07711faa1fae341bcb09d381f046cec2e003ee # declutter-artifacts-493 2026-06-21
+      - uses: TomHennen/wrangle/actions/attest_metadata_oci@0ae21912101fc1deb6290c44bfb41aceb96219e0 # claude/trim-redundant-unit-tests 2026-06-21
         with:
           shortname: ${{ needs.prep.outputs.shortname }}
           subject-digest: ${{ needs.build.outputs.digest }}
@@ -286,7 +286,7 @@ jobs:
 
       # oci-target pushes the VSA referrer; the dist download is skipped (the image is the artifact).
       # TODO: replace with $/actions/verify_release when GitHub ships $/ syntax (#136)
-      - uses: TomHennen/wrangle/actions/verify_release@8d07711faa1fae341bcb09d381f046cec2e003ee # declutter-artifacts-493 2026-06-21
+      - uses: TomHennen/wrangle/actions/verify_release@0ae21912101fc1deb6290c44bfb41aceb96219e0 # claude/trim-redundant-unit-tests 2026-06-21
         with:
           build-type: container
           shortname: ${{ needs.prep.outputs.shortname }}

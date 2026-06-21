@@ -166,14 +166,6 @@ create_sarif() {
     [[ "$output" == *"API unavailable"* ]]
 }
 
-@test "check_results: error marker on explicit :fail tool exits 1" {
-    mkdir -p "$METADATA/depreview"
-    printf 'API unavailable\n' > "$METADATA/depreview/error"
-    run "$ORIG_DIR/lib/check_results.sh" "$METADATA" "depreview:fail"
-    [ "$status" -eq 1 ]
-    [[ "$output" == *"depreview errored"* ]]
-}
-
 @test "check_results: error marker on :info tool does not fail" {
     mkdir -p "$METADATA/scorecard"
     printf 'scorecard transient failure\n' > "$METADATA/scorecard/error"
