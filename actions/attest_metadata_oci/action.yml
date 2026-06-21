@@ -1,16 +1,18 @@
 name: Wrangle Attest Metadata (OCI)
 description: >
-  Sign the container build's SBOM + scan/v1 metadata in the attest job and push
-  each signed statement to the GitHub attestation store AND as its own by-digest
-  OCI referrer on the image, then emit the signed-metadata workflow artifact the
-  verify job consumes (#550). This is the container counterpart to the
-  attest_provenance composite's metadata-signing steps: container publishes its
-  attestations as OCI referrers, not via the attest_provenance file-bundle path,
-  so it gets cosign + a digest subject here. The provenance itself is attested
-  separately by the container attest job (actions/attest-build-provenance);
-  this composite signs only the metadata. The metadata-pre and signed-metadata
-  artifact names are computed here from build-type + shortname, so the caller
-  passes only the shortname and the image digest.
+  Sign the container build's SBOM + scan/v1 metadata in the attest job, push each
+  signed statement to the GitHub attestation store AND as its own by-digest OCI
+  referrer on the image, then assemble the image's <artifact>.intoto.jsonl bundle
+  (the provenance referrer seed + the signed metadata) and upload it as the
+  bundles workflow artifact the verify job appends the VSA to (#550, #566). This
+  is the container counterpart to the attest_provenance composite's bundle
+  assembly: container publishes its attestations as OCI referrers, not via the
+  attest_provenance file-bundle path, so it gets cosign + a digest subject here
+  and seeds the provenance from the registry referrer. The provenance itself is
+  attested separately by the container attest job (actions/attest-build-provenance);
+  this composite signs only the metadata. The metadata-pre and bundles artifact
+  names are computed here from build-type + shortname, so the caller passes only
+  the shortname and the image digest.
 
 inputs:
   shortname:
@@ -25,9 +27,9 @@ inputs:
     required: true
 
 outputs:
-  signed-metadata-artifact-name:
-    description: "Name of the signed build-metadata workflow artifact (SBOM + scan/v1 statements) the verify job consumes."
-    value: ${{ steps.names.outputs.signed-metadata }}
+  bundles-artifact-name:
+    description: "Name of the per-artifact bundle directory workflow artifact (provenance + signed metadata) the verify job downloads and appends the VSA to."
+    value: ${{ steps.names.outputs.bundles }}
 
 runs:
   using: composite
@@ -52,25 +54,26 @@ runs:
       run: |
         "${{ github.action_path }}/install_tools.sh"
 
-    - name: Sign and push the build-metadata attestations
+    - name: Sign metadata and assemble the per-artifact bundle
       shell: bash
       env:
         METADATA_ROOT: ${{ steps.names.outputs.metadata-dir }}
         SUBJECTS: ${{ inputs.subject-digest }}
-        OUT: ${{ runner.temp }}/signed-metadata.jsonl
+        BUNDLE_OUT: ${{ runner.temp }}/bundles
         OCI_TARGET: ${{ inputs.oci-target }}
         # Scanned commit recorded in each scan/v1 envelope's scannedCommit.
         COMMIT: ${{ github.sha }}
         GITHUB_REPOSITORY: ${{ github.repository }}
         # bnd push github authenticates to the attestation store with this token;
         # the attestations: write permission rides on it. cosign uses the job's
-        # ghcr login for the OCI referrer push (packages: write).
+        # ghcr login for the provenance-seed pull and the OCI referrer push
+        # (packages: write).
         GITHUB_TOKEN: ${{ github.token }}
       run: |
         "${{ github.action_path }}/sign_metadata.sh"
 
     - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
       with:
-        name: ${{ steps.names.outputs.signed-metadata }}
-        path: ${{ runner.temp }}/signed-metadata.jsonl
+        name: ${{ steps.names.outputs.bundles }}
+        path: ${{ runner.temp }}/bundles/
         if-no-files-found: error

@@ -15,12 +15,15 @@ setup() {
     [ "$status" -eq 0 ]
 }
 
-@test "verify_release: stages dist + provenance only when oci-target is empty" {
-    # go/npm/python round-trip both through workflow artifacts; container
-    # (oci-target set) seeds them from the registry referrer instead.
+@test "verify_release: stages dist only when oci-target is empty" {
+    # go/npm/python round-trip the dist through a workflow artifact; container
+    # (oci-target set) has no workflow-artifact dist (the image is the artifact).
     run bash -c "grep -B2 'name: \${{ steps.names.outputs.dist }}' \"$ACTION\" | grep -F \"inputs.oci-target == ''\""
     [ "$status" -eq 0 ]
-    run bash -c "grep -B2 'name: \${{ steps.names.outputs.provenance-bundle }}' \"$ACTION\" | grep -F \"inputs.oci-target == ''\""
+}
+
+@test "verify_release: always downloads the attest-assembled bundles into the metadata dir" {
+    run bash -c "grep -A1 'name: \${{ steps.names.outputs.bundles }}' \"$ACTION\" | grep -F 'path: \${{ steps.names.outputs.metadata-dir }}/'"
     [ "$status" -eq 0 ]
 }
 
@@ -40,8 +43,8 @@ setup() {
     [ "$status" -eq 0 ]
 }
 
-@test "verify_release: bundle-in is set for jsonl builds and empty for container" {
-    run grep -F "inputs.oci-target == '' && 'provenance/provenance.jsonl'" "$ACTION"
+@test "verify_release: bundle-in points at the metadata dir for every build type" {
+    run grep -F 'bundle-in: ${{ steps.names.outputs.metadata-dir }}' "$ACTION"
     [ "$status" -eq 0 ]
 }
 

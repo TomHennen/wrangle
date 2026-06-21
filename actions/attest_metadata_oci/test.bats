@@ -1,10 +1,10 @@
 #!/usr/bin/env bats
 
 # Tests for actions/attest_metadata_oci/action.yml — the composite that signs the
-# container build's SBOM + scan/v1 metadata in the attest job and pushes each line
-# to the store AND as an OCI referrer (#550). Structural assertions: the names
-# computation, the metadata-pre download, the tool install, the sign step wiring,
-# and the signed-metadata artifact upload/output.
+# container build's SBOM + scan/v1 metadata in the attest job, pushes each line to
+# the store AND as an OCI referrer, and assembles the per-artifact bundle (#550,
+# #566). Structural assertions: the names computation, the metadata-pre download,
+# the tool install, the sign step wiring, and the bundles artifact upload/output.
 
 setup() {
     REPO_ROOT="$(cd "$BATS_TEST_DIRNAME/../.." && pwd)"
@@ -43,10 +43,10 @@ setup() {
     [ "$status" -eq 0 ]
 }
 
-@test "attest_metadata_oci: uploads and outputs the signed-metadata artifact" {
-    run grep -F 'name: ${{ steps.names.outputs.signed-metadata }}' "$ACTION"
+@test "attest_metadata_oci: uploads and outputs the bundles artifact" {
+    run grep -F 'name: ${{ steps.names.outputs.bundles }}' "$ACTION"
     [ "$status" -eq 0 ]
-    run grep -F 'value: ${{ steps.names.outputs.signed-metadata }}' "$ACTION"
+    run grep -F 'value: ${{ steps.names.outputs.bundles }}' "$ACTION"
     [ "$status" -eq 0 ]
 }
 

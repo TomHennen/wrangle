@@ -45,7 +45,7 @@ setup() {
 }
 
 @test "prep: surfaces shortname and the metadata names from the names step" {
-    for out in shortname dist scan checks metadata metadata-pre provenance-bundle metadata-dir; do
+    for out in shortname dist scan checks metadata metadata-pre bundles metadata-dir; do
         run grep -F "value: \${{ steps.names.outputs.$out }}" "$ACTION"
         [ "$status" -eq 0 ]
     done

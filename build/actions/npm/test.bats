@@ -928,16 +928,17 @@ write_pkg_json() {
     [[ "$status" -eq 0 ]]
 }
 
-@test "npm: verify job collects the staged bundle via the jsonl collector" {
-    # The bundle the attest job staged is read back as one-JSON-per-line.
-    run bash -c "sed -n '/^  verify:/,\$p' \"$WORKFLOW\" | grep -F 'collector: jsonl:provenance/provenance.jsonl'"
-    [[ "$status" -eq 0 ]]
+@test "npm: verify job passes no collector (the attest-assembled bundle is the collector)" {
+    # The attest-assembled bundle (provenance + signed metadata) verify reads is
+    # the sole collector, so no separate provenance jsonl collector is wired.
+    run bash -c "sed -n '/^  verify:/,\$p' \"$WORKFLOW\" | grep -E '^[[:space:]]+collector:'"
+    [[ "$status" -ne 0 ]]
 }
 
 @test "npm: attest job exposes the bundle name the verify job needs" {
     # attest_provenance uploads the bundle; the job re-exports its name and the
     # verify job depends on attest.
-    run bash -c "sed -n '/^  attest:/,/^  [a-z]/p' \"$WORKFLOW\" | grep -F 'bundle-artifact-name: \${{ steps.attest.outputs.bundle-artifact-name }}'"
+    run bash -c "sed -n '/^  attest:/,/^  [a-z]/p' \"$WORKFLOW\" | grep -F 'bundles-artifact-name: \${{ steps.attest.outputs.bundles-artifact-name }}'"
     [[ "$status" -eq 0 ]]
     run bash -c "sed -n '/^  verify:/,\$p' \"$WORKFLOW\" | grep -E 'needs:.*attest'"
     [[ "$status" -eq 0 ]]

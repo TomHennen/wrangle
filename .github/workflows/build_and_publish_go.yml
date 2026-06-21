@@ -135,8 +135,8 @@ on:
         description: "Name of the uploaded dist/ artifact (download with this name to retrieve binaries + checksums.txt)"
         value: ${{ jobs.prep.outputs.dist }}
       provenance-artifact-name:
-        description: "Name of the workflow artifact containing the SLSA provenance bundle — one JSON object per line, covering all dist subjects. Empty when should-release is false."
-        value: ${{ jobs.attest.outputs.bundle-artifact-name }}
+        description: "Name of the attest job's per-artifact bundle directory artifact — one <artifact>.intoto.jsonl per subject, each carrying the SLSA provenance + that subject's signed SBOM/scan. Empty when should-release is false."
+        value: ${{ jobs.attest.outputs.bundles-artifact-name }}
       attestation-bundle-name:
         description: "Name of the workflow artifact the per-subject in-toto JSONL bundles ship in. They live inside the unified metadata artifact, so this equals metadata-artifact-name on release runs. Empty when should-release is false."
         value: ${{ jobs.verify.outputs.attestation-bundle-name }}
@@ -364,7 +364,7 @@ jobs:
       attestations: write   # write the attestation to GitHub's store
       contents: read        # download-artifact reads the same-run dist
     outputs:
-      bundle-artifact-name: ${{ steps.attest.outputs.bundle-artifact-name }}
+      bundles-artifact-name: ${{ steps.attest.outputs.bundles-artifact-name }}
     steps:
       # Subjects come from dist/checksums.txt, not a dist/* glob: goreleaser
       # writes non-artifact bookkeeping into dist/ that is not released. This is
@@ -404,7 +404,8 @@ jobs:
           shortname: ${{ needs.prep.outputs.shortname }}
           dist-files: ${{ needs.release.outputs.dist-files }}
           policy: ${{ inputs.policy }}
-          collector: jsonl:provenance/provenance.jsonl
+          # No collector: the attest-assembled bundle (provenance + signed
+          # metadata) verify reads is the only collector for go/npm/python.
           # resourceUri is the golang module purl consumers pin when verifying;
           # each subject digest is the cryptographic bind.
           context: buildPoint:git+https://github.com/${{ github.repository }},vsa.resourceUri:pkg:golang/${{ needs.release.outputs.module }}@${{ needs.release.outputs.version }}

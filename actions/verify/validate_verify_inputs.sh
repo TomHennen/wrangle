@@ -36,7 +36,9 @@ wrangle_validate_verify_inputs() {
         || { _wrangle_reject artifact-name "$artifact_name" 'must match ^[A-Za-z0-9][A-Za-z0-9._-]*$'; return 1; }
     [[ "$subject"   =~ ^[A-Za-z0-9._:/@+-]+$   ]] || { _wrangle_reject subject   "$subject"   'disallowed characters'; return 1; }
     [[ "$policy"    =~ ^[A-Za-z0-9._:/@#+-]+$  ]] || { _wrangle_reject policy    "$policy"    'disallowed characters'; return 1; }
-    [[ "$collector" =~ ^[A-Za-z0-9._:/@#+,-]+$ ]] || { _wrangle_reject collector "$collector" 'disallowed characters'; return 1; }
+    # Empty for go/npm/python: the per-artifact bundle is the only collector; set
+    # for container (the oci: referrer collector).
+    [[ -z "$collector" || "$collector" =~ ^[A-Za-z0-9._:/@#+,-]+$ ]] || { _wrangle_reject collector "$collector" 'disallowed characters'; return 1; }
     [[ "$fail"      =~ ^(true|false)$          ]] || { _wrangle_reject fail      "$fail"      'must be "true" or "false"'; return 1; }
     [[ -z "$context"     || "$context"     =~ ^[A-Za-z0-9._:/@#+,%=-]+$ ]] || { _wrangle_reject context     "$context"     'disallowed characters'; return 1; }
     [[ -z "$attestation" || "$attestation" =~ ^[A-Za-z0-9._:/@#+,-]+$   ]] || { _wrangle_reject attestation "$attestation" 'disallowed characters'; return 1; }

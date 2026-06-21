@@ -7,11 +7,11 @@ description: >
   dir are computed here from build-type + shortname (lib/shortname.sh via
   the action_path), so adding a verify input is one edit here, not four.
 
-  The download steps that round-trip workflow artifacts (dist, provenance)
-  are skipped for the container build type — set oci-target and the
-  provenance is fetched from the registry referrer instead. Registry auth
-  (cosign install, registry login) stays in the container workflow: it is
-  container-only and handles registry secrets.
+  The dist download is skipped for the container build type — set oci-target;
+  the container's artifact is the image, not a workflow-artifact dist. The
+  attest-assembled bundles download for every build type. Registry auth (cosign
+  install, registry login) stays in the container workflow: it is container-only
+  and handles registry secrets.
 
 inputs:
   build-type:
@@ -25,8 +25,9 @@ inputs:
     description: "wrangle PolicySet to evaluate (path under policies/ or an ampel locator)."
     required: true
   collector:
-    description: "ampel collector(s) that gather the attestations to evaluate."
-    required: true
+    description: "Additional ampel collector beyond the per-artifact bundle (container's oci: referrer collector). Empty for go/npm/python."
+    required: false
+    default: ""
   context:
     description: "Per-verify context for the policy's CEL (ampel KEY:VALUE, comma-separated)."
     required: false
@@ -62,33 +63,28 @@ runs:
         SHORTNAME: ${{ inputs.shortname }}
       run: '"${{ github.action_path }}/../../lib/derive_names.sh" "$BUILD_TYPE" "$SHORTNAME"'
 
-    # Skipped for container: dist + provenance come from the registry referrer.
+    # Skipped for container: the artifact is the image, not a workflow-artifact dist.
     - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
       if: ${{ inputs.oci-target == '' }}
       with:
         name: ${{ steps.names.outputs.dist }}
         path: dist/
 
-    - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
-      if: ${{ inputs.oci-target == '' }}
-      with:
-        name: ${{ steps.names.outputs.provenance-bundle }}
-        path: provenance/
-
-    # Stage the build job's sbom + scan/ so verify writes the bundle alongside.
+    # Stage the build job's sbom + scan/ so verify's completed bundles land beside
+    # them under the metadata dir.
     - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
       with:
         name: ${{ steps.names.outputs.metadata-pre }}
         path: ${{ steps.names.outputs.metadata-dir }}/
 
-    # The attest job signed the SBOM + scan/v1 metadata (all build types); verify
-    # consumes that signed set (selecting each subject's lines for the policy +
-    # the bundle) instead of re-signing — attest owns the signing + store push
-    # (and, for container, the OCI referrer push) (#550).
+    # The attest job assembled the per-artifact bundles (provenance + signed
+    # SBOM/scan, all build types); verify appends the VSA to each. attest owns the
+    # signing + store push (and, for container, the OCI referrer push) (#550, #566).
+    # Land them in the metadata dir so verify appends in place.
     - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
       with:
-        name: ${{ steps.names.outputs.signed-metadata }}
-        path: signed-metadata/
+        name: ${{ steps.names.outputs.bundles }}
+        path: ${{ steps.names.outputs.metadata-dir }}/
 
     # TODO: replace with $/actions/verify when GitHub ships $/ syntax (#136)
     - uses: TomHennen/wrangle/actions/verify@beed1662e5f25a3046d189900f28f39713d0e161 # container-attest-signing 2026-06-21
@@ -97,14 +93,12 @@ runs:
         subjects: ${{ inputs.subjects }}
         policy: ${{ inputs.policy }}
         collector: ${{ inputs.collector }}
-        # Empty for container (provenance comes from the oci collector).
-        bundle-in: ${{ inputs.oci-target == '' && 'provenance/provenance.jsonl' || '' }}
+        # The attest-assembled bundles, downloaded into the metadata dir; verify
+        # appends each VSA in place.
+        bundle-in: ${{ steps.names.outputs.metadata-dir }}
         bundle-out: ${{ steps.names.outputs.metadata-dir }}
         # The bundle/zip dir; verify writes the per-subject bundles here.
         metadata-dir: ${{ steps.names.outputs.metadata-dir }}
-        # The attest-signed SBOM + scan/v1 statements verify appends per subject
-        # (all build types).
-        signed-metadata: signed-metadata/signed-metadata.jsonl
         artifact-name: ${{ steps.names.outputs.metadata }}
         context: ${{ inputs.context }}
         oci-target: ${{ inputs.oci-target }}
