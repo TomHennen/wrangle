@@ -29,6 +29,20 @@ setup() {
     [ "$status" -eq 0 ]
 }
 
+@test "setup_integration: guards the Go tool install with a go.sum-digest stamp" {
+    # A restored CI binary cache (build_shell.yml cache-setup-tools) must skip
+    # the rebuild: the install runs only when the stamp is absent or stale.
+    run grep -F '.go-tools.stamp' "$SETUP"
+    [ "$status" -eq 0 ]
+}
+
+@test "setup_integration: the dogfood workflow caches the installed Go tools" {
+    # local_build_shell.yml opts into the binary cache so go.sum-stable runs
+    # don't relink ampel/bnd/cosign/osv-scanner.
+    run grep -E 'cache-setup-tools:[[:space:]]*enabled' "$REPO_ROOT/.github/workflows/local_build_shell.yml"
+    [ "$status" -eq 0 ]
+}
+
 @test "setup_integration: the dogfood workflow auto-detects bats (no explicit list)" {
     # CI coverage must not depend on a hand-maintained file list: with
     # bats-path unset, build_shell auto-detects every .bats in the tree.

@@ -55,6 +55,18 @@ on:
         required: false
         type: string
         default: ""
+      cache-setup-tools:
+        description: >
+          Set to "enabled" to cache the Go tool binaries the setup-script
+          installs into wrangle's standard bin dir ($RUNNER_TEMP/.wrangle/bin,
+          lib/env.sh), keyed on go-tools-dir's go.sum, so they aren't relinked
+          every run. Requires go-tools-dir. Test/scan only: a cache hit
+          restores prebuilt binaries instead of rebuilding, so go.sum is not
+          re-verified on the hit — never enable on a release build. Empty
+          (default) disables it.
+        required: false
+        type: string
+        default: ""
 
 jobs:
   # MUST stay first under `jobs:`: prep's guard refuses unsafe triggers
@@ -105,6 +117,16 @@ jobs:
         with:
           go-version-file: ${{ inputs.go-tools-dir }}/go.mod
           cache-dependency-path: ${{ inputs.go-tools-dir }}/go.sum
+
+      # Restores prebuilt tool binaries on a go.sum-stable run so they aren't
+      # relinked; a hit skips the go.sum re-verify, so this is test/scan only
+      # and never gates a release (this workflow attests nothing).
+      - name: Cache setup-script tool binaries
+        if: ${{ inputs.cache-setup-tools == 'enabled' && inputs.go-tools-dir != '' }}
+        uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
+        with:
+          path: ${{ runner.temp }}/.wrangle/bin
+          key: setup-tools-${{ runner.os }}-${{ hashFiles(format('{0}/go.sum', inputs.go-tools-dir)) }}
 
       - name: Run shell build
         # TODO: replace with $/build/actions/shell when GitHub ships $/ syntax (#136)

@@ -36,7 +36,7 @@ adopter consuming wrangle through one of wrangle's **reusable workflows**:
 | python path (uv sub-path) | **Build L2** | Build L3 (Finding 1) |
 | container path | **Build L2** | Build L3 (Finding 2) |
 | Go path | **Build L3** [^go] | — |
-| shell path | **N/A** — no provenance produced | — |
+| shell path | **N/A** — no provenance produced [^shellcache] | — |
 
 [^npmci]: Conditional on the install command being `npm ci`, which re-verifies
     each cached tarball's SHA against `package-lock.json` on every install.
@@ -53,6 +53,15 @@ adopter consuming wrangle through one of wrangle's **reusable workflows**:
     — neither is automatically `npm ci`-like). Per-builder analysis lives in
     [`build/actions/go/SPEC.md`](../build/actions/go/SPEC.md) "Cache isolation",
     not in this historical document.
+
+[^shellcache]: The shell path signs nothing (source scan + shellcheck + bats),
+    so none of its caches can poison an attestation. `cache-setup-tools`
+    (`build_shell.yml`) is the strongest trust-on-hit of them: a
+    `tools/go.sum`-keyed hit restores prebuilt tool binaries without re-running
+    `go install`, so `go.sum` is not re-verified that run (the module/build
+    cache re-verifies it on rebuild). Acceptable only because no attested
+    artifact exists here — it must never be wired into a `build_and_publish_*`
+    release path.
 
 > **Update — 2026-05-17.** Findings 1 and 2 are now **resolved** by
 > [PR #226](https://github.com/TomHennen/wrangle/pull/226) (issue
