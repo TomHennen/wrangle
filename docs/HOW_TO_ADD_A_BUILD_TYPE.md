@@ -69,7 +69,7 @@ Validation-only types may grow `SPEC.md` and `README.md` as their scope expands.
 
 - **Path validation:** `lib/validate_path.sh` — every build type's `validate_inputs.sh` should delegate path checks here. (Don't write inline `run:` blocks for path validation — see "Common gotchas.")
 - **Download + verify:** `lib/download_verify.sh` — for any tool installer.
-- **SHA-pin bump:** `make bump-action-pins` (PR #166 / issue #165, in flight) — run this whenever the composite action changes so the reusable workflow's `uses:` ref stays current. Until that lands, bump pins manually in the same commit as the composite change.
+- **SHA-pin bump:** `make bump-action-pins` — run this whenever the composite action changes so the reusable workflow's `uses:` ref stays current.
 
 ### Top-level docs — update in the same PR
 
@@ -189,7 +189,7 @@ Concrete check before merge: copy the example workflow into a scratch repo or co
 
 PR #156 shipped at least three pin-bump commits (`8485af3`, `830540e`, `049fb5d`) interleaved with composite-changing commits. PR #167 needed a similar dance.
 
-**Use `make bump-action-pins`** when it lands (PR #166 / issue #165). Idempotent, no-op if pins are already current. Until then, bump pins manually in the same PR as the composite change. CI's `dispatch` job is the early-warning system: if the integration test passes but only because it's running the old composite, your tests are lying.
+**Use `make bump-action-pins`** — idempotent, a no-op if pins are already current; a nested pin chain that needs more than one cycle uses `make converge-action-pins`. CI's `dispatch` job is the early-warning system: if the integration test passes but only because it's running the old composite, your tests are lying.
 
 ### wrangle-test fixture coordination is a multi-PR dance
 
@@ -206,7 +206,7 @@ These are wrangle-wide decisions a new build type should follow without rethinki
 
 - **Unified metadata layout** — every build type writes to `metadata/<type>/<shortname>/` and uploads as `<type>-metadata-<shortname>`. See [`docs/SPEC.md`](./SPEC.md) "Unified metadata layout" and [#150](https://github.com/TomHennen/wrangle/issues/150). *Convention is canonical once #167 merges; container's existing `container-build-results-<shortname>` upload is being renamed there.*
 - **Provenance gating** — `if: ${{ ! startsWith(github.event_name, 'pull_') }}` is the default and what every build type uses today. A configurable input (`provenance-events` or similar) is *proposed* in [#161](https://github.com/TomHennen/wrangle/issues/161); until it lands, override by editing the `if:` directly in your reusable workflow if you need different gating.
-- **Action SHA pinning** — full SHA refs for `TomHennen/wrangle/...` (forks pending [#137](https://github.com/TomHennen/wrangle/issues/137) / `$/` syntax [#136](https://github.com/TomHennen/wrangle/issues/136)). `make bump-action-pins` is in flight (PR #166); manual bumps until then.
+- **Action SHA pinning** — full SHA refs for `TomHennen/wrangle/...` (forks pending [#137](https://github.com/TomHennen/wrangle/issues/137) / `$/` syntax [#136](https://github.com/TomHennen/wrangle/issues/136)). `make bump-action-pins` keeps these current.
 - **Test patterns** — start with structural bats tests for the YAML and helpers; add behavioral tests for any extracted scripts. The integration test in wrangle-test exercises end-to-end. See [#160](https://github.com/TomHennen/wrangle/issues/160) for the broader test-quality cleanup.
 - **No `curl | sh`, no `/usr/local/bin`** — install scripts use `lib/download_verify.sh` and install to `$WRANGLE_BIN_DIR`. CLAUDE.md is the canonical source.
 - **Permissions are minimal** — `permissions: write-all` is forbidden. Each job declares only what it needs. The reusable workflow declares only what its inner jobs need.
