@@ -76,7 +76,8 @@ ampel verify --subject wrangle-test-fixture-go_20260621-fa5bd7f_linux_amd64.tar.
 ```
 
 For your own releases — built by pinning wrangle's reusable workflows to a
-release tag — drop the `-nonstrict` and use `wrangle-vsa-consumer-v1`.
+release tag — swap `wrangle-vsa-consumer-nonstrict-v1` for the strict
+`wrangle-vsa-consumer-v1`.
 
 ## Recommended: `ampel verify` (one command)
 
