@@ -51,3 +51,13 @@ jobs:
 
       - name: Check action pin ancestry
         run: ./tools/check_pin_ancestry.sh
+
+      # Stale-but-reachable detection (#552): a pin can be an ancestor yet
+      # resolve OLD action code. Advisory until main is converged fresh — main
+      # may carry a stale pin in the window between an action-change merge and
+      # its post-merge bump, so blocking here would red main. An action-change
+      # PR converges its own pins in-PR (the merge commit keeps them reachable),
+      # so the freshness annotation is actionable pre-merge.
+      - name: Check action pin freshness (advisory)
+        continue-on-error: true
+        run: ./tools/check_pin_freshness.sh
