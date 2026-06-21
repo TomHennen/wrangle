@@ -3,21 +3,23 @@
 # Before first use:
 # 1. Copy `gh_workflow_examples/build_go.goreleaser.yml` to your
 #    repo root as `.goreleaser.yml` and adjust to your project
-#    (binary name, GOOS/GOARCH matrix, downstream verbs).
+#    (binary name, GOOS/GOARCH matrix). Do NOT add goreleaser
+#    publisher config (release.draft, brews, dockers, announce, …):
+#    wrangle runs goreleaser with --skip=publish and publishes only
+#    the attested archives + checksums.txt itself.
 # 2. Make sure your release tags match `v*` — goreleaser uses the
 #    tag name as the version.
 #
-# Wrangle's reusable workflow handles build, tests, SBOM, SLSA L3
-# provenance generation, its `verify` job's provenance verification (fail-
-# closed, via ampel against the wrangle PolicySet) plus signed-VSA
-# emission, and dispatch of every downstream goreleaser verb (Docker
-# pushes, Homebrew taps, deb/rpm/snap, announcements). Goreleaser
-# publishes natively on tag push; this caller workflow just gates which
-# events trigger that.
+# wrangle owns the publish: goreleaser only builds. wrangle's verify
+# job attaches the attested archives + checksums.txt + signed-VSA
+# bundles to a PRE-EXISTING GitHub Release — wrangle never creates
+# the release. The `create-release` job below creates it on tag push
+# so the assets have somewhere to land (mirrors how the python example
+# requires a configured publish target as a precondition).
 #
 # Trigger note: `release-events: tag-only` means only tag pushes
-# publish a release. PR builds run the full pipeline (build → tests
-# → SBOM) but do NOT mint provenance or publish.
+# publish. PR builds run the full pipeline (build → tests → SBOM) but
+# do NOT mint provenance or publish.
 name: Go Build
 
 on:
@@ -29,10 +31,31 @@ on:
   workflow_dispatch:
 
 jobs:
+  # Create the GitHub Release wrangle's verify job attaches assets to.
+  # wrangle never creates releases; it attaches to a pre-existing one.
+  # Tag pushes only — there is no release to create otherwise.
+  create-release:
+    if: ${{ startsWith(github.ref, 'refs/tags/') }}
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write   # gh release create
+    steps:
+      - env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ github.ref_name }}
+          REPO: ${{ github.repository }}
+        run: |
+          gh release view "$TAG" --repo "$REPO" >/dev/null 2>&1 ||
+            gh release create "$TAG" --repo "$REPO" --title "$TAG" --generate-notes
+
   build:
+    needs: [create-release]
+    # create-release is skipped on non-tag events; allow that so PR / main
+    # builds still run (a skipped need otherwise cascades to a skip).
+    if: ${{ always() && (needs.create-release.result == 'success' || needs.create-release.result == 'skipped') }}
     # Maximum the caller grants; wrangle's internal jobs each drop to the subset they actually need.
     permissions:
-      contents: write   # goreleaser creates the Release + wrangle's verify job attaches the VSA
+      contents: write   # wrangle's verify job attaches the attested assets to the release
       id-token: write   # OIDC for Sigstore signing
       attestations: write   # wrangle's attest job writes GitHub-issued SLSA provenance
       actions: read  # source scan: Scorecard reads the Actions API

@@ -258,7 +258,7 @@ func main() {}
     write_gomod "$proj"
     write_goreleaser "$proj"
     cd "$BATS_TEST_TMPDIR"
-    run "$RELEASE_DIR/validate_inputs.sh" "proj" "enabled" "false" "false"
+    run "$RELEASE_DIR/validate_inputs.sh" "proj" "enabled" "false"
     [[ "$status" -eq 0 ]]
 }
 
@@ -267,7 +267,7 @@ func main() {}
     write_gomod "$proj"
     printf 'version: 2\n' > "$proj/.goreleaser.yaml"
     cd "$BATS_TEST_TMPDIR"
-    run "$RELEASE_DIR/validate_inputs.sh" "proj" "enabled" "false" "false"
+    run "$RELEASE_DIR/validate_inputs.sh" "proj" "enabled" "false"
     [[ "$status" -eq 0 ]]
 }
 
@@ -275,7 +275,7 @@ func main() {}
     local proj="$BATS_TEST_TMPDIR/proj"
     write_gomod "$proj"
     cd "$BATS_TEST_TMPDIR"
-    run "$RELEASE_DIR/validate_inputs.sh" "proj" "enabled" "false" "false"
+    run "$RELEASE_DIR/validate_inputs.sh" "proj" "enabled" "false"
     [[ "$status" -ne 0 ]]
     [[ "$output" == *"no .goreleaser.yml"* ]]
     [[ "$output" == *"build_go.goreleaser.yml"* ]]
@@ -286,7 +286,7 @@ func main() {}
     write_gomod "$proj"
     write_goreleaser "$proj"
     cd "$BATS_TEST_TMPDIR"
-    run "$RELEASE_DIR/validate_inputs.sh" "proj" "enabled" "false" "garbage"
+    run "$RELEASE_DIR/validate_inputs.sh" "proj" "enabled" "garbage"
     [[ "$status" -ne 0 ]]
     [[ "$output" == *"install-zig input must be one of true|false"* ]]
 }
@@ -296,7 +296,7 @@ func main() {}
     write_gomod "$proj"
     write_goreleaser "$proj"
     cd "$BATS_TEST_TMPDIR"
-    run "$RELEASE_DIR/validate_inputs.sh" "proj" "enabled" "false" "true"
+    run "$RELEASE_DIR/validate_inputs.sh" "proj" "enabled" "true"
     [[ "$status" -eq 0 ]]
 }
 
@@ -326,7 +326,7 @@ func main() {}
 }
 
 @test "go.release: validate_inputs.sh rejects path traversal" {
-    run "$RELEASE_DIR/validate_inputs.sh" "../escape" "enabled" "false" "false"
+    run "$RELEASE_DIR/validate_inputs.sh" "../escape" "enabled" "false"
     [[ "$status" -ne 0 ]]
     [[ "$output" == *"path traversal not allowed"* ]]
 }
@@ -365,11 +365,10 @@ func main() {}
     GITHUB_STEP_SUMMARY="$BATS_TEST_TMPDIR/summary.md"
     : > "$GITHUB_STEP_SUMMARY"
     export GITHUB_STEP_SUMMARY
-    run "$RELEASE_DIR/generate_summary.sh" "$proj" "v1.2.3" "true"
+    run "$RELEASE_DIR/generate_summary.sh" "$proj" "v1.2.3"
     [[ "$status" -eq 0 ]]
     grep -q "Go Release Results" "$GITHUB_STEP_SUMMARY"
     grep -q "\\*\\*Version\\*\\* | v1.2.3" "$GITHUB_STEP_SUMMARY"
-    grep -q "\\*\\*Published\\*\\* | true" "$GITHUB_STEP_SUMMARY"
     grep -q "app.tar.gz" "$GITHUB_STEP_SUMMARY"
     grep -q "checksums.txt" "$GITHUB_STEP_SUMMARY"
 }
@@ -380,7 +379,7 @@ func main() {}
     GITHUB_STEP_SUMMARY="$BATS_TEST_TMPDIR/summary.md"
     : > "$GITHUB_STEP_SUMMARY"
     export GITHUB_STEP_SUMMARY
-    run "$RELEASE_DIR/generate_summary.sh" "$proj" "snapshot" "false"
+    run "$RELEASE_DIR/generate_summary.sh" "$proj" "snapshot"
     [[ "$status" -eq 0 ]]
     grep -q "Go Release Results" "$GITHUB_STEP_SUMMARY"
     # No file rows. File rows look like `| | \`<filename>\` |`;
@@ -394,7 +393,7 @@ func main() {}
     local proj="$BATS_TEST_TMPDIR/proj"
     mkdir -p "$proj/dist"
     : > "$proj/dist/app.tar.gz"
-    run bash -c 'unset GITHUB_STEP_SUMMARY; "$1" "$2" "v1.0.0" "true"' -- "$RELEASE_DIR/generate_summary.sh" "$proj"
+    run bash -c 'unset GITHUB_STEP_SUMMARY; "$1" "$2" "v1.0.0"' -- "$RELEASE_DIR/generate_summary.sh" "$proj"
     [[ "$status" -eq 0 ]]
     [[ "$output" == *"Go Release Results"* ]]
     [[ "$output" == *"app.tar.gz"* ]]
@@ -451,16 +450,25 @@ func main() {}
     [[ "$status" -eq 0 ]]
 }
 
-@test "go.release: ternary structure picks bare 'release --clean' on publish==true" {
-    # Per Gemini review on #238: forcing --skip=publish kills every
-    # downstream goreleaser verb. The args ternary must read:
-    #   inputs.publish == 'true' && 'release --clean' || 'release --clean --snapshot --skip=publish'
-    # so publish==true gets the bare publish-enabled invocation.
-    run grep -E "inputs\\.publish == 'true' && 'release --clean' \\|\\|" "$RELEASE_ACTION"
+@test "go.release: goreleaser always runs --skip=publish (wrangle owns the publish)" {
+    # wrangle never lets goreleaser publish: it could ship un-attestable
+    # artifacts (Docker, Homebrew, deb/rpm, announce). Both ternary branches
+    # must carry --skip=publish; the non-tag branch adds --snapshot because
+    # `release` refuses to run off a tag.
+    run grep -E "'release --clean --skip=publish' \\|\\| 'release --clean --snapshot --skip=publish'" "$RELEASE_ACTION"
     [[ "$status" -eq 0 ]]
-    # publish==false branch must --skip=publish (no release exists).
-    run grep -E "release --clean --snapshot --skip=publish" "$RELEASE_ACTION"
-    [[ "$status" -eq 0 ]]
+    # No bare publish-enabled invocation anywhere.
+    run grep -E "'release --clean'( |')" "$RELEASE_ACTION"
+    [[ "$status" -ne 0 ]]
+}
+
+@test "go.release: goreleaser step sets no GITHUB_TOKEN env (publishes nothing)" {
+    # --skip=publish uploads nothing, so the build job needs no release
+    # credentials and runs at contents: read. A GITHUB_TOKEN env entry here
+    # would be a least-privilege regression. Match an actual env key (6+
+    # spaces, `GITHUB_TOKEN:`), not the explanatory comment.
+    section="$(awk '/name: Run goreleaser/,/Resume workflow commands/' "$RELEASE_ACTION")"
+    ! grep -qE '^[[:space:]]+GITHUB_TOKEN:' <<<"$section"
 }
 
 @test "go.release: goreleaser is pinned to the triggering tag" {
@@ -636,8 +644,24 @@ func main() {}
     ! grep -qE '^      contents: write([[:space:]]|$)' <<<"$section"
 }
 
-@test "go: workflow release job has contents: write (goreleaser publishes inline)" {
+@test "go: workflow release job has contents: read (goreleaser publishes nothing)" {
+    # goreleaser runs --skip=publish; the build job uploads dist/ only as a
+    # workflow artifact. No adopter-code job holds contents: write — only the
+    # verify job (which runs no adopter code) does, for the release upload.
     section="$(awk '/^  [a-z][a-z_-]*:$/ { in_section = ($0 == "  release:") } in_section' "$WORKFLOW")"
+    grep -qE '^      contents: read([[:space:]]|$)' <<<"$section"
+    ! grep -qE '^      contents: write([[:space:]]|$)' <<<"$section"
+}
+
+@test "go: only the verify job holds contents: write (least privilege)" {
+    # Load-bearing: contents: write must appear on exactly one job — verify,
+    # which runs no adopter code. If it ever lands on checks/release/scan a
+    # hostile test or build could push to the repo with $GITHUB_TOKEN.
+    for job in scan checks release attest; do
+        section="$(awk -v j="  $job:" '/^  [a-z][a-z_-]*:$/ { in_section = ($0 == j) } in_section' "$WORKFLOW")"
+        ! grep -qE '^      contents: write([[:space:]]|$)' <<<"$section"
+    done
+    section="$(awk '/^  [a-z][a-z_-]*:$/ { in_section = ($0 == "  verify:") } in_section' "$WORKFLOW")"
     grep -qE '^      contents: write([[:space:]]|$)' <<<"$section"
 }
 
@@ -679,7 +703,7 @@ func main() {}
     grep -qE "needs\\.scan\\.result" <<<"$section"
 }
 
-@test "go: workflow does NOT have a publish job (goreleaser owns publish inline)" {
+@test "go: workflow does NOT have a separate publish job (verify owns the upload)" {
     run grep '^  publish:' "$WORKFLOW"
     [[ "$status" -ne 0 ]]
 }
@@ -735,9 +759,19 @@ func main() {}
     [[ "$status" -ne 0 ]]
 }
 
-@test "go: example workflow does NOT have a publish job (goreleaser owns publish)" {
+@test "go: example workflow does NOT have a publish job (wrangle's verify owns the upload)" {
     run grep -E '^  publish:' "$EXAMPLE"
     [[ "$status" -ne 0 ]]
+}
+
+@test "go: example workflow creates the release on tag push (wrangle attaches, never creates)" {
+    # wrangle attaches to a pre-existing release; the adopter must create it.
+    # The example ships a tag-gated create-release job so the assets land.
+    run grep -E '^  create-release:' "$EXAMPLE"
+    [[ "$status" -eq 0 ]]
+    section="$(awk '/^  [a-z][a-z_-]*:$/ { in_section = ($0 == "  create-release:") } in_section' "$EXAMPLE")"
+    grep -qF "gh release create" <<<"$section"
+    grep -qE "if:.*startsWith\\(github\\.ref, 'refs/tags/'\\)" <<<"$section"
 }
 
 @test "go: example workflow grants contents: write to build job" {

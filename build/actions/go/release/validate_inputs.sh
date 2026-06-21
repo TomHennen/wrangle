@@ -1,36 +1,29 @@
 #!/bin/bash
-# Validates inputs to the Go release composite: path, cache, publish,
+# Validates inputs to the Go release composite: path, cache,
 # install-zig, plus go.mod and .goreleaser.yml presence.
 #
-# Usage: build/actions/go/release/validate_inputs.sh <path> <cache> <publish> <install-zig>
+# Usage: build/actions/go/release/validate_inputs.sh <path> <cache> <install-zig>
 #
 #   path:        project directory (relative)
 #   cache:       "enabled" or "disabled"
-#   publish:     "true" or "false"
 #   install-zig: "true" or "false"
 
 set -euo pipefail
 set -f  # processes external arguments — disable globbing per CLAUDE.md
 
-if [[ $# -ne 4 ]]; then
-    printf 'Usage: %s <path> <cache> <publish> <install-zig>\n' "$0" >&2
+if [[ $# -ne 3 ]]; then
+    printf 'Usage: %s <path> <cache> <install-zig>\n' "$0" >&2
     exit 1
 fi
 
 INPUT_PATH="$1"
 INPUT_CACHE="$2"
-INPUT_PUBLISH="$3"
-INPUT_INSTALL_ZIG="$4"
+INPUT_INSTALL_ZIG="$3"
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
 if [[ "$INPUT_CACHE" != "enabled" && "$INPUT_CACHE" != "disabled" ]]; then
     printf 'Error: cache input must be one of enabled|disabled (got: %s)\n' "$INPUT_CACHE" >&2
-    exit 1
-fi
-
-if [[ "$INPUT_PUBLISH" != "true" && "$INPUT_PUBLISH" != "false" ]]; then
-    printf 'Error: publish input must be one of true|false (got: %s)\n' "$INPUT_PUBLISH" >&2
     exit 1
 fi
 

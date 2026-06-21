@@ -99,7 +99,7 @@ runs:
         oci-target: ${{ inputs.oci-target }}
         attach-to-release: ${{ inputs.attach-to-release }}
         attach-release-assets: ${{ inputs.attach-release-assets }}
-        # go's dist is owned by goreleaser on the release; wrangle skips it.
+        # build-type selects the attach behavior; go adds checksums.txt.
         build-type: ${{ inputs.build-type }}
         dist-dir: dist
         fail: "true"

@@ -2,27 +2,24 @@ name: "Build, test, and release a Go project with best practices."
 
 # Build + SLSA provenance reusable workflow for Go.
 #
-# The build is split into two jobs with different permissions:
+# wrangle owns the publish; goreleaser only builds. The two adopter-code
+# jobs run at contents: read — neither can write to the repo:
 #
-#   - `checks` (contents: read) runs the quality gates that don't
-#     need write access: gofmt, go vet, go test, govulncheck. The
-#     `go test` step executes arbitrary adopter test code, so
-#     denying it `contents: write` is real defense-in-depth — a
-#     compromised dependency or hostile test cannot use $GITHUB_TOKEN
-#     to push to the repo.
+#   - `checks` (contents: read) runs the quality gates: gofmt, go vet,
+#     go test, govulncheck. `go test` executes arbitrary adopter test
+#     code; denying it write access is real defense-in-depth.
 #
-#   - `release` (contents: write) runs goreleaser, which publishes
-#     to GitHub Releases on tag pushes and needs write access. The
-#     `release` job depends on `checks` so quality gates must pass
-#     before any bytes ship.
+#   - `release` (contents: read) runs goreleaser with --skip=publish:
+#     it builds the archives + checksums into dist/ and uploads nothing.
+#     It depends on `checks` so quality gates pass before any bytes are
+#     attested.
 #
-# Goreleaser owns its native publish: on tag pushes it creates the
-# GitHub Release, attaches archives + checksums, and runs whatever
-# downstream verbs the adopter's .goreleaser.yml configures (Docker
-# pushes, Homebrew taps, deb/rpm/snap, announce). wrangle's attest job
-# produces the provenance shortly after — same
-# "publish first, attest second" shape as wrangle's container build
-# type.
+# Only the verify job holds contents: write, and it runs no adopter code:
+# it attests the dist and uploads only the attested archives +
+# checksums.txt + .intoto.jsonl bundles to a PRE-EXISTING GitHub Release
+# (the adopter creates the release; wrangle never does). Un-attestable
+# downstream goreleaser verbs (Docker pushes, Homebrew taps, deb/rpm/snap,
+# announce) are never run. Same shape as wrangle's python and npm types.
 
 on:
   workflow_call:
@@ -74,13 +71,13 @@ on:
               github.event_name is in the list. See
               actions/prep/release_gate.sh for full vocabulary.
 
-          Goreleaser publishes only on TAG PUSHES (`gh release create`
-          requires a tag). The default `tag-only` is therefore also
-          the cheapest setting — workflow runs only when it would do
-          something meaningful. Use `non-pull-request` or
-          `main-and-tags` for early failure detection on non-tag
-          events (at the cost of a snapshot goreleaser run on every
-          matching push).
+          wrangle uploads attested artifacts only on TAG PUSHES (it
+          attaches to the pre-existing release for the tag). The default
+          `tag-only` is therefore also the cheapest setting — the
+          pipeline runs only when it would do something meaningful. Use
+          `non-pull-request` or `main-and-tags` for early failure
+          detection on non-tag events (at the cost of a snapshot
+          goreleaser run on every matching push).
         required: false
         type: string
         default: tag-only
@@ -253,8 +250,9 @@ jobs:
           path: ${{ steps.checks.outputs.metadata-dir }}/
           if-no-files-found: warn   # govulncheck JSON is informational; not having it is OK
 
-  # Goreleaser invocation + SBOM + hash. contents: write because
-  # goreleaser publishes inline on tag pushes. Sequenced after
+  # Goreleaser invocation (--skip=publish) + SBOM + hash. contents: read
+  # because goreleaser publishes nothing — it only builds dist/, which is
+  # handed to the verify job as a workflow artifact. Sequenced after
   # `checks` so quality gates have already passed.
   #
   # The `if:` is load-bearing for the run-tests: false path. With
@@ -274,7 +272,7 @@ jobs:
       (needs.scan.result == 'success' || needs.prep.outputs.should-release != 'true')
     runs-on: ubuntu-latest
     permissions:
-      contents: write    # goreleaser creates the GitHub Release
+      contents: read     # goreleaser runs --skip=publish; it writes nothing to the repo
     outputs:
       hashes: ${{ steps.release.outputs.hashes }}
       version: ${{ steps.release.outputs.version }}
@@ -297,10 +295,6 @@ jobs:
         with:
           path: ${{ inputs.path }}
           go-version: ${{ inputs.go-version }}
-          # publish == AND of (release-events gate) AND (tag push).
-          # Both must hold for goreleaser to do a full publish; otherwise
-          # it builds in --snapshot mode without uploading anything.
-          publish: ${{ needs.prep.outputs.should-release == 'true' && startsWith(github.ref, 'refs/tags/') }}
           cache: ${{ needs.prep.outputs.should-release == 'true' && 'disabled' || 'enabled' }}
           install-zig: ${{ inputs.install-zig }}
 
