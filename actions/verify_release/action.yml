@@ -82,7 +82,7 @@ runs:
         path: ${{ steps.names.outputs.metadata-dir }}/
 
     # TODO: replace with $/actions/verify when GitHub ships $/ syntax (#136)
-    - uses: TomHennen/wrangle/actions/verify@4077473ede90fd53da6a5e5cfb7f4ebacb1ec6ea # go-wrangle-owns-publish 2026-06-21
+    - uses: TomHennen/wrangle/actions/verify@a3cb4c8962f98c2104c2d468b430f394063f11d5 # go-wrangle-owns-publish 2026-06-21
       with:
         dist-files: ${{ inputs.dist-files }}
         subjects: ${{ inputs.subjects }}
