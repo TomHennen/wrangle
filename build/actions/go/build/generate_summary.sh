@@ -3,7 +3,7 @@
 # Renders a markdown table with project / version, plus a list of
 # every file in <dist_dir>/.
 #
-# Usage: build/actions/go/release/generate_summary.sh <input_path> <version>
+# Usage: build/actions/go/build/generate_summary.sh <input_path> <version>
 #
 #   input_path: project directory (used as the "Project" label and
 #               to locate dist/).

@@ -2,7 +2,7 @@
 # Validates inputs to the Go release composite: path, cache,
 # install-zig, plus go.mod and .goreleaser.yml presence.
 #
-# Usage: build/actions/go/release/validate_inputs.sh <path> <cache> <install-zig>
+# Usage: build/actions/go/build/validate_inputs.sh <path> <cache> <install-zig>
 #
 #   path:        project directory (relative)
 #   cache:       "enabled" or "disabled"
