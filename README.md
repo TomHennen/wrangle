@@ -19,6 +19,7 @@ uses one of wrangle's reusable workflows.  With that single job developers get:
 
 * Vulnerability scanning with [osv](https://github.com/google/osv-scanner)
 * GitHub Action safety checks with [Zizmor](https://github.com/zizmorcore/zizmor)
+* A check that your repo is configured for automatic dependency and action updates ([Dependabot](https://docs.github.com/code-security/dependabot)), behind a safety cooldown
 * Automatic execution of unit tests
 * Automatic builds with safe defaults
 * [SBOMs](https://spdx.dev)
