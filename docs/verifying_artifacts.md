@@ -50,6 +50,34 @@ one, so create a published Release for the tag (a draft won't be found) before
 the workflow runs, or the assets stay workflow artifacts — see the per-language
 build READMEs.
 
+### A real example (the showcase Go release)
+
+The [`wrangle-test`](https://github.com/TomHennen/wrangle-test) showcase tag
+`v20260621-fa5bd7f` carries, for its Go build, the verify-pair plus the metadata
+zip and goreleaser's `checksums.txt`:
+
+- `wrangle-test-fixture-go_20260621-fa5bd7f_linux_amd64.tar.gz` — the dist archive
+- `wrangle-test-fixture-go_20260621-fa5bd7f_linux_amd64.tar.gz.intoto.jsonl` — its bundle (provenance + VSA)
+- `go-metadata-go.zip` — the [unified metadata](metadata_layout.md) (SBOM + scan results)
+- `checksums.txt` — goreleaser's archive checksums
+
+Download the archive and its `.intoto.jsonl`, then verify (the showcase builds
+from `main`, not a wrangle release tag, so its VSA carries a `@refs/heads/main`
+signer identity and the strict `v*` consumer policy rejects it by design — the
+`-nonstrict` variant accepts any ref, which is the right policy for a
+branch-built showcase):
+
+```bash
+ampel verify --subject wrangle-test-fixture-go_20260621-fa5bd7f_linux_amd64.tar.gz \
+  --policy git+https://github.com/TomHennen/wrangle@v0.2.2#policies/wrangle-vsa-consumer-nonstrict-v1.hjson \
+  --collector jsonl:wrangle-test-fixture-go_20260621-fa5bd7f_linux_amd64.tar.gz.intoto.jsonl \
+  --context expectedResourceUri:pkg:golang/github.com/tomhennen/wrangle-test/go@v20260621-fa5bd7f \
+  --context sourceRepo:https://github.com/TomHennen/wrangle-test
+```
+
+For your own releases — built by pinning wrangle's reusable workflows to a
+release tag — drop the `-nonstrict` and use `wrangle-vsa-consumer-v1`.
+
 ## Recommended: `ampel verify` (one command)
 
 [ampel](https://github.com/carabiner-dev/ampel) ≥ v1.3.0 (one Go binary)
