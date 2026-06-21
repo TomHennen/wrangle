@@ -186,28 +186,40 @@ old (possibly vulnerable) release; it raises the floor from any commit to any
 release. `--type` must be the full URI — cosign rejects the
 `slsaverificationsummary` alias.
 
-For container images, a digest subject has no file blob, so the command is
-`cosign verify-attestation` (cosign v3) against the image — this reads the VSA
-from its by-digest registry referrer. If you'd rather verify from the file,
-pull the VSA line out of the combined `<sha256-digest>.intoto.jsonl` workflow
-artifact and use `cosign verify-blob-attestation --new-bundle-format`, exactly
-as the file-artifact path above does. `cosign verify-attestation` prints the
-verified envelope to stdout, so capture and decode that:
+For container images the VSA is an OCI referrer on the image digest, not a
+`sha256-<digest>.att` tag, so `cosign verify-attestation` cannot find it. Pull
+the VSA referrer bundle with `cosign download attestation` (which lists each
+referrer bundle on its own line), select the VSA line, then bind it to the image
+digest with `cosign verify-blob-attestation --new-bundle-format` — a digest
+subject has no file blob, so pass `--digest`/`--digestAlg` in place of a path:
 
 ```bash
-cosign verify-attestation \
-  --type https://slsa.dev/verification_summary/v1 \
+imagename=<imagename>; digest=<digest>   # the sha256 hex, no "sha256:" prefix
+
+cosign download attestation "$imagename@sha256:$digest" \
+  | jq -c "select(.dsseEnvelope.payload | @base64d | fromjson
+    | .predicateType == \"https://slsa.dev/verification_summary/v1\")" > vsa.intoto.jsonl
+
+cosign verify-blob-attestation --bundle vsa.intoto.jsonl --new-bundle-format \
   --certificate-oidc-issuer https://token.actions.githubusercontent.com \
   --certificate-identity-regexp '^https://github\.com/TomHennen/wrangle/\.github/workflows/build_and_publish_container\.yml@refs/tags/v[0-9.]+$' \
   --certificate-github-workflow-repository <your-org>/<your-repo> \
-  <imagename>@sha256:<digest> > vsa.json
+  --type https://slsa.dev/verification_summary/v1 \
+  --digest "$digest" --digestAlg sha256
 
-payload="$(jq -r '.payload' vsa.json | base64 -d)"
-jq -e '.subject[0].digest.sha256 == "<digest>"' <<<"$payload"
+payload="$(jq -r '.dsseEnvelope.payload' vsa.intoto.jsonl | base64 -d)"
 jq -e '.predicate.verificationResult == "PASSED"' <<<"$payload"
-jq -e '.predicate.resourceUri == "<imagename>@sha256:<digest>"' <<<"$payload"
+jq -e ".predicate.resourceUri == \"$imagename@sha256:$digest\"" <<<"$payload"
 jq -e '.predicate.verifiedLevels | index("SLSA_BUILD_LEVEL_3")' <<<"$payload"
 ```
+
+If you'd rather verify from the file, the combined `<sha256-digest>.intoto.jsonl`
+workflow artifact carries the same VSA — swap the `cosign download attestation`
+step for a `jq` filter over that file, exactly as the file-artifact path above
+does. The `@refs/tags/v…` anchor is the strict release identity (see the
+file-artifact note above); the showcase staging image is built SHA-pinned, so
+its VSA carries a bare `@<sha>` identity and verifies only under a loosened
+anchor.
 
 > **`slsa-verifier verify-vsa` is not usable here.** It only verifies
 > *key-signed* VSAs (it requires `--public-key-path`); wrangle's VSAs are
