@@ -31,7 +31,18 @@ done
 # tools/go.mod's tool directives; env.sh pins GOPROXY/GOSUMDB so the sum
 # database can't be disabled. go requires an absolute GOBIN, and env.sh's
 # local default for WRANGLE_BIN_DIR is CWD-relative.
-GOBIN="$(cd "$WRANGLE_BIN_DIR" && pwd)" go -C "$REPO_ROOT/tools" install tool
+#
+# The stamp records the go.sum the binaries were built for: a warm bin dir
+# (a restored CI cache) with a matching stamp skips the rebuild, and a go.sum
+# change forces a fresh install so a stale cache can't serve mismatched tools.
+TOOLS_STAMP="$WRANGLE_BIN_DIR/.go-tools.stamp"
+GOSUM_DIGEST="$(sha256sum "$REPO_ROOT/tools/go.sum" | cut -d' ' -f1)"
+if [[ -f "$TOOLS_STAMP" && "$(<"$TOOLS_STAMP")" == "$GOSUM_DIGEST" ]]; then
+    printf 'setup_integration: Go tools present for current go.sum, skipping install\n'
+else
+    GOBIN="$(cd "$WRANGLE_BIN_DIR" && pwd)" go -C "$REPO_ROOT/tools" install tool
+    printf '%s\n' "$GOSUM_DIGEST" > "$TOOLS_STAMP"
+fi
 
 # The lint-tool venvs the unit bats exercise (wrangle-shell-lint needs
 # ast-grep; wrangle-workflow-lint runs lint.py under a python that can

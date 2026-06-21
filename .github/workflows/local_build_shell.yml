@@ -29,9 +29,11 @@ jobs:
       setup-script: test/setup_integration.sh
       # Cache the Go tools built from source: go-tools-dir for the
       # setup-script's tools in the shell-build job, go-cache for the
-      # scan job's osv-scanner et al.
+      # scan job's osv-scanner et al. cache-setup-tools also caches the
+      # linked tool binaries so they aren't relinked when go.sum is stable.
       go-cache: enabled
       go-tools-dir: tools
+      cache-setup-tools: enabled
 
   # Wrangle-internal (self-ref pins are not an adopter concern, so this
   # lives in the dogfood caller, not the reusable build_shell.yml). Fails
