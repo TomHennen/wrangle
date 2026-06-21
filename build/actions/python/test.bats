@@ -531,9 +531,8 @@ write_pyproject() {
 }
 
 @test "python: scan job passes a per-build artifact-name to the scan action" {
-    # The scan action no longer owns wrangle-scan-results; the build job folds
-    # this artifact into the unified metadata. The name is the prep job's scan
-    # output (path-derived shortname).
+    # The build job folds this artifact into the unified metadata. The name is
+    # the prep job's scan output (path-derived shortname).
     run bash -c "sed -n '/^  scan:/,/^  [a-z]/p' \"$WORKFLOW\" | grep -E 'artifact-name: \\\$\\{\\{ needs.prep.outputs.scan \\}\\}'"
     [[ "$status" -eq 0 ]]
 }

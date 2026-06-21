@@ -161,7 +161,7 @@ jobs:
       metadata-pre: ${{ steps.prep.outputs.metadata-pre }}
     steps:
       # TODO: replace with $/actions/prep when GitHub ships $/ syntax (#136)
-      - uses: TomHennen/wrangle/actions/prep@82020c060864596bc2c1c6e685c47aad29aabc5f # auto-create-release 2026-06-21
+      - uses: TomHennen/wrangle/actions/prep@8d07711faa1fae341bcb09d381f046cec2e003ee # declutter-artifacts-493 2026-06-21
         id: prep
         with:
           build-type: go
@@ -180,7 +180,7 @@ jobs:
       security-events: write
     steps:
       # TODO: replace with $/actions/scan when GitHub ships $/ syntax (#136)
-      - uses: TomHennen/wrangle/actions/scan@82020c060864596bc2c1c6e685c47aad29aabc5f # auto-create-release 2026-06-21
+      - uses: TomHennen/wrangle/actions/scan@8d07711faa1fae341bcb09d381f046cec2e003ee # declutter-artifacts-493 2026-06-21
         if: ${{ inputs.scan-tools != '' }}
         with:
           checkout: "true"
@@ -188,6 +188,7 @@ jobs:
           tools: ${{ inputs.scan-tools }}
           # The release job folds this into the unified go-metadata.
           artifact-name: ${{ needs.prep.outputs.scan }}
+          retention-days: 1
           # Cold on release: the scan gates an attested build, so a
           # poisoned tool cache must not be able to forge a passing scan.
           go-cache: ${{ needs.prep.outputs.should-release == 'true' && '' || inputs.go-cache }}
@@ -214,7 +215,7 @@ jobs:
       # TODO: replace with $/build/actions/go/checks when GitHub ships $/ syntax (#136)
       # Self-pinned to PR HEAD until merge — bump-self-refs follow-up
       # repoints to the squashed merge SHA after this lands.
-      - uses: TomHennen/wrangle/build/actions/go/checks@82020c060864596bc2c1c6e685c47aad29aabc5f # auto-create-release 2026-06-21
+      - uses: TomHennen/wrangle/build/actions/go/checks@8d07711faa1fae341bcb09d381f046cec2e003ee # declutter-artifacts-493 2026-06-21
         id: checks
         with:
           path: ${{ inputs.path }}
@@ -235,6 +236,7 @@ jobs:
           name: ${{ needs.prep.outputs.checks }}
           path: ${{ steps.checks.outputs.metadata-dir }}/
           if-no-files-found: warn   # govulncheck JSON is informational; not having it is OK
+          retention-days: 1
 
   # Goreleaser invocation (--skip=publish) + SBOM + hash. contents: read
   # because goreleaser publishes nothing — it only builds dist/, which is
@@ -276,7 +278,7 @@ jobs:
 
       # TODO: replace with $/build/actions/go/build when GitHub ships $/ syntax (#136)
       # Self-pinned to PR HEAD until merge.
-      - uses: TomHennen/wrangle/build/actions/go/build@82020c060864596bc2c1c6e685c47aad29aabc5f # auto-create-release 2026-06-21
+      - uses: TomHennen/wrangle/build/actions/go/build@8d07711faa1fae341bcb09d381f046cec2e003ee # declutter-artifacts-493 2026-06-21
         id: release
         with:
           path: ${{ inputs.path }}
@@ -344,6 +346,9 @@ jobs:
           name: ${{ needs.prep.outputs.should-release == 'true' && needs.prep.outputs.metadata-pre || needs.prep.outputs.metadata }}
           path: ${{ steps.release.outputs.metadata-dir }}/
           if-no-files-found: error
+          # Short-retain only the premeta transient (release path); the
+          # non-release artifact is the final deliverable, kept at repo default.
+          retention-days: ${{ needs.prep.outputs.should-release == 'true' && '1' || '' }}
 
   # Generate SLSA L3 build provenance via GitHub's attestation API, naming THIS
   # reusable workflow as builder.id (its job_workflow_ref) and the Sigstore
@@ -364,7 +369,7 @@ jobs:
       # writes non-artifact bookkeeping into dist/ that is not released. This is
       # the same canonical subject set the VSA binds to.
       # TODO: replace with $/actions/attest_provenance when GitHub ships $/ syntax (#136)
-      - uses: TomHennen/wrangle/actions/attest_provenance@82020c060864596bc2c1c6e685c47aad29aabc5f # auto-create-release 2026-06-21
+      - uses: TomHennen/wrangle/actions/attest_provenance@8d07711faa1fae341bcb09d381f046cec2e003ee # declutter-artifacts-493 2026-06-21
         id: attest
         with:
           build-type: go
@@ -390,7 +395,7 @@ jobs:
       contents: write       # create the release if absent and upload the attested archives + checksums + bundles
     steps:
       # TODO: replace with $/actions/verify_release when GitHub ships $/ syntax (#136)
-      - uses: TomHennen/wrangle/actions/verify_release@82020c060864596bc2c1c6e685c47aad29aabc5f # auto-create-release 2026-06-21
+      - uses: TomHennen/wrangle/actions/verify_release@8d07711faa1fae341bcb09d381f046cec2e003ee # declutter-artifacts-493 2026-06-21
         with:
           build-type: go
           shortname: ${{ needs.prep.outputs.shortname }}

@@ -80,7 +80,7 @@ outputs:
     description: "Name of the unified metadata workflow artifact: `container-metadata[-<shortname>]`."
     value: ${{ steps.meta_dir.outputs.metadata-artifact-name }}
   metadata-pre-artifact-name:
-    description: "Name of the internal pre-bundle metadata transient: `container-premeta[-<shortname>]`."
+    description: "Name of the internal pre-bundle metadata transient: `internal-container-premeta[-<shortname>]`."
     value: ${{ steps.meta_dir.outputs.metadata-pre-artifact-name }}
 
 runs:
@@ -179,6 +179,11 @@ runs:
     - name: Build and push Docker image
       id: push
       uses: docker/build-push-action@f9f3042f7e2789586610d6e8b85c8f03e5195baf # v7.2.0
+      # Suppress the buildx .dockerbuild build-record artifact (it leaks a
+      # ~-named transient into the artifact list); the signed provenance is the
+      # record of record, not this debug bundle.
+      env:
+        DOCKER_BUILD_RECORD_UPLOAD: "false"
       with: # zizmor: ignore[template-injection] value is from steps.normalize.outputs.path, validated against ^[a-zA-Z0-9_./-]+$ and not shell-evaluated
         context: "{{defaultContext}}:${{ steps.normalize.outputs.path }}"
         push: true
@@ -232,7 +237,7 @@ runs:
         {
           printf 'metadata-dir=%s\n' "$METADATA_DIR"
           printf 'metadata-artifact-name=%s\n' "$(artifact_name container-metadata "$SHORTNAME")"
-          printf 'metadata-pre-artifact-name=%s\n' "$(artifact_name container-premeta "$SHORTNAME")"
+          printf 'metadata-pre-artifact-name=%s\n' "$(artifact_name internal-container-premeta "$SHORTNAME")"
         } >> "$GITHUB_OUTPUT"
 
     - name: Extract SBOM from built image

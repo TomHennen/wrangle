@@ -28,7 +28,7 @@ jobs:
     permissions: {}    # guard reads env only — no workspace, no API, no secrets
     steps:
       # TODO: replace with $/actions/prep when GitHub ships $/ syntax (#136)
-      - uses: TomHennen/wrangle/actions/prep@82020c060864596bc2c1c6e685c47aad29aabc5f # auto-create-release 2026-06-21
+      - uses: TomHennen/wrangle/actions/prep@8d07711faa1fae341bcb09d381f046cec2e003ee # declutter-artifacts-493 2026-06-21
 
   check-change:
     needs: [prep]
@@ -41,12 +41,12 @@ jobs:
       # The scan action runs adapter-pattern tools (via run.sh) and
       # action-pattern tools (zizmor, scorecard) via uses: internally, and
       # checks out the repo itself (checkout: true). Standalone scan: there is
-      # no build to fold into, so the artifact is the consumer-facing scan-<sn>.
+      # no build to fold into, so the artifact is the consumer-facing `scan`.
       # This workflow scans the whole repo (root path), so the shortname is
       # empty and the name is just "scan".
       # TODO: replace with $/actions/scan when GitHub ships $/ syntax (#136)
       - name: Source scan
-        uses: TomHennen/wrangle/actions/scan@82020c060864596bc2c1c6e685c47aad29aabc5f # auto-create-release 2026-06-21
+        uses: TomHennen/wrangle/actions/scan@8d07711faa1fae341bcb09d381f046cec2e003ee # declutter-artifacts-493 2026-06-21
         with:
           checkout: "true"
           tools: ${{ inputs.tools }}

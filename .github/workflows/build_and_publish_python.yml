@@ -126,7 +126,7 @@ jobs:
       metadata-pre: ${{ steps.prep.outputs.metadata-pre }}
     steps:
       # TODO: replace with $/actions/prep when GitHub ships $/ syntax (#136)
-      - uses: TomHennen/wrangle/actions/prep@82020c060864596bc2c1c6e685c47aad29aabc5f # auto-create-release 2026-06-21
+      - uses: TomHennen/wrangle/actions/prep@8d07711faa1fae341bcb09d381f046cec2e003ee # declutter-artifacts-493 2026-06-21
         id: prep
         with:
           build-type: python
@@ -145,7 +145,7 @@ jobs:
       security-events: write
     steps:
       # TODO: replace with $/actions/scan when GitHub ships $/ syntax (#136)
-      - uses: TomHennen/wrangle/actions/scan@82020c060864596bc2c1c6e685c47aad29aabc5f # auto-create-release 2026-06-21
+      - uses: TomHennen/wrangle/actions/scan@8d07711faa1fae341bcb09d381f046cec2e003ee # declutter-artifacts-493 2026-06-21
         if: ${{ inputs.scan-tools != '' }}
         with:
           checkout: "true"
@@ -153,6 +153,7 @@ jobs:
           tools: ${{ inputs.scan-tools }}
           # The build job folds this into the unified python-metadata.
           artifact-name: ${{ needs.prep.outputs.scan }}
+          retention-days: 1
           # Cold on release: the scan gates an attested build, so a
           # poisoned tool cache must not be able to forge a passing scan.
           go-cache: ${{ needs.prep.outputs.should-release == 'true' && '' || inputs.go-cache }}
@@ -179,7 +180,7 @@ jobs:
           ref: ${{ inputs.ref || '' }}
 
       # TODO: replace with $/build/actions/python when GitHub ships $/ syntax (#136)
-      - uses: TomHennen/wrangle/build/actions/python@82020c060864596bc2c1c6e685c47aad29aabc5f # auto-create-release 2026-06-21
+      - uses: TomHennen/wrangle/build/actions/python@8d07711faa1fae341bcb09d381f046cec2e003ee # declutter-artifacts-493 2026-06-21
         id: build
         with:
           path: ${{ inputs.path }}
@@ -248,6 +249,9 @@ jobs:
           name: ${{ needs.prep.outputs.should-release == 'true' && needs.prep.outputs.metadata-pre || needs.prep.outputs.metadata }}
           path: ${{ steps.build.outputs.metadata-dir }}/
           if-no-files-found: error
+          # Short-retain only the premeta transient (release path); the
+          # non-release artifact is the final deliverable, kept at repo default.
+          retention-days: ${{ needs.prep.outputs.should-release == 'true' && '1' || '' }}
 
   # Generate SLSA L3 build provenance via GitHub's attestation API, naming THIS
   # reusable workflow as builder.id (its job_workflow_ref) and the Sigstore
@@ -266,7 +270,7 @@ jobs:
       bundles-artifact-name: ${{ steps.attest.outputs.bundles-artifact-name }}
     steps:
       # TODO: replace with $/actions/attest_provenance when GitHub ships $/ syntax (#136)
-      - uses: TomHennen/wrangle/actions/attest_provenance@82020c060864596bc2c1c6e685c47aad29aabc5f # auto-create-release 2026-06-21
+      - uses: TomHennen/wrangle/actions/attest_provenance@8d07711faa1fae341bcb09d381f046cec2e003ee # declutter-artifacts-493 2026-06-21
         id: attest
         with:
           build-type: python
@@ -289,7 +293,7 @@ jobs:
       contents: write       # create the release if absent and attach the bundle on tag pushes
     steps:
       # TODO: replace with $/actions/verify_release when GitHub ships $/ syntax (#136)
-      - uses: TomHennen/wrangle/actions/verify_release@82020c060864596bc2c1c6e685c47aad29aabc5f # auto-create-release 2026-06-21
+      - uses: TomHennen/wrangle/actions/verify_release@8d07711faa1fae341bcb09d381f046cec2e003ee # declutter-artifacts-493 2026-06-21
         with:
           build-type: python
           shortname: ${{ needs.prep.outputs.shortname }}

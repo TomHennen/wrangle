@@ -77,3 +77,6 @@ runs:
         name: ${{ steps.names.outputs.bundles }}
         path: ${{ runner.temp }}/bundles/
         if-no-files-found: error
+        # Transient: the verify job appends each VSA and owns the final
+        # <type>-metadata-<sn> upload, so this stays off the long-lived list.
+        retention-days: 1

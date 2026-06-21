@@ -740,7 +740,7 @@ func main() {}
 
 @test "go: workflow checks + release jobs use namespaced metadata artifact names" {
     # The checks job's govulncheck output is an internal transient
-    # (go-checks[-<sn>]) folded into the unified go-metadata[-<sn>] (#469).
+    # (internal-go-checks[-<sn>]) folded into the unified go-metadata[-<sn>] (#469).
     # The name comes from the prep job's checks output.
     run grep -F 'needs.prep.outputs.checks' "$WORKFLOW"
     [[ "$status" -eq 0 ]]
