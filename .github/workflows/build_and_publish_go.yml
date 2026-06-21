@@ -367,7 +367,8 @@ jobs:
 
   # Generate SLSA L3 build provenance via GitHub's attestation API, naming THIS
   # reusable workflow as builder.id (its job_workflow_ref) and the Sigstore
-  # signing identity
+  # signing identity, then sign the SBOM + scan/v1 metadata over the built dist
+  # and post it to the attestation store — persisted independent of the verdict
   attest:
     if: ${{ needs.prep.outputs.should-release == 'true' }}
     needs: [prep, release]

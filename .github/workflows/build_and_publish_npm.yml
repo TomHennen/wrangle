@@ -270,7 +270,8 @@ jobs:
 
   # Generate SLSA L3 build provenance via GitHub's attestation API, naming THIS
   # reusable workflow as builder.id (its job_workflow_ref) and the Sigstore
-  # signing identity
+  # signing identity, then sign the SBOM + scan/v1 metadata over the built dist
+  # and post it to the attestation store — persisted independent of the verdict
   attest:
     if: ${{ needs.prep.outputs.should-release == 'true' }}
     # needs `scan` so a load-bearing finding blocks attestation + the caller's publish.
@@ -295,9 +296,8 @@ jobs:
   # and append it to the SLSA provenance, producing one per-artifact
   # <artifact>.intoto.jsonl bundle. bnd signs each VSA keyless with this workflow's
   # OIDC identity; a FAILED policy fails the step (fail: true) and blocks the
-  # caller's publish via needs: propagation. Provenance-only for now — SBOM/OSV
-  # tenets follow once those are produced as signed attestations a registered
-  # identity covers.
+  # caller's publish via needs: propagation. The SBOM + scan/v1 metadata is
+  # signed in the attest job; verify evaluates it and binds the verdict.
   verify:
     if: ${{ needs.prep.outputs.should-release == 'true' }}
     needs: [prep, build, attest]
