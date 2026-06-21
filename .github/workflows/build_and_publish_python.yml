@@ -126,7 +126,7 @@ jobs:
       metadata-pre: ${{ steps.prep.outputs.metadata-pre }}
     steps:
       # TODO: replace with $/actions/prep when GitHub ships $/ syntax (#136)
-      - uses: TomHennen/wrangle/actions/prep@eba09b9f1b5e31a49c9a69e125e7237aa03be887 # declutter-artifacts-493 2026-06-21
+      - uses: TomHennen/wrangle/actions/prep@25c6850771e49f18fb057c1f90f6cd5a45823a74 # declutter-artifacts-493 2026-06-21
         id: prep
         with:
           build-type: python
@@ -145,7 +145,7 @@ jobs:
       security-events: write
     steps:
       # TODO: replace with $/actions/scan when GitHub ships $/ syntax (#136)
-      - uses: TomHennen/wrangle/actions/scan@eba09b9f1b5e31a49c9a69e125e7237aa03be887 # declutter-artifacts-493 2026-06-21
+      - uses: TomHennen/wrangle/actions/scan@25c6850771e49f18fb057c1f90f6cd5a45823a74 # declutter-artifacts-493 2026-06-21
         if: ${{ inputs.scan-tools != '' }}
         with:
           checkout: "true"
@@ -180,7 +180,7 @@ jobs:
           ref: ${{ inputs.ref || '' }}
 
       # TODO: replace with $/build/actions/python when GitHub ships $/ syntax (#136)
-      - uses: TomHennen/wrangle/build/actions/python@eba09b9f1b5e31a49c9a69e125e7237aa03be887 # declutter-artifacts-493 2026-06-21
+      - uses: TomHennen/wrangle/build/actions/python@25c6850771e49f18fb057c1f90f6cd5a45823a74 # declutter-artifacts-493 2026-06-21
         id: build
         with:
           path: ${{ inputs.path }}
@@ -270,7 +270,7 @@ jobs:
       bundles-artifact-name: ${{ steps.attest.outputs.bundles-artifact-name }}
     steps:
       # TODO: replace with $/actions/attest_provenance when GitHub ships $/ syntax (#136)
-      - uses: TomHennen/wrangle/actions/attest_provenance@eba09b9f1b5e31a49c9a69e125e7237aa03be887 # declutter-artifacts-493 2026-06-21
+      - uses: TomHennen/wrangle/actions/attest_provenance@25c6850771e49f18fb057c1f90f6cd5a45823a74 # declutter-artifacts-493 2026-06-21
         id: attest
         with:
           build-type: python
@@ -293,7 +293,7 @@ jobs:
       contents: write       # create the release if absent and attach the bundle on tag pushes
     steps:
       # TODO: replace with $/actions/verify_release when GitHub ships $/ syntax (#136)
-      - uses: TomHennen/wrangle/actions/verify_release@eba09b9f1b5e31a49c9a69e125e7237aa03be887 # declutter-artifacts-493 2026-06-21
+      - uses: TomHennen/wrangle/actions/verify_release@25c6850771e49f18fb057c1f90f6cd5a45823a74 # declutter-artifacts-493 2026-06-21
         with:
           build-type: python
           shortname: ${{ needs.prep.outputs.shortname }}
