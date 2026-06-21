@@ -65,7 +65,7 @@ jobs:
     permissions: {}    # guard reads env only — no workspace, no API, no secrets
     steps:
       # TODO: replace with $/actions/prep when GitHub ships $/ syntax (#136)
-      - uses: TomHennen/wrangle/actions/prep@25c6850771e49f18fb057c1f90f6cd5a45823a74 # declutter-artifacts-493 2026-06-21
+      - uses: TomHennen/wrangle/actions/prep@8d07711faa1fae341bcb09d381f046cec2e003ee # declutter-artifacts-493 2026-06-21
 
   # Source scan. A load-bearing (:fail) finding fails the run alongside
   # the shell build/test (there is no artifact to gate publishing of).
@@ -78,7 +78,7 @@ jobs:
       security-events: write
     steps:
       # TODO: replace with $/actions/scan when GitHub ships $/ syntax (#136)
-      - uses: TomHennen/wrangle/actions/scan@25c6850771e49f18fb057c1f90f6cd5a45823a74 # declutter-artifacts-493 2026-06-21
+      - uses: TomHennen/wrangle/actions/scan@8d07711faa1fae341bcb09d381f046cec2e003ee # declutter-artifacts-493 2026-06-21
         if: ${{ inputs.scan-tools != '' }}
         with:
           checkout: "true"
@@ -112,7 +112,7 @@ jobs:
         # setup-script input and multi-path bats — the main-pinned version
         # would ignore setup-script and fail the dogfooded integration bats.
         # Bump to main post-merge via tools/bump_action_pins.sh.
-        uses: TomHennen/wrangle/build/actions/shell@25c6850771e49f18fb057c1f90f6cd5a45823a74 # declutter-artifacts-493 2026-06-21
+        uses: TomHennen/wrangle/build/actions/shell@8d07711faa1fae341bcb09d381f046cec2e003ee # declutter-artifacts-493 2026-06-21
         with:
           scan-path: ${{ inputs.scan-path }}
           bats-path: ${{ inputs.bats-path }}
