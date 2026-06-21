@@ -97,14 +97,22 @@ STUB
 
 # ---- sign_metadata.sh (arg shape, no real tools) ----
 
-@test "sign_metadata: wrangle-attest args self-digest the subject and --sign" {
-    export METADATA_ROOT="$META" COMMIT="abc123"
+@test "sign_metadata: a file subject is self-digested via --artifact and signed" {
+    export METADATA_ROOT="$META" COMMIT="abc123" WRANGLE_RETRY_DELAY=0
+    # A stub wrangle-attest records its args so we can assert the derived flags.
+    STUB_BIN="$TEST_DIR/stubbin"; mkdir -p "$STUB_BIN"
+    cat > "$STUB_BIN/wrangle-attest" << STUBA
+#!/usr/bin/env bash
+printf '%s\n' "\$@" > "$TEST_DIR/attest-args"
+for a in "\$@"; do case "\$a" in --out=*) printf '{}' > "\${a#--out=}";; esac; done
+STUBA
+    chmod +x "$STUB_BIN/wrangle-attest"
     # shellcheck source=sign_metadata.sh
     source "$SIGN"
-    mapfile -t args < <(wrangle_attest_args "dist/app-1.2.3.tgz" "/tmp/out.jsonl")
-    printf '%s\n' "${args[@]}" | grep -qx -- "--artifact=dist/app-1.2.3.tgz"
-    printf '%s\n' "${args[@]}" | grep -qx -- "--sign"
-    printf '%s\n' "${args[@]}" | grep -qx -- "--out=/tmp/out.jsonl"
+    PATH="$STUB_BIN:$PATH" wrangle_sign_metadata_statements "dist/app-1.2.3.tgz" "/tmp/out.jsonl"
+    grep -qx -- "--artifact=dist/app-1.2.3.tgz" "$TEST_DIR/attest-args"
+    grep -qx -- "--sign" "$TEST_DIR/attest-args"
+    grep -qx -- "--out=/tmp/out.jsonl" "$TEST_DIR/attest-args"
 }
 
 @test "sign_metadata: bnd push targets the GitHub store by repo" {
