@@ -80,17 +80,18 @@ setup() {
 
     # The default python tier, verified against a real SIGNED release bundle
     # (Rekor-proofed, public wrangle-test) so the signer-identity admission is
-    # exercised end to end — the unsigned fixtures above cannot reach it. Its
-    # own subject and per-release context, carried inside the signed VSA.
+    # exercised end to end — the unsigned fixtures above cannot reach it. The
+    # complete default-tier bundle (provenance + VSA + SBOM + clean
+    # osv/zizmor/wrangle-lint scans), so it passes the whole tier cleanly.
     DEFAULT_PYTHON="$POLICIES_DIR/wrangle-default-python-v1.hjson"
     SIGNED_BUNDLE="$POLICIES_DIR/testdata/good-default-signed.bundle.jsonl"
     # Subject is digested from the real wheel the bundle covers (as actions/verify
     # does), so the test proves the bundle is about that artifact. Context stays
     # literal: buildPoint is the expected source repo the slsa-build-point tenet
     # asserts against — deriving it from the same bundle would make that vacuous.
-    SIGNED_WHEEL="$POLICIES_DIR/testdata/wrangle_test_fixture-0.0.1.dev27902476403-py3-none-any.whl"
+    SIGNED_WHEEL="$POLICIES_DIR/testdata/wrangle_test_fixture-0.0.1.dev27905469742-py3-none-any.whl"
     SIGNED_SUBJECT="sha256:$(sha256sum "$SIGNED_WHEEL" | cut -d' ' -f1)"
-    SIGNED_CTX="buildPoint:git+https://github.com/TomHennen/wrangle-test,vsa.resourceUri:pkg:pypi/wrangle-test-fixture@0.0.1.dev27902476403"
+    SIGNED_CTX="buildPoint:git+https://github.com/TomHennen/wrangle-test,vsa.resourceUri:pkg:pypi/wrangle-test-fixture@0.0.1.dev27905469742"
 
     # Logic-only variants for the tenet tests (see the file header).
     DEFAULT_LOGIC="$BATS_TEST_TMPDIR/default-logic.hjson"
@@ -444,27 +445,53 @@ expect_fail_closed() {
 # --- Signed-bundle identity admission (the production path) ----------------
 # The unsigned fixtures above can only run against the logic variant, so the
 # signer-identity admission is never exercised against a real signature. This
-# runs the FULL production python tier against a real SIGNED release bundle,
-# the same way actions/verify does (with --workers), and asserts the scan
-# tenet's identity validates. RED if --workers drops below the tenet count:
-# ampel then spuriously fails the overflow tenet on identity. The bundle
-# carries only the zizmor scan/v1, so osv/wrangle-lint fail on MISSING-scan —
-# a different failure than identity, which the assertions distinguish.
-@test "ampel policy: default-python-v1 (production) validates the signer identity on a real signed scan attestation" {
+# runs the FULL production python tier against a real SIGNED release bundle, the
+# same way actions/verify does (with --workers). The bundle is the complete
+# default tier (provenance + VSA + SBOM + clean osv/zizmor/wrangle-lint scans),
+# so it PASSES cleanly: every tenet PASS, ampel exit 0, signer identity
+# validated end to end.
+@test "ampel policy: default-python-v1 (production) PASSES a real signed default-tier bundle (clean overall)" {
     local rs="$BATS_TEST_TMPDIR/signed.json"
     run "$AMPEL" verify -p "$DEFAULT_PYTHON" -s "$SIGNED_SUBJECT" \
         -c "jsonl:$SIGNED_BUNDLE" -x "$SIGNED_CTX" --workers=32 \
         --attest-results --attest-format=ampel --results-path="$rs" -f tty
+    [ "$status" -eq 0 ]
     [ -s "$rs" ]
-    # The zizmor scan/v1 is present and signed by the bound identity, so its
-    # tenet PASSES — its signer identity validated.
-    run jq -r '.predicate.results[] | select(.policy.id == "zizmor-scan-clean") | .status' "$rs"
+    run jq -r '.predicate.status' "$rs"
     [ "$output" = "PASS" ]
-    # No tenet may fail on identity validation: the only failures are the absent
-    # osv/wrangle-lint scans (a MISSING-scan CEL failure, not an identity drop).
+    # Every tenet PASSES — no FAIL anywhere in the resultset.
+    run jq -r '[.predicate.results[] | select(.status != "PASS")] | length' "$rs"
+    [ "$output" -eq 0 ]
+}
+
+# Guard for ampel #298: with --workers below the tenet count ampel spuriously
+# fails an overflow tenet on identity validation, so the same signed bundle that
+# PASSES at --workers=32 must go RED at --workers=4.
+@test "ampel policy: default-python-v1 (production) goes RED at --workers=4 (ampel #298 guard)" {
+    run "$AMPEL" verify -p "$DEFAULT_PYTHON" -s "$SIGNED_SUBJECT" \
+        -c "jsonl:$SIGNED_BUNDLE" -x "$SIGNED_CTX" --workers=4 -f tty
+    [ "$status" -ne 0 ]
+}
+
+# The signer-identity admission is the security property: a bundle signed by a
+# non-matching identity must FAIL even at --workers=32 (the clean-pass setting).
+# Derive a wrong-signer variant by swapping the bound build-workflow path in the
+# identity regexp for one this bundle was NOT signed by.
+@test "ampel policy: default-python-v1 FAILS a non-matching signer identity (even at --workers=32)" {
+    local wrong="$BATS_TEST_TMPDIR/default-python-wrong-signer.hjson"
+    sed '/mode: "regexp"/,/}/ s#build_and_publish_python#build_and_publish_attacker#' \
+        "$DEFAULT_PYTHON" > "$wrong"
+    local rs="$BATS_TEST_TMPDIR/wrong-signer.json"
+    run "$AMPEL" verify -p "$wrong" -s "$SIGNED_SUBJECT" \
+        -c "jsonl:$SIGNED_BUNDLE" -x "$SIGNED_CTX" --workers=32 \
+        --attest-results --attest-format=ampel --results-path="$rs" -f tty
+    [ "$status" -ne 0 ]
+    [ -s "$rs" ]
+    run jq -r '.predicate.status' "$rs"
+    [ "$output" = "FAIL" ]
     run jq -r '[.predicate.results[].eval_results[]?.error.message]
                | map(select(. == "attestation identity validation failed")) | length' "$rs"
-    [ "$output" -eq 0 ]
+    [ "$output" -ge 1 ]
 }
 
 # --- Cross-file invariant --------------------------------------------------
