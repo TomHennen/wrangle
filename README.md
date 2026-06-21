@@ -138,5 +138,4 @@ Wrangle is a supply-chain security tool, so its defaults lean toward safety:
 
 ## FAQ
 
-Pinning, verification, and Dependabot questions are answered in the
-[FAQ](docs/FAQ.md).
+You can find answers to a number of questions in [the FAQ](docs/FAQ.md).
