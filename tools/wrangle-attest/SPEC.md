@@ -2,9 +2,16 @@
 
 `wrangle-attest` turns the inert result files scan/build tools leave behind into
 in-toto v1 Statements and, with `--sign`, keyless-signs each into a Sigstore
-bundle in the trusted post-build context (`actions/verify`). It is the single
-producer-side engine: adding the Nth attestation type is a new manifest + (for a
-novel predicate shape) a new case here, never new signing code.
+bundle. It runs in the `attest` job, the trusted post-build context that signs
+every build-metadata attestation (SBOM + scan/v1) over the already-built
+dist/image; `actions/verify` then evaluates the policy and signs only the VSA.
+It is the single producer-side engine: adding the Nth attestation type is a new
+manifest + (for a novel predicate shape) a new case here, never new signing code.
+
+The trust boundary is load-bearing: the `attest` job runs no adopter-controlled
+code — only `attest-build-provenance` and `wrangle-attest` over the artifact the
+`build` job already produced, never an adopter build or test hook — so a
+build-metadata attestation can only ever describe what wrangle itself observed.
 
 ## Tools declare, the engine decides
 
@@ -87,4 +94,5 @@ cases), subject parsing (single sha256, fail-closed on multi/short/wrong-algo;
 passthrough and the SARIF thin-envelope shapes, and hermetic `--sign` (local
 ephemeral key: DSSE shape + signature + fail-closed). Regenerate goldens with
 `go test ./wrangle-attest/ -update`. The real keyless path is covered by the
-dispatch e2e (`actions/verify` bats cover the `run_verify.sh` glue).
+dispatch e2e (`actions/attest_provenance` and `actions/attest_metadata_oci` bats
+cover the `sign_metadata.sh` glue).
