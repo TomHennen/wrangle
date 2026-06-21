@@ -229,12 +229,12 @@ wrangle_append_signed_metadata() {
     done < "$stmts"
 }
 
-# Filter the attest-signed metadata JSONL $1 to the lines whose in-toto subject
-# digest matches subject $2, writing them to $3 (emptied first). Each line is a
-# bnd DSSE bundle; the subject sits inside the base64 payload. A file subject is
-# sha256-hashed (the digest attest bound); a digest-form subject matches verbatim.
-# Fails closed: an unhashable subject or a malformed line aborts, never silently
-# emitting an empty per-subject set when the artifact carries metadata.
+# Select subject $2's lines from the accumulated attest-signed metadata JSONL $1
+# into $3 (emptied first) — the per-artifact bundle carries only its own subject's
+# statements, and the attest artifact holds every subject's. Each line is a bnd
+# DSSE bundle; the subject digest sits inside the base64 payload. A file subject
+# is sha256-hashed (the digest attest bound via --artifact); a digest-form
+# subject matches verbatim. Fails closed on an unhashable file subject.
 wrangle_subject_signed_metadata() {
     local signed="$1" subject="$2" out="$3" digest
     : > "$out"
@@ -299,11 +299,12 @@ wrangle_run() {
     for subject in "${WRANGLE_SUBJECTS[@]}"; do
         bundle="$BUNDLE_OUT/$(wrangle_bundle_name "$subject")"
         cp "$seed" "$bundle"
-        # Gather this subject's SBOM/scan statements so ampel evaluates the policy
-        # against them (a second collector), then bind the verdict into the VSA:
-        # select the attest-signed lines (go/npm/python) or sign them here
-        # (container). Pass the file to ampel only when it holds statements — the
-        # extra collector is omitted for a build with no metadata.
+        # Gather this subject's SBOM/scan statements: select the attest-signed
+        # lines for this subject (go/npm/python — the accumulated artifact holds
+        # every subject, but each bundle is per-artifact) or sign them here
+        # (container). The same per-subject file is also handed to ampel as a
+        # second collector so the verdict/VSA cover the scan tenets; the collector
+        # is omitted when the file is empty (a build with no metadata).
         : > "$meta_stmts"
         if [[ -n "$consume_signed" ]]; then
             wrangle_subject_signed_metadata "$SIGNED_METADATA" "$subject" "$meta_stmts"
