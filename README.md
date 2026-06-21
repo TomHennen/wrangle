@@ -107,8 +107,9 @@ yourself.
 
 A run typically moves through these stages:
 
-1. **Scan the source** - checks your dependencies for known vulnerabilities (OSV) and lints your
-   GitHub Actions workflows for unsafe patterns (Zizmor).
+1. **Scan the source** - checks your dependencies for known vulnerabilities (OSV), lints your
+   GitHub Actions workflows for unsafe patterns (Zizmor), and checks your Dependabot config is
+   set up so dependency and action updates land automatically, behind a safety cooldown.
 2. **Run your tests** — runs your existing test suite.
 3. **Build the artifact** — compiles/packages your project using safe defaults for your
    ecosystem
@@ -135,14 +136,6 @@ Wrangle is a supply-chain security tool, so its defaults lean toward safety:
   `permissions:` block, so the scan and test jobs run read-only while only the publish, sign,
   and attest jobs hold write or token scopes (`contents: write`, `packages: write`,
   `id-token: write`, `attestations: write`) — and only for the length of that one job.
-
-## What attacks does this help with?
-
-Wondering what wrangle actually protects you from — and where it doesn't? The
-[threat coverage map](docs/threat_coverage.md) maps wrangle's controls to real
-software supply-chain incidents, with the limits of each spelled out and a frank
-list of the attacks it does little against. Disagree with a mapping, or know one
-we're missing? We'd love to hear it.
 
 ## FAQ
 
