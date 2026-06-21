@@ -41,7 +41,7 @@ These steps set up [PyPI Trusted Publishing](https://docs.pypi.org/trusted-publi
 - **Source scan** built in — vulnerable dependencies (OSV), unsafe workflow patterns (Zizmor), and more ([details](../../../actions/scan/README.md)); a load-bearing finding blocks publish.
 - **An SPDX SBOM, scan findings, and the signed bundle** in one `python-metadata-<sn>` workflow artifact ([what's in it](../../../docs/metadata_layout.md)).
 - **SLSA Build L3 provenance** ([the requirements it meets](../../../docs/REQUIREMENTS_MAPPING.md)), plus PEP 740 attestations on PyPI from the publish step.
-- **Release assets on tag pushes** — each dist file and its `<dist-file>.intoto.jsonl` bundle (signed VSA + provenance) as a flat verify-pair, plus a `python-metadata-<sn>.zip` with the SBOM + scan results. Downstream users verify with one command. wrangle attaches to an existing Release and never creates one, so create a published GitHub Release for the tag (a draft won't be found) before the workflow runs — otherwise these assets stay workflow artifacts.
+- **Release assets on tag pushes** — each dist file and its `<dist-file>.intoto.jsonl` bundle (signed VSA + provenance) as a flat verify-pair, plus a `python-metadata-<sn>.zip` with the SBOM + scan results. Downstream users verify with one command. wrangle creates the tag's GitHub Release if one doesn't exist yet (published, auto-generated notes); pre-create it yourself only for custom notes or a draft.
 
 ## Your publish job
 
