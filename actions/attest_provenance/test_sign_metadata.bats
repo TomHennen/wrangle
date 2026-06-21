@@ -160,17 +160,19 @@ STUBA
 
 @test "sign_metadata: an empty metadata root fails closed" {
     # shellcheck source=sign_metadata.sh
+    printf '{"provenance":1}\n' > "$TEST_DIR/provenance.jsonl"
     SUBJECTS="$DIST/app-1.2.3.tgz" METADATA_ROOT="$TEST_DIR/absent" \
-        OUT="$TEST_DIR/out.jsonl" GITHUB_REPOSITORY="o/r" run "$SIGN"
+        BUNDLE_IN="$TEST_DIR/provenance.jsonl" BUNDLE_OUT="$TEST_DIR/bundles" \
+        GITHUB_REPOSITORY="o/r" run "$SIGN"
     [ "$status" -ne 0 ]
 }
 
 # ---- end-to-end with real wrangle-attest (unsigned-statement variant via stub bnd) ----
 # wrangle-attest --sign needs OIDC; to exercise the per-subject statement +
-# push plumbing offline we drive the real engine without --sign by stubbing it
-# to emit the unsigned statement, and stub bnd to record the push.
+# assembly + push plumbing offline we drive the real engine without --sign by
+# stubbing it to emit the unsigned statement, and stub bnd to record the push.
 
-@test "sign_metadata: signs every subject's metadata and pushes each line" {
+@test "sign_metadata: signs every subject's metadata and assembles its bundle" {
     [[ -x "$ATTEST_BIN" ]] || skip_or_fail "wrangle-attest not built"
     stub_bnd
     # A wrapper that forwards to the real engine but drops --sign (offline).
@@ -183,11 +185,15 @@ exec "$ATTEST_BIN" "\${args[@]}"
 STUBA
     chmod +x "$STUB_BIN/wrangle-attest"
 
+    printf '{"provenance":1}\n' > "$TEST_DIR/provenance.jsonl"
     PATH="$STUB_BIN:$PATH" SUBJECTS="$DIST/app-1.2.3.tgz" METADATA_ROOT="$META" \
-        OUT="$TEST_DIR/out.jsonl" GITHUB_REPOSITORY="o/r" COMMIT="abc123" run "$SIGN"
+        BUNDLE_IN="$TEST_DIR/provenance.jsonl" BUNDLE_OUT="$TEST_DIR/bundles" \
+        GITHUB_REPOSITORY="o/r" COMMIT="abc123" run "$SIGN"
     [ "$status" -eq 0 ]
-    # One signed statement emitted to OUT and one push recorded.
-    [ -s "$TEST_DIR/out.jsonl" ]
+    # One per-artifact bundle (provenance seed + signed metadata) and one push.
+    local bundle="$TEST_DIR/bundles/app-1.2.3.tgz.intoto.jsonl"
+    [ -s "$bundle" ]
+    [ "$(head -n1 "$bundle")" = '{"provenance":1}' ]
     [ "$(wc -l < "$PUSH_RECORD")" -eq 1 ]
     grep -q '^o/r ' "$PUSH_RECORD"
 }

@@ -1,14 +1,16 @@
 #!/bin/bash
-# Verify each subject, sign its VSA, and emit one <artifact>.intoto.jsonl bundle
-# per subject (provenance lines + that subject's signed VSA).
+# Append the signed VSA to each per-artifact <artifact>.intoto.jsonl bundle the
+# attest job assembled (provenance + that subject's signed SBOM + scan/v1), and
+# deliver the result.
 #
 # Subcommands:
-#   run    emit -> sign -> append per subject in one process, so an unsigned VSA
+#   run    per subject: verify against the policy, sign the VSA, and append it to
+#          the attest-assembled bundle — all in one process, so an unsigned VSA
 #          never lives on disk across a step boundary. Each signed VSA is also
 #          posted to the GitHub attestation store (by-digest discovery); with
 #          OCI_TARGET set it is additionally pushed as its own OCI referrer. The
-#          SBOM + scan/v1 metadata is signed in the attest job (all build types)
-#          and consumed here (SIGNED_METADATA — never re-signed or re-pushed).
+#          SBOM + scan/v1 metadata is signed AND assembled into the bundle in the
+#          attest job (all build types); verify only appends the VSA.
 #   attach upload the rationalized asset set (per-subject dist + bundle, and one
 #          <type>-metadata-<sn>.zip) to the GitHub release for the current tag,
 #          if one exists. Inputs: BUNDLE_OUT, BUILD_TYPE, DIST_DIR,
@@ -16,11 +18,9 @@
 #
 # Arg-builder functions are pure so unit tests can assert the CLI shape offline.
 # Inputs arrive as env vars: SUBJECTS (newline-separated), POLICY, COLLECTOR,
-# FAIL, CONTEXT, BUNDLE_IN, BUNDLE_OUT, GITHUB_REPOSITORY (store push target),
-# GITHUB_TOKEN (bnd reads it to auth the store push), and optional ATTESTATION,
-# OCI_TARGET, and SIGNED_METADATA — the attest job's signed SBOM + scan/v1 JSONL
-# (all build types), already signed and store-pushed (and, for container,
-# OCI-pushed) there; verify reads it, never re-signs or re-pushes.
+# FAIL, CONTEXT, BUNDLE_IN (the attest-assembled bundle directory), BUNDLE_OUT,
+# GITHUB_REPOSITORY (store push target), GITHUB_TOKEN (bnd reads it to auth the
+# store push), and optional ATTESTATION and OCI_TARGET.
 
 set -euo pipefail
 set -f  # disable globbing — processes external input
@@ -61,17 +61,19 @@ wrangle_subject_arg() {
 }
 
 # Build the ampel verify arg vector (one arg per line for mapfile). $1 = subject;
-# $2 = unsigned-VSA output; $3 (optional) = signed-metadata JSONL, added as a second
-# jsonl: collector so the verdict (and VSA) cover the SBOM/scan tenets. Must be a
-# collector, not --attestation (which parses only one statement; metadata is multi-line).
+# $2 = unsigned-VSA output; $3 = the attest-assembled per-artifact bundle
+# (provenance + that subject's SBOM/scan), fed as a jsonl: collector so the
+# verdict (and VSA) cover those tenets. COLLECTOR (when set, e.g. container's
+# oci:) is an additional collector. Must be a collector, not --attestation (which
+# parses only one statement; the bundle is multi-line).
 wrangle_ampel_verify_args() {
-    local subject="$1" results_path="$2" metadata="${3:-}"
+    local subject="$1" results_path="$2" bundle="$3"
     # Capture (not process-substitute) so a subject-hashing failure aborts.
     local subject_arg
     subject_arg="$(wrangle_subject_arg "$subject")"
     local args=(verify "$subject_arg"
-        --collector="$COLLECTOR")
-    [[ -n "$metadata" ]] && args+=(--collector="jsonl:$metadata")
+        --collector="jsonl:$bundle")
+    [[ -n "${COLLECTOR:-}" ]] && args+=(--collector="$COLLECTOR")
     # ampel drops the signer-identity match on tenets beyond --workers; keep it
     # above the largest tier's tenet count (strict: 8) until carabiner-dev/ampel#298 lands.
     args+=(--policy="$(wrangle_resolve_policy "$POLICY")"
@@ -91,19 +93,13 @@ wrangle_bnd_sign_args() {
     printf '%s\n' statement "$1"
 }
 
-# Build the cosign arg vector that downloads the image's attestation referrers
-# as newline-delimited DSSE envelopes. $1 is the image digest ref.
-wrangle_cosign_download_args() {
-    printf '%s\n' download attestation "$1"
-}
-
 # ampel verify one subject -> unsigned VSA at $2, streaming the report to the
-# step summary. $1 is the subject; $3 (optional) the engine-signed metadata
-# JSONL fed to the policy alongside the collector.
+# step summary. $1 is the subject; $3 the attest-assembled bundle fed to the
+# policy as the jsonl collector.
 wrangle_verify_emit_vsa() {
-    local subject="$1" results_path="$2" metadata="${3:-}"
+    local subject="$1" results_path="$2" bundle="$3"
     local args report rc=0
-    mapfile -t args < <(wrangle_ampel_verify_args "$subject" "$results_path" "$metadata")
+    mapfile -t args < <(wrangle_ampel_verify_args "$subject" "$results_path" "$bundle")
     # Fail closed: an aborted arg builder (e.g. a subject file we couldn't hash)
     # yields a short/empty vector, never a silently mis-verified subject.
     if [[ "${args[0]:-}" != "verify" || "${args[1]:-}" != --subject* ]]; then
@@ -136,85 +132,15 @@ wrangle_sign_vsa() {
     rm -f "$vsa.unsigned"
 }
 
-# Predicate the seed filters to, so a re-run drops prior VSA referrers and
-# rebuilds the same bundle (idempotent round-trip).
-WRANGLE_PROVENANCE_PREDICATE="https://slsa.dev/provenance/v1"
-
-# Write the shared provenance seed to $1: from the OCI referrer (container) or
-# BUNDLE_IN (otherwise). Each bundle copies this seed, so it runs once.
-wrangle_seed_bundle() {
-    local seed="$1"
-    if [[ -n "${OCI_TARGET:-}" ]]; then
-        local args downloaded
-        mapfile -t args < <(wrangle_cosign_download_args "$OCI_TARGET")
-        # Keep only the SLSA provenance envelopes (download emits all referrers,
-        # including prior VSAs); a jq decode failure must fail, not seed empty.
-        downloaded="$(mktemp "${RUNNER_TEMP:-/tmp}/seed.XXXXXX")"
-        cosign "${args[@]}" > "$downloaded"
-        if ! jq -ce "select((.dsseEnvelope.payload | @base64d | fromjson | .predicateType) == \"$WRANGLE_PROVENANCE_PREDICATE\")" \
-            "$downloaded" > "$seed"; then
-            rm -f "$downloaded"
-            printf 'wrangle: no SLSA provenance referrer found on %s (or malformed DSSE)\n' "$OCI_TARGET" >&2
-            return 1
-        fi
-        rm -f "$downloaded"
-    else
-        cp "$BUNDLE_IN" "$seed"
-    fi
-}
-
-# Map a subject (dist path or sha256: digest) to its bundle filename: basename
-# with the digest's colon replaced.
-wrangle_bundle_name() {
-    local subject="$1" base="${1##*/}"
-    printf '%s.intoto.jsonl\n' "${base//:/-}"
-}
-
 # Push the signed VSA at $1 as its own OCI referrer (container only). Fails
 # closed: a missing by-digest VSA is a real delivery gap. No-op without OCI_TARGET.
 wrangle_push_bundle() {
     wrangle_push_oci_referrer "$1"
 }
 
-# Append each already-signed metadata line at $1 to the bundle $2. The attest
-# job signed these and posted them to the store (and, for container, pushed them
-# as OCI referrers), so verify only assembles the consumer bundle — it does NOT
-# re-sign, re-push to the store, or re-push to OCI.
-# No-op on an empty/absent file (no metadata for this subject).
-wrangle_append_signed_metadata() {
-    local stmts="$1" bundle="$2"
-    [[ -s "$stmts" ]] || return 0
-    local line
-    while IFS= read -r line; do
-        [[ -z "$line" ]] && continue
-        printf '%s\n' "$line" >> "$bundle"
-    done < "$stmts"
-}
-
-# Select subject $2's lines from the accumulated attest-signed metadata JSONL $1
-# into $3 (emptied first) — the per-artifact bundle carries only its own subject's
-# statements, and the attest artifact holds every subject's. Each line is a bnd
-# DSSE bundle; the subject digest sits inside the base64 payload. A file subject
-# is sha256-hashed (the digest attest bound via --artifact); a digest-form
-# subject matches verbatim. Fails closed on an unhashable file subject.
-wrangle_subject_signed_metadata() {
-    local signed="$1" subject="$2" out="$3" digest
-    : > "$out"
-    [[ -s "$signed" ]] || return 0
-    if [[ "$subject" =~ ^[a-z0-9]+:[a-f0-9]+$ ]]; then
-        digest="${subject#*:}"
-    else
-        local sum
-        sum="$(sha256sum "$subject")" || return 1
-        digest="${sum%% *}"
-    fi
-    jq -c --arg d "$digest" \
-        'select((.dsseEnvelope.payload | @base64d | fromjson | .subject[0].digest.sha256) == $d)' \
-        "$signed" > "$out"
-}
-
-# Verify every subject, sign its VSA, and write one bundle per subject into
-# BUNDLE_OUT — all in one process so an unsigned VSA never crosses a boundary.
+# Verify every subject, sign its VSA, and append it to that subject's
+# attest-assembled bundle — all in one process so an unsigned VSA never crosses a
+# boundary.
 wrangle_run() {
     # shellcheck source=validate_verify_inputs.sh
     source "$VERIFY_DIR/validate_verify_inputs.sh"
@@ -236,37 +162,29 @@ wrangle_run() {
             "$COLLECTOR" "$FAIL" "${CONTEXT:-}" "${ATTESTATION:-}" "${OCI_TARGET:-}"
     done
 
-    # The attest job signed the SBOM/scan metadata into this JSONL; fail closed
-    # if a build that has metadata produced no signed set (a wiring/attest bug),
-    # so verify never emits a VSA-only bundle for a build that has metadata.
-    if [[ -n "${SIGNED_METADATA:-}" && ! -s "$SIGNED_METADATA" ]]; then
-        printf 'wrangle: signed-metadata artifact %s missing or empty\n' "$SIGNED_METADATA" >&2
-        return 1
-    fi
-
     mkdir -p "$BUNDLE_OUT"
-    local seed tmp_vsa
-    seed="$(mktemp "${RUNNER_TEMP:-/tmp}/seed.XXXXXX")"
-    wrangle_seed_bundle "$seed"
-
+    local tmp_vsa vsa_line
     tmp_vsa="$(mktemp "${RUNNER_TEMP:-/tmp}/vsa.XXXXXX")"
-    local vsa_line meta_stmts
     vsa_line="$(mktemp "${RUNNER_TEMP:-/tmp}/vsaline.XXXXXX")"
-    meta_stmts="$(mktemp "${RUNNER_TEMP:-/tmp}/meta.XXXXXX")"
-    local bundle
+    local name src bundle
     for subject in "${WRANGLE_SUBJECTS[@]}"; do
-        bundle="$BUNDLE_OUT/$(wrangle_bundle_name "$subject")"
-        cp "$seed" "$bundle"
-        # Select this subject's attest-signed SBOM/scan lines (the accumulated
-        # artifact holds every subject, but each bundle is per-artifact). The same
-        # per-subject file is also handed to ampel as a second collector so the
-        # verdict/VSA cover the scan tenets; the collector is omitted when the file
-        # is empty (a build with no metadata).
-        : > "$meta_stmts"
-        wrangle_subject_signed_metadata "${SIGNED_METADATA:-}" "$subject" "$meta_stmts"
-        local meta_arg=""
-        [[ -s "$meta_stmts" ]] && meta_arg="$meta_stmts"
-        wrangle_verify_emit_vsa "$subject" "$tmp_vsa" "$meta_arg"
+        name="$(wrangle_bundle_name "$subject")"
+        # Fail closed: the attest job assembled this subject's provenance + signed
+        # metadata into BUNDLE_IN; a missing bundle is a wiring/attest bug, never a
+        # VSA-only bundle.
+        src="$BUNDLE_IN/$name"
+        if [[ ! -s "$src" ]]; then
+            printf 'wrangle: attest-assembled bundle %s missing or empty\n' "$src" >&2
+            rm -f "$tmp_vsa" "$vsa_line"
+            return 1
+        fi
+        bundle="$BUNDLE_OUT/$name"
+        # When BUNDLE_OUT == BUNDLE_IN (the metadata dir) the bundle is already in
+        # place; otherwise stage attest's copy so the VSA appends to it.
+        [[ "$src" -ef "$bundle" ]] || cp "$src" "$bundle"
+        # Verify against the policy, feeding the bundle (provenance + SBOM/scan) as
+        # the jsonl collector so the verdict/VSA cover those tenets.
+        wrangle_verify_emit_vsa "$subject" "$tmp_vsa" "$bundle"
         wrangle_sign_vsa "$tmp_vsa"
         # Flatten bnd's pretty statement to one JSON line: appended to the bundle,
         # posted to the store, and pushed alone as the OCI referrer (cosign attach
@@ -275,10 +193,8 @@ wrangle_run() {
         cat "$vsa_line" >> "$bundle"
         wrangle_push_store "$vsa_line"
         wrangle_push_bundle "$vsa_line"
-        # The attest-signed SBOM/scan set is appended only (already pushed there).
-        wrangle_append_signed_metadata "$meta_stmts" "$bundle"
     done
-    rm -f "$tmp_vsa" "$vsa_line" "$meta_stmts" "$seed"
+    rm -f "$tmp_vsa" "$vsa_line"
 }
 
 # Attach the rationalized asset set to the current tag's GitHub release, if one

@@ -134,12 +134,6 @@ on:
       dist-artifact-name:
         description: "Name of the uploaded dist/ artifact (download with this name to retrieve binaries + checksums.txt)"
         value: ${{ jobs.prep.outputs.dist }}
-      provenance-artifact-name:
-        description: "Name of the workflow artifact containing the SLSA provenance bundle — one JSON object per line, covering all dist subjects. Empty when should-release is false."
-        value: ${{ jobs.attest.outputs.bundle-artifact-name }}
-      attestation-bundle-name:
-        description: "Name of the workflow artifact the per-subject in-toto JSONL bundles ship in. They live inside the unified metadata artifact, so this equals metadata-artifact-name on release runs. Empty when should-release is false."
-        value: ${{ jobs.verify.outputs.attestation-bundle-name }}
       metadata-artifact-name:
         description: "Name of the unified metadata workflow artifact. Format: `go-metadata[-<shortname>]`. Contents and layout: docs/metadata_layout.md."
         value: ${{ jobs.prep.outputs.metadata }}
@@ -167,7 +161,7 @@ jobs:
       metadata-pre: ${{ steps.prep.outputs.metadata-pre }}
     steps:
       # TODO: replace with $/actions/prep when GitHub ships $/ syntax (#136)
-      - uses: TomHennen/wrangle/actions/prep@64eaa873d726d74c68a2afe2f5b4db3b19633911 # container-attest-signing 2026-06-21
+      - uses: TomHennen/wrangle/actions/prep@96500f57808d01c8361c903bfdc68f5a33430f45 # bundle-assembly-attest 2026-06-21
         id: prep
         with:
           build-type: go
@@ -186,7 +180,7 @@ jobs:
       security-events: write
     steps:
       # TODO: replace with $/actions/scan when GitHub ships $/ syntax (#136)
-      - uses: TomHennen/wrangle/actions/scan@64eaa873d726d74c68a2afe2f5b4db3b19633911 # container-attest-signing 2026-06-21
+      - uses: TomHennen/wrangle/actions/scan@96500f57808d01c8361c903bfdc68f5a33430f45 # bundle-assembly-attest 2026-06-21
         if: ${{ inputs.scan-tools != '' }}
         with:
           checkout: "true"
@@ -220,7 +214,7 @@ jobs:
       # TODO: replace with $/build/actions/go/checks when GitHub ships $/ syntax (#136)
       # Self-pinned to PR HEAD until merge — bump-self-refs follow-up
       # repoints to the squashed merge SHA after this lands.
-      - uses: TomHennen/wrangle/build/actions/go/checks@64eaa873d726d74c68a2afe2f5b4db3b19633911 # container-attest-signing 2026-06-21
+      - uses: TomHennen/wrangle/build/actions/go/checks@96500f57808d01c8361c903bfdc68f5a33430f45 # bundle-assembly-attest 2026-06-21
         id: checks
         with:
           path: ${{ inputs.path }}
@@ -282,7 +276,7 @@ jobs:
 
       # TODO: replace with $/build/actions/go/build when GitHub ships $/ syntax (#136)
       # Self-pinned to PR HEAD until merge.
-      - uses: TomHennen/wrangle/build/actions/go/build@64eaa873d726d74c68a2afe2f5b4db3b19633911 # container-attest-signing 2026-06-21
+      - uses: TomHennen/wrangle/build/actions/go/build@96500f57808d01c8361c903bfdc68f5a33430f45 # bundle-assembly-attest 2026-06-21
         id: release
         with:
           path: ${{ inputs.path }}
@@ -364,13 +358,13 @@ jobs:
       attestations: write   # write the attestation to GitHub's store
       contents: read        # download-artifact reads the same-run dist
     outputs:
-      bundle-artifact-name: ${{ steps.attest.outputs.bundle-artifact-name }}
+      bundles-artifact-name: ${{ steps.attest.outputs.bundles-artifact-name }}
     steps:
       # Subjects come from dist/checksums.txt, not a dist/* glob: goreleaser
       # writes non-artifact bookkeeping into dist/ that is not released. This is
       # the same canonical subject set the VSA binds to.
       # TODO: replace with $/actions/attest_provenance when GitHub ships $/ syntax (#136)
-      - uses: TomHennen/wrangle/actions/attest_provenance@64eaa873d726d74c68a2afe2f5b4db3b19633911 # container-attest-signing 2026-06-21
+      - uses: TomHennen/wrangle/actions/attest_provenance@96500f57808d01c8361c903bfdc68f5a33430f45 # bundle-assembly-attest 2026-06-21
         id: attest
         with:
           build-type: go
@@ -394,17 +388,15 @@ jobs:
       id-token: write       # bnd keyless-signs each VSA via this workflow's OIDC identity
       attestations: write   # post each VSA to the GitHub attestation store
       contents: write       # upload the attested archives + checksums + bundles to the pre-existing release
-    outputs:
-      attestation-bundle-name: ${{ needs.prep.outputs.metadata }}
     steps:
       # TODO: replace with $/actions/verify_release when GitHub ships $/ syntax (#136)
-      - uses: TomHennen/wrangle/actions/verify_release@64eaa873d726d74c68a2afe2f5b4db3b19633911 # container-attest-signing 2026-06-21
+      - uses: TomHennen/wrangle/actions/verify_release@96500f57808d01c8361c903bfdc68f5a33430f45 # bundle-assembly-attest 2026-06-21
         with:
           build-type: go
           shortname: ${{ needs.prep.outputs.shortname }}
           dist-files: ${{ needs.release.outputs.dist-files }}
           policy: ${{ inputs.policy }}
-          collector: jsonl:provenance/provenance.jsonl
+          # No extra collector input: the attest-assembled bundle is fed to ampel as the jsonl collector; only container adds an oci: collector.
           # resourceUri is the golang module purl consumers pin when verifying;
           # each subject digest is the cryptographic bind.
           context: buildPoint:git+https://github.com/${{ github.repository }},vsa.resourceUri:pkg:golang/${{ needs.release.outputs.module }}@${{ needs.release.outputs.version }}

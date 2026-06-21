@@ -46,9 +46,9 @@ outputs:
   metadata-pre:
     description: "Name of the build job's pre-verify metadata transient (release runs)."
     value: ${{ steps.names.outputs.metadata-pre }}
-  provenance-bundle:
-    description: "Name of the attest job's raw provenance bundle transient."
-    value: ${{ steps.names.outputs.provenance-bundle }}
+  bundles:
+    description: "Workflow-artifact name for the attest job's bundle directory — one <artifact>.intoto.jsonl per artifact (provenance + signed SBOM/scan); verify appends the VSA."
+    value: ${{ steps.names.outputs.bundles }}
   metadata-dir:
     description: "The unified metadata dir (metadata/<type>[/<shortname>]) the bundle and sbom + scan/ live under."
     value: ${{ steps.names.outputs.metadata-dir }}

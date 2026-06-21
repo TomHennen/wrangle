@@ -3,10 +3,11 @@ set -euo pipefail
 set -f
 
 # Sign the build metadata (SBOM + scan/v1) for every dist subject in the attest
-# job and emit the signed-metadata JSONL (go/npm/python; no OCI_TARGET, so store
-# delivery only). Thin wrapper over lib/sign_metadata.sh's shared orchestration.
-# Inputs (env): METADATA_ROOT, SUBJECTS, GITHUB_REPOSITORY, GITHUB_TOKEN, COMMIT,
-# OUT (see lib/sign_metadata.sh).
+# job and assemble each subject's <artifact>.intoto.jsonl bundle (provenance seed
+# from BUNDLE_IN + that subject's signed metadata) into BUNDLE_OUT (go/npm/python;
+# no OCI_TARGET, so store delivery only). Thin wrapper over lib/sign_metadata.sh's
+# shared orchestration. Inputs (env): METADATA_ROOT, SUBJECTS, GITHUB_REPOSITORY,
+# GITHUB_TOKEN, COMMIT, BUNDLE_IN, BUNDLE_OUT (see lib/sign_metadata.sh).
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 LIB_DIR="$(cd "$SCRIPT_DIR/../../lib" && pwd)"
@@ -16,5 +17,5 @@ source "$LIB_DIR/env.sh"
 source "$LIB_DIR/sign_metadata.sh"
 
 if [[ "${BASH_SOURCE[0]}" == "${0}" ]]; then
-    wrangle_sign_and_emit_metadata
+    wrangle_sign_and_assemble_bundles
 fi

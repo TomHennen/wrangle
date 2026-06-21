@@ -11,13 +11,13 @@
 name: Wrangle Verify
 description: >
   Verify a release's provenance against a wrangle PolicySet using ampel, sign
-  one SLSA VSA per dist subject, and emit one per-artifact
-  <artifact>.intoto.jsonl bundle per subject (provenance + that subject's VSA)
-  into bundle-out — uploaded as one workflow artifact and attached to the GitHub
-  release on a tag push. Each signed VSA is also posted to the GitHub attestation
-  store for by-digest discovery (needs attestations: write). With oci-target set
-  (container build type) the VSA is also pushed to the registry as an OCI
-  referrer, which needs packages: write.
+  one SLSA VSA per dist subject, and append it to that subject's attest-assembled
+  <artifact>.intoto.jsonl bundle (provenance + signed metadata) — the completed
+  bundles in bundle-out are uploaded as one workflow artifact and attached to the
+  GitHub release on a tag push. Each signed VSA is also posted to the GitHub
+  attestation store for by-digest discovery (needs attestations: write). With
+  oci-target set (container build type) the VSA is also pushed to the registry as
+  an OCI referrer, which needs packages: write.
 
 inputs:
   subjects:
@@ -37,15 +37,18 @@ inputs:
     description: "wrangle PolicySet to evaluate — a path under policies/ or an ampel locator."
     required: true
   collector:
-    description: "ampel collector(s) that gather the attestations to evaluate (e.g. jsonl:, oci:, release:)."
-    required: true
-  bundle-in:
     description: >
-      Provenance JSONL the VSAs append to (the attest job's signed bundle). For
-      the container build type leave empty — the provenance is fetched from the
-      registry referrer named by oci-target instead.
+      Additional ampel collector(s) beyond the per-artifact bundle (e.g.
+      container's oci: referrer collector). Empty for go/npm/python — the bundle
+      verify reads is the only collector.
     required: false
     default: ""
+  bundle-in:
+    description: >
+      Directory of the attest job's per-artifact <artifact>.intoto.jsonl bundles
+      (provenance + that subject's signed SBOM/scan); verify appends each VSA to
+      the matching bundle. All build types pass it.
+    required: true
   bundle-out:
     description: >
       Directory the per-artifact in-toto JSONL bundles are written into, one
@@ -97,22 +100,12 @@ inputs:
       the same value as bundle-out.
     required: false
     default: ""
-  signed-metadata:
-    description: >
-      Path to the attest job's signed build-metadata JSONL (SBOM + scan/v1
-      statements, one signed bundle per line, already posted to the attestation
-      store — and, for container, pushed as OCI referrers — there). verify selects
-      each subject's lines as a second policy collector and appends them to that
-      subject's bundle; it never re-signs or re-pushes them. Empty only to emit
-      VSA-only bundles.
-    required: false
-    default: ""
   oci-target:
     description: >
-      When set, fetch the provenance from and push the bundle to this OCI image
-      reference (<imagename>@sha256:<digest>) as a referrer attached to the image
-      digest, in addition to the workflow-artifact storage. Container build type
-      only; leave empty for npm/go/python. Requires packages: write.
+      When set, push each signed VSA to this OCI image reference
+      (<imagename>@sha256:<digest>) as a referrer attached to the image digest, in
+      addition to the workflow-artifact storage. Container build type only; leave
+      empty for npm/go/python. Requires packages: write.
     required: false
     default: ""
 
@@ -139,8 +132,8 @@ runs:
       run: |
         "${{ github.action_path }}/emit_subjects.sh"
 
-    # Verify, sign, and bundle in one process, so an unsigned VSA never sits on
-    # disk across a step boundary.
+    # Verify, sign, and append the VSA in one process, so an unsigned VSA never
+    # sits on disk across a step boundary.
     - name: Verify and sign the bundles
       shell: bash
       env:
@@ -151,14 +144,11 @@ runs:
         CONTEXT: ${{ inputs.context }}
         ATTESTATION: ${{ inputs.attestation }}
         FAIL: ${{ inputs.fail }}
+        # The attest job's per-artifact bundles (provenance + signed metadata);
+        # verify appends each VSA to the matching bundle.
         BUNDLE_IN: ${{ inputs.bundle-in }}
         BUNDLE_OUT: ${{ inputs.bundle-out }}
         OCI_TARGET: ${{ inputs.oci-target }}
-        # The attest job's signed SBOM + scan/v1 statements (all build types),
-        # already pushed to the store (and, for container, as OCI referrers)
-        # there; verify selects each subject's lines for the policy and the
-        # bundle, never re-signing or re-pushing them.
-        SIGNED_METADATA: ${{ inputs.signed-metadata }}
         GITHUB_REPOSITORY: ${{ github.repository }}
         # bnd push github authenticates to the attestation store with this token;
         # the attestations: write permission rides on it.

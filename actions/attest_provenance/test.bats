@@ -58,15 +58,8 @@ setup() {
     [ "$status" -eq 0 ]
 }
 
-@test "attest_provenance: stages jsonl and uploads the provenance-bundle artifact" {
+@test "attest_provenance: stages the provenance seed for assembly" {
     run grep -F 'jq -c . "$BUNDLE_PATH" > "$RUNNER_TEMP/provenance.jsonl"' "$ACTION"
-    [ "$status" -eq 0 ]
-    run grep -F 'name: ${{ steps.names.outputs.provenance-bundle }}' "$ACTION"
-    [ "$status" -eq 0 ]
-}
-
-@test "attest_provenance: outputs the provenance-bundle artifact name" {
-    run grep -F 'value: ${{ steps.names.outputs.provenance-bundle }}' "$ACTION"
     [ "$status" -eq 0 ]
 }
 
@@ -92,10 +85,17 @@ setup() {
     [ "$status" -eq 0 ]
 }
 
-@test "attest_provenance: uploads and outputs the signed-metadata artifact" {
-    run grep -F 'name: ${{ steps.names.outputs.signed-metadata }}' "$ACTION"
+@test "attest_provenance: threads the seed (BUNDLE_IN) and output dir (BUNDLE_OUT) into the sign step" {
+    run grep -F 'BUNDLE_IN: ${{ runner.temp }}/provenance.jsonl' "$ACTION"
     [ "$status" -eq 0 ]
-    run grep -F 'value: ${{ steps.names.outputs.signed-metadata }}' "$ACTION"
+    run grep -F 'BUNDLE_OUT: ${{ runner.temp }}/bundles' "$ACTION"
+    [ "$status" -eq 0 ]
+}
+
+@test "attest_provenance: uploads and outputs the bundles artifact" {
+    run grep -F 'name: ${{ steps.names.outputs.bundles }}' "$ACTION"
+    [ "$status" -eq 0 ]
+    run grep -F 'value: ${{ steps.names.outputs.bundles }}' "$ACTION"
     [ "$status" -eq 0 ]
 }
 
