@@ -4,7 +4,7 @@
 # requires. wrangle runs goreleaser with --skip=publish: it builds the
 # archives + checksums into dist/ but publishes nothing. wrangle then
 # uploads only the attested archives + checksums.txt (plus signed-VSA
-# bundles) to your pre-existing GitHub Release. Do NOT add goreleaser
+# bundles) to the tag's GitHub Release, creating it if absent. Do NOT add goreleaser
 # publisher config — release.draft, brews, dockers, nfpms, announce —
 # here: those verbs never run under --skip=publish, and wrangle only
 # publishes what it can attest. Full reference:

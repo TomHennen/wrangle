@@ -12,10 +12,8 @@
 #
 # wrangle owns the publish: goreleaser only builds. wrangle's verify
 # job attaches the attested archives + checksums.txt + signed-VSA
-# bundles to a PRE-EXISTING GitHub Release — wrangle never creates
-# the release. The `create-release` job below creates it on tag push
-# so the assets have somewhere to land (mirrors how the python example
-# requires a configured publish target as a precondition).
+# bundles to the tag's GitHub Release, creating a published release if
+# one doesn't exist yet — so there's no release-creation step to wire up.
 #
 # Trigger note: `release-events: tag-only` means only tag pushes
 # publish. PR builds run the full pipeline (build → tests → SBOM) but
@@ -31,28 +29,7 @@ on:
   workflow_dispatch:
 
 jobs:
-  # Create the GitHub Release wrangle's verify job attaches assets to.
-  # wrangle never creates releases; it attaches to a pre-existing one.
-  # Tag pushes only — there is no release to create otherwise.
-  create-release:
-    if: ${{ startsWith(github.ref, 'refs/tags/') }}
-    runs-on: ubuntu-latest
-    permissions:
-      contents: write   # gh release create
-    steps:
-      - env:
-          GH_TOKEN: ${{ github.token }}
-          TAG: ${{ github.ref_name }}
-          REPO: ${{ github.repository }}
-        run: |
-          gh release view "$TAG" --repo "$REPO" >/dev/null 2>&1 ||
-            gh release create "$TAG" --repo "$REPO" --title "$TAG" --generate-notes
-
   build:
-    needs: [create-release]
-    # create-release is skipped on non-tag events; allow that so PR / main
-    # builds still run (a skipped need otherwise cascades to a skip).
-    if: ${{ always() && (needs.create-release.result == 'success' || needs.create-release.result == 'skipped') }}
     # Maximum the caller grants; wrangle's internal jobs each drop to the subset they actually need.
     permissions:
       contents: write   # wrangle's verify job attaches the attested assets to the release

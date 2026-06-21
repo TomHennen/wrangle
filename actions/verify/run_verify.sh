@@ -197,8 +197,8 @@ wrangle_run() {
     rm -f "$tmp_vsa" "$vsa_line"
 }
 
-# Attach the rationalized asset set to the current tag's GitHub release, if one
-# exists (wrangle never creates releases). Per subject: the <artifact> dist file
+# Attach the rationalized asset set to the current tag's GitHub release, creating
+# a published release for the tag if none exists. Per subject: the <artifact> dist file
 # and its <artifact>.intoto.jsonl bundle (flat); once per build: a
 # <type>-metadata-<sn>.zip of the metadata dir (sbom + scan/ + bundles). The
 # dist is attached alongside its bundle so no bundle is orphaned without its
@@ -207,9 +207,13 @@ wrangle_run() {
 # process substitution, so a find that dies mid-traversal fails closed.
 wrangle_attach_release() {
     local ref="$GITHUB_REF_NAME"
+    # No release for the tag: create an empty published release to fill with only
+    # attested assets. Fail closed if creation fails — never fall through to upload.
     if ! gh release view "$ref" >/dev/null 2>&1; then
-        printf 'wrangle: no GitHub release for %s; the bundles are the workflow artifact only.\n' "$ref" >&2
-        return 0
+        if ! gh release create "$ref" --generate-notes --title "$ref"; then
+            printf 'wrangle: failed to create GitHub release for %s\n' "$ref" >&2
+            return 1
+        fi
     fi
     local listing bundle base dist rc=0
     listing="$(mktemp "${RUNNER_TEMP:-/tmp}/bundles.XXXXXX")"

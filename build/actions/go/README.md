@@ -1,6 +1,6 @@
 # Wrangle Build Go
 
-Wrangle uses your `.goreleaser.yml` to build your binaries, then takes over the publish: it runs goreleaser with `--skip=publish` and uploads only what it can attest — the archives, `checksums.txt`, and a signed bundle per archive — to a GitHub Release you create. On top of the build, wrangle adds the security drudgery: gofmt/vet/test/govulncheck, an SPDX SBOM, SLSA Build L3 provenance, and a signed VSA your users verify with one command.
+Wrangle uses your `.goreleaser.yml` to build your binaries, then takes over the publish: it runs goreleaser with `--skip=publish` and uploads only what it can attest — the archives, `checksums.txt`, and a signed bundle per archive — to the tag's GitHub Release (which wrangle creates if you haven't). On top of the build, wrangle adds the security drudgery: gofmt/vet/test/govulncheck, an SPDX SBOM, SLSA Build L3 provenance, and a signed VSA your users verify with one command.
 
 This build type is for Go projects that ship binaries. Ship a CLI people `go install` today? Adopting wrangle additionally gets your users attested, downloadable binaries — and `go install` keeps working unchanged. Library-only modules (no binary to build) aren't supported ([#239](https://github.com/TomHennen/wrangle/issues/239)).
 
@@ -8,7 +8,7 @@ Because wrangle publishes only the attested archives + `checksums.txt`, goreleas
 
 ## Quick start
 
-Copy [`build_go.yml`](../../../gh_workflow_examples/build_go.yml) into `.github/workflows/` and set `path`. The example includes a tag-gated `create-release` job — wrangle attaches assets to a pre-existing release and never creates one, so that job (or your own release-creation step) is a precondition:
+Copy [`build_go.yml`](../../../gh_workflow_examples/build_go.yml) into `.github/workflows/` and set `path`. wrangle creates the tag's GitHub Release if one doesn't exist yet, so there's no release-creation step to wire up:
 
 ```yaml
 jobs:
@@ -46,12 +46,12 @@ Push a `v`-prefixed semver tag (e.g. `v1.2.3`) and wrangle runs the full pipelin
 - **Checks before bytes ship** — gofmt, `go vet`, `go test`, govulncheck run in a read-only job; a failure blocks the release job.
 - **An SPDX SBOM, scan findings (incl. govulncheck), and the signed bundle** in one `go-metadata-<sn>` workflow artifact ([what's in it](../../../docs/metadata_layout.md)).
 - **SLSA Build L3 provenance** tying each artifact to the workflow that built it ([the requirements it meets](../../../docs/REQUIREMENTS_MAPPING.md)).
-- **Release assets on tag pushes** — wrangle uploads the dist archives, `checksums.txt`, each `<archive>.intoto.jsonl` bundle (signed VSA + provenance), and a `go-metadata-<sn>.zip` with the SBOM + scan results to the release you created. Only attested bytes are published. Downstream users verify with one command.
+- **Release assets on tag pushes** — wrangle uploads the dist archives, `checksums.txt`, each `<archive>.intoto.jsonl` bundle (signed VSA + provenance), and a `go-metadata-<sn>.zip` with the SBOM + scan results to the tag's release (created if absent). Only attested bytes are published. Downstream users verify with one command.
 
 ## Good to know
 
 - **Tags must be `v`-prefixed semver** (`v1.2.3`) — goreleaser derives the version from the nearest `v*` tag. No `v*` tags yet? Use the [example config](../../../gh_workflow_examples/build_go.goreleaser.yml)'s snapshot template, which doesn't depend on tag history.
-- **You must create the release.** wrangle attaches to a pre-existing GitHub Release for the tag and never creates one; the example's `create-release` job handles this, or add your own `gh release create` step. No release for the tag? The assets stay workflow artifacts only.
+- **wrangle creates the release.** If the tag has no GitHub Release yet, wrangle creates a published one (auto-generated notes) and attaches the attested assets. Pre-create the release yourself only if you want custom notes or a draft.
 - **Provenance covers everything in `checksums.txt`** — the archives wrangle publishes. goreleaser's Docker/Homebrew/deb/rpm/announce verbs don't run under wrangle (it publishes only what it can attest); pair with the [container build type](../container/README.md) for attested images.
 - **`pull_request_target` can't trigger this workflow** — that trigger (and `workflow_run` chained from it) is a common exploit vector, so wrangle blocks both at startup.
 - **`release-events`** (default: `tag-only`) controls which events run the full pipeline — see [`docs/SPEC.md`](../../../docs/SPEC.md) "Release-events gating".

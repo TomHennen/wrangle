@@ -249,11 +249,9 @@ These fall on the adopter (the *producer*); wrangle exists to satisfy them.
 - **Distribute provenance (MAY delegate to the ecosystem)** — MEETS for the build
   **provenance**: it lands in the GitHub attestation store (`attestations: write`),
   and for containers also as an OCI referrer on the image digest. The signed
-  **VSA** is delivered as: a GitHub release asset for **Go** (goreleaser creates
-  the release inline); a release asset for **Python/npm** *only if the adopter's
-  tooling created a release for the tag*, otherwise the run-scoped workflow
-  artifact; for **container** the VSA pushed as its own OCI referrer on the
-  image digest, plus the combined bundle as a run-scoped workflow artifact.
+  **VSA** is delivered as: a GitHub release asset for **Go/Python/npm**; for
+  **container** the VSA pushed as its own OCI referrer on the image digest, plus
+  the combined bundle as a run-scoped workflow artifact.
   **Enabled, not executed:** for
   Python/npm wrangle stops before publish (publishing is the adopter's caller via
   Trusted Publishing), so whether the *registry* redistributes provenance is the

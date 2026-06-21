@@ -10,8 +10,8 @@ description: |
   Goreleaser builds the archives + checksums into dist/ but uploads
   nothing: wrangle owns the publish. The reusable workflow hands
   dist/ to the verify job, which attests it and uploads only the
-  attested archives + checksums.txt + bundles to a pre-existing
-  GitHub Release. wrangle never creates the release, and never
+  attested archives + checksums.txt + bundles to the tag's
+  GitHub Release, creating it if absent. wrangle never
   publishes the un-attestable downstream verbs (Docker pushes,
   Homebrew taps, deb/rpm/snap, announce) goreleaser's native publish
   would.

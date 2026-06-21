@@ -4,8 +4,8 @@ name: "Build, test, and release a Go project with best practices."
 #
 # Builds your Go project with goreleaser, attests it (SLSA provenance +
 # SBOM + scans, plus a signed VSA), and uploads the attested archives +
-# checksums.txt + .intoto.jsonl bundles to your GitHub Release for the tag.
-# You create the release; wrangle never creates one.
+# checksums.txt + .intoto.jsonl bundles to the GitHub Release for the tag.
+# wrangle creates the release if one doesn't exist yet.
 #
 # goreleaser runs with --skip=publish, so its own publishers (GitHub
 # release, Docker, Homebrew, deb/rpm/snap, announce) are skipped — wrangle
@@ -64,7 +64,7 @@ on:
               actions/prep/release_gate.sh for full vocabulary.
 
           wrangle uploads attested artifacts only on TAG PUSHES (it
-          attaches to the pre-existing release for the tag). The default
+          attaches to the tag's release, creating it if absent). The default
           `tag-only` is therefore also the cheapest setting — the
           pipeline runs only when it would do something meaningful. Use
           `non-pull-request` or `main-and-tags` for early failure
@@ -161,7 +161,7 @@ jobs:
       metadata-pre: ${{ steps.prep.outputs.metadata-pre }}
     steps:
       # TODO: replace with $/actions/prep when GitHub ships $/ syntax (#136)
-      - uses: TomHennen/wrangle/actions/prep@96500f57808d01c8361c903bfdc68f5a33430f45 # bundle-assembly-attest 2026-06-21
+      - uses: TomHennen/wrangle/actions/prep@82020c060864596bc2c1c6e685c47aad29aabc5f # auto-create-release 2026-06-21
         id: prep
         with:
           build-type: go
@@ -180,7 +180,7 @@ jobs:
       security-events: write
     steps:
       # TODO: replace with $/actions/scan when GitHub ships $/ syntax (#136)
-      - uses: TomHennen/wrangle/actions/scan@96500f57808d01c8361c903bfdc68f5a33430f45 # bundle-assembly-attest 2026-06-21
+      - uses: TomHennen/wrangle/actions/scan@82020c060864596bc2c1c6e685c47aad29aabc5f # auto-create-release 2026-06-21
         if: ${{ inputs.scan-tools != '' }}
         with:
           checkout: "true"
@@ -214,7 +214,7 @@ jobs:
       # TODO: replace with $/build/actions/go/checks when GitHub ships $/ syntax (#136)
       # Self-pinned to PR HEAD until merge — bump-self-refs follow-up
       # repoints to the squashed merge SHA after this lands.
-      - uses: TomHennen/wrangle/build/actions/go/checks@96500f57808d01c8361c903bfdc68f5a33430f45 # bundle-assembly-attest 2026-06-21
+      - uses: TomHennen/wrangle/build/actions/go/checks@82020c060864596bc2c1c6e685c47aad29aabc5f # auto-create-release 2026-06-21
         id: checks
         with:
           path: ${{ inputs.path }}
@@ -276,7 +276,7 @@ jobs:
 
       # TODO: replace with $/build/actions/go/build when GitHub ships $/ syntax (#136)
       # Self-pinned to PR HEAD until merge.
-      - uses: TomHennen/wrangle/build/actions/go/build@96500f57808d01c8361c903bfdc68f5a33430f45 # bundle-assembly-attest 2026-06-21
+      - uses: TomHennen/wrangle/build/actions/go/build@82020c060864596bc2c1c6e685c47aad29aabc5f # auto-create-release 2026-06-21
         id: release
         with:
           path: ${{ inputs.path }}
@@ -364,7 +364,7 @@ jobs:
       # writes non-artifact bookkeeping into dist/ that is not released. This is
       # the same canonical subject set the VSA binds to.
       # TODO: replace with $/actions/attest_provenance when GitHub ships $/ syntax (#136)
-      - uses: TomHennen/wrangle/actions/attest_provenance@96500f57808d01c8361c903bfdc68f5a33430f45 # bundle-assembly-attest 2026-06-21
+      - uses: TomHennen/wrangle/actions/attest_provenance@82020c060864596bc2c1c6e685c47aad29aabc5f # auto-create-release 2026-06-21
         id: attest
         with:
           build-type: go
@@ -378,7 +378,7 @@ jobs:
   #
   # This job owns the publish: goreleaser ran --skip=publish, so nothing is live
   # until verify uploads the attested archives + checksums.txt + bundles to the
-  # pre-existing release. fail: true therefore DOES block the publish — a failed
+  # tag's release (created if absent). fail: true therefore DOES block the publish — a failed
   # policy means the bytes are never uploaded — and fails the workflow conclusion.
   verify:
     if: ${{ needs.prep.outputs.should-release == 'true' }}
@@ -387,10 +387,10 @@ jobs:
     permissions:
       id-token: write       # bnd keyless-signs each VSA via this workflow's OIDC identity
       attestations: write   # post each VSA to the GitHub attestation store
-      contents: write       # upload the attested archives + checksums + bundles to the pre-existing release
+      contents: write       # create the release if absent and upload the attested archives + checksums + bundles
     steps:
       # TODO: replace with $/actions/verify_release when GitHub ships $/ syntax (#136)
-      - uses: TomHennen/wrangle/actions/verify_release@96500f57808d01c8361c903bfdc68f5a33430f45 # bundle-assembly-attest 2026-06-21
+      - uses: TomHennen/wrangle/actions/verify_release@82020c060864596bc2c1c6e685c47aad29aabc5f # auto-create-release 2026-06-21
         with:
           build-type: go
           shortname: ${{ needs.prep.outputs.shortname }}

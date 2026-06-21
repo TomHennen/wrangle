@@ -764,14 +764,9 @@ func main() {}
     [[ "$status" -ne 0 ]]
 }
 
-@test "go: example workflow creates the release on tag push (wrangle attaches, never creates)" {
-    # wrangle attaches to a pre-existing release; the adopter must create it.
-    # The example ships a tag-gated create-release job so the assets land.
+@test "go: example workflow does NOT pre-create the release (wrangle creates it if absent)" {
     run grep -E '^  create-release:' "$EXAMPLE"
-    [[ "$status" -eq 0 ]]
-    section="$(awk '/^  [a-z][a-z_-]*:$/ { in_section = ($0 == "  create-release:") } in_section' "$EXAMPLE")"
-    grep -qF "gh release create" <<<"$section"
-    grep -qE "if:.*startsWith\\(github\\.ref, 'refs/tags/'\\)" <<<"$section"
+    [[ "$status" -ne 0 ]]
 }
 
 @test "go: example workflow grants contents: write to build job" {
