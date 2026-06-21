@@ -71,12 +71,14 @@ Rekor-proofed release bundle from the public `TomHennen/wrangle-test` repo
 fixtures above can only run against the logic variant, so the signer-identity
 admission is never exercised against a real signature; this bundle runs the
 FULL production `wrangle-default-python-v1` tier and proves its scan tenet's
-identity validates. It carries its own subject (`sha256:b757…` of the wheel)
-and per-release context — both hardcoded in `test.bats` — and only the zizmor
+identity validates. Its subject is digested at test time from the checked-in
+wheel (`wrangle_test_fixture-0.0.1.dev27902476403-py3-none-any.whl`), as
+`actions/verify` does, so the test proves the bundle is about that artifact; the
+per-release context stays hardcoded in `test.bats`. It carries only the zizmor
 scan, so osv/wrangle-lint fail on MISSING-scan (a different failure than
-identity). Re-fetch via `gh run download 27902476403 --repo
-TomHennen/wrangle-test -n python-metadata-python` and take the
-`.whl.intoto.jsonl`.
+identity). Re-fetch the bundle via `gh run download 27902476403 --repo
+TomHennen/wrangle-test -n python-metadata-python` (take the `.whl.intoto.jsonl`)
+and the wheel via `-n python-dist-python`.
 
 The per-eco PASS rows double as **cross-ecosystem isolation** checks: a sibling
 fixture is the "wrong builder" for another type's policy (e.g. `good-go` FAILs

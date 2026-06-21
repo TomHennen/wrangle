@@ -84,7 +84,12 @@ setup() {
     # own subject and per-release context, carried inside the signed VSA.
     DEFAULT_PYTHON="$POLICIES_DIR/wrangle-default-python-v1.hjson"
     SIGNED_BUNDLE="$POLICIES_DIR/testdata/good-default-signed.bundle.jsonl"
-    SIGNED_SUBJECT="sha256:b75731680d7403c03946ba90d9c3455d802895848cc96cd46c2e6ae9f4c53b07"
+    # Subject is digested from the real wheel the bundle covers (as actions/verify
+    # does), so the test proves the bundle is about that artifact. Context stays
+    # literal: buildPoint is the expected source repo the slsa-build-point tenet
+    # asserts against — deriving it from the same bundle would make that vacuous.
+    SIGNED_WHEEL="$POLICIES_DIR/testdata/wrangle_test_fixture-0.0.1.dev27902476403-py3-none-any.whl"
+    SIGNED_SUBJECT="sha256:$(sha256sum "$SIGNED_WHEEL" | cut -d' ' -f1)"
     SIGNED_CTX="buildPoint:git+https://github.com/TomHennen/wrangle-test,vsa.resourceUri:pkg:pypi/wrangle-test-fixture@0.0.1.dev27902476403"
 
     # Logic-only variants for the tenet tests (see the file header).
@@ -133,7 +138,7 @@ setup() {
     export PROVENANCE_NPM_LOGIC PROVENANCE_GO_LOGIC PROVENANCE_PYTHON_LOGIC
     export DEFAULT_LOGIC STRICT_LOGIC PROVENANCE_CONTAINER_LOGIC
     export DEFAULT_GO STRICT_GO DEFAULT_GO_LOGIC STRICT_GO_LOGIC
-    export DEFAULT_PYTHON SIGNED_BUNDLE SIGNED_SUBJECT SIGNED_CTX
+    export DEFAULT_PYTHON SIGNED_BUNDLE SIGNED_WHEEL SIGNED_SUBJECT SIGNED_CTX
 }
 
 # verify <policy> <fixture-bundle> [extra ampel args...]
