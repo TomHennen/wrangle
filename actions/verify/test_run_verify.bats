@@ -639,10 +639,11 @@ STUB
     ! grep -q 'dsseEnvelope' "$TEST_DIR/pushed"
 }
 
-@test "run_verify: run signs and pushes its own metadata for the container path (no signed artifact)" {
-    # container (until #550 PR 3): with METADATA_ROOT and no SIGNED_METADATA, verify
-    # signs the SBOM/scan statements itself, feeds them to ampel, and pushes each to
-    # the store — the pre-PR-2 behavior, preserved for container.
+@test "run_verify: container consumes the attest-signed metadata over an OCI target without re-pushing it" {
+    # Container (#550 PR 3): the SBOM/scan metadata is signed + pushed (store +
+    # OCI referrer) in attest. verify appends this subject's attest-signed lines
+    # to the bundle but pushes ONLY the VSA — not the metadata — as a referrer.
+    # A wrangle-attest stub that fails proves verify never re-signs.
     cat > "$TEST_DIR/ampel" <<STUB
 #!/bin/bash
 printf '%s\n' "\$@" >> "$TEST_DIR/ampel-args"
@@ -654,31 +655,42 @@ STUB
 [[ "\$1" == "push" ]] && { cat "\$4" >> "$TEST_DIR/pushed"; exit 0; }
 printf '{"signed":'; cat "\$2"; printf '}\n'
 STUB
-    cat > "$TEST_DIR/wrangle-attest" <<STUB
+    cat > "$TEST_DIR/wrangle-attest" <<'STUB'
 #!/bin/bash
-for a in "\$@"; do case "\$a" in --out=*) out="\${a#--out=}";; esac; done
-printf '{"signedStatement":{"predicateType":"https://spdx.dev/Document"}}\n' > "\$out"
+exit 1
 STUB
-    chmod +x "$TEST_DIR/ampel" "$TEST_DIR/bnd" "$TEST_DIR/wrangle-attest"
+    # Record each cosign attach's file so the test can prove only the VSA is pushed.
+    _dsse_line "https://slsa.dev/provenance/v1" > "$TEST_DIR/referrers.jsonl"
+    {
+        printf '#!/bin/bash\n'
+        printf '[[ "$1" == "download" ]] && { cat %q; exit 0; }\n' "$TEST_DIR/referrers.jsonl"
+        printf 'if [[ "$1" == "attach" ]]; then\n'
+        printf '  for a in "$@"; do [[ "${prev:-}" == "--attestation" ]] && cat "$a" >> %q; prev="$a"; done\n' "$TEST_DIR/attached"
+        printf 'fi\n'
+        printf 'exit 0\n'
+    } > "$TEST_DIR/cosign"
+    chmod +x "$TEST_DIR/ampel" "$TEST_DIR/bnd" "$TEST_DIR/wrangle-attest" "$TEST_DIR/cosign"
     export PATH="$TEST_DIR:$PATH"
     export GITHUB_STEP_SUMMARY="$TEST_DIR/summary.md"; : > "$GITHUB_STEP_SUMMARY"
-    : > "$TEST_DIR/ampel-args"; : > "$TEST_DIR/pushed"
-    export OCI_TARGET=""
-    unset SIGNED_METADATA
-    export METADATA_ROOT="$TEST_DIR/meta"; mkdir -p "$METADATA_ROOT"
-    printf '{"provenance":1}\n' > "$BUNDLE_IN"
+    : > "$TEST_DIR/ampel-args"; : > "$TEST_DIR/pushed"; : > "$TEST_DIR/attached"
     local sha; sha="$(printf '0%.0s' {1..64})"
+    export OCI_TARGET="ghcr.io/o/r/img@sha256:$sha"
     export SUBJECTS="sha256:$sha"
+    export SIGNED_METADATA="$TEST_DIR/signed-metadata.jsonl"
+    _signed_meta_line "$sha" "https://spdx.dev/Document" > "$SIGNED_METADATA"
 
     run "$SCRIPT" run
     [[ "$status" -eq 0 ]]
-    grep -qE -- "^--collector=jsonl:.*/meta\." "$TEST_DIR/ampel-args"
+    # ampel got the attest-signed metadata as a jsonl: collector.
+    grep -qE -- "^--collector=jsonl:" "$TEST_DIR/ampel-args"
+    # The metadata DSSE bundle landed in the delivered bundle alongside the VSA.
     local bundle; bundle="$BUNDLE_OUT/$(ls "$BUNDLE_OUT")"
-    grep -q '"signedStatement"' "$bundle"
-    # verify signed AND pushed the metadata for the container path: the VSA plus
-    # the one metadata statement both reached the store (two pushed lines).
-    [[ "$(wc -l < "$TEST_DIR/pushed")" -eq 2 ]]
-    grep -q '"signedStatement"' "$TEST_DIR/pushed"
+    [[ "$(jq -r '.dsseEnvelope.payload | @base64d | fromjson | .predicateType' "$bundle" | tail -1)" == "https://spdx.dev/Document" ]]
+    # verify re-pushed neither the store nor the OCI referrer for the metadata:
+    # only the VSA reached each (one store push, one attach, no metadata DSSE).
+    [[ "$(wc -l < "$TEST_DIR/pushed")" -eq 1 ]]
+    ! grep -q 'dsseEnvelope' "$TEST_DIR/pushed"
+    ! grep -q 'dsseEnvelope' "$TEST_DIR/attached"
 }
 
 @test "run_verify: run pushes only the VSA statement as the referrer for an OCI target" {
@@ -861,51 +873,6 @@ STUB
     # Seeded provenance line plus both appended signed statements.
     [[ "$(wc -l < "$bundle")" -eq 3 ]]
     [[ "$(jq -r '.dsseEnvelope.payload | @base64d | fromjson | .predicateType' "$bundle" | tail -1)" == "https://wrangle.dev/scan/v1" ]]
-}
-
-# --- container self-sign metadata path (wrangle_append_metadata_statements) ---
-# Until #550 PR 3, verify still signs the container's metadata itself; the append
-# both delivers it in the bundle and pushes it to the store.
-
-@test "run_verify: append_metadata is a no-op on an empty statements file" {
-    # A build with no metadata signs nothing, so the append leaves the bundle
-    # untouched (and does not push).
-    cat > "$TEST_DIR/bnd" <<'STUB'
-#!/bin/bash
-exit 1
-STUB
-    chmod +x "$TEST_DIR/bnd"
-    export PATH="$TEST_DIR:$PATH"
-    local bundle="$TEST_DIR/bundle.jsonl"; printf '{"provenance":1}\n' > "$bundle"
-    local stmts="$TEST_DIR/meta.jsonl"; : > "$stmts"
-    run wrangle_append_metadata_statements "$stmts" "$bundle"
-    [[ "$status" -eq 0 ]]
-    [[ "$(wc -l < "$bundle")" -eq 1 ]]
-}
-
-@test "run_verify: append_metadata appends each signed line to the bundle and pushes it" {
-    # push records the file it was handed so store delivery is provable.
-    cat > "$TEST_DIR/bnd" <<STUB
-#!/bin/bash
-[[ "\$1" == "push" ]] && { cat "\$4" >> "$TEST_DIR/pushed"; exit 0; }
-exit 0
-STUB
-    chmod +x "$TEST_DIR/bnd"
-    export PATH="$TEST_DIR:$PATH"
-    export GITHUB_REPOSITORY="o/r"
-    export OCI_TARGET=""
-    : > "$TEST_DIR/pushed"
-    local bundle="$TEST_DIR/bundle.jsonl"; printf '{"provenance":1}\n' > "$bundle"
-    local sha; sha="$(printf '0%.0s' {1..64})"
-    local stmts="$TEST_DIR/meta.jsonl"
-    printf '{"signedStatement":{"predicateType":"https://spdx.dev/Document","subject":[{"digest":{"sha256":"%s"}}]}}\n' "$sha" > "$stmts"
-    run wrangle_append_metadata_statements "$stmts" "$bundle"
-    [[ "$status" -eq 0 ]]
-    # Seeded provenance line plus exactly one appended signed statement.
-    [[ "$(wc -l < "$bundle")" -eq 2 ]]
-    [[ "$(tail -1 "$bundle" | jq -r '.signedStatement.predicateType')" == "https://spdx.dev/Document" ]]
-    # The signed statement reached the store, bound to the single sha256 subject.
-    [[ "$(jq -r '.signedStatement.subject[0].digest.sha256' "$TEST_DIR/pushed")" == "$sha" ]]
 }
 
 # --- attach to release (wrangle_attach_release) ---

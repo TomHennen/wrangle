@@ -73,6 +73,66 @@ wrangle_push_store() {
     wrangle_retry_once /dev/null bnd "${args[@]}"
 }
 
+# Build the cosign arg vector that pushes a single signed statement as an OCI
+# referrer. `attach attestation` uploads verbatim (no re-sign), preserving the
+# bnd signer; it accepts only one bundle line. $1 is the single-statement file,
+# $2 the image digest ref.
+wrangle_cosign_attach_args() {
+    printf '%s\n' attach attestation \
+        --attestation "$1" \
+        "$2"
+}
+
+# Push the signed statement at $1 as its own OCI referrer on OCI_TARGET. No-op
+# without OCI_TARGET (go/npm/python deliver via the store only). Fails closed:
+# a missing by-digest referrer is a real delivery gap.
+wrangle_push_oci_referrer() {
+    [[ -z "${OCI_TARGET:-}" ]] && return 0
+    local args
+    mapfile -t args < <(wrangle_cosign_attach_args "$1" "$OCI_TARGET")
+    wrangle_retry_once /dev/null cosign "${args[@]}"
+}
+
+# Sign and push every subject's build-metadata in the attest job, accumulating
+# each signed line into OUT (the emitted signed-metadata artifact). Each line is
+# posted to the GitHub attestation store, and with OCI_TARGET set (container)
+# additionally pushed as its own by-digest OCI referrer. Persisted independent of
+# the policy verdict; the VSA stays in verify. Fails closed on a missing metadata
+# dir or a subject that yields no signed statement (the release SBOM is always
+# present). Inputs (env): METADATA_ROOT, SUBJECTS, GITHUB_REPOSITORY,
+# GITHUB_TOKEN, COMMIT, OUT, optional OCI_TARGET.
+wrangle_sign_and_emit_metadata() {
+    if [[ -z "${METADATA_ROOT:-}" || ! -d "${METADATA_ROOT}" ]]; then
+        printf 'wrangle: metadata dir %s missing — nothing to sign\n' "${METADATA_ROOT:-}" >&2
+        return 1
+    fi
+
+    local -a WRANGLE_SUBJECTS
+    wrangle_read_subjects
+
+    : > "$OUT"
+    local stmts subject line
+    stmts="$(mktemp "${RUNNER_TEMP:-/tmp}/attestmeta.XXXXXX")"
+    for subject in "${WRANGLE_SUBJECTS[@]}"; do
+        : > "$stmts"
+        wrangle_sign_metadata_statements "$subject" "$stmts"
+        if [[ ! -s "$stmts" ]]; then
+            printf 'wrangle: no signed metadata produced for %s\n' "$subject" >&2
+            rm -f "$stmts"
+            return 1
+        fi
+        while IFS= read -r line; do
+            [[ -z "$line" ]] && continue
+            printf '%s\n' "$line" >> "$OUT"
+            printf '%s\n' "$line" > "$stmts.line"
+            wrangle_push_store "$stmts.line"
+            wrangle_push_oci_referrer "$stmts.line"
+        done < "$stmts"
+        rm -f "$stmts.line"
+    done
+    rm -f "$stmts"
+}
+
 # Split SUBJECTS into WRANGLE_SUBJECTS, dropping blank lines. Fail closed on an
 # empty set: a release subject is always present, so zero means a wiring bug.
 wrangle_read_subjects() {

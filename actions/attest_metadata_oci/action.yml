@@ -1,0 +1,76 @@
+name: Wrangle Attest Metadata (OCI)
+description: >
+  Sign the container build's SBOM + scan/v1 metadata in the attest job and push
+  each signed statement to the GitHub attestation store AND as its own by-digest
+  OCI referrer on the image, then emit the signed-metadata workflow artifact the
+  verify job consumes (#550). This is the container counterpart to the
+  attest_provenance composite's metadata-signing steps: container publishes its
+  attestations as OCI referrers, not via the attest_provenance file-bundle path,
+  so it gets cosign + a digest subject here. The provenance itself is attested
+  separately by the container attest job (actions/attest-build-provenance);
+  this composite signs only the metadata. The metadata-pre and signed-metadata
+  artifact names are computed here from build-type + shortname, so the caller
+  passes only the shortname and the image digest.
+
+inputs:
+  shortname:
+    description: "The build composite's path-derived shortname (empty at the repo root)."
+    required: false
+    default: ""
+  subject-digest:
+    description: "The image's sha256:<hex> digest — the subject the signed metadata binds to (the same digest verify binds the VSA to)."
+    required: true
+  oci-target:
+    description: "The <imagename>@sha256:<digest> ref each signed metadata line is pushed to as a by-digest OCI referrer."
+    required: true
+
+outputs:
+  signed-metadata-artifact-name:
+    description: "Name of the signed build-metadata workflow artifact (SBOM + scan/v1 statements) the verify job consumes."
+    value: ${{ steps.names.outputs.signed-metadata }}
+
+runs:
+  using: composite
+  steps:
+    - id: names
+      shell: bash
+      env:
+        SHORTNAME: ${{ inputs.shortname }}
+      run: '"${{ github.action_path }}/../../lib/derive_names.sh" container "$SHORTNAME"'
+
+    # The build job's pre-verify metadata (sbom + scan/) is the input wrangle-attest
+    # walks. Container uploads it under the metadata-pre name on release runs.
+    - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+      with:
+        name: ${{ steps.names.outputs.metadata-pre }}
+        path: ${{ steps.names.outputs.metadata-dir }}/
+
+    # Build wrangle-attest (statements) + bnd (sign + store push) + cosign (OCI
+    # referrer push). attest does not run ampel — that verdict stays in verify.
+    - name: Install attest tools
+      shell: bash
+      run: |
+        "${{ github.action_path }}/install_tools.sh"
+
+    - name: Sign and push the build-metadata attestations
+      shell: bash
+      env:
+        METADATA_ROOT: ${{ steps.names.outputs.metadata-dir }}
+        SUBJECTS: ${{ inputs.subject-digest }}
+        OUT: ${{ runner.temp }}/signed-metadata.jsonl
+        OCI_TARGET: ${{ inputs.oci-target }}
+        # Scanned commit recorded in each scan/v1 envelope's scannedCommit.
+        COMMIT: ${{ github.sha }}
+        GITHUB_REPOSITORY: ${{ github.repository }}
+        # bnd push github authenticates to the attestation store with this token;
+        # the attestations: write permission rides on it. cosign uses the job's
+        # ghcr login for the OCI referrer push (packages: write).
+        GITHUB_TOKEN: ${{ github.token }}
+      run: |
+        "${{ github.action_path }}/sign_metadata.sh"
+
+    - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+      with:
+        name: ${{ steps.names.outputs.signed-metadata }}
+        path: ${{ runner.temp }}/signed-metadata.jsonl
+        if-no-files-found: error

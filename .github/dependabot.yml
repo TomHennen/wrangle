@@ -8,6 +8,7 @@ updates:
     # A new composite needs an entry here (a divergence test backstops a miss).
     directories:
       - "/"
+      - "/actions/attest_metadata_oci"
       - "/actions/attest_provenance"
       - "/actions/prep"
       - "/actions/scan"
