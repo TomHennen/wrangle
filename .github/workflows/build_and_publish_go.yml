@@ -384,7 +384,7 @@ jobs:
       # writes non-artifact bookkeeping into dist/ that is not released. This is
       # the same canonical subject set the VSA binds to.
       # TODO: replace with $/actions/attest_provenance when GitHub ships $/ syntax (#136)
-      - uses: TomHennen/wrangle/actions/attest_provenance@6b86c0ffc7f1c7443183be4afb95b4c9de040cab # main 2026-06-21
+      - uses: TomHennen/wrangle/actions/attest_provenance@bba08e56d3f4bfb9806d5ae5b69f9a49cec86082 # attest-sign-metadata-pr1 2026-06-21
         id: attest
         with:
           build-type: go
