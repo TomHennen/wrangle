@@ -387,7 +387,7 @@ jobs:
     permissions:
       id-token: write       # bnd keyless-signs each VSA via this workflow's OIDC identity
       attestations: write   # post each VSA to the GitHub attestation store
-      contents: write       # upload the attested archives + checksums + bundles to the pre-existing release
+      contents: write       # create the release if absent and upload the attested archives + checksums + bundles
     steps:
       # TODO: replace with $/actions/verify_release when GitHub ships $/ syntax (#136)
       - uses: TomHennen/wrangle/actions/verify_release@96500f57808d01c8361c903bfdc68f5a33430f45 # bundle-assembly-attest 2026-06-21

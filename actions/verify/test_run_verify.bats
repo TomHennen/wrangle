@@ -658,8 +658,8 @@ STUB
 
 # --- attach to release (wrangle_attach_release) ---
 #
-# wrangle attaches the bundle only when a release already exists; it never
-# creates one. These tests drive a `gh` shim whose `release view` exit code
+# wrangle attaches the bundle to the tag's release, creating a published release
+# if none exists. These tests drive a `gh` shim whose `release view` exit code
 # follows GH_VIEW_SEQ so both branches (release present / absent) are exercised.
 
 # Install a gh shim on PATH that logs calls and returns scripted exit codes.
@@ -814,15 +814,27 @@ _require_zip() {
     [[ "$output" == *"duplicate release-asset basename"* ]]
 }
 
-@test "run_verify attach: missing release skips create and upload, exits 0" {
+@test "run_verify attach: missing release is created, then assets upload" {
+    _require_zip
     _install_gh_shim
     _stage_release_assets
     export BUILD_TYPE="python"
     export GH_VIEW_SEQ="1"            # view fails (no release)
     run "$SCRIPT" attach
-    [[ "$status" -eq 0 ]]            # no release is not an error — bundle stays the artifact
-    [[ "$output" == *"workflow artifact only"* ]]
-    if grep -q "release create" "$GH_LOG"; then return 1; fi
+    [[ "$status" -eq 0 ]]
+    grep -qx "release create v1.2.3 --generate-notes --title v1.2.3" "$GH_LOG"
+    grep -qx "release upload v1.2.3 $BUNDLE_OUT/a.tgz.intoto.jsonl --clobber" "$GH_LOG"
+}
+
+@test "run_verify attach: a failed release create fails closed, uploads nothing" {
+    _install_gh_shim
+    _stage_release_assets
+    export BUILD_TYPE="python"
+    export GH_VIEW_SEQ="1"            # view fails (no release)
+    export GH_CREATE_CODE="1"        # create fails
+    run "$SCRIPT" attach
+    [[ "$status" -ne 0 ]]
+    [[ "$output" == *"failed to create GitHub release"* ]]
     if grep -q "release upload" "$GH_LOG"; then return 1; fi
 }
 
