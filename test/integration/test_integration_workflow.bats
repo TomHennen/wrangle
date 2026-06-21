@@ -124,8 +124,8 @@ setup() {
     [[ "$status" -eq 0 ]]
 }
 
-@test "dispatch.sh pushes a pr-<n>-<runid> tag, not a branch" {
-    run grep 'TAG_NAME="pr-\${PR_NUMBER}-\${WRANGLE_RUN_ID}"' "$DISPATCH"
+@test "dispatch.sh pushes a 0.0.0-pr.<n>.<runid> tag, not a branch" {
+    run grep 'TAG_NAME="0.0.0-pr.\${PR_NUMBER}.\${WRANGLE_RUN_ID}"' "$DISPATCH"
     [[ "$status" -eq 0 ]]
     run grep 'git push origin "refs/tags/' "$DISPATCH"
     [[ "$status" -eq 0 ]]

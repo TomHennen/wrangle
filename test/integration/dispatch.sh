@@ -5,12 +5,15 @@ set -f
 # Dispatch an integration test by pushing an ephemeral tag to the companion
 # repo, then waiting for the resulting workflow run to complete.
 #
-# The tag is `pr-<pr_number>-<wrangle_run_id>` (both numeric). It puts the
+# The tag is `0.0.0-pr.<pr_number>.<wrangle_run_id>` (both numeric). It puts the
 # companion run in a tag context, so wrangle's tag-gated verify creates a
 # temporary release and attaches the attested asset set that the companion's
-# golden job asserts (TomHennen/wrangle#506). The companion's
+# golden job asserts (TomHennen/wrangle#506). The tag is valid semver so
+# wrangle's goreleaser-based go build accepts it (a non-semver tag hard-fails
+# goreleaser's release step); it carries no `v` prefix so it never matches the
+# companion's showcase `tags: ["v*"]` trigger. The companion's
 # cleanup-integration.yml reaper prunes the tag + release — it matches
-# `^pr-[0-9]+-[0-9]+$`, which only this numeric tag shape satisfies.
+# `^0\.0\.0-pr\.[0-9]+\.[0-9]+$`, which only this numeric tag shape satisfies.
 #
 # Usage: dispatch.sh <wrangle_sha> <pr_number> <wrangle_run_id>
 #
@@ -50,7 +53,7 @@ POLL_INTERVAL="${POLL_INTERVAL:-10}"
 LOCATE_TIMEOUT="${LOCATE_TIMEOUT:-120}"
 
 SHORT_SHA="${WRANGLE_SHA:0:7}"
-TAG_NAME="pr-${PR_NUMBER}-${WRANGLE_RUN_ID}"
+TAG_NAME="0.0.0-pr.${PR_NUMBER}.${WRANGLE_RUN_ID}"
 GENERATED_FILE=".github/workflows/test-wrangle.yml"
 CLEANUP_TAG=""
 
