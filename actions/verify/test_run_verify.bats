@@ -720,7 +720,7 @@ _require_zip() {
     grep -qx "release upload v1.2.3 $DIST_DIR/a.tgz --clobber" "$GH_LOG"
     grep -qx "release upload v1.2.3 $DIST_DIR/b.whl --clobber" "$GH_LOG"
     grep -q "release upload v1.2.3 .*python-metadata.zip --clobber" "$GH_LOG"
-    ! grep -q "release create" "$GH_LOG"   # wrangle never creates the release
+    ! grep -q "release create" "$GH_LOG"   # release exists, so no create call
 }
 
 @test "run_verify attach: go uploads the dist archives, their bundles, and checksums.txt (wrangle owns the publish)" {

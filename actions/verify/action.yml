@@ -163,8 +163,8 @@ runs:
         path: ${{ inputs.bundle-out }}/
         if-no-files-found: error
 
-    # On a tag push, attach the rationalized asset set to the GitHub release if
-    # one exists (wrangle does not create releases).
+    # On a tag push, attach the rationalized asset set to the tag's GitHub
+    # release, creating it if none exists.
     - name: Attach assets to release
       if: github.ref_type == 'tag' && inputs.attach-to-release == 'true' && inputs.attach-release-assets == 'true'
       shell: bash
