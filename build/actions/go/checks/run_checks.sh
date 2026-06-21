@@ -4,7 +4,7 @@
 # `govulncheck` reachable-vuln scan.
 #
 # Lives in a separate composite from the release-side build steps
-# (build/actions/go/release/) so the calling reusable workflow can
+# (build/actions/go/build/) so the calling reusable workflow can
 # run quality checks with `contents: read` while the release job
 # (which invokes goreleaser, the only step that genuinely needs
 # `contents: write`) runs with the stronger permission. The cost is

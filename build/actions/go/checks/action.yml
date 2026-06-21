@@ -3,7 +3,7 @@ description: |
   Run Go pre-build quality gates: gofmt (with generated-file
   auto-skip), `go vet`, `go test`, and `govulncheck` reachable-vuln
   scan. Does NOT build, package, or publish — those steps live in
-  the sister `build/actions/go/release` composite.
+  the sister `build/actions/go/build` composite.
 
   This composite is intended to run in a job with `contents: read`.
   Splitting checks from release lets the reusable workflow restrict

@@ -9,7 +9,7 @@
 # adopter one re-read of the warning, not a build failure — so grep
 # is fine; no yq/jq parser needed.
 #
-# Usage: build/actions/go/release/cgo_warning.sh <project-dir>
+# Usage: build/actions/go/build/cgo_warning.sh <project-dir>
 
 set -euo pipefail
 set -f  # processes external arguments — disable globbing per CLAUDE.md
