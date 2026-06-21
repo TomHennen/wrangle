@@ -149,7 +149,7 @@ jobs:
       metadata-pre: ${{ steps.prep.outputs.metadata-pre }}
     steps:
       # TODO: replace with $/actions/prep when GitHub ships $/ syntax (#136)
-      - uses: TomHennen/wrangle/actions/prep@0ac42297e03c2c3c9986972c9502db28b7c1145f # auto-create-release 2026-06-21
+      - uses: TomHennen/wrangle/actions/prep@15590bfd02a76f62202eb27c62dde671507b7067 # auto-create-release 2026-06-21
         id: prep
         with:
           build-type: npm
@@ -168,7 +168,7 @@ jobs:
       security-events: write
     steps:
       # TODO: replace with $/actions/scan when GitHub ships $/ syntax (#136)
-      - uses: TomHennen/wrangle/actions/scan@0ac42297e03c2c3c9986972c9502db28b7c1145f # auto-create-release 2026-06-21
+      - uses: TomHennen/wrangle/actions/scan@15590bfd02a76f62202eb27c62dde671507b7067 # auto-create-release 2026-06-21
         if: ${{ inputs.scan-tools != '' }}
         with:
           checkout: "true"
@@ -204,7 +204,7 @@ jobs:
           ref: ${{ inputs.ref || '' }}
 
       # TODO: replace with $/build/actions/npm when GitHub ships $/ syntax (#136)
-      - uses: TomHennen/wrangle/build/actions/npm@0ac42297e03c2c3c9986972c9502db28b7c1145f # auto-create-release 2026-06-21
+      - uses: TomHennen/wrangle/build/actions/npm@15590bfd02a76f62202eb27c62dde671507b7067 # auto-create-release 2026-06-21
         id: build
         with:
           path: ${{ inputs.path }}
@@ -279,7 +279,7 @@ jobs:
       bundles-artifact-name: ${{ steps.attest.outputs.bundles-artifact-name }}
     steps:
       # TODO: replace with $/actions/attest_provenance when GitHub ships $/ syntax (#136)
-      - uses: TomHennen/wrangle/actions/attest_provenance@0ac42297e03c2c3c9986972c9502db28b7c1145f # auto-create-release 2026-06-21
+      - uses: TomHennen/wrangle/actions/attest_provenance@15590bfd02a76f62202eb27c62dde671507b7067 # auto-create-release 2026-06-21
         id: attest
         with:
           build-type: npm
@@ -302,7 +302,7 @@ jobs:
       contents: write       # create the release if absent and attach the bundle on tag pushes
     steps:
       # TODO: replace with $/actions/verify_release when GitHub ships $/ syntax (#136)
-      - uses: TomHennen/wrangle/actions/verify_release@0ac42297e03c2c3c9986972c9502db28b7c1145f # auto-create-release 2026-06-21
+      - uses: TomHennen/wrangle/actions/verify_release@15590bfd02a76f62202eb27c62dde671507b7067 # auto-create-release 2026-06-21
         with:
           build-type: npm
           shortname: ${{ needs.prep.outputs.shortname }}
