@@ -10,7 +10,7 @@
 #
 # Writes `hashes=<base64>` to $GITHUB_OUTPUT.
 #
-# Usage: build/actions/go/release/compute_hashes.sh <checksums_path>
+# Usage: build/actions/go/build/compute_hashes.sh <checksums_path>
 
 set -euo pipefail
 set -f  # processes external arguments — disable globbing per CLAUDE.md

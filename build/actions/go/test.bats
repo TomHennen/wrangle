@@ -1,6 +1,6 @@
 #!/usr/bin/env bats
 
-# Tests for the Go build composites (checks/, release/) and
+# Tests for the Go build composites (checks/, build/) and
 # the reusable workflow build_and_publish_go.yml.
 #
 # Three layers, matching the npm build_and_pack.sh pattern:
@@ -25,9 +25,9 @@ setup() {
     GO_ACTION_DIR="$(cd "$(dirname "$BATS_TEST_FILENAME")" && pwd)"
     REPO_ROOT="$(cd "$GO_ACTION_DIR/../../.." && pwd)"
     CHECKS_DIR="$GO_ACTION_DIR/checks"
-    RELEASE_DIR="$GO_ACTION_DIR/release"
+    BUILD_DIR="$GO_ACTION_DIR/build"
     CHECKS_ACTION="$CHECKS_DIR/action.yml"
-    RELEASE_ACTION="$RELEASE_DIR/action.yml"
+    BUILD_ACTION="$BUILD_DIR/action.yml"
     WORKFLOW="$REPO_ROOT/.github/workflows/build_and_publish_go.yml"
     EXAMPLE="$REPO_ROOT/gh_workflow_examples/build_go.yml"
     GITHUB_OUTPUT="$BATS_TEST_TMPDIR/github_output"
@@ -151,18 +151,18 @@ func main() {}
 # Layer 1: Pure-function tests for compute_hashes.sh
 # ====================================================================
 
-@test "go.release: encode_hashes base64-encodes checksums content" {
+@test "go.build: encode_hashes base64-encodes checksums content" {
     local f="$BATS_TEST_TMPDIR/checksums.txt"
     printf 'abc123  example.tar.gz\n' > "$f"
-    run bash -c 'source "$1"; encode_hashes "$2"' -- "$RELEASE_DIR/compute_hashes.sh" "$f"
+    run bash -c 'source "$1"; encode_hashes "$2"' -- "$BUILD_DIR/compute_hashes.sh" "$f"
     [[ "$status" -eq 0 ]]
     # Round-trip: base64-decode should match original
     decoded="$(printf '%s' "$output" | base64 -d)"
     [[ "$decoded" == "abc123  example.tar.gz" ]]
 }
 
-@test "go.release: encode_hashes errors when file missing" {
-    run bash -c 'source "$1"; encode_hashes "$2"' -- "$RELEASE_DIR/compute_hashes.sh" "$BATS_TEST_TMPDIR/missing.txt"
+@test "go.build: encode_hashes errors when file missing" {
+    run bash -c 'source "$1"; encode_hashes "$2"' -- "$BUILD_DIR/compute_hashes.sh" "$BATS_TEST_TMPDIR/missing.txt"
     [[ "$status" -ne 0 ]]
     [[ "$output" == *"checksums file not found"* ]]
 }
@@ -171,43 +171,43 @@ func main() {}
 # Layer 1: Pure-function tests for compute_metadata.sh
 # ====================================================================
 
-@test "go.release: derive_shortname maps root '.' to empty (clean names)" {
+@test "go.build: derive_shortname maps root '.' to empty (clean names)" {
     run bash -c 'source "$1"; derive_shortname "."' -- "$GO_ACTION_DIR/compute_metadata.sh"
     [[ "$status" -eq 0 ]]
     [[ "$output" == "" ]]
 }
 
-@test "go.release: derive_shortname maps 'cmd/foo' to 'cmd_foo'" {
+@test "go.build: derive_shortname maps 'cmd/foo' to 'cmd_foo'" {
     run bash -c 'source "$1"; derive_shortname "cmd/foo"' -- "$GO_ACTION_DIR/compute_metadata.sh"
     [[ "$status" -eq 0 ]]
     [[ "$output" == "cmd_foo" ]]
 }
 
-@test "go.release: derive_shortname maps nested paths" {
+@test "go.build: derive_shortname maps nested paths" {
     run bash -c 'source "$1"; derive_shortname "a/b/c"' -- "$GO_ACTION_DIR/compute_metadata.sh"
     [[ "$status" -eq 0 ]]
     [[ "$output" == "a_b_c" ]]
 }
 
-@test "go.release: derive_version returns tag name on tag push" {
+@test "go.build: derive_version returns tag name on tag push" {
     run bash -c 'GITHUB_REF=refs/tags/v1.2.3; source "$1"; derive_version' -- "$GO_ACTION_DIR/compute_metadata.sh"
     [[ "$status" -eq 0 ]]
     [[ "$output" == "v1.2.3" ]]
 }
 
-@test "go.release: derive_version returns 'snapshot' on non-tag refs" {
+@test "go.build: derive_version returns 'snapshot' on non-tag refs" {
     run bash -c 'GITHUB_REF=refs/heads/main; source "$1"; derive_version' -- "$GO_ACTION_DIR/compute_metadata.sh"
     [[ "$status" -eq 0 ]]
     [[ "$output" == "snapshot" ]]
 }
 
-@test "go.release: derive_version returns 'snapshot' when GITHUB_REF unset" {
+@test "go.build: derive_version returns 'snapshot' when GITHUB_REF unset" {
     run bash -c 'unset GITHUB_REF; source "$1"; derive_version' -- "$GO_ACTION_DIR/compute_metadata.sh"
     [[ "$status" -eq 0 ]]
     [[ "$output" == "snapshot" ]]
 }
 
-@test "go.release: compute_metadata.sh end-to-end writes shortname and version to GITHUB_OUTPUT" {
+@test "go.build: compute_metadata.sh end-to-end writes shortname and version to GITHUB_OUTPUT" {
     GITHUB_REF=refs/tags/v0.1.0 run "$GO_ACTION_DIR/compute_metadata.sh" "cmd/example"
     [[ "$status" -eq 0 ]]
     grep -qE '^shortname=cmd_example$' "$GITHUB_OUTPUT"
@@ -215,7 +215,7 @@ func main() {}
     grep -qE '^version=v0\.1\.0$' "$GITHUB_OUTPUT"
 }
 
-@test "go.release: compute_metadata.sh at root emits empty shortname and clean metadata-dir" {
+@test "go.build: compute_metadata.sh at root emits empty shortname and clean metadata-dir" {
     GITHUB_REF=refs/heads/main run "$GO_ACTION_DIR/compute_metadata.sh" "."
     [[ "$status" -eq 0 ]]
     grep -qE '^shortname=$' "$GITHUB_OUTPUT"
@@ -236,7 +236,7 @@ func main() {}
 
 @test "go.checks: validate_inputs.sh DOES NOT require .goreleaser.yml (checks runs without it)" {
     # Quality gates are useful even on projects that haven't wired
-    # goreleaser yet. Only release/ enforces .goreleaser.yml.
+    # goreleaser yet. Only build/ enforces .goreleaser.yml.
     local proj="$BATS_TEST_TMPDIR/proj"
     write_gomod "$proj"
     cd "$BATS_TEST_TMPDIR"
@@ -253,50 +253,50 @@ func main() {}
     [[ "$output" == *"no go.mod found"* ]]
 }
 
-@test "go.release: validate_inputs.sh accepts a project with go.mod AND .goreleaser.yml" {
+@test "go.build: validate_inputs.sh accepts a project with go.mod AND .goreleaser.yml" {
     local proj="$BATS_TEST_TMPDIR/proj"
     write_gomod "$proj"
     write_goreleaser "$proj"
     cd "$BATS_TEST_TMPDIR"
-    run "$RELEASE_DIR/validate_inputs.sh" "proj" "enabled" "false"
+    run "$BUILD_DIR/validate_inputs.sh" "proj" "enabled" "false"
     [[ "$status" -eq 0 ]]
 }
 
-@test "go.release: validate_inputs.sh accepts .goreleaser.yaml (alternate extension)" {
+@test "go.build: validate_inputs.sh accepts .goreleaser.yaml (alternate extension)" {
     local proj="$BATS_TEST_TMPDIR/proj"
     write_gomod "$proj"
     printf 'version: 2\n' > "$proj/.goreleaser.yaml"
     cd "$BATS_TEST_TMPDIR"
-    run "$RELEASE_DIR/validate_inputs.sh" "proj" "enabled" "false"
+    run "$BUILD_DIR/validate_inputs.sh" "proj" "enabled" "false"
     [[ "$status" -eq 0 ]]
 }
 
-@test "go.release: validate_inputs.sh rejects missing .goreleaser.yml with a BYO hint" {
+@test "go.build: validate_inputs.sh rejects missing .goreleaser.yml with a BYO hint" {
     local proj="$BATS_TEST_TMPDIR/proj"
     write_gomod "$proj"
     cd "$BATS_TEST_TMPDIR"
-    run "$RELEASE_DIR/validate_inputs.sh" "proj" "enabled" "false"
+    run "$BUILD_DIR/validate_inputs.sh" "proj" "enabled" "false"
     [[ "$status" -ne 0 ]]
     [[ "$output" == *"no .goreleaser.yml"* ]]
     [[ "$output" == *"build_go.goreleaser.yml"* ]]
 }
 
-@test "go.release: validate_inputs.sh rejects invalid install-zig value" {
+@test "go.build: validate_inputs.sh rejects invalid install-zig value" {
     local proj="$BATS_TEST_TMPDIR/proj"
     write_gomod "$proj"
     write_goreleaser "$proj"
     cd "$BATS_TEST_TMPDIR"
-    run "$RELEASE_DIR/validate_inputs.sh" "proj" "enabled" "garbage"
+    run "$BUILD_DIR/validate_inputs.sh" "proj" "enabled" "garbage"
     [[ "$status" -ne 0 ]]
     [[ "$output" == *"install-zig input must be one of true|false"* ]]
 }
 
-@test "go.release: validate_inputs.sh accepts install-zig=true" {
+@test "go.build: validate_inputs.sh accepts install-zig=true" {
     local proj="$BATS_TEST_TMPDIR/proj"
     write_gomod "$proj"
     write_goreleaser "$proj"
     cd "$BATS_TEST_TMPDIR"
-    run "$RELEASE_DIR/validate_inputs.sh" "proj" "enabled" "true"
+    run "$BUILD_DIR/validate_inputs.sh" "proj" "enabled" "true"
     [[ "$status" -eq 0 ]]
 }
 
@@ -308,7 +308,7 @@ func main() {}
 
 @test "go.checks: validate_inputs.sh rejects invalid cache value" {
     # Cache enum validation lives in validate_inputs.sh (was inline in
-    # the composite YAML; moved for consistency with release/'s shape).
+    # the composite YAML; moved for consistency with build/'s shape).
     local proj="$BATS_TEST_TMPDIR/proj"
     write_gomod "$proj"
     cd "$BATS_TEST_TMPDIR"
@@ -325,8 +325,8 @@ func main() {}
     [[ "$status" -eq 0 ]]
 }
 
-@test "go.release: validate_inputs.sh rejects path traversal" {
-    run "$RELEASE_DIR/validate_inputs.sh" "../escape" "enabled" "false"
+@test "go.build: validate_inputs.sh rejects path traversal" {
+    run "$BUILD_DIR/validate_inputs.sh" "../escape" "enabled" "false"
     [[ "$status" -ne 0 ]]
     [[ "$output" == *"path traversal not allowed"* ]]
 }
@@ -335,29 +335,29 @@ func main() {}
 # Layer 2: Behavioral tests for compute_hashes.sh end-to-end
 # ====================================================================
 
-@test "go.release: compute_hashes.sh writes base64 of checksums.txt to GITHUB_OUTPUT" {
+@test "go.build: compute_hashes.sh writes base64 of checksums.txt to GITHUB_OUTPUT" {
     local checksums="$BATS_TEST_TMPDIR/checksums.txt"
     printf 'aaa  one.tar.gz\nbbb  two.tar.gz\n' > "$checksums"
     expected="$(base64 -w0 < "$checksums")"
-    run "$RELEASE_DIR/compute_hashes.sh" "$checksums"
+    run "$BUILD_DIR/compute_hashes.sh" "$checksums"
     [[ "$status" -eq 0 ]]
     grep -qE "^hashes=${expected}$" "$GITHUB_OUTPUT"
 }
 
-@test "go.release: compute_hashes.sh errors on missing checksums.txt" {
-    run "$RELEASE_DIR/compute_hashes.sh" "$BATS_TEST_TMPDIR/missing.txt"
+@test "go.build: compute_hashes.sh errors on missing checksums.txt" {
+    run "$BUILD_DIR/compute_hashes.sh" "$BATS_TEST_TMPDIR/missing.txt"
     [[ "$status" -ne 0 ]]
 }
 
-@test "go.release: compute_hashes.sh usage error with wrong arg count" {
-    run "$RELEASE_DIR/compute_hashes.sh"
+@test "go.build: compute_hashes.sh usage error with wrong arg count" {
+    run "$BUILD_DIR/compute_hashes.sh"
     [[ "$status" -ne 0 ]]
     [[ "$output" == *"Usage:"* ]]
 }
 
 # --- generate_summary.sh ---
 
-@test "go.release: generate_summary.sh writes a markdown table to GITHUB_STEP_SUMMARY" {
+@test "go.build: generate_summary.sh writes a markdown table to GITHUB_STEP_SUMMARY" {
     local proj="$BATS_TEST_TMPDIR/proj"
     mkdir -p "$proj/dist"
     : > "$proj/dist/app.tar.gz"
@@ -365,7 +365,7 @@ func main() {}
     GITHUB_STEP_SUMMARY="$BATS_TEST_TMPDIR/summary.md"
     : > "$GITHUB_STEP_SUMMARY"
     export GITHUB_STEP_SUMMARY
-    run "$RELEASE_DIR/generate_summary.sh" "$proj" "v1.2.3"
+    run "$BUILD_DIR/generate_summary.sh" "$proj" "v1.2.3"
     [[ "$status" -eq 0 ]]
     grep -q "Go Release Results" "$GITHUB_STEP_SUMMARY"
     grep -q "\\*\\*Version\\*\\* | v1.2.3" "$GITHUB_STEP_SUMMARY"
@@ -373,13 +373,13 @@ func main() {}
     grep -q "checksums.txt" "$GITHUB_STEP_SUMMARY"
 }
 
-@test "go.release: generate_summary.sh handles empty dist/ (no artifacts row)" {
+@test "go.build: generate_summary.sh handles empty dist/ (no artifacts row)" {
     local proj="$BATS_TEST_TMPDIR/proj"
     mkdir -p "$proj/dist"
     GITHUB_STEP_SUMMARY="$BATS_TEST_TMPDIR/summary.md"
     : > "$GITHUB_STEP_SUMMARY"
     export GITHUB_STEP_SUMMARY
-    run "$RELEASE_DIR/generate_summary.sh" "$proj" "snapshot"
+    run "$BUILD_DIR/generate_summary.sh" "$proj" "snapshot"
     [[ "$status" -eq 0 ]]
     grep -q "Go Release Results" "$GITHUB_STEP_SUMMARY"
     # No file rows. File rows look like `| | \`<filename>\` |`;
@@ -387,20 +387,20 @@ func main() {}
     ! grep -qE '^\| \| `' "$GITHUB_STEP_SUMMARY"
 }
 
-@test "go.release: generate_summary.sh prints to stdout when GITHUB_STEP_SUMMARY unset" {
+@test "go.build: generate_summary.sh prints to stdout when GITHUB_STEP_SUMMARY unset" {
     # No-op-ish fallback path: print to stdout instead of crashing on
     # the unset env var. Useful for local development.
     local proj="$BATS_TEST_TMPDIR/proj"
     mkdir -p "$proj/dist"
     : > "$proj/dist/app.tar.gz"
-    run bash -c 'unset GITHUB_STEP_SUMMARY; "$1" "$2" "v1.0.0"' -- "$RELEASE_DIR/generate_summary.sh" "$proj"
+    run bash -c 'unset GITHUB_STEP_SUMMARY; "$1" "$2" "v1.0.0"' -- "$BUILD_DIR/generate_summary.sh" "$proj"
     [[ "$status" -eq 0 ]]
     [[ "$output" == *"Go Release Results"* ]]
     [[ "$output" == *"app.tar.gz"* ]]
 }
 
-@test "go.release: generate_summary.sh usage error with wrong arg count" {
-    run "$RELEASE_DIR/generate_summary.sh" "proj"
+@test "go.build: generate_summary.sh usage error with wrong arg count" {
+    run "$BUILD_DIR/generate_summary.sh" "proj"
     [[ "$status" -ne 0 ]]
     [[ "$output" == *"Usage:"* ]]
 }
@@ -413,8 +413,8 @@ func main() {}
     [[ -f "$CHECKS_ACTION" ]]
 }
 
-@test "go: release/action.yml exists" {
-    [[ -f "$RELEASE_ACTION" ]]
+@test "go: build/action.yml exists" {
+    [[ -f "$BUILD_ACTION" ]]
 }
 
 @test "go: workflow file exists" {
@@ -430,52 +430,52 @@ func main() {}
     [[ "$status" -eq 0 ]]
 }
 
-@test "go.release: action.yml uses actions/setup-go (SHA-pinned)" {
-    run grep -E 'actions/setup-go@[0-9a-f]{40}' "$RELEASE_ACTION"
+@test "go.build: action.yml uses actions/setup-go (SHA-pinned)" {
+    run grep -E 'actions/setup-go@[0-9a-f]{40}' "$BUILD_ACTION"
     [[ "$status" -eq 0 ]]
 }
 
-@test "go.release: action.yml uses goreleaser/goreleaser-action (SHA-pinned)" {
-    run grep -E 'goreleaser/goreleaser-action@[0-9a-f]{40}' "$RELEASE_ACTION"
+@test "go.build: action.yml uses goreleaser/goreleaser-action (SHA-pinned)" {
+    run grep -E 'goreleaser/goreleaser-action@[0-9a-f]{40}' "$BUILD_ACTION"
     [[ "$status" -eq 0 ]]
 }
 
-@test "go.release: goreleaser binary version is pinned literally (no '~>', no 'latest')" {
+@test "go.build: goreleaser binary version is pinned literally (no '~>', no 'latest')" {
     # See CLAUDE.md "No auto-merge of dependency updates" — the
     # binary version downloaded at runtime by goreleaser-action must
     # be a pinned literal, not a range.
-    run grep -E "^[[:space:]]*version:[[:space:]]*['\"]?(~>|latest)" "$RELEASE_ACTION"
+    run grep -E "^[[:space:]]*version:[[:space:]]*['\"]?(~>|latest)" "$BUILD_ACTION"
     [[ "$status" -ne 0 ]]
-    run grep -E "^[[:space:]]*version:[[:space:]]*['\"][0-9]+\\.[0-9]+\\.[0-9]+['\"]" "$RELEASE_ACTION"
+    run grep -E "^[[:space:]]*version:[[:space:]]*['\"][0-9]+\\.[0-9]+\\.[0-9]+['\"]" "$BUILD_ACTION"
     [[ "$status" -eq 0 ]]
 }
 
-@test "go.release: goreleaser always runs --skip=publish (wrangle owns the publish)" {
+@test "go.build: goreleaser always runs --skip=publish (wrangle owns the publish)" {
     # wrangle never lets goreleaser publish: it could ship un-attestable
     # artifacts (Docker, Homebrew, deb/rpm, announce). Both ternary branches
     # must carry --skip=publish; the non-tag branch adds --snapshot because
     # `release` refuses to run off a tag.
-    run grep -E "'release --clean --skip=publish' \\|\\| 'release --clean --snapshot --skip=publish'" "$RELEASE_ACTION"
+    run grep -E "'release --clean --skip=publish' \\|\\| 'release --clean --snapshot --skip=publish'" "$BUILD_ACTION"
     [[ "$status" -eq 0 ]]
     # No bare publish-enabled invocation anywhere.
-    run grep -E "'release --clean'( |')" "$RELEASE_ACTION"
+    run grep -E "'release --clean'( |')" "$BUILD_ACTION"
     [[ "$status" -ne 0 ]]
 }
 
-@test "go.release: goreleaser step sets no GITHUB_TOKEN env (publishes nothing)" {
+@test "go.build: goreleaser step sets no GITHUB_TOKEN env (publishes nothing)" {
     # --skip=publish uploads nothing, so the build job needs no release
     # credentials and runs at contents: read. A GITHUB_TOKEN env entry here
     # would be a least-privilege regression. Match an actual env key (6+
     # spaces, `GITHUB_TOKEN:`), not the explanatory comment.
-    section="$(awk '/name: Run goreleaser/,/Resume workflow commands/' "$RELEASE_ACTION")"
+    section="$(awk '/name: Run goreleaser/,/Resume workflow commands/' "$BUILD_ACTION")"
     ! grep -qE '^[[:space:]]+GITHUB_TOKEN:' <<<"$section"
 }
 
-@test "go.release: goreleaser is pinned to the triggering tag" {
+@test "go.build: goreleaser is pinned to the triggering tag" {
     # Several tags can point at one commit; without GORELEASER_CURRENT_TAG
     # goreleaser picks an arbitrary one and re-targets that tag's existing
     # Release (422 already_exists). Must be empty on non-tag builds.
-    run grep -E "GORELEASER_CURRENT_TAG: \\\$\\{\\{ startsWith\\(github\\.ref, 'refs/tags/'\\) && github\\.ref_name \\|\\| '' \\}\\}" "$RELEASE_ACTION"
+    run grep -E "GORELEASER_CURRENT_TAG: \\\$\\{\\{ startsWith\\(github\\.ref, 'refs/tags/'\\) && github\\.ref_name \\|\\| '' \\}\\}" "$BUILD_ACTION"
     [[ "$status" -eq 0 ]]
 }
 
@@ -484,8 +484,8 @@ func main() {}
     [[ "$status" -eq 0 ]]
 }
 
-@test "go.release: setup-go cache is gated by the cache input" {
-    run grep -E "cache: \\\$\\{\\{ inputs\\.cache != 'disabled' \\}\\}" "$RELEASE_ACTION"
+@test "go.build: setup-go cache is gated by the cache input" {
+    run grep -E "cache: \\\$\\{\\{ inputs\\.cache != 'disabled' \\}\\}" "$BUILD_ACTION"
     [[ "$status" -eq 0 ]]
 }
 
@@ -494,8 +494,8 @@ func main() {}
     [[ "$status" -eq 0 ]]
 }
 
-@test "go.release: validate_inputs.sh uses set -f" {
-    run grep '^set -f' "$RELEASE_DIR/validate_inputs.sh"
+@test "go.build: validate_inputs.sh uses set -f" {
+    run grep '^set -f' "$BUILD_DIR/validate_inputs.sh"
     [[ "$status" -eq 0 ]]
 }
 
@@ -504,8 +504,8 @@ func main() {}
     [[ "$status" -eq 0 ]]
 }
 
-@test "go.release: compute_hashes.sh uses set -f" {
-    run grep '^set -f' "$RELEASE_DIR/compute_hashes.sh"
+@test "go.build: compute_hashes.sh uses set -f" {
+    run grep '^set -f' "$BUILD_DIR/compute_hashes.sh"
     [[ "$status" -eq 0 ]]
 }
 
@@ -519,14 +519,14 @@ func main() {}
     [[ "$status" -eq 0 ]]
 }
 
-@test "go.release: generate_summary.sh uses set -f" {
-    run grep '^set -f' "$RELEASE_DIR/generate_summary.sh"
+@test "go.build: generate_summary.sh uses set -f" {
+    run grep '^set -f' "$BUILD_DIR/generate_summary.sh"
     [[ "$status" -eq 0 ]]
 }
 
-@test "go.release: action installs syft via tools/syft (not curl | sh, no install-to-/usr/local/bin)" {
+@test "go.build: action installs syft via tools/syft (not curl | sh, no install-to-/usr/local/bin)" {
     # No curl-pipe-shell anywhere.
-    run grep -E 'curl[^|]*\| *sh' "$RELEASE_ACTION"
+    run grep -E 'curl[^|]*\| *sh' "$BUILD_ACTION"
     [[ "$status" -ne 0 ]]
     # No INSTALL/COPY/MOVE writes to /usr/local/bin (per CLAUDE.md
     # "install to $WRANGLE_BIN_DIR, never /usr/local/bin"). A
@@ -535,14 +535,14 @@ func main() {}
     # $WRANGLE_BIN_DIR; the symlink is wiring for downstream PATH
     # lookups (see the zig install step), and zig was already
     # SHA-256 verified by tools/zig/install.sh.
-    run grep -E '(cp|install|mv|tar)[^|]*/usr/local/bin' "$RELEASE_ACTION"
+    run grep -E '(cp|install|mv|tar)[^|]*/usr/local/bin' "$BUILD_ACTION"
     [[ "$status" -ne 0 ]]
-    run grep 'tools/syft/install.sh' "$RELEASE_ACTION"
+    run grep 'tools/syft/install.sh' "$BUILD_ACTION"
     [[ "$status" -eq 0 ]]
 }
 
-@test "go.release: action installs cosign before syft (signature verification)" {
-    run bash -c "awk '/sigstore\\/cosign-installer/{c=NR} /tools\\/syft\\/install.sh/{s=NR} END{exit !(c && s && c<s)}' \"$RELEASE_ACTION\""
+@test "go.build: action installs cosign before syft (signature verification)" {
+    run bash -c "awk '/sigstore\\/cosign-installer/{c=NR} /tools\\/syft\\/install.sh/{s=NR} END{exit !(c && s && c<s)}' \"$BUILD_ACTION\""
     [[ "$status" -eq 0 ]]
 }
 
@@ -553,14 +553,14 @@ func main() {}
     [[ "$status" -eq 0 ]]
 }
 
-@test "go.release: goreleaser-action is wrapped by stop-commands guard begin/end (it can't be wrapped inline)" {
-    run grep -E 'stop_commands_guard\.sh" begin' "$RELEASE_ACTION"
+@test "go.build: goreleaser-action is wrapped by stop-commands guard begin/end (it can't be wrapped inline)" {
+    run grep -E 'stop_commands_guard\.sh" begin' "$BUILD_ACTION"
     [[ "$status" -eq 0 ]]
-    run grep -E 'stop_commands_guard\.sh" end' "$RELEASE_ACTION"
+    run grep -E 'stop_commands_guard\.sh" end' "$BUILD_ACTION"
     [[ "$status" -eq 0 ]]
     # The end step must be if: always() — otherwise a goreleaser
     # failure leaves stop-commands in effect.
-    run bash -c "grep -A2 'Resume workflow commands' '$RELEASE_ACTION' | grep -E 'if: always'"
+    run bash -c "grep -A2 'Resume workflow commands' '$BUILD_ACTION' | grep -E 'if: always'"
     [[ "$status" -eq 0 ]]
 }
 
@@ -568,7 +568,7 @@ func main() {}
     # The wrangle-wide convention: external input never gets
     # interpolated into a `run:` block; it flows via env:. Inspect
     # both composite action.yml files.
-    for action in "$CHECKS_ACTION" "$RELEASE_ACTION"; do
+    for action in "$CHECKS_ACTION" "$BUILD_ACTION"; do
         run awk '
             BEGIN { in_run = 0; run_col = -1; bad = 0 }
             /^[[:space:]]*run:[[:space:]]+[^|>]/ && /\$\{\{[[:space:]]*inputs\./ {
@@ -1240,7 +1240,7 @@ func TestFails(t *testing.T) {
 # cgo cross-compile escape hatch — install-zig input + grep warning
 # ====================================================================
 #
-# The release composite ships two things for cgo + cross-compile (#259):
+# The build composite ships two things for cgo + cross-compile (#259):
 #   1. An `install-zig` input (default false) that, when true, brings up
 #      zig via mlugg/setup-zig so goreleaser's per-cell CC=zig cc ...
 #      templates resolve.
@@ -1252,100 +1252,100 @@ func TestFails(t *testing.T) {
 # warning is opt-out via the input rather than opt-in via auto-detect,
 # so a coarse grep is fine.
 
-@test "go.release: install-zig input exists with default false" {
-    run grep -F 'install-zig:' "$RELEASE_ACTION"
+@test "go.build: install-zig input exists with default false" {
+    run grep -F 'install-zig:' "$BUILD_ACTION"
     [[ "$status" -eq 0 ]]
     # The default must be the literal string 'false' so the if:
     # comparison below behaves predictably.
-    run grep -E "default:\s*['\"]?false['\"]?" "$RELEASE_ACTION"
+    run grep -E "default:\s*['\"]?false['\"]?" "$BUILD_ACTION"
     [[ "$status" -eq 0 ]]
 }
 
-@test "go.release: setup-zig step is gated on install-zig input" {
+@test "go.build: setup-zig step is gated on install-zig input" {
     # If the gate ever silently becomes always-on, every Go release
     # pays the zig install latency for no reason.
-    run grep -F "inputs.install-zig == 'true'" "$RELEASE_ACTION"
+    run grep -F "inputs.install-zig == 'true'" "$BUILD_ACTION"
     [[ "$status" -eq 0 ]]
 }
 
-@test "go.release: zig is installed via mlugg/setup-zig (SHA-pinned)" {
+@test "go.build: zig is installed via mlugg/setup-zig (SHA-pinned)" {
     # mlugg/setup-zig verifies the zig tarball against ziglang.org's
     # published minisign signature — stronger than the hardcoded
     # SHA-256 our previous tools/zig/install.sh used. The action
     # itself is SHA-pinned per CLAUDE.md third-party action rule.
-    run grep -E 'uses: mlugg/setup-zig@[a-f0-9]{40} #' "$RELEASE_ACTION"
+    run grep -E 'uses: mlugg/setup-zig@[a-f0-9]{40} #' "$BUILD_ACTION"
     [[ "$status" -eq 0 ]]
 }
 
-@test "go.release: cgo_warning.sh exists and is executable" {
-    [[ -x "$RELEASE_DIR/cgo_warning.sh" ]]
+@test "go.build: cgo_warning.sh exists and is executable" {
+    [[ -x "$BUILD_DIR/cgo_warning.sh" ]]
 }
 
-@test "go.release: cgo_warning.sh wired into release/action.yml" {
-    run grep -F 'cgo_warning.sh' "$RELEASE_ACTION"
+@test "go.build: cgo_warning.sh wired into build/action.yml" {
+    run grep -F 'cgo_warning.sh' "$BUILD_ACTION"
     [[ "$status" -eq 0 ]]
 }
 
-@test "go.release: cgo_warning step is suppressed when install-zig is true" {
+@test "go.build: cgo_warning step is suppressed when install-zig is true" {
     # The warning only fires when adopters have CGO_ENABLED=1 *and*
     # haven't opted into zig. If install-zig is true we're handling
     # the toolchain — stay quiet.
-    run grep -F "inputs.install-zig != 'true'" "$RELEASE_ACTION"
+    run grep -F "inputs.install-zig != 'true'" "$BUILD_ACTION"
     [[ "$status" -eq 0 ]]
 }
 
-@test "go.release: cgo_warning.sh emits ::warning:: with install-zig hint on CGO_ENABLED=1" {
+@test "go.build: cgo_warning.sh emits ::warning:: with install-zig hint on CGO_ENABLED=1" {
     local proj="$BATS_TEST_TMPDIR/proj"
     mkdir -p "$proj"
     printf 'version: 2\nbuilds:\n  - env: [CGO_ENABLED=1]\n' > "$proj/.goreleaser.yml"
-    run "$RELEASE_DIR/cgo_warning.sh" "$proj"
+    run "$BUILD_DIR/cgo_warning.sh" "$proj"
     [[ "$status" -eq 0 ]]
     [[ "$output" == *"::warning"* ]]
     [[ "$output" == *"install-zig"* ]]
 }
 
-@test "go.release: cgo_warning.sh stays silent on CGO_ENABLED=0" {
+@test "go.build: cgo_warning.sh stays silent on CGO_ENABLED=0" {
     local proj="$BATS_TEST_TMPDIR/proj"
     mkdir -p "$proj"
     printf 'version: 2\nbuilds:\n  - env: [CGO_ENABLED=0]\n' > "$proj/.goreleaser.yml"
-    run "$RELEASE_DIR/cgo_warning.sh" "$proj"
+    run "$BUILD_DIR/cgo_warning.sh" "$proj"
     [[ "$status" -eq 0 ]]
     [[ "$output" != *"::warning"* ]]
 }
 
-@test "go.release: cgo_warning.sh stays silent when no .goreleaser.yml is present" {
+@test "go.build: cgo_warning.sh stays silent when no .goreleaser.yml is present" {
     local proj="$BATS_TEST_TMPDIR/proj"
     mkdir -p "$proj"
-    run "$RELEASE_DIR/cgo_warning.sh" "$proj"
+    run "$BUILD_DIR/cgo_warning.sh" "$proj"
     [[ "$status" -eq 0 ]]
     [[ "$output" != *"::warning"* ]]
 }
 
-@test "go.release: cgo_warning.sh handles .goreleaser.yaml (alternate extension)" {
+@test "go.build: cgo_warning.sh handles .goreleaser.yaml (alternate extension)" {
     local proj="$BATS_TEST_TMPDIR/proj"
     mkdir -p "$proj"
     printf 'version: 2\nbuilds:\n  - env: [CGO_ENABLED=1]\n' > "$proj/.goreleaser.yaml"
-    run "$RELEASE_DIR/cgo_warning.sh" "$proj"
+    run "$BUILD_DIR/cgo_warning.sh" "$proj"
     [[ "$status" -eq 0 ]]
     [[ "$output" == *"::warning"* ]]
 }
 
-@test "go.release: cgo_warning.sh rejects wrong arg count" {
-    run "$RELEASE_DIR/cgo_warning.sh"
+@test "go.build: cgo_warning.sh rejects wrong arg count" {
+    run "$BUILD_DIR/cgo_warning.sh"
     [[ "$status" -ne 0 ]]
     [[ "$output" == *"Usage:"* ]]
 }
 
-@test "go.release: no leftover cgo_preflight.sh wiring" {
+@test "go.build: no leftover cgo_preflight.sh wiring" {
     # Earlier revisions of this PR had a yq+jq preflight script.
     # Tom asked us to drop it in favor of the input + grep above.
     # This guard catches accidental reintroduction.
-    run grep -F 'cgo_preflight' "$RELEASE_ACTION"
+    run grep -F 'cgo_preflight' "$BUILD_ACTION"
     [[ "$status" -ne 0 ]]
-    [[ ! -e "$RELEASE_DIR/cgo_preflight.sh" ]]
+    [[ ! -e "$BUILD_DIR/cgo_preflight.sh" ]]
 }
 
-@test "go.release: no leftover tools/zig/install.sh" {
+@test "go.build: no leftover tools/zig/install.sh" {
     # We swapped the custom installer for mlugg/setup-zig (which
     # verifies minisign — stronger than our hardcoded SHA-256).
     [[ ! -e "$REPO_ROOT/tools/zig/install.sh" ]]

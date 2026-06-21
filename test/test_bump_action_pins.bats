@@ -375,7 +375,7 @@ EOF
 @test "bump_action_pins: bumps nested self-ref pins in composites, not just workflows" {
     # The footgun this guards: a nested pin in actions/ or build/ ageing while
     # only .github/workflows/ got bumped. Recursion must reach both.
-    mkdir -p actions/scan build/actions/go/release
+    mkdir -p actions/scan build/actions/go/build
     cat > .github/workflows/w.yml <<EOF
 jobs:
   scan:
@@ -386,7 +386,7 @@ runs:
   steps:
     - uses: TomHennen/wrangle/tools/zizmor@aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
 EOF
-    cat > build/actions/go/release/action.yml <<EOF
+    cat > build/actions/go/build/action.yml <<EOF
 runs:
   steps:
     - uses: TomHennen/wrangle/build/actions/go@aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
@@ -395,7 +395,7 @@ EOF
     [[ "$status" -eq 0 ]]
     grep -q "actions/scan@${NEW_SHA}" .github/workflows/w.yml
     grep -q "tools/zizmor@${NEW_SHA}" actions/scan/action.yml
-    grep -q "build/actions/go@${NEW_SHA}" build/actions/go/release/action.yml
+    grep -q "build/actions/go@${NEW_SHA}" build/actions/go/build/action.yml
 }
 
 @test "bump_action_pins: idempotent on a second run over nested composites" {

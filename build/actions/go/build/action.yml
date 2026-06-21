@@ -1,4 +1,4 @@
-name: Wrangle Go Release
+name: Wrangle Go Build
 description: |
   Invoke goreleaser to build a Go project (always `--skip=publish`);
   generate the SBOM via syft; compute artifact hashes for SLSA
