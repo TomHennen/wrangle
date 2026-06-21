@@ -388,13 +388,12 @@ jobs:
   # Emit one signed SLSA Verification Summary Attestation (VSA) per dist archive
   # and append it to the SLSA provenance, producing one per-artifact
   # <archive>.intoto.jsonl bundle consumers fetch. bnd signs each VSA keyless with
-  # this workflow's OIDC identity; the bundle is attached to the release on tag.
+  # this workflow's OIDC identity.
   #
-  # goreleaser publishes INLINE in the `release` job, so by the time this runs
-  # the release is already live. fail: true therefore does NOT block goreleaser's
-  # publish; it (a) fails the overall workflow conclusion so any downstream caller
-  # job gated on this reusable workflow is blocked, and (b) surfaces a
-  # policy/tooling regression loudly. Keep fail: true for both effects.
+  # This job owns the publish: goreleaser ran --skip=publish, so nothing is live
+  # until verify uploads the attested archives + checksums.txt + bundles to the
+  # pre-existing release. fail: true therefore DOES block the publish — a failed
+  # policy means the bytes are never uploaded — and fails the workflow conclusion.
   verify:
     if: ${{ needs.prep.outputs.should-release == 'true' }}
     needs: [prep, release, attest]
@@ -402,7 +401,7 @@ jobs:
     permissions:
       id-token: write       # bnd keyless-signs each VSA via this workflow's OIDC identity
       attestations: write   # post each VSA to the GitHub attestation store
-      contents: write       # attach the bundle to the release on tag pushes
+      contents: write       # upload the attested archives + checksums + bundles to the pre-existing release
     outputs:
       attestation-bundle-name: ${{ needs.prep.outputs.metadata }}
     steps:
