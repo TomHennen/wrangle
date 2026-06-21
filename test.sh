@@ -62,21 +62,23 @@ esac
 # own defaults and must not see an override. ${arr[@]+...} keeps the empty
 # array safe under set -u on bash 3.2 (macOS).
 #
-# The named volume holds the Go module/build caches: the integration target
-# compiles large tool graphs (cosign, osv-scanner), and an ephemeral
-# container would re-download and re-build everything per run — slow, and
-# big enough to exhaust the container layer. setup_integration.sh creates
-# $GOTMPDIR (go refuses a nonexistent one).
-#
-# Unit suites reuse the same volume for the gotest layer's build + module
-# caches — wrangle-attest's module graph is ~700MB to fetch and compile, so a
-# cold container pays ~30s every run (#530). GOPATH stays at the image default
+# /godata holds the Go module/build caches: the integration target compiles
+# large tool graphs (cosign, osv-scanner) and the unit gotest layer fetches +
+# compiles wrangle-attest's ~700MB module graph, so a cold container pays ~30s
+# every run (#530). Locally a named volume warms repeat runs; in CI
+# WRANGLE_GOCACHE_DIR points it at an actions/cache-managed host dir so the
+# caches survive the ephemeral runner (#542). GOPATH stays at the image default
 # so the go build-type's govulncheck install-cache in $GOPATH/bin is untouched.
-# This warms only repeat local runs; CI runners are ephemeral, so the volume is
-# empty there and gotest still builds cold — the test suite never consumes a
-# cross-build cache, keeping it off release builds' cache-isolation surface
-# (SPEC.md §"Cache isolation is part of the L3 claim").
-DOCKER_ENV=(-v wrangle-test-gocache:/godata)
+# The suite is a test (no attested artifact), so this cross-run cache stays off
+# release builds' cache-isolation surface (SPEC.md §"Cache isolation is part of
+# the L3 claim"). setup_integration.sh creates $GOTMPDIR (go refuses a
+# nonexistent one).
+GOCACHE_MOUNT=wrangle-test-gocache
+if [[ -n "${WRANGLE_GOCACHE_DIR:-}" ]]; then
+    mkdir -p "$WRANGLE_GOCACHE_DIR"
+    GOCACHE_MOUNT="$WRANGLE_GOCACHE_DIR"
+fi
+DOCKER_ENV=(-v "$GOCACHE_MOUNT":/godata)
 if [[ "$TEST_TARGET" == "integration" ]]; then
     DOCKER_ENV+=(-e WRANGLE_BIN_DIR=/tmp/wrangle/bin -e WRANGLE_METADATA_DIR=/tmp/wrangle/metadata)
     DOCKER_ENV+=(-e GOPATH=/godata/gopath -e GOCACHE=/godata/gocache -e GOTMPDIR=/godata/tmp)
