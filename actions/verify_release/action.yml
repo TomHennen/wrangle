@@ -100,8 +100,7 @@ runs:
         # Empty for container (provenance comes from the oci collector).
         bundle-in: ${{ inputs.oci-target == '' && 'provenance/provenance.jsonl' || '' }}
         bundle-out: ${{ steps.names.outputs.metadata-dir }}
-        # The bundle/zip dir; verify writes the per-subject bundles here (and,
-        # for container, signs the SBOM + scan/v1 metadata from it).
+        # The bundle/zip dir; verify writes the per-subject bundles here.
         metadata-dir: ${{ steps.names.outputs.metadata-dir }}
         # The attest-signed SBOM + scan/v1 statements verify appends per subject
         # (all build types).
