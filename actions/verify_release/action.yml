@@ -90,7 +90,7 @@ runs:
         path: signed-metadata/
 
     # TODO: replace with $/actions/verify when GitHub ships $/ syntax (#136)
-    - uses: TomHennen/wrangle/actions/verify@a3cb4c8962f98c2104c2d468b430f394063f11d5 # go-wrangle-owns-publish 2026-06-21
+    - uses: TomHennen/wrangle/actions/verify@7e6bd78fbdf7877357a58e7faf5e0193ab11be8c # verify-consume-signed-metadata 2026-06-21
       with:
         dist-files: ${{ inputs.dist-files }}
         subjects: ${{ inputs.subjects }}

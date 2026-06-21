@@ -65,7 +65,7 @@ jobs:
     permissions: {}    # guard reads env only — no workspace, no API, no secrets
     steps:
       # TODO: replace with $/actions/prep when GitHub ships $/ syntax (#136)
-      - uses: TomHennen/wrangle/actions/prep@a3cb4c8962f98c2104c2d468b430f394063f11d5 # go-wrangle-owns-publish 2026-06-21
+      - uses: TomHennen/wrangle/actions/prep@7e6bd78fbdf7877357a58e7faf5e0193ab11be8c # verify-consume-signed-metadata 2026-06-21
 
   # Source scan. A load-bearing (:fail) finding fails the run alongside
   # the shell build/test (there is no artifact to gate publishing of).
@@ -78,7 +78,7 @@ jobs:
       security-events: write
     steps:
       # TODO: replace with $/actions/scan when GitHub ships $/ syntax (#136)
-      - uses: TomHennen/wrangle/actions/scan@a3cb4c8962f98c2104c2d468b430f394063f11d5 # go-wrangle-owns-publish 2026-06-21
+      - uses: TomHennen/wrangle/actions/scan@7e6bd78fbdf7877357a58e7faf5e0193ab11be8c # verify-consume-signed-metadata 2026-06-21
         if: ${{ inputs.scan-tools != '' }}
         with:
           checkout: "true"
@@ -112,7 +112,7 @@ jobs:
         # setup-script input and multi-path bats — the main-pinned version
         # would ignore setup-script and fail the dogfooded integration bats.
         # Bump to main post-merge via tools/bump_action_pins.sh.
-        uses: TomHennen/wrangle/build/actions/shell@a3cb4c8962f98c2104c2d468b430f394063f11d5 # go-wrangle-owns-publish 2026-06-21
+        uses: TomHennen/wrangle/build/actions/shell@7e6bd78fbdf7877357a58e7faf5e0193ab11be8c # verify-consume-signed-metadata 2026-06-21
         with:
           scan-path: ${{ inputs.scan-path }}
           bats-path: ${{ inputs.bats-path }}
