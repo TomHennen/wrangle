@@ -65,6 +65,25 @@ The latest [release](https://github.com/TomHennen/wrangle/releases) tag.
 Dependabot and the examples under
 [`gh_workflow_examples/`](../gh_workflow_examples/) track the current release.
 
+## Can I use wrangle with immutable releases?
+
+Not yet, on the build types that attach assets to a GitHub Release. Wrangle
+attaches the signed VSA (and, for Go, the attested archives) *after* the
+release is published, which
+[immutable releases](https://docs.github.com/en/code-security/concepts/supply-chain-security/immutable-releases)
+forbid. Effect by build type:
+
+- **Go** — always fails: goreleaser publishes the release inline, so the
+  post-publish asset upload hits an immutable release every time.
+- **Python / npm** — fails only when a published GitHub Release already exists
+  for the tag (the artifact itself goes to PyPI / npmjs.org regardless).
+- **Container** — unaffected: the VSA is an OCI referrer on the image digest,
+  never a release asset.
+
+Leave immutable releases off on repos using wrangle's Go/Python/npm build types
+until [#407](https://github.com/TomHennen/wrangle/issues/407) moves the attach
+to a draft → attach → publish flow.
+
 ## I'm on a private repo without Advanced Security — which scan tools work?
 
 Most of the default `scan-tools` work as-is. The SARIF upload to the Security

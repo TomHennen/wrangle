@@ -922,7 +922,7 @@ The sum.golang.org tier applies to Go modules installed via `go install` from th
 
 **No fallback between verification methods.** Each tool's verification method is chosen at development time. If provenance verification fails for a tool configured to use it, the install MUST fail — even if the checksum passed. A verification failure may indicate a supply chain attack; silently downgrading to a weaker method would mask the attack.
 
-**Version upgrade workflow:** To update a tool version, run `make update-tool TOOL=osv VERSION=x.y.z`. This helper downloads the new binary, computes its SHA-256 checksum, and patches the install script. The contributor then verifies the change, commits both the version and checksum update together, and opens a PR. Dependabot is not used for tool binaries because it cannot update hardcoded checksums.
+**Version upgrade workflow:** Binary-download tool versions are bumped by hand today — edit the pinned version (and, for a hardcoded-checksum tool, its SHA-256) in the install script, verify the new binary, and commit the version and checksum together in a single atomic commit. Dependabot is not used for these because it cannot update hardcoded checksums; the Go- and pip-managed tools that DEP_MGMT.md makes the default are Dependabot-covered instead. Automating the manual binary surface is tracked in #264.
 
 ### Shared Download/Verify Library
 
@@ -1032,7 +1032,7 @@ Wrangle is a supply chain amplifier — a compromise of wrangle propagates to ev
 - **Action reference pinning:** All third-party actions pinned to full commit SHAs (protects against upstream action compromise).
 - **Signed commits:** All commits to the wrangle repo should be signed.
 - **Minimal permissions:** Wrangle's own workflows request only the permissions they need.
-- **Dependency management:** Dependabot for GitHub Actions dependencies; `make update-tool` for tool binary versions.
+- **Dependency management:** Dependabot for GitHub Actions and package-manager-installed tool dependencies; manual version+checksum bumps for binary-download tools (automation tracked in #264).
 - **SLSA build provenance:** When wrangle produces releasable artifacts (e.g., if it ships a CLI or pre-built actions), those artifacts should have SLSA L3 build provenance via `actions/attest-build-provenance` run inside a reusable build workflow, the same standard wrangle helps adopters achieve. Aspirational — not currently in a numbered release milestone.
 - **Delayed dependency updates:** Wrangle does not auto-merge dependency updates immediately. New versions of upstream tools are adopted only after a delay (e.g., 7 days) to allow the community to discover supply chain attacks before wrangle amplifies them to all adopters. This follows the [OpenSSF Concise Guide for Evaluating Open Source Software](https://best.openssf.org/Concise-Guide-for-Evaluating-Open-Source-Software) principle of not being the first to adopt a new release.
 

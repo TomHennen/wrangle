@@ -83,12 +83,3 @@ bump-action-pins:
 # See tools/converge_action_pins.sh, #539, and #552.
 converge-action-pins:
 	@./tools/converge_action_pins.sh
-
-# Update a binary-download tool's version and hardcoded checksum. Go-module
-# tools (osv-scanner, cosign, ampel, bnd) are pinned in tools/go.mod and
-# bumped by Dependabot instead.
-# Usage: make update-tool TOOL=syft VERSION=1.2.3
-update-tool:
-	@echo "Tool version update helper — not yet implemented"
-	@echo "Will download $(TOOL) $(VERSION), compute SHA-256, and patch tools/$(TOOL)/install.sh"
-	@exit 1
