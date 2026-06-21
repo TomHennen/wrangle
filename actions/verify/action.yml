@@ -92,11 +92,21 @@ inputs:
     default: "dist"
   metadata-dir:
     description: >
-      Directory holding the build's metadata (the build job's metadata artifact:
-      sbom.spdx.json + its top-level wrangle_attestation_metadata.json). wrangle-attest reads that
-      manifest to build one signed SBOM statement per subject, appended to each
-      bundle and posted to
-      the attestation store. Leave empty to emit VSA-only bundles.
+      Directory the per-subject bundles are written into and zipped from for the
+      release metadata asset (sbom + scan/ + bundles); production wires this to
+      the same value as bundle-out. For the container build type (where
+      signed-metadata is empty) it is also the dir verify signs the SBOM + scan/v1
+      metadata from.
+    required: false
+    default: ""
+  signed-metadata:
+    description: >
+      Path to the attest job's signed build-metadata JSONL (SBOM + scan/v1
+      statements, one signed bundle per line, already posted to the attestation
+      store there) for go/npm/python. verify selects each subject's lines as a
+      second policy collector and appends them to that subject's bundle — it never
+      re-signs or re-pushes them. Empty for container (verify signs from
+      metadata-dir instead) and to emit VSA-only bundles.
     required: false
     default: ""
   oci-target:
@@ -146,8 +156,14 @@ runs:
         BUNDLE_IN: ${{ inputs.bundle-in }}
         BUNDLE_OUT: ${{ inputs.bundle-out }}
         OCI_TARGET: ${{ inputs.oci-target }}
-        METADATA_ROOT: ${{ inputs.metadata-dir }}
-        # Scanned commit recorded in each scan/v1 envelope's scannedCommit.
+        # go/npm/python: the attest job's signed SBOM + scan/v1 statements, already
+        # pushed to the store there; verify selects each subject's lines for the
+        # policy and the bundle, never re-signing or re-pushing them.
+        SIGNED_METADATA: ${{ inputs.signed-metadata }}
+        # container only (until #550 PR 3): verify signs the metadata itself from
+        # this dir, with COMMIT in the scan/v1 envelope. Ignored when signed-metadata
+        # is set (go/npm/python).
+        METADATA_ROOT: ${{ inputs.signed-metadata == '' && inputs.metadata-dir || '' }}
         COMMIT: ${{ github.sha }}
         GITHUB_REPOSITORY: ${{ github.repository }}
         # bnd push github authenticates to the attestation store with this token;

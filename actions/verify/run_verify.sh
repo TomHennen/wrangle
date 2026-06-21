@@ -6,7 +6,10 @@
 #   run    emit -> sign -> append per subject in one process, so an unsigned VSA
 #          never lives on disk across a step boundary. Each signed VSA is also
 #          posted to the GitHub attestation store (by-digest discovery); with
-#          OCI_TARGET set it is additionally pushed as its own OCI referrer.
+#          OCI_TARGET set it is additionally pushed as its own OCI referrer. The
+#          SBOM + scan/v1 metadata is signed in the attest job and consumed here
+#          (SIGNED_METADATA, go/npm/python — never re-signed or re-pushed); the
+#          container build type still signs it here (METADATA_ROOT) until PR 3.
 #   attach upload the rationalized asset set (per-subject dist + bundle, and one
 #          <type>-metadata-<sn>.zip) to the GitHub release for the current tag,
 #          if one exists. Inputs: BUNDLE_OUT, BUILD_TYPE, DIST_DIR,
@@ -16,9 +19,12 @@
 # Inputs arrive as env vars: SUBJECTS (newline-separated), POLICY, COLLECTOR,
 # FAIL, CONTEXT, BUNDLE_IN, BUNDLE_OUT, GITHUB_REPOSITORY (store push target),
 # GITHUB_TOKEN (bnd reads it to auth the store push), and optional ATTESTATION,
-# OCI_TARGET, METADATA_ROOT (the metadata dir wrangle-attest reads for the
-# top-level SBOM and scan/<tool>/ manifests, signed by the engine and appended
-# per subject), COMMIT (scanned git commit woven into the scan/v1 envelope).
+# OCI_TARGET, and the SBOM/scan metadata, supplied one of two ways:
+#   SIGNED_METADATA  the attest job's signed SBOM + scan/v1 JSONL (go/npm/python)
+#                    — already signed and store-pushed there; verify reads it,
+#                    never re-signs or re-pushes.
+#   METADATA_ROOT    the metadata dir verify signs itself (container only, until
+#                    #550 PR 3), with COMMIT woven into the scan/v1 envelope.
 
 set -euo pipefail
 set -f  # disable globbing — processes external input
@@ -37,8 +43,8 @@ wrangle_resolve_policy() {
     esac
 }
 
-# Shared build-metadata signing primitives, also used by the attest job:
-# wrangle_retry_once, wrangle_attest_args, wrangle_sign_metadata_statements,
+# Shared build-metadata primitives, also used by the attest job: wrangle_retry_once,
+# wrangle_attest_args, wrangle_sign_metadata_statements (container self-sign path),
 # wrangle_bnd_push_args, wrangle_push_store, wrangle_read_subjects.
 # shellcheck source=../../lib/sign_metadata.sh
 source "$LIB_DIR/sign_metadata.sh"
@@ -190,7 +196,10 @@ wrangle_push_bundle() {
 
 # Append each signed metadata line at $1 to the bundle $2, post each to the
 # store, and push each alone as the OCI referrer (cosign attach rejects
-# multi-line). No-op on an empty/absent file (no metadata for this build).
+# multi-line). The verify job signs the metadata itself only for the container
+# build type (go/npm/python consume the attest-signed set — see
+# wrangle_append_signed_metadata); this push is that path's store delivery.
+# No-op on an empty/absent file (no metadata for this build).
 wrangle_append_metadata_statements() {
     local stmts="$1" bundle="$2"
     [[ -s "$stmts" ]] || return 0
@@ -204,6 +213,42 @@ wrangle_append_metadata_statements() {
         wrangle_push_bundle "$line_file"
     done < "$stmts"
     rm -f "$line_file"
+}
+
+# Append each already-signed metadata line at $1 to the bundle $2. The attest
+# job signed these and posted them to the store, so verify only assembles the
+# consumer bundle — it does NOT re-sign, re-push to the store, or re-push to OCI.
+# No-op on an empty/absent file (no metadata for this subject).
+wrangle_append_signed_metadata() {
+    local stmts="$1" bundle="$2"
+    [[ -s "$stmts" ]] || return 0
+    local line
+    while IFS= read -r line; do
+        [[ -z "$line" ]] && continue
+        printf '%s\n' "$line" >> "$bundle"
+    done < "$stmts"
+}
+
+# Select subject $2's lines from the accumulated attest-signed metadata JSONL $1
+# into $3 (emptied first) — the per-artifact bundle carries only its own subject's
+# statements, and the attest artifact holds every subject's. Each line is a bnd
+# DSSE bundle; the subject digest sits inside the base64 payload. A file subject
+# is sha256-hashed (the digest attest bound via --artifact); a digest-form
+# subject matches verbatim. Fails closed on an unhashable file subject.
+wrangle_subject_signed_metadata() {
+    local signed="$1" subject="$2" out="$3" digest
+    : > "$out"
+    [[ -s "$signed" ]] || return 0
+    if [[ "$subject" =~ ^[a-z0-9]+:[a-f0-9]+$ ]]; then
+        digest="${subject#*:}"
+    else
+        local sum
+        sum="$(sha256sum "$subject")" || return 1
+        digest="${sum%% *}"
+    fi
+    jq -c --arg d "$digest" \
+        'select((.dsseEnvelope.payload | @base64d | fromjson | .subject[0].digest.sha256) == $d)' \
+        "$signed" > "$out"
 }
 
 # Verify every subject, sign its VSA, and write one bundle per subject into
@@ -229,6 +274,14 @@ wrangle_run() {
             "$COLLECTOR" "$FAIL" "${CONTEXT:-}" "${ATTESTATION:-}" "${OCI_TARGET:-}"
     done
 
+    # The attest job signed the SBOM/scan metadata into this JSONL; fail closed
+    # if a build that has metadata produced no signed set (a wiring/attest bug),
+    # so verify never emits a VSA-only bundle for a build that has metadata.
+    if [[ -n "${SIGNED_METADATA:-}" && ! -s "$SIGNED_METADATA" ]]; then
+        printf 'wrangle: signed-metadata artifact %s missing or empty\n' "$SIGNED_METADATA" >&2
+        return 1
+    fi
+
     mkdir -p "$BUNDLE_OUT"
     local seed tmp_vsa
     seed="$(mktemp "${RUNNER_TEMP:-/tmp}/seed.XXXXXX")"
@@ -238,16 +291,26 @@ wrangle_run() {
     local vsa_line meta_stmts
     vsa_line="$(mktemp "${RUNNER_TEMP:-/tmp}/vsaline.XXXXXX")"
     meta_stmts="$(mktemp "${RUNNER_TEMP:-/tmp}/meta.XXXXXX")"
+    # go/npm/python consume the attest-signed metadata (SIGNED_METADATA); the
+    # container build type still signs its own (METADATA_ROOT) until #550 PR 3.
+    local consume_signed=""
+    [[ -n "${SIGNED_METADATA:-}" ]] && consume_signed=1
     local bundle
     for subject in "${WRANGLE_SUBJECTS[@]}"; do
         bundle="$BUNDLE_OUT/$(wrangle_bundle_name "$subject")"
         cp "$seed" "$bundle"
-        # Sign the SBOM/scan statements first so ampel evaluates the policy
-        # against them (a second collector), then bind the verdict into the VSA.
-        # Pass the file to ampel only when it holds statements — the extra
-        # collector is omitted for a build with no metadata dir.
+        # Gather this subject's SBOM/scan statements: select the attest-signed
+        # lines for this subject (go/npm/python — the accumulated artifact holds
+        # every subject, but each bundle is per-artifact) or sign them here
+        # (container). The same per-subject file is also handed to ampel as a
+        # second collector so the verdict/VSA cover the scan tenets; the collector
+        # is omitted when the file is empty (a build with no metadata).
         : > "$meta_stmts"
-        wrangle_sign_metadata_statements "$subject" "$meta_stmts"
+        if [[ -n "$consume_signed" ]]; then
+            wrangle_subject_signed_metadata "$SIGNED_METADATA" "$subject" "$meta_stmts"
+        else
+            wrangle_sign_metadata_statements "$subject" "$meta_stmts"
+        fi
         local meta_arg=""
         [[ -s "$meta_stmts" ]] && meta_arg="$meta_stmts"
         wrangle_verify_emit_vsa "$subject" "$tmp_vsa" "$meta_arg"
@@ -259,8 +322,14 @@ wrangle_run() {
         cat "$vsa_line" >> "$bundle"
         wrangle_push_store "$vsa_line"
         wrangle_push_bundle "$vsa_line"
-        # Deliver the same signed SBOM/scan statements alongside the VSA.
-        wrangle_append_metadata_statements "$meta_stmts" "$bundle"
+        # Deliver the SBOM/scan statements alongside the VSA: the attest-signed
+        # set is appended only (already pushed by attest); the container's
+        # self-signed set is appended AND pushed (verify owns its delivery).
+        if [[ -n "$consume_signed" ]]; then
+            wrangle_append_signed_metadata "$meta_stmts" "$bundle"
+        else
+            wrangle_append_metadata_statements "$meta_stmts" "$bundle"
+        fi
     done
     rm -f "$tmp_vsa" "$vsa_line" "$meta_stmts" "$seed"
 }

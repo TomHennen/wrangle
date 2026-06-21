@@ -125,6 +125,39 @@ STUBA
     [ "${args[3]}" = "/tmp/stmt.json" ]
 }
 
+@test "sign_metadata: attest args carry the metadata-root, subject arg, commit, sign, and out" {
+    export METADATA_ROOT="$TEST_DIR/meta" COMMIT="deadbeef"
+    # shellcheck source=sign_metadata.sh
+    source "$SIGN"
+    mapfile -t args < <(wrangle_attest_args "--subject=sha256:abc" "$TEST_DIR/out.jsonl")
+    printf '%s\n' "${args[@]}" | grep -qx -- "--metadata-root=$TEST_DIR/meta"
+    printf '%s\n' "${args[@]}" | grep -qx -- "--subject=sha256:abc"
+    printf '%s\n' "${args[@]}" | grep -qx -- "--commit=deadbeef"
+    printf '%s\n' "${args[@]}" | grep -qx -- "--sign"
+    printf '%s\n' "${args[@]}" | grep -qx -- "--out=$TEST_DIR/out.jsonl"
+}
+
+@test "sign_metadata: attest args pass an --artifact subject arg through verbatim" {
+    export METADATA_ROOT="$TEST_DIR/meta"
+    # shellcheck source=sign_metadata.sh
+    source "$SIGN"
+    mapfile -t args < <(wrangle_attest_args "--artifact=$TEST_DIR/dist/a.tgz" "$TEST_DIR/out.jsonl")
+    printf '%s\n' "${args[@]}" | grep -qx -- "--artifact=$TEST_DIR/dist/a.tgz"
+}
+
+@test "sign_metadata: attest arg vector is accepted by the real wrangle-attest parser" {
+    # The real engine rejects an unknown flag; a run that gets past flag parsing
+    # (failing later on the bogus subject/root) proves every flag name matches.
+    [[ -x "$ATTEST_BIN" ]] || skip_or_fail "wrangle-attest not built"
+    export METADATA_ROOT="$TEST_DIR/meta"
+    # shellcheck source=sign_metadata.sh
+    source "$SIGN"
+    mapfile -t args < <(wrangle_attest_args "--subject=sha256:abc" "$TEST_DIR/out.jsonl")
+    run "$ATTEST_BIN" "${args[@]}"
+    [ "$status" -ne 0 ]
+    [[ "$output" != *"flag provided but not defined"* ]]
+}
+
 @test "sign_metadata: an empty metadata root fails closed" {
     # shellcheck source=sign_metadata.sh
     SUBJECTS="$DIST/app-1.2.3.tgz" METADATA_ROOT="$TEST_DIR/absent" \
@@ -157,6 +190,36 @@ STUBA
     [ -s "$TEST_DIR/out.jsonl" ]
     [ "$(wc -l < "$PUSH_RECORD")" -eq 1 ]
     grep -q '^o/r ' "$PUSH_RECORD"
+}
+
+# ---- real-engine statement emission + fail-closed ----
+
+@test "sign_metadata: the real engine emits the in-toto statement in unsigned mode" {
+    # Happy path against the real binary, hermetically: unsigned mode needs no
+    # OIDC/network, so it proves end-to-end manifest -> in-toto statement.
+    [[ -x "$ATTEST_BIN" ]] || skip_or_fail "wrangle-attest not built"
+    local out="$TEST_DIR/out.intoto.jsonl"
+    local sha; sha="$(printf '0%.0s' {1..64})"
+    run "$ATTEST_BIN" --metadata-root="$META" --subject="sha256:$sha" --out="$out"
+    [ "$status" -eq 0 ]
+    [ "$(wc -l < "$out")" -eq 1 ]
+    [ "$(jq -r '.predicateType' "$out")" = "https://spdx.dev/Document" ]
+    [ "$(jq -r '.subject[0].digest.sha256' "$out")" = "$sha" ]
+}
+
+@test "sign_metadata: fails closed when the real engine sees a malformed manifest" {
+    # The real engine fails closed at discoverManifests — before newSigner — so a
+    # malformed top-level manifest aborts hermetically (no OIDC/network).
+    [[ -x "$ATTEST_BIN" ]] || skip_or_fail "wrangle-attest not built"
+    local dir="$TEST_DIR/wrangle-attest-bin"; mkdir -p "$dir"
+    ln -sf "$ATTEST_BIN" "$dir/wrangle-attest"
+    local root="$TEST_DIR/badmeta"; mkdir -p "$root"
+    printf 'not json\n' > "$root/wrangle_attestation_metadata.json"
+    # shellcheck source=sign_metadata.sh
+    source "$SIGN"
+    PATH="$dir:$PATH" METADATA_ROOT="$root" WRANGLE_RETRY_DELAY=0 \
+        run wrangle_sign_metadata_statements "sha256:$(printf '0%.0s' {1..64})" "$TEST_DIR/out.jsonl"
+    [ "$status" -ne 0 ]
 }
 
 # ---- M4: attest binds the SAME subject digest the verify VSA binds ----

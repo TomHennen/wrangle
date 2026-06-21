@@ -81,8 +81,19 @@ runs:
         name: ${{ steps.names.outputs.metadata-pre }}
         path: ${{ steps.names.outputs.metadata-dir }}/
 
+    # go/npm/python: the attest job signed the SBOM + scan/v1 metadata; verify
+    # consumes that signed set (selecting each subject's lines for the policy +
+    # the bundle) instead of re-signing — attest owns the signing + store push
+    # (#550). Skipped for container, whose attest does not yet sign metadata
+    # (#550 PR 3); verify signs it from the staged metadata dir there.
+    - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+      if: ${{ inputs.oci-target == '' }}
+      with:
+        name: ${{ steps.names.outputs.signed-metadata }}
+        path: signed-metadata/
+
     # TODO: replace with $/actions/verify when GitHub ships $/ syntax (#136)
-    - uses: TomHennen/wrangle/actions/verify@a3cb4c8962f98c2104c2d468b430f394063f11d5 # go-wrangle-owns-publish 2026-06-21
+    - uses: TomHennen/wrangle/actions/verify@5c54744dbb93d164c990ee6eac7a2afe9523d52a # verify-consume-signed-metadata 2026-06-21
       with:
         dist-files: ${{ inputs.dist-files }}
         subjects: ${{ inputs.subjects }}
@@ -91,9 +102,12 @@ runs:
         # Empty for container (provenance comes from the oci collector).
         bundle-in: ${{ inputs.oci-target == '' && 'provenance/provenance.jsonl' || '' }}
         bundle-out: ${{ steps.names.outputs.metadata-dir }}
-        # wrangle-attest walks this for the sbom manifest, appending one signed
-        # SBOM statement per subject to each bundle.
+        # The bundle/zip dir; verify writes the per-subject bundles here (and,
+        # for container, signs the SBOM + scan/v1 metadata from it).
         metadata-dir: ${{ steps.names.outputs.metadata-dir }}
+        # go/npm/python: the attest-signed SBOM + scan/v1 statements verify appends
+        # per subject. Empty for container (verify signs from metadata-dir).
+        signed-metadata: ${{ inputs.oci-target == '' && 'signed-metadata/signed-metadata.jsonl' || '' }}
         artifact-name: ${{ steps.names.outputs.metadata }}
         context: ${{ inputs.context }}
         oci-target: ${{ inputs.oci-target }}
