@@ -52,20 +52,26 @@ build READMEs.
 
 ### A real example (the showcase Go release)
 
-The [`wrangle-test`](https://github.com/TomHennen/wrangle-test) showcase tag
-`v20260621-fa5bd7f` carries, for its Go build, the verify-pair plus the metadata
-zip and goreleaser's `checksums.txt`:
+The [`wrangle-test`](https://github.com/TomHennen/wrangle-test) showcase
+publishes a Go release you can verify yourself. Tag `v20260621-fa5bd7f`
+includes, for its Go build:
 
-- `wrangle-test-fixture-go_20260621-fa5bd7f_linux_amd64.tar.gz` — the dist archive
+- `wrangle-test-fixture-go_20260621-fa5bd7f_linux_amd64.tar.gz` — the archive
 - `wrangle-test-fixture-go_20260621-fa5bd7f_linux_amd64.tar.gz.intoto.jsonl` — its bundle (provenance + VSA)
 - `go-metadata-go.zip` — the [unified metadata](metadata_layout.md) (SBOM + scan results)
 - `checksums.txt` — goreleaser's archive checksums
 
-Download the archive and its `.intoto.jsonl`, then verify (the showcase builds
-from `main`, not a wrangle release tag, so its VSA carries a `@refs/heads/main`
-signer identity and the strict `v*` consumer policy rejects it by design — the
-`-nonstrict` variant accepts any ref, which is the right policy for a
-branch-built showcase):
+Download the archive and its bundle:
+
+```bash
+base=https://github.com/TomHennen/wrangle-test/releases/download/v20260621-fa5bd7f
+curl -sSLO "$base/wrangle-test-fixture-go_20260621-fa5bd7f_linux_amd64.tar.gz"
+curl -sSLO "$base/wrangle-test-fixture-go_20260621-fa5bd7f_linux_amd64.tar.gz.intoto.jsonl"
+```
+
+The showcase builds from `main`, not a release tag, so its VSA carries a
+`@refs/heads/main` signer identity — the strict `v*` consumer policy rejects it
+by design. Use the `nonstrict` policy, which accepts any ref:
 
 ```bash
 ampel verify --subject wrangle-test-fixture-go_20260621-fa5bd7f_linux_amd64.tar.gz \
