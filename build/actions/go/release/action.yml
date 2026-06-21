@@ -145,15 +145,15 @@ runs:
         # binary version below is bumped by hand on the 7-day delay.
         version: "2.15.4"
         workdir: ${{ inputs.path }}
-        # Always --skip=publish: goreleaser builds the archives + checksums
-        # into dist/ but uploads nothing. wrangle's verify job publishes the
-        # attested subset. --snapshot on non-tag events because `release`
-        # refuses to run off a tag; on tags GORELEASER_CURRENT_TAG names it.
+        # goreleaser's `release` builds the binaries AND assembles the
+        # release artifacts (the .tar.gz archives + checksums.txt); `build`
+        # alone produces neither, and wrangle needs them to attest + upload.
+        # --skip=publish stops `release` from creating the GitHub release or
+        # pushing Docker/Homebrew/announce — wrangle's verify job publishes
+        # the attested subset. --snapshot on non-tag events (`release`
+        # refuses to run off a tag); on tags GORELEASER_CURRENT_TAG names it.
         args: ${{ startsWith(github.ref, 'refs/tags/') && 'release --clean --skip=publish' || 'release --clean --snapshot --skip=publish' }}
       env:
-        # No GITHUB_TOKEN: --skip=publish uploads nothing, so goreleaser
-        # needs no release credentials. The build job runs at contents: read.
-        #
         # Pin goreleaser to the tag that triggered this run so version
         # resolution is deterministic when several tags point at the same
         # commit. Empty on non-tag (snapshot) builds, which goreleaser

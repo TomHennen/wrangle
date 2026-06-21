@@ -1,25 +1,17 @@
 name: "Build, test, and release a Go project with best practices."
 
-# Build + SLSA provenance reusable workflow for Go.
+# Build, attest, and release a Go project — reusable workflow.
 #
-# wrangle owns the publish; goreleaser only builds. The two adopter-code
-# jobs run at contents: read — neither can write to the repo:
+# Builds your Go project with goreleaser, attests it (SLSA provenance +
+# SBOM + scans, plus a signed VSA), and uploads the attested archives +
+# checksums.txt + .intoto.jsonl bundles to your GitHub Release for the tag.
+# You create the release; wrangle never creates one.
 #
-#   - `checks` (contents: read) runs the quality gates: gofmt, go vet,
-#     go test, govulncheck. `go test` executes arbitrary adopter test
-#     code; denying it write access is real defense-in-depth.
-#
-#   - `release` (contents: read) runs goreleaser with --skip=publish:
-#     it builds the archives + checksums into dist/ and uploads nothing.
-#     It depends on `checks` so quality gates pass before any bytes are
-#     attested.
-#
-# Only the verify job holds contents: write, and it runs no adopter code:
-# it attests the dist and uploads only the attested archives +
-# checksums.txt + .intoto.jsonl bundles to a PRE-EXISTING GitHub Release
-# (the adopter creates the release; wrangle never does). Un-attestable
-# downstream goreleaser verbs (Docker pushes, Homebrew taps, deb/rpm/snap,
-# announce) are never run. Same shape as wrangle's python and npm types.
+# goreleaser runs with --skip=publish, so its own publishers (GitHub
+# release, Docker, Homebrew, deb/rpm/snap, announce) are skipped — wrangle
+# publishes only what it can attest. Run those from your own job if you
+# need them. The job/permission split (adopter code never holds
+# contents: write) is in build/actions/go/SPEC.md.
 
 on:
   workflow_call:
