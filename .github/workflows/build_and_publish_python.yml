@@ -132,7 +132,7 @@ jobs:
       metadata-pre: ${{ steps.prep.outputs.metadata-pre }}
     steps:
       # TODO: replace with $/actions/prep when GitHub ships $/ syntax (#136)
-      - uses: TomHennen/wrangle/actions/prep@a4d70b32aab2be5b5f77fd11b64ba367f821c1f3 # go-wrangle-owns-publish 2026-06-21
+      - uses: TomHennen/wrangle/actions/prep@4077473ede90fd53da6a5e5cfb7f4ebacb1ec6ea # go-wrangle-owns-publish 2026-06-21
         id: prep
         with:
           build-type: python
@@ -151,7 +151,7 @@ jobs:
       security-events: write
     steps:
       # TODO: replace with $/actions/scan when GitHub ships $/ syntax (#136)
-      - uses: TomHennen/wrangle/actions/scan@a4d70b32aab2be5b5f77fd11b64ba367f821c1f3 # go-wrangle-owns-publish 2026-06-21
+      - uses: TomHennen/wrangle/actions/scan@4077473ede90fd53da6a5e5cfb7f4ebacb1ec6ea # go-wrangle-owns-publish 2026-06-21
         if: ${{ inputs.scan-tools != '' }}
         with:
           checkout: "true"
@@ -185,7 +185,7 @@ jobs:
           ref: ${{ inputs.ref || '' }}
 
       # TODO: replace with $/build/actions/python when GitHub ships $/ syntax (#136)
-      - uses: TomHennen/wrangle/build/actions/python@a4d70b32aab2be5b5f77fd11b64ba367f821c1f3 # go-wrangle-owns-publish 2026-06-21
+      - uses: TomHennen/wrangle/build/actions/python@4077473ede90fd53da6a5e5cfb7f4ebacb1ec6ea # go-wrangle-owns-publish 2026-06-21
         id: build
         with:
           path: ${{ inputs.path }}
@@ -272,7 +272,7 @@ jobs:
       bundle-artifact-name: ${{ steps.attest.outputs.bundle-artifact-name }}
     steps:
       # TODO: replace with $/actions/attest_provenance when GitHub ships $/ syntax (#136)
-      - uses: TomHennen/wrangle/actions/attest_provenance@a4d70b32aab2be5b5f77fd11b64ba367f821c1f3 # go-wrangle-owns-publish 2026-06-21
+      - uses: TomHennen/wrangle/actions/attest_provenance@4077473ede90fd53da6a5e5cfb7f4ebacb1ec6ea # go-wrangle-owns-publish 2026-06-21
         id: attest
         with:
           build-type: python
@@ -297,7 +297,7 @@ jobs:
       attestation-bundle-name: ${{ needs.prep.outputs.metadata }}
     steps:
       # TODO: replace with $/actions/verify_release when GitHub ships $/ syntax (#136)
-      - uses: TomHennen/wrangle/actions/verify_release@a4d70b32aab2be5b5f77fd11b64ba367f821c1f3 # go-wrangle-owns-publish 2026-06-21
+      - uses: TomHennen/wrangle/actions/verify_release@4077473ede90fd53da6a5e5cfb7f4ebacb1ec6ea # go-wrangle-owns-publish 2026-06-21
         with:
           build-type: python
           shortname: ${{ needs.prep.outputs.shortname }}
