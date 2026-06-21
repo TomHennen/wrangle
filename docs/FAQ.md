@@ -4,6 +4,14 @@ Short answers to questions adopters ask. For mechanism and contracts, each
 answer links to the source of truth — start with [`SPEC.md`](SPEC.md) and the
 [verification guide](verifying_artifacts.md).
 
+## What attacks does wrangle help with?
+
+The [threat coverage map](threat_coverage.md) maps wrangle's controls to real
+software supply-chain incidents — what each one prevents, warns on, or detects,
+where its limits are, and a frank list of the attacks wrangle does little
+against. Disagree with a mapping, or know one we're missing? We'd love to hear
+it.
+
 ## How should I pin wrangle's reusable workflows?
 
 Pin by release **tag** (`@vX.Y.Z`), with an inline zizmor exception on that one
