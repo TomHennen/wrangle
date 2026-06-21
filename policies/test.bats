@@ -51,8 +51,6 @@ setup() {
     curl -fsS -m 10 -o /dev/null https://github.com 2>/dev/null || skip_or_fail "github.com unreachable"
 
     POLICIES_DIR="$BATS_TEST_DIRNAME"
-    DEFAULT="$POLICIES_DIR/wrangle-default-v1.hjson"
-    STRICT="$POLICIES_DIR/wrangle-strict-v1.hjson"
     TD="$POLICIES_DIR/testdata"
     # sha256 of the literal "wrangle-app-1.0.0.tgz" — the subject baked into
     # every fixture bundle (see the generator note in testdata/).
@@ -94,16 +92,12 @@ setup() {
     SIGNED_CTX="buildPoint:git+https://github.com/TomHennen/wrangle-test,vsa.resourceUri:pkg:pypi/wrangle-test-fixture@0.0.1.dev27905469742"
 
     # Logic-only variants for the tenet tests (see the file header).
-    DEFAULT_LOGIC="$BATS_TEST_TMPDIR/default-logic.hjson"
-    STRICT_LOGIC="$BATS_TEST_TMPDIR/strict-logic.hjson"
     PROVENANCE_NPM_LOGIC="$BATS_TEST_TMPDIR/provenance-npm-logic.hjson"
     PROVENANCE_GO_LOGIC="$BATS_TEST_TMPDIR/provenance-go-logic.hjson"
     PROVENANCE_PYTHON_LOGIC="$BATS_TEST_TMPDIR/provenance-python-logic.hjson"
     PROVENANCE_CONTAINER_LOGIC="$BATS_TEST_TMPDIR/provenance-container-logic.hjson"
     DEFAULT_GO_LOGIC="$BATS_TEST_TMPDIR/default-go-logic.hjson"
     STRICT_GO_LOGIC="$BATS_TEST_TMPDIR/strict-go-logic.hjson"
-    strip_identities "$DEFAULT" > "$DEFAULT_LOGIC"
-    strip_identities "$STRICT"  > "$STRICT_LOGIC"
     strip_identities "$PROVENANCE_NPM" > "$PROVENANCE_NPM_LOGIC"
     strip_identities "$PROVENANCE_GO" > "$PROVENANCE_GO_LOGIC"
     strip_identities "$PROVENANCE_PYTHON" > "$PROVENANCE_PYTHON_LOGIC"
@@ -119,14 +113,14 @@ setup() {
     #     every logic test into a vacuous identity-gate check. Fail if any
     #     admission survived. (The PASS tests are the functional half of (b): if
     #     the gate were still present, the unsigned good fixtures could not pass.)
-    for p in "$DEFAULT" "$STRICT" "$PROVENANCE_NPM" "$PROVENANCE_GO" \
+    for p in "$PROVENANCE_NPM" "$PROVENANCE_GO" \
              "$PROVENANCE_PYTHON" "$PROVENANCE_CONTAINER" "$DEFAULT_GO" "$STRICT_GO"; do
         grep -qE '^[[:space:]]*identities:' "$p" || {
             printf 'production policy %s has no identities admission — gate missing\n' "$p" >&2
             return 1
         }
     done
-    if grep -qE '^[[:space:]]*identities:' "$DEFAULT_LOGIC" "$STRICT_LOGIC" \
+    if grep -qE '^[[:space:]]*identities:' \
             "$PROVENANCE_NPM_LOGIC" "$PROVENANCE_GO_LOGIC" \
             "$PROVENANCE_PYTHON_LOGIC" "$PROVENANCE_CONTAINER_LOGIC" \
             "$DEFAULT_GO_LOGIC" "$STRICT_GO_LOGIC"; then
@@ -134,10 +128,10 @@ setup() {
         return 1
     fi
 
-    export AMPEL POLICIES_DIR DEFAULT STRICT TD SUBJECT CTX
+    export AMPEL POLICIES_DIR TD SUBJECT CTX
     export PROVENANCE_NPM PROVENANCE_GO PROVENANCE_PYTHON PROVENANCE_CONTAINER
     export PROVENANCE_NPM_LOGIC PROVENANCE_GO_LOGIC PROVENANCE_PYTHON_LOGIC
-    export DEFAULT_LOGIC STRICT_LOGIC PROVENANCE_CONTAINER_LOGIC
+    export PROVENANCE_CONTAINER_LOGIC
     export DEFAULT_GO STRICT_GO DEFAULT_GO_LOGIC STRICT_GO_LOGIC
     export DEFAULT_PYTHON SIGNED_BUNDLE SIGNED_WHEEL SIGNED_SUBJECT SIGNED_CTX
 }
@@ -191,20 +185,6 @@ expect_fail_closed() {
 }
 
 # --- Tenet logic (logic-only variant: identity gate stripped) --------------
-
-@test "ampel policy: default-v1 PASSES a good release bundle (SLSA_BUILD_LEVEL_3)" {
-    local vsa="$BATS_TEST_TMPDIR/vsa.json"
-    run verify "$DEFAULT_LOGIC" "$TD/good.bundle.jsonl" \
-        --attest-results --attest-format=vsa --results-path="$vsa" -f tty
-    [ "$status" -eq 0 ]
-    # The signed VSA must record PASSED, the SLSA build level, and the resourceUri.
-    run jq -r '.predicate.verificationResult' "$vsa"
-    [ "$output" = "PASSED" ]
-    run jq -r '.predicate.verifiedLevels[0]' "$vsa"
-    [ "$output" = "SLSA_BUILD_LEVEL_3" ]
-    run jq -r '.predicate.resourceUri' "$vsa"
-    [ "$output" = "pkg:generic/wrangle-app@1.0.0" ]
-}
 
 @test "ampel policy: provenance-npm-v1 PASSES a good npm bundle (SLSA_BUILD_LEVEL_3, provenance-only)" {
     # The provenance-only PolicySet passes on the three SLSA tenets alone. The
@@ -266,37 +246,6 @@ expect_fail_closed() {
     # policy — its builder-id tenet must reject it (proves the baked container
     # builderId is load-bearing, specific to the container build workflow).
     expect_fail "$PROVENANCE_CONTAINER_LOGIC" "$TD/good-npm.bundle.jsonl" "slsa-builder-id"
-}
-
-@test "ampel policy: default-v1 FAILS (sbom-exists) when the SBOM is missing" {
-    expect_fail "$DEFAULT_LOGIC" "$TD/bad-missing-sbom.bundle.jsonl" "sbom-exists"
-}
-
-@test "ampel policy: default-v1 FAILS (openvex) on an OSV vulnerability" {
-    expect_fail "$DEFAULT_LOGIC" "$TD/bad-osv-vuln.bundle.jsonl" "openvex-no-exploitable-vulns"
-}
-
-@test "ampel policy: default-v1 FAILS (slsa-builder-id) on a wrong builder identity" {
-    # Against the logic variant the builder-id CEL is what rejects the attacker
-    # builder — not the identity gate — so this exercises the tenet, not admission.
-    expect_fail "$DEFAULT_LOGIC" "$TD/bad-wrong-builder.bundle.jsonl" "slsa-builder-id"
-}
-
-@test "ampel policy: default-v1 FAILS (slsa-build-type) on a wrong build type" {
-    expect_fail "$DEFAULT_LOGIC" "$TD/bad-wrong-buildtype.bundle.jsonl" "slsa-build-type"
-}
-
-@test "ampel policy: default-v1 FAILS (slsa-build-point) on a wrong source repo" {
-    expect_fail "$DEFAULT_LOGIC" "$TD/bad-wrong-buildpoint.bundle.jsonl" "slsa-build-point"
-}
-
-@test "ampel policy: strict-v1 PASSES a good bundle with Scorecard >= 7" {
-    run verify "$STRICT_LOGIC" "$TD/good-strict.bundle.jsonl" -f tty
-    [ "$status" -eq 0 ]
-}
-
-@test "ampel policy: strict-v1 FAILS (scorecard) when the Scorecard score is below 7" {
-    expect_fail "$STRICT_LOGIC" "$TD/bad-low-scorecard.bundle.jsonl" "wrangle-scorecard-min-score"
 }
 
 # --- Per-eco default tier: SBOM + osv/zizmor/wrangle-lint scan-clean -------
@@ -390,26 +339,6 @@ expect_fail_closed() {
 }
 
 # --- Identity enforcement (production policy: identity gate intact) --------
-
-@test "ampel policy: default-v1 (production) is FAIL-CLOSED — rejects an unsigned attestation on signer identity" {
-    local rs="$BATS_TEST_TMPDIR/enforce.json"
-    # Production policy (identity bindings intact) against the SAME good fixture
-    # that PASSES the logic variant, so the only thing that can fail is the
-    # signer-identity admission (the fixtures are unsigned jsonl statements).
-    run verify "$DEFAULT" "$TD/good.bundle.jsonl" \
-        --attest-results --attest-format=ampel --results-path="$rs" -f tty
-    [ "$status" -ne 0 ]
-    [ -s "$rs" ]
-    run jq -r '.predicate.status' "$rs"
-    [ "$output" = "FAIL" ]
-    # The provenance policy fails specifically on identity validation — not on
-    # its tenet CEL (the logic variant proves that CEL passes on this fixture).
-    run jq -r '.predicate.results[] | select(.policy.id == "slsa-builder-id") | .status' "$rs"
-    [ "$output" = "FAIL" ]
-    run jq -r '[.predicate.results[].eval_results[]?.error.message]
-               | map(select(. == "attestation identity validation failed")) | length' "$rs"
-    [ "$output" -ge 1 ]
-}
 
 # Each per-eco provenance policy is what its build_and_publish_<eco>.yml verifies
 # real releases against, so each OWN identity gate must be proven fail-closed —

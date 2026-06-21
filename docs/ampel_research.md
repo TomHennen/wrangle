@@ -109,6 +109,8 @@ AMPEL CLI invoked from wrangle's publish workflows; policies in-repo. Alternativ
 
 ### 6. Recommended default policy outline
 
+> **Superseded (#316/#328):** the generic `wrangle-default-v1` / `wrangle-strict-v1` outlined below were retired once `attest-build-provenance` made `builder.id` per-ecosystem; the shipped tiers are the per-eco `wrangle-{default,strict}-<eco>-v1`.
+
 Two PolicySets in `policies/`. Each upstream reference uses `git+https://github.com/carabiner-dev/policies@<sha>#<path>` (Decision 2); one SHA pin per set so all tenets evaluate against the same upstream snapshot.
 
 #### `wrangle-default-v1`
