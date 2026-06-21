@@ -19,6 +19,7 @@ uses one of wrangle's reusable workflows.  With that single job developers get:
 
 * Vulnerability scanning with [osv](https://github.com/google/osv-scanner)
 * GitHub Action safety checks with [Zizmor](https://github.com/zizmorcore/zizmor)
+* A check that your repo is configured for automatic dependency and action updates ([Dependabot](https://docs.github.com/code-security/dependabot)), behind a safety cooldown
 * Automatic execution of unit tests
 * Automatic builds with safe defaults
 * [SBOMs](https://spdx.dev)
@@ -107,8 +108,9 @@ yourself.
 
 A run typically moves through these stages:
 
-1. **Scan the source** - checks your dependencies for known vulnerabilities (OSV) and lints your
-   GitHub Actions workflows for unsafe patterns (Zizmor).
+1. **Scan the source** - checks your dependencies for known vulnerabilities (OSV), lints your
+   GitHub Actions workflows for unsafe patterns (Zizmor), and checks your Dependabot config is
+   set up so dependency and action updates land automatically, behind a safety cooldown.
 2. **Run your tests** — runs your existing test suite.
 3. **Build the artifact** — compiles/packages your project using safe defaults for your
    ecosystem
