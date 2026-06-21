@@ -16,7 +16,21 @@ jobs:
         with:
           persist-credentials: false
 
+      # The suite runs in a container whose GOCACHE/GOMODCACHE live under this
+      # dir, so persisting it across runs spares the gotest layer from
+      # rebuilding wrangle-attest's ~700MB module graph cold every run (#542).
+      # Keyed on the test image's Go version (test/Dockerfile) + tools/go.sum.
+      # Test-only: the suite produces no attested artifact, so this stays off
+      # release builds' L3 cache-isolation surface (SPEC.md).
+      - uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
+        with:
+          path: ${{ runner.temp }}/gocache
+          key: gotest-${{ runner.os }}-${{ hashFiles('test/Dockerfile', 'tools/go.sum') }}
+          restore-keys: gotest-${{ runner.os }}-
+
       - name: Run tests
+        env:
+          WRANGLE_GOCACHE_DIR: ${{ runner.temp }}/gocache
         run: ./test.sh
 
   # Real keyless signing through the engine: the unit suite is hermetic
