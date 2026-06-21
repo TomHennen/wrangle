@@ -120,7 +120,7 @@ jobs:
       scan: ${{ steps.prep.outputs.scan }}
     steps:
       # TODO: replace with $/actions/prep when GitHub ships $/ syntax (#136)
-      - uses: TomHennen/wrangle/actions/prep@c8ed50ab9593b451b9685e54adce67f44aa14b07 # auto-create-release 2026-06-21
+      - uses: TomHennen/wrangle/actions/prep@0ac42297e03c2c3c9986972c9502db28b7c1145f # auto-create-release 2026-06-21
         id: prep
         with:
           build-type: container
@@ -139,7 +139,7 @@ jobs:
       security-events: write
     steps:
       # TODO: replace with $/actions/scan when GitHub ships $/ syntax (#136)
-      - uses: TomHennen/wrangle/actions/scan@c8ed50ab9593b451b9685e54adce67f44aa14b07 # auto-create-release 2026-06-21
+      - uses: TomHennen/wrangle/actions/scan@0ac42297e03c2c3c9986972c9502db28b7c1145f # auto-create-release 2026-06-21
         if: ${{ inputs.scan-tools != '' }}
         with:
           checkout: "true"
@@ -167,7 +167,7 @@ jobs:
     # TODO: replace with $/build/actions/container when GitHub ships $/ syntax (#136)
     - name: "build and publish"
       id: build
-      uses: TomHennen/wrangle/build/actions/container@c8ed50ab9593b451b9685e54adce67f44aa14b07 # auto-create-release 2026-06-21
+      uses: TomHennen/wrangle/build/actions/container@0ac42297e03c2c3c9986972c9502db28b7c1145f # auto-create-release 2026-06-21
       with:
         path: ${{ inputs.path }}
         imagename: ${{ inputs.imagename }}
@@ -241,7 +241,7 @@ jobs:
       # image's bundle the verify job appends the VSA to. cosign is built from
       # tools/go.mod here.
       # TODO: replace with $/actions/attest_metadata_oci when GitHub ships $/ syntax (#136)
-      - uses: TomHennen/wrangle/actions/attest_metadata_oci@c8ed50ab9593b451b9685e54adce67f44aa14b07 # auto-create-release 2026-06-21
+      - uses: TomHennen/wrangle/actions/attest_metadata_oci@0ac42297e03c2c3c9986972c9502db28b7c1145f # auto-create-release 2026-06-21
         with:
           shortname: ${{ needs.prep.outputs.shortname }}
           subject-digest: ${{ needs.build.outputs.digest }}
@@ -282,7 +282,7 @@ jobs:
 
       # oci-target pushes the VSA referrer; the dist download is skipped (the image is the artifact).
       # TODO: replace with $/actions/verify_release when GitHub ships $/ syntax (#136)
-      - uses: TomHennen/wrangle/actions/verify_release@c8ed50ab9593b451b9685e54adce67f44aa14b07 # auto-create-release 2026-06-21
+      - uses: TomHennen/wrangle/actions/verify_release@0ac42297e03c2c3c9986972c9502db28b7c1145f # auto-create-release 2026-06-21
         with:
           build-type: container
           shortname: ${{ needs.prep.outputs.shortname }}
