@@ -73,8 +73,8 @@ release is published, which
 [immutable releases](https://docs.github.com/en/code-security/concepts/supply-chain-security/immutable-releases)
 forbid. Effect by build type:
 
-- **Go** — always fails: goreleaser publishes the release inline, so the
-  post-publish asset upload hits an immutable release every time.
+- **Go** — always fails: the release is published before wrangle attaches the
+  attested archives, so the asset upload hits an immutable release every time.
 - **Python / npm** — fails only when a published GitHub Release already exists
   for the tag (the artifact itself goes to PyPI / npmjs.org regardless).
 - **Container** — unaffected: the VSA is an OCI referrer on the image digest,
