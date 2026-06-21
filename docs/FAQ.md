@@ -106,3 +106,10 @@ don't depend on it yet.
 You have to start somewhere, and this is where most developers already are, and
 where a lot of the recent supply chain incidents have landed. Walk, then run.
 Other CI systems could follow if the idea proves out.
+
+## Who are you and why did you do this?
+
+I'm a software engineer who's worked in supply chain security for quite a while.
+This an idea I've had stuck in my head and decided to pursue it as a hobby
+project and a way to get more hands on experience with some of the new tools I
+don't get to use at my day job.
