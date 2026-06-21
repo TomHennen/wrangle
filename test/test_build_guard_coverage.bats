@@ -103,7 +103,7 @@ is_exempt() {
     # alone does NOT satisfy this check.
     #
     # A build type may keep one shared test.bats covering several nested
-    # composites (go/checks and go/release share build/actions/go/test.bats,
+    # composites (go/checks and go/build share build/actions/go/test.bats,
     # which pins both the `run` wrap and the begin/end wrap), so search the
     # type's whole tree for a *.bats that references the helper, not just
     # the composite's own directory.
