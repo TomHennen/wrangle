@@ -92,11 +92,18 @@ inputs:
     default: "dist"
   metadata-dir:
     description: >
-      Directory holding the build's metadata (the build job's metadata artifact:
-      sbom.spdx.json + its top-level wrangle_attestation_metadata.json). wrangle-attest reads that
-      manifest to build one signed SBOM statement per subject, appended to each
-      bundle and posted to
-      the attestation store. Leave empty to emit VSA-only bundles.
+      Directory the per-subject bundles are written into and zipped from for the
+      release metadata asset (sbom + scan/ + bundles). Production wires this to
+      the same value as bundle-out.
+    required: false
+    default: ""
+  signed-metadata:
+    description: >
+      Path to the attest job's signed build-metadata JSONL (SBOM + scan/v1
+      statements, one signed bundle per line, already posted to the attestation
+      store there). verify selects each subject's lines as a second policy
+      collector and appends them to that subject's bundle — it never re-signs or
+      re-pushes them. Leave empty to emit VSA-only bundles.
     required: false
     default: ""
   oci-target:
@@ -146,12 +153,13 @@ runs:
         BUNDLE_IN: ${{ inputs.bundle-in }}
         BUNDLE_OUT: ${{ inputs.bundle-out }}
         OCI_TARGET: ${{ inputs.oci-target }}
-        METADATA_ROOT: ${{ inputs.metadata-dir }}
-        # Scanned commit recorded in each scan/v1 envelope's scannedCommit.
-        COMMIT: ${{ github.sha }}
+        # The attest job's signed SBOM + scan/v1 statements, already pushed to
+        # the store there; verify selects each subject's lines for the policy and
+        # the bundle, never re-signing or re-pushing them.
+        SIGNED_METADATA: ${{ inputs.signed-metadata }}
         GITHUB_REPOSITORY: ${{ github.repository }}
         # bnd push github authenticates to the attestation store with this token;
-        # the attestations: write permission rides on it.
+        # the attestations: write permission rides on it (VSA push only).
         GITHUB_TOKEN: ${{ github.token }}
       run: |
         "$WRANGLE_ROOT/actions/verify/run_verify.sh" run
