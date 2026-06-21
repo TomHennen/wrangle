@@ -78,6 +78,15 @@ setup() {
     DEFAULT_GO="$POLICIES_DIR/wrangle-default-go-v1.hjson"
     STRICT_GO="$POLICIES_DIR/wrangle-strict-go-v1.hjson"
 
+    # The default python tier, verified against a real SIGNED release bundle
+    # (Rekor-proofed, public wrangle-test) so the signer-identity admission is
+    # exercised end to end — the unsigned fixtures above cannot reach it. Its
+    # own subject and per-release context, carried inside the signed VSA.
+    DEFAULT_PYTHON="$POLICIES_DIR/wrangle-default-python-v1.hjson"
+    SIGNED_BUNDLE="$POLICIES_DIR/testdata/good-default-signed.bundle.jsonl"
+    SIGNED_SUBJECT="sha256:b75731680d7403c03946ba90d9c3455d802895848cc96cd46c2e6ae9f4c53b07"
+    SIGNED_CTX="buildPoint:git+https://github.com/TomHennen/wrangle-test,vsa.resourceUri:pkg:pypi/wrangle-test-fixture@0.0.1.dev27902476403"
+
     # Logic-only variants for the tenet tests (see the file header).
     DEFAULT_LOGIC="$BATS_TEST_TMPDIR/default-logic.hjson"
     STRICT_LOGIC="$BATS_TEST_TMPDIR/strict-logic.hjson"
@@ -124,6 +133,7 @@ setup() {
     export PROVENANCE_NPM_LOGIC PROVENANCE_GO_LOGIC PROVENANCE_PYTHON_LOGIC
     export DEFAULT_LOGIC STRICT_LOGIC PROVENANCE_CONTAINER_LOGIC
     export DEFAULT_GO STRICT_GO DEFAULT_GO_LOGIC STRICT_GO_LOGIC
+    export DEFAULT_PYTHON SIGNED_BUNDLE SIGNED_SUBJECT SIGNED_CTX
 }
 
 # verify <policy> <fixture-bundle> [extra ampel args...]
@@ -424,6 +434,32 @@ expect_fail_closed() {
 
 @test "ampel policy: strict-go-v1 (production) is FAIL-CLOSED on signer identity" {
     expect_fail_closed "$STRICT_GO" "$TD/good-strict-default.bundle.jsonl"
+}
+
+# --- Signed-bundle identity admission (the production path) ----------------
+# The unsigned fixtures above can only run against the logic variant, so the
+# signer-identity admission is never exercised against a real signature. This
+# runs the FULL production python tier against a real SIGNED release bundle,
+# the same way actions/verify does (with --workers), and asserts the scan
+# tenet's identity validates. RED if --workers drops below the tenet count:
+# ampel then spuriously fails the overflow tenet on identity. The bundle
+# carries only the zizmor scan/v1, so osv/wrangle-lint fail on MISSING-scan —
+# a different failure than identity, which the assertions distinguish.
+@test "ampel policy: default-python-v1 (production) validates the signer identity on a real signed scan attestation" {
+    local rs="$BATS_TEST_TMPDIR/signed.json"
+    run "$AMPEL" verify -p "$DEFAULT_PYTHON" -s "$SIGNED_SUBJECT" \
+        -c "jsonl:$SIGNED_BUNDLE" -x "$SIGNED_CTX" --workers=32 \
+        --attest-results --attest-format=ampel --results-path="$rs" -f tty
+    [ -s "$rs" ]
+    # The zizmor scan/v1 is present and signed by the bound identity, so its
+    # tenet PASSES — its signer identity validated.
+    run jq -r '.predicate.results[] | select(.policy.id == "zizmor-scan-clean") | .status' "$rs"
+    [ "$output" = "PASS" ]
+    # No tenet may fail on identity validation: the only failures are the absent
+    # osv/wrangle-lint scans (a MISSING-scan CEL failure, not an identity drop).
+    run jq -r '[.predicate.results[].eval_results[]?.error.message]
+               | map(select(. == "attestation identity validation failed")) | length' "$rs"
+    [ "$output" -eq 0 ]
 }
 
 # --- Cross-file invariant --------------------------------------------------
