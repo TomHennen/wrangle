@@ -236,9 +236,10 @@ jobs:
           subject-digest: ${{ needs.build.outputs.digest }}
           push-to-registry: true   # store the provenance as an OCI referrer on the image
 
-      # Sign the SBOM + scan/v1 metadata over the image digest and push each as
-      # a by-digest OCI referrer + to the attestation store; emit the signed set
-      # the verify job consumes. cosign is built from tools/go.mod here.
+      # Sign the SBOM + scan/v1 metadata over the image digest, push each as a
+      # by-digest OCI referrer + to the attestation store, and assemble the
+      # image's bundle the verify job appends the VSA to. cosign is built from
+      # tools/go.mod here.
       # TODO: replace with $/actions/attest_metadata_oci when GitHub ships $/ syntax (#136)
       - uses: TomHennen/wrangle/actions/attest_metadata_oci@787c49e606da4daeb07698d8a796fe30851b6763 # bundle-assembly-attest 2026-06-21
         with:
