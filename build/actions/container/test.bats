@@ -116,6 +116,14 @@ teardown() {
     [[ "$status" -ne 0 ]]
 }
 
+@test "container: build-push suppresses the .dockerbuild build-record artifact" {
+    # DOCKER_BUILD_RECORD_UPLOAD=false stops buildx uploading the ~-named
+    # .dockerbuild bundle. DOCKER_BUILD_SUMMARY only drops the job summary,
+    # not the artifact, so it is the wrong knob and must not be used instead.
+    run grep -F 'DOCKER_BUILD_RECORD_UPLOAD: "false"' "$ACTION_DIR/action.yml"
+    [[ "$status" -eq 0 ]]
+}
+
 @test "container: build job needs prep so it can read should-release" {
     local wf="$REPO_ROOT/.github/workflows/build_and_publish_container.yml"
     run bash -c "sed -n '/^  build:/,/^  [a-z]/p' \"$wf\" | grep -E 'needs:.*prep'"

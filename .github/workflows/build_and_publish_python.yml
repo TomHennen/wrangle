@@ -153,6 +153,7 @@ jobs:
           tools: ${{ inputs.scan-tools }}
           # The build job folds this into the unified python-metadata.
           artifact-name: ${{ needs.prep.outputs.scan }}
+          retention-days: 1
           # Cold on release: the scan gates an attested build, so a
           # poisoned tool cache must not be able to forge a passing scan.
           go-cache: ${{ needs.prep.outputs.should-release == 'true' && '' || inputs.go-cache }}
@@ -248,6 +249,9 @@ jobs:
           name: ${{ needs.prep.outputs.should-release == 'true' && needs.prep.outputs.metadata-pre || needs.prep.outputs.metadata }}
           path: ${{ steps.build.outputs.metadata-dir }}/
           if-no-files-found: error
+          # Short-retain only the premeta transient (release path); the
+          # non-release artifact is the final deliverable, kept at repo default.
+          retention-days: ${{ needs.prep.outputs.should-release == 'true' && '1' || '' }}
 
   # Generate SLSA L3 build provenance via GitHub's attestation API, naming THIS
   # reusable workflow as builder.id (its job_workflow_ref) and the Sigstore

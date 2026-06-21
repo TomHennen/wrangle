@@ -57,10 +57,10 @@ setup() {
     [ "$status" -ne 0 ]
 }
 
-@test "scan: artifact-name defaults to wrangle-scan-results for direct callers" {
+@test "scan: artifact-name defaults to the convention name for direct callers" {
     run bash -c "grep -A12 '^  artifact-name:' '$ACTION_DIR/action.yml' | grep -m1 'default:'"
     [ "$status" -eq 0 ]
-    [[ "$output" == *'default: "wrangle-scan-results"'* ]]
+    [[ "$output" == *'default: "scan"'* ]]
 }
 
 @test "scan: optional checkout is opt-in, gated on the checkout input" {
@@ -76,6 +76,29 @@ setup() {
     run bash -c "grep -A10 '^  checkout:' '$ACTION_DIR/action.yml' | grep -m1 'default:'"
     [ "$status" -eq 0 ]
     [[ "$output" == *'default: "false"'* ]]
+}
+
+@test "scan: retention-days defaults empty so the standalone deliverable keeps repo-default retention" {
+    # The upload step is dual-purpose: a build caller passes "1" to mark the
+    # folded transient, but the standalone scan artifact is the deliverable and
+    # must not be short-retained. An empty default leaves the repo default.
+    run bash -c "grep -A8 '^  retention-days:' '$ACTION_DIR/action.yml' | grep -m1 'default:'"
+    [ "$status" -eq 0 ]
+    [[ "$output" == *'default: ""'* ]]
+    run grep -F 'retention-days: ${{ inputs.retention-days }}' "$ACTION_DIR/action.yml"
+    [ "$status" -eq 0 ]
+}
+
+@test "scan: build workflows short-retain the folded scan transient" {
+    # The standalone callers (check_source_change, build_shell) must NOT pass
+    # retention-days; the build workflows that fold scan into metadata must.
+    local wf_dir="$ACTION_DIR/../../.github/workflows"
+    for t in go npm python container; do
+        run grep -F 'retention-days: 1' "$wf_dir/build_and_publish_$t.yml"
+        [ "$status" -eq 0 ]
+    done
+    run grep -F 'retention-days' "$wf_dir/check_source_change.yml"
+    [ "$status" -ne 0 ]
 }
 
 @test "scan: checkout step precedes the tool steps (source exists before scanning)" {

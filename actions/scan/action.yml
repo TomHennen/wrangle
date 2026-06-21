@@ -28,11 +28,20 @@ inputs:
       Scan runs in its own job; a build workflow passes a per-build name
       (e.g. python-scan-python) and its build job downloads that into the
       unified metadata/<type>/<sn>/scan/ tree. The standalone scan workflow
-      passes scan-<sn>. The artifact holds <tool>/output.* plus any
+      passes scan. The artifact holds <tool>/output.* plus any
       wrangle_attestation_metadata.json — the scan/ subtree's contents, no
       scan/ prefix.
     required: false
-    default: "wrangle-scan-results"
+    default: "scan"
+  retention-days:
+    description: >
+      Retention for the scan-results artifact. Empty (default) uses the repo
+      default — correct for the standalone scan, whose artifact is the
+      consumer-facing deliverable. A build workflow folds this into
+      <type>-metadata-<sn> within minutes, so it passes "1" to keep the
+      transient off the long-lived artifact list.
+    required: false
+    default: ""
   checkout:
     description: >
       When "true", check out the calling repo before scanning, so a caller
@@ -237,7 +246,7 @@ runs:
     # wrangle_attestation_metadata.json the engine later signs) as a
     # workflow artifact. A build workflow's build job downloads it into the
     # unified metadata/<type>/<sn>/scan/ tree and owns the final upload; the
-    # standalone scan workflow's artifact-name is the consumer-facing scan-<sn>.
+    # standalone scan workflow's artifact-name is the consumer-facing scan.
     - name: Upload scan results artifact
       if: always()
       uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
@@ -246,3 +255,4 @@ runs:
         name: ${{ inputs.artifact-name }}
         path: ${{ github.workspace }}/.wrangle/metadata/
         if-no-files-found: ignore
+        retention-days: ${{ inputs.retention-days }}
