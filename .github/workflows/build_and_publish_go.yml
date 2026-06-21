@@ -367,7 +367,8 @@ jobs:
 
   # Generate SLSA L3 build provenance via GitHub's attestation API, naming THIS
   # reusable workflow as builder.id (its job_workflow_ref) and the Sigstore
-  # signing identity
+  # signing identity, then sign the SBOM + scan/v1 metadata over the built dist
+  # and post it to the attestation store — persisted independent of the verdict
   attest:
     if: ${{ needs.prep.outputs.should-release == 'true' }}
     needs: [prep, release]
@@ -383,7 +384,7 @@ jobs:
       # writes non-artifact bookkeeping into dist/ that is not released. This is
       # the same canonical subject set the VSA binds to.
       # TODO: replace with $/actions/attest_provenance when GitHub ships $/ syntax (#136)
-      - uses: TomHennen/wrangle/actions/attest_provenance@6b86c0ffc7f1c7443183be4afb95b4c9de040cab # main 2026-06-21
+      - uses: TomHennen/wrangle/actions/attest_provenance@c00abcd513d72db7726ee84682904f5af8006699 # attest-sign-metadata-pr1 2026-06-21
         id: attest
         with:
           build-type: go

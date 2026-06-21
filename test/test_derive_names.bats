@@ -21,6 +21,7 @@ setup() {
     grep -qx 'metadata=go-metadata' "$GITHUB_OUTPUT"
     grep -qx 'metadata-pre=go-premeta' "$GITHUB_OUTPUT"
     grep -qx 'provenance-bundle=go-provenance-bundle' "$GITHUB_OUTPUT"
+    grep -qx 'signed-metadata=go-signed-metadata' "$GITHUB_OUTPUT"
 }
 
 @test "package_metadata: subdir build appends the shortname" {
@@ -30,6 +31,7 @@ setup() {
     grep -qx 'metadata=python-metadata-services_api' "$GITHUB_OUTPUT"
     grep -qx 'metadata-pre=python-premeta-services_api' "$GITHUB_OUTPUT"
     grep -qx 'provenance-bundle=python-provenance-bundle-services_api' "$GITHUB_OUTPUT"
+    grep -qx 'signed-metadata=python-signed-metadata-services_api' "$GITHUB_OUTPUT"
 }
 
 @test "package_metadata: each build type namespaces its names" {

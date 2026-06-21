@@ -257,7 +257,8 @@ jobs:
 
   # Generate SLSA L3 build provenance via GitHub's attestation API, naming THIS
   # reusable workflow as builder.id (its job_workflow_ref) and the Sigstore
-  # signing identity
+  # signing identity, then sign the SBOM + scan/v1 metadata over the built dist
+  # and post it to the attestation store — persisted independent of the verdict
   attest:
     if: ${{ needs.prep.outputs.should-release == 'true' }}
     # needs `scan` so a load-bearing finding blocks attestation + the caller's publish.
@@ -271,7 +272,7 @@ jobs:
       bundle-artifact-name: ${{ steps.attest.outputs.bundle-artifact-name }}
     steps:
       # TODO: replace with $/actions/attest_provenance when GitHub ships $/ syntax (#136)
-      - uses: TomHennen/wrangle/actions/attest_provenance@6b86c0ffc7f1c7443183be4afb95b4c9de040cab # main 2026-06-21
+      - uses: TomHennen/wrangle/actions/attest_provenance@c00abcd513d72db7726ee84682904f5af8006699 # attest-sign-metadata-pr1 2026-06-21
         id: attest
         with:
           build-type: python
@@ -282,9 +283,8 @@ jobs:
   # and append it to the SLSA provenance, producing one per-artifact
   # <artifact>.intoto.jsonl bundle. bnd signs each VSA keyless with this workflow's
   # OIDC identity; a FAILED policy fails the step (fail: true) and blocks the
-  # caller's publish via needs: propagation. Provenance-only for now — SBOM/OSV
-  # tenets follow once those are produced as signed attestations a registered
-  # identity covers.
+  # caller's publish via needs: propagation. The SBOM + scan/v1 metadata is
+  # signed in the attest job; verify evaluates it and binds the verdict.
   verify:
     if: ${{ needs.prep.outputs.should-release == 'true' }}
     needs: [prep, build, attest]

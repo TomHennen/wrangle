@@ -37,18 +37,11 @@ wrangle_resolve_policy() {
     esac
 }
 
-# Run a command, retrying once on failure to absorb transient Sigstore I/O.
-# Re-evaluation is deterministic, so a retry can only flip a transient failure.
-# $1 is the stdout capture, truncated per attempt. WRANGLE_RETRY_DELAY spaces
-# the attempts (tests set it to 0).
-wrangle_retry_once() {
-    local out="$1"; shift
-    "$@" > "$out" && return 0
-    local rc=$?
-    printf 'wrangle: %s failed (exit %s); retrying once for transient Sigstore I/O\n' "$1" "$rc" >&2
-    sleep "${WRANGLE_RETRY_DELAY:-5}"
-    "$@" > "$out"
-}
+# Shared build-metadata signing primitives, also used by the attest job:
+# wrangle_retry_once, wrangle_attest_args, wrangle_sign_metadata_statements,
+# wrangle_bnd_push_args, wrangle_push_store, wrangle_read_subjects.
+# shellcheck source=../../lib/sign_metadata.sh
+source "$LIB_DIR/sign_metadata.sh"
 
 # Emit the ampel subject flag for one subject, one arg per line. A digest-form
 # subject (algo:hex, e.g. a container) passes through; a file subject is hashed
@@ -111,29 +104,6 @@ wrangle_cosign_attach_args() {
     printf '%s\n' attach attestation \
         --attestation "$1" \
         "$2"
-}
-
-# Build the bnd arg vector that posts a signed VSA to the GitHub attestation
-# store. $1 is <owner>/<repo>; $2 the bnd-signed VSA file. The store is keyed
-# by subject digest, giving consumers by-digest discovery via ampel's github:
-# collector.
-wrangle_bnd_push_args() {
-    printf '%s\n' push github "$1" "$2"
-}
-
-# Split SUBJECTS into an array, dropping blank lines. Fail closed on an empty
-# set: zero subjects would emit a provenance-only bundle with no VSA.
-wrangle_read_subjects() {
-    mapfile -t WRANGLE_SUBJECTS <<< "$SUBJECTS"
-    local s kept=()
-    for s in "${WRANGLE_SUBJECTS[@]}"; do
-        [[ "$s" =~ ^[[:space:]]*$ ]] || kept+=("$s")
-    done
-    WRANGLE_SUBJECTS=("${kept[@]}")
-    if [[ "${#WRANGLE_SUBJECTS[@]}" -eq 0 ]]; then
-        printf 'wrangle: no subjects to verify — refusing to emit a VSA-less bundle\n' >&2
-        return 1
-    fi
 }
 
 # ampel verify one subject -> unsigned VSA at $2, streaming the report to the
@@ -218,34 +188,6 @@ wrangle_push_bundle() {
     wrangle_retry_once /dev/null cosign "${args[@]}"
 }
 
-# Build the wrangle-attest arg vector (one arg per line for mapfile) that signs the
-# build metadata into in-toto statements. $1 = subject arg (--subject=<digest> or
-# --artifact=<file>); $2 = output JSONL path.
-wrangle_attest_args() {
-    printf '%s\n' \
-        --metadata-root="$METADATA_ROOT" \
-        "$1" \
-        --commit="${COMMIT:-}" \
-        --sign \
-        --out="$2"
-}
-
-# Sign subject $1's build-metadata statements (SBOM + scan/v1) into the JSONL at $2,
-# one signed bundle per line; leaves $2 empty when there's no metadata. Signed
-# before ampel so the policy can evaluate them via a second collector. Fails closed.
-wrangle_sign_metadata_statements() {
-    [[ -z "${METADATA_ROOT:-}" || ! -d "${METADATA_ROOT:-}" ]] && return 0
-    local subject="$1" stmts="$2" subject_arg
-    if [[ "$subject" =~ ^[a-z0-9]+:[a-f0-9]+$ ]]; then
-        subject_arg="--subject=$subject"
-    else
-        subject_arg="--artifact=$subject"
-    fi
-    local args
-    mapfile -t args < <(wrangle_attest_args "$subject_arg" "$stmts")
-    wrangle_retry_once /dev/null wrangle-attest "${args[@]}"
-}
-
 # Append each signed metadata line at $1 to the bundle $2, post each to the
 # store, and push each alone as the OCI referrer (cosign attach rejects
 # multi-line). No-op on an empty/absent file (no metadata for this build).
@@ -262,15 +204,6 @@ wrangle_append_metadata_statements() {
         wrangle_push_bundle "$line_file"
     done < "$stmts"
     rm -f "$line_file"
-}
-
-# Post the signed VSA at $1 to the GitHub attestation store (all build types).
-# Provenance is already in the store from attest-build-provenance, so only the
-# VSA is pushed. Fails closed: a missing by-digest VSA is a real delivery gap.
-wrangle_push_store() {
-    local args
-    mapfile -t args < <(wrangle_bnd_push_args "$GITHUB_REPOSITORY" "$1")
-    wrangle_retry_once /dev/null bnd "${args[@]}"
 }
 
 # Verify every subject, sign its VSA, and write one bundle per subject into

@@ -69,3 +69,42 @@ setup() {
     run grep -F 'value: ${{ steps.names.outputs.provenance-bundle }}' "$ACTION"
     [ "$status" -eq 0 ]
 }
+
+@test "attest_provenance: downloads the pre-verify metadata for signing" {
+    run grep -F 'name: ${{ steps.names.outputs.metadata-pre }}' "$ACTION"
+    [ "$status" -eq 0 ]
+}
+
+@test "attest_provenance: installs the attest tools and signs the metadata" {
+    run grep -F 'install_tools.sh' "$ACTION"
+    [ "$status" -eq 0 ]
+    run grep -F 'resolve_subjects.sh' "$ACTION"
+    [ "$status" -eq 0 ]
+    run grep -F 'sign_metadata.sh' "$ACTION"
+    [ "$status" -eq 0 ]
+}
+
+@test "attest_provenance: threads GITHUB_TOKEN and COMMIT into the sign step" {
+    # bnd needs the token to auth the store push; COMMIT lands in the scan/v1 envelope.
+    run grep -F 'GITHUB_TOKEN: ${{ github.token }}' "$ACTION"
+    [ "$status" -eq 0 ]
+    run grep -F 'COMMIT: ${{ github.sha }}' "$ACTION"
+    [ "$status" -eq 0 ]
+}
+
+@test "attest_provenance: uploads and outputs the signed-metadata artifact" {
+    run grep -F 'name: ${{ steps.names.outputs.signed-metadata }}' "$ACTION"
+    [ "$status" -eq 0 ]
+    run grep -F 'value: ${{ steps.names.outputs.signed-metadata }}' "$ACTION"
+    [ "$status" -eq 0 ]
+}
+
+# M1 — the attest job runs no adopter-controlled code: it only downloads the
+# already-built dist + metadata and runs attest-provenance + wrangle-attest over
+# them. Guard against a future executable step (run:/uses:) that invokes a
+# caller build/test hook. Scope to step bodies so an input description that
+# merely names a tool (e.g. "goreleaser's dist/checksums.txt") is not flagged.
+@test "attest_provenance: runs no adopter build/test hook (trust boundary)" {
+    run grep -Ei '^[[:space:]]*(run:|- uses:|uses:).*(goreleaser|docker build|npm (run |test|ci)|python -m build|pytest|setup-script)' "$ACTION"
+    [ "$status" -ne 0 ]
+}

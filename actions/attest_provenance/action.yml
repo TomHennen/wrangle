@@ -4,9 +4,13 @@ description: >
   download the build's dist, generate SLSA L3 build provenance via GitHub's
   attestation API, stage the signed bundle as one-JSON-per-line jsonl, and
   upload it as the provenance-bundle workflow artifact the verify job reads.
-  The dist and provenance-bundle artifact names are computed here from
-  build-type + shortname (lib/shortname.sh via the action_path), so callers
-  don't pass them.
+  Then sign every build-metadata attestation (SBOM + scan/v1) over the same dist
+  subjects with wrangle-attest/bnd, post each to the GitHub attestation store,
+  and emit them as the signed-metadata workflow artifact — so the signed set is
+  persisted independent of the later policy verdict (#550). The dist,
+  provenance-bundle, metadata, and signed-metadata artifact names are computed
+  here from build-type + shortname (lib/shortname.sh via the action_path), so
+  callers don't pass them.
 
   Pass exactly one subject: subject-checksums (go: dist/checksums.txt, the
   canonical subject set the VSA binds to) or subject-path (npm/python:
@@ -33,6 +37,9 @@ outputs:
   bundle-artifact-name:
     description: "Name of the provenance-bundle workflow artifact the verify job downloads."
     value: ${{ steps.names.outputs.provenance-bundle }}
+  signed-metadata-artifact-name:
+    description: "Name of the signed build-metadata workflow artifact (SBOM + scan/v1 statements) for verify/consumers."
+    value: ${{ steps.names.outputs.signed-metadata }}
 
 runs:
   using: composite
@@ -84,4 +91,51 @@ runs:
       with:
         name: ${{ steps.names.outputs.provenance-bundle }}
         path: ${{ runner.temp }}/provenance.jsonl
+        if-no-files-found: error
+
+    # Sign every build-metadata attestation (SBOM + scan/v1) here, in attest, so
+    # the signed set is persisted independent of the later policy verdict (#550).
+    # The build job's pre-verify metadata is the input wrangle-attest walks.
+    - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+      with:
+        name: ${{ steps.names.outputs.metadata-pre }}
+        path: ${{ steps.names.outputs.metadata-dir }}/
+
+    # Build only bnd (sign) + wrangle-attest (build the statements); attest does
+    # not run ampel or cosign.
+    - name: Install attest tools
+      shell: bash
+      run: |
+        "${{ github.action_path }}/install_tools.sh"
+
+    # Resolve the dist files to self-digest — the SAME subjects verify binds the
+    # VSA to, so attest-signed metadata and the VSA share the sha256 digest.
+    - name: Resolve metadata subjects
+      id: subjects
+      shell: bash
+      env:
+        SUBJECT_CHECKSUMS: ${{ inputs.subject-checksums }}
+        SUBJECT_PATH: ${{ inputs.subject-path }}
+      run: |
+        "${{ github.action_path }}/resolve_subjects.sh"
+
+    - name: Sign and store the build-metadata attestations
+      shell: bash
+      env:
+        METADATA_ROOT: ${{ steps.names.outputs.metadata-dir }}
+        SUBJECTS: ${{ steps.subjects.outputs.subjects }}
+        OUT: ${{ runner.temp }}/signed-metadata.jsonl
+        # Scanned commit recorded in each scan/v1 envelope's scannedCommit.
+        COMMIT: ${{ github.sha }}
+        GITHUB_REPOSITORY: ${{ github.repository }}
+        # bnd push github authenticates to the attestation store with this token;
+        # the attestations: write permission rides on it.
+        GITHUB_TOKEN: ${{ github.token }}
+      run: |
+        "${{ github.action_path }}/sign_metadata.sh"
+
+    - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+      with:
+        name: ${{ steps.names.outputs.signed-metadata }}
+        path: ${{ runner.temp }}/signed-metadata.jsonl
         if-no-files-found: error

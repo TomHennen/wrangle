@@ -42,6 +42,7 @@ main() {
         printf 'metadata=%s\n' "$(artifact_name "${type}-metadata" "$shortname")"
         printf 'metadata-pre=%s\n' "$(artifact_name "${type}-premeta" "$shortname")"
         printf 'provenance-bundle=%s\n' "$(artifact_name "${type}-provenance-bundle" "$shortname")"
+        printf 'signed-metadata=%s\n' "$(artifact_name "${type}-signed-metadata" "$shortname")"
         printf 'metadata-dir=%s\n' "$(metadata_dir "$type" "$shortname")"
         printf 'shortname=%s\n' "$shortname"
     } >> "$GITHUB_OUTPUT"
