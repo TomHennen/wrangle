@@ -32,10 +32,12 @@ A branch SHA can't become a main SHA until the code is on main, so a bootstrap p
 - **Red on main** → a pin is unreachable (you squashed a bootstrap pin, or forgot a bump). Run `tools/bump_action_pins.sh <main-sha>` and push. Until you do, main is red and the unattended showcase can't resolve that action.
 - **Green** → every pin resolves; bump at leisure (it just refreshes the SHA and the `# main` label).
 
+Reachability isn't sufficient on its own: a pin can be an ancestor yet still resolve **stale** action code when the path changed after the pin's last bump (#552 — e.g. an inner script edit while the pinned `action.yml` stays byte-identical). `tools/check_pin_freshness.sh` follows the same nested chain and flags any pin whose resolved content (ignoring nested pin-SHA-only differences) differs from `HEAD`. It runs advisory in CI today — main may be momentarily stale between an action-change merge and its post-merge bump — but an action-change PR should converge its own pins in-PR (merge commit) so the chain is fresh at merge.
+
 A nested chain (`workflow → verify_release → verify`, `scan → tools/*`) takes one bump cycle per nesting level under squash: a commit can't pin itself, so editing an *inner* action needs the bump repeated until the check is green (#539). Because the check follows nested resolution, it stays red through the intermediate cycles rather than passing on a half-converged chain. Merging the bootstrap-pin PR as a **merge commit** keeps every branch SHA reachable, so a chain of any depth converges with no re-bump and no red window — a convenience, not a requirement.
 
 ### Recovery
 If `check_pin_ancestry` is red on main (or a showcase run failed to resolve a wrangle action):
 
 1. `tools/bump_action_pins.sh <main-sha>` — repoints every wrangle self-ref pin to a SHA reachable from main. Push it (a dedicated one-line bump PR, or fold it into the next PR); the check goes green and the next showcase resolves the action.
-2. For a nested chain that needs more than one bump cycle, `tools/converge_action_pins.sh` loops bump + commit until the check is green. Land its commits as a **merge commit** (not a squash), or the intermediate pins re-orphan.
+2. For a nested chain that needs more than one bump cycle, `tools/converge_action_pins.sh` loops bump + commit until the chain is both reachable **and fresh** (`check_pin_ancestry` + `check_pin_freshness` both green). Land its commits as a **merge commit** (not a squash), or the intermediate pins re-orphan.

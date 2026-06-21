@@ -77,9 +77,10 @@ zizmor:
 bump-action-pins:
 	@./tools/bump_action_pins.sh $(SHA)
 
-# Loop bump + commit until check_pin_ancestry is green (a nested chain needs one
+# Loop bump + commit until the nested pin chain is both reachable and fresh
+# (check_pin_ancestry + check_pin_freshness green; a nested chain needs one
 # commit per level). Land the result as a merge commit, not a squash.
-# See tools/converge_action_pins.sh and #539.
+# See tools/converge_action_pins.sh, #539, and #552.
 converge-action-pins:
 	@./tools/converge_action_pins.sh
 
