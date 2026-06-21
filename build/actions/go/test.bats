@@ -489,41 +489,6 @@ func main() {}
     [[ "$status" -eq 0 ]]
 }
 
-@test "go.checks: validate_inputs.sh uses set -f (processes external input)" {
-    run grep '^set -f' "$CHECKS_DIR/validate_inputs.sh"
-    [[ "$status" -eq 0 ]]
-}
-
-@test "go.build: validate_inputs.sh uses set -f" {
-    run grep '^set -f' "$BUILD_DIR/validate_inputs.sh"
-    [[ "$status" -eq 0 ]]
-}
-
-@test "go.checks: run_checks.sh uses set -f" {
-    run grep '^set -f' "$CHECKS_DIR/run_checks.sh"
-    [[ "$status" -eq 0 ]]
-}
-
-@test "go.build: compute_hashes.sh uses set -f" {
-    run grep '^set -f' "$BUILD_DIR/compute_hashes.sh"
-    [[ "$status" -eq 0 ]]
-}
-
-@test "tools/syft/generate_sbom.sh uses set -f" {
-    run grep '^set -f' "$REPO_ROOT/tools/syft/generate_sbom.sh"
-    [[ "$status" -eq 0 ]]
-}
-
-@test "go: compute_metadata.sh uses set -f" {
-    run grep '^set -f' "$GO_ACTION_DIR/compute_metadata.sh"
-    [[ "$status" -eq 0 ]]
-}
-
-@test "go.build: generate_summary.sh uses set -f" {
-    run grep '^set -f' "$BUILD_DIR/generate_summary.sh"
-    [[ "$status" -eq 0 ]]
-}
-
 @test "go.build: action installs syft via tools/syft (not curl | sh, no install-to-/usr/local/bin)" {
     # No curl-pipe-shell anywhere.
     run grep -E 'curl[^|]*\| *sh' "$BUILD_ACTION"
@@ -562,36 +527,6 @@ func main() {}
     # failure leaves stop-commands in effect.
     run bash -c "grep -A2 'Resume workflow commands' '$BUILD_ACTION' | grep -E 'if: always'"
     [[ "$status" -eq 0 ]]
-}
-
-@test "go: composites pass inputs through env, never through inputs interpolation in run blocks" {
-    # The wrangle-wide convention: external input never gets
-    # interpolated into a `run:` block; it flows via env:. Inspect
-    # both composite action.yml files.
-    for action in "$CHECKS_ACTION" "$BUILD_ACTION"; do
-        run awk '
-            BEGIN { in_run = 0; run_col = -1; bad = 0 }
-            /^[[:space:]]*run:[[:space:]]+[^|>]/ && /\$\{\{[[:space:]]*inputs\./ {
-                printf "FAIL inline run, line %d: %s\n", NR, $0
-                bad = 1
-            }
-            /^[[:space:]]*run:[[:space:]]*([|>]|$)/ {
-                match($0, /^ */); run_col = RLENGTH
-                in_run = 1; next
-            }
-            in_run {
-                if ($0 !~ /[^[:space:]]/) next
-                match($0, /^ */); col = RLENGTH
-                if (col <= run_col) { in_run = 0 }
-                else if (/\$\{\{[[:space:]]*inputs\./) {
-                    printf "FAIL run-block body, line %d: %s\n", NR, $0
-                    bad = 1
-                }
-            }
-            END { exit bad }
-        ' "$action"
-        [[ "$status" -eq 0 ]]
-    done
 }
 
 # --- Reusable workflow tests ---

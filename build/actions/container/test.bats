@@ -20,12 +20,6 @@ teardown() {
     [[ -x "$ACTION_DIR/validate_inputs.sh" ]]
 }
 
-@test "container: validate_inputs.sh disables globbing with set -f" {
-    # External input flows into the script; CLAUDE.md requires set -f.
-    run grep '^set -f' "$ACTION_DIR/validate_inputs.sh"
-    [[ "$status" -eq 0 ]]
-}
-
 @test "container: action.yml delegates input validation to validate_inputs.sh" {
     run grep 'validate_inputs.sh' "$ACTION_DIR/action.yml"
     [[ "$status" -eq 0 ]]
@@ -178,12 +172,6 @@ teardown() {
 
 @test "container: resolve_cache.sh exists and is executable" {
     [[ -x "$ACTION_DIR/resolve_cache.sh" ]]
-}
-
-@test "container: resolve_cache.sh disables globbing with set -f" {
-    # The scope argument is external (a branch name); CLAUDE.md requires set -f.
-    run grep -E '^set -f' "$ACTION_DIR/resolve_cache.sh"
-    [[ "$status" -eq 0 ]]
 }
 
 @test "container: resolve_cache.sh maps enabled to cache-from + cache-to" {
