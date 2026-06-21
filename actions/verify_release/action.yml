@@ -91,7 +91,7 @@ runs:
         path: signed-metadata/
 
     # TODO: replace with $/actions/verify when GitHub ships $/ syntax (#136)
-    - uses: TomHennen/wrangle/actions/verify@53512df87aacc4395f8fad13acfde1f693d83664 # container-attest-signing 2026-06-21
+    - uses: TomHennen/wrangle/actions/verify@a5da1d911af3d36115ee9860b0bd59ec0f674b9f # container-attest-signing 2026-06-21
       with:
         dist-files: ${{ inputs.dist-files }}
         subjects: ${{ inputs.subjects }}
