@@ -568,7 +568,8 @@ STUB
     chmod +x "$TEST_DIR/ampel"
     export PATH="$TEST_DIR:$PATH"
     export GITHUB_STEP_SUMMARY="$TEST_DIR/summary.md"; : > "$GITHUB_STEP_SUMMARY"
-    export SUBJECTS="sha256:$(printf '0%.0s' {1..64})"
+    local sha; sha="$(printf '0%.0s' {1..64})"
+    export SUBJECTS="sha256:$sha"
     # BUNDLE_IN holds no bundle for this subject.
     run "$SCRIPT" run
     [[ "$status" -ne 0 ]]

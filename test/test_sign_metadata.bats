@@ -232,7 +232,8 @@ STUB
 
 @test "sign_metadata: assemble fails closed on a missing metadata dir" {
     export METADATA_ROOT="$TEST_DIR/absent"
-    export SUBJECTS="sha256:$(printf '0%.0s' {1..64})"
+    local sha; sha="$(printf '0%.0s' {1..64})"
+    export SUBJECTS="sha256:$sha"
     export BUNDLE_OUT="$TEST_DIR/bundles"
     export BUNDLE_IN="$TEST_DIR/provenance.jsonl"; printf '{"provenance":1}\n' > "$BUNDLE_IN"
     export OCI_TARGET=""
@@ -252,7 +253,8 @@ STUB
     local meta="$TEST_DIR/meta"; mkdir -p "$meta"
     printf '{"predicate-type":"https://spdx.dev/Document","result-file":"sbom.spdx.json"}' > "$meta/wrangle_attestation_metadata.json"
     export METADATA_ROOT="$meta"
-    export SUBJECTS="sha256:$(printf '0%.0s' {1..64})"
+    local sha; sha="$(printf '0%.0s' {1..64})"
+    export SUBJECTS="sha256:$sha"
     export BUNDLE_OUT="$TEST_DIR/bundles"
     export BUNDLE_IN="$TEST_DIR/provenance.jsonl"; printf '{"provenance":1}\n' > "$BUNDLE_IN"
     export OCI_TARGET=""
