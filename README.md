@@ -7,9 +7,8 @@ Developers want to ship features.  They'd like to do it securely but it's hard. 
 
 * Remember to scan for vulns
 * Remember not to use pull_request_target
-* Remember to run zizmor
 * Remember to produce an SBOM
-* Remember not to misconfigure caching
+* Remember to update your dependencies
 * ...
 
 What if... we could do this for developers, so they don't need to remember?
@@ -19,7 +18,7 @@ uses one of wrangle's reusable workflows.  With that single job developers get:
 
 * Vulnerability scanning with [osv](https://github.com/google/osv-scanner)
 * GitHub Action safety checks with [Zizmor](https://github.com/zizmorcore/zizmor)
-* A check that your repo is configured for automatic dependency and action updates ([Dependabot](https://docs.github.com/code-security/dependabot)), behind a safety cooldown
+* A check that your repo is configured for automatic dependency updates ([Dependabot](https://docs.github.com/code-security/dependabot)), behind a safety cooldown
 * Automatic execution of unit tests
 * Automatic builds with safe defaults
 * [SBOMs](https://spdx.dev)
@@ -64,10 +63,9 @@ jobs:
 
 Once they've done this they'll get tests executed, vuln scanning, attestations, etc.
 
-Developers should also enable Dependabot.  Wrangle can't do that for you unfortunately,
-but we can make it easier.  Copy
-[`gh_workflow_examples/dependabot.yml`](gh_workflow_examples/dependabot.yml) to
-`.github/dependabot.yml` (and customize as needed for your ecosystem).
+Wrangle requires Dependabot so your dependencies and action pins keep updating automatically. It can't turn Dependabot on
+for you, but it does check you've set it up: a missing config fails the source scan until you fix it (or suppress the
+finding). Copy gh_workflow_examples/dependabot.yml to .github/dependabot.yml and tailor it to your ecosystem.
 
 Once in place it will create a PR whenever a dependency (including Wrangle!) needs to
 be updated.
@@ -94,7 +92,7 @@ Each build produces two workflow artifacts (zipfiles):
 
 The reusable workflow exposes both names as the `dist-artifact-name` and `metadata-artifact-name` outputs so you don't have to hardcode them. For the full file layout — and which `scan/` subdirs appear on a given event — see [docs/metadata_layout.md](docs/metadata_layout.md).
 
-On a **tag push with a GitHub Release**, wrangle also attaches each dist `<artifact>` and its `<artifact>.intoto.jsonl` bundle (a flat verify-pair) plus one `<type>-metadata-<sn>.zip` holding the SBOM + scan results. Go's dist + `checksums.txt` come from goreleaser. See [docs/verifying_artifacts.md](docs/verifying_artifacts.md); suppress with the verify action's `attach-release-assets: false`.
+On a **tag push**, wrangle also attaches each dist `<artifact>` and its `<artifact>.intoto.jsonl` bundle (a flat verify-pair) plus one `<type>-metadata-<sn>.zip` holding the SBOM + scan results to the GitHub Release wrangle creates for you. Go's dist + `checksums.txt` come from goreleaser. See [docs/verifying_artifacts.md](docs/verifying_artifacts.md); suppress with the verify action's `attach-release-assets: false`.
 
 To find them in the UI: click **Actions** → your wrangle workflow → the run → scroll to **Artifacts**. The URL looks like `https://github.com/<owner>/<repo>/actions/runs/<id>#artifacts`. For a live example, see a run in the [wrangle-test companion repo](https://github.com/TomHennen/wrangle-test/actions). Per-ecosystem details are in the [ecosystem READMEs](#ecosystems) above.
 
@@ -115,9 +113,9 @@ A run typically moves through these stages:
 3. **Build the artifact** — compiles/packages your project using safe defaults for your
    ecosystem
 4. **Describe what's inside** — generates an SBOM for the artifact.
-5. **Attest** — produces Sigstore-signed SLSA provenance tying the artifact to the
-   workflow that built it.
-6. **Verify before shipping** — checks that provenance against a policy and emits a VSA so the
+5. **Attest** — produces Sigstore-signed SLSA provenance and other attestations with your scan
+   results tying the artifact to the workflow that built it and the scans that were done.
+7. **Verify before shipping** — checks that provenance against a policy and emits a VSA so the
    people who consume your artifact can verify it with a single command.
 
 Source-only and shell projects run the checks without producing a published artifact; the other
