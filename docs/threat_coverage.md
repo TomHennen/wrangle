@@ -41,6 +41,7 @@ scope lives.
 | SLSA Build L3 provenance + signed VSA, verifiable independently by consumers | Prevents | [SolarWinds / SUNBURST](https://www.cisa.gov/news-events/alerts/2020/12/13/active-exploitation-solarwinds-software) build-time injection; the forged-publish stages of [Ultralytics](https://blog.pypi.org/posts/2024-12-11-ultralytics-attack-analysis/) and [eslint-scope](https://eslint.org/blog/2018/07/postmortem-for-malicious-package-publishes/) | Builds run on ephemeral hosted runners (no persistent build server to implant a SUNSPOT-style injector), and the non-falsifiable provenance + VSA let a consumer confirm the artifact was built by wrangle from your source commit — an artifact tampered during the build, or published by a stolen token without matching provenance, fails `ampel verify` | Independent verification only protects consumers who actually run the check; it flags a bad artifact rather than stopping the bad publish. The provenance is unforgeable only as far as the GitHub OIDC / builder trust root holds. |
 | Trusted-publishing template; no standing publish token in wrangle's jobs | Warns / Prevents | [Ledger connect-kit](https://www.ledger.com/blog/security-incident-report), [chalk/debug phishing](https://www.aikido.dev/blog/npm-debug-and-chalk-packages-compromised), [Shai-Hulud](https://www.cisa.gov/news-events/alerts/2025/09/23/widespread-supply-chain-compromise-impacting-npm-ecosystem), [eslint-scope](https://eslint.org/blog/2018/07/postmortem-for-malicious-package-publishes/), [ua-parser-js](https://github.com/advisories/GHSA-pjwm-rvh2-c87w); the direct-token stage of [Ultralytics](https://blog.pypi.org/posts/2024-12-11-ultralytics-attack-analysis/) | wrangle doesn't publish for you — the example publish job uploads over OIDC trusted publishing, so there's no long-lived registry token to phish, leak, or reuse, and wrangle's own jobs never hold a publishing credential | wrangle can't *make* you use trusted publishing: it ships the template and gates publish on a verified VSA, but you wire the publish job, and wrangle can't see whether you left legacy token uploads enabled on the registry. Even with OIDC it removes the *standing* credential, not in-job theft — code in the publish job can still exfiltrate the short-lived token at runtime (as Mini Shai-Hulud did). npm's first publish of a package still needs a token. |
 | SBOM (Syft / BuildKit) + OSV scan + dependency-review | Detects | Known-malicious or known-vulnerable dependency versions | Fails the build when a dependency matches a known advisory | **Reactive**: it only fires after public disclosure. It won't catch a compromise inside its live window, or one no one has reported yet. |
+| Requires a Dependabot config with an adoption cooldown (wrangle-lint WL005) | Warns | [chalk/debug phishing](https://www.aikido.dev/blog/npm-debug-and-chalk-packages-compromised), [Shai-Hulud](https://www.cisa.gov/news-events/alerts/2025/09/23/widespread-supply-chain-compromise-impacting-npm-ecosystem), [ua-parser-js](https://github.com/advisories/GHSA-pjwm-rvh2-c87w) | Keeps your dependencies current — the biggest practical lift — while the cooldown holds back auto-bumps so you don't adopt a freshly-poisoned release inside its live window, before the community flags it | wrangle fails the build on a missing or too-short cooldown, but you can suppress WL005 to opt out. It covers only ecosystems you wire into Dependabot, and the cooldown is a delay, not detection — a malicious version still undiscovered after the window can still land. |
 
 ## What wrangle does not stop
 
@@ -52,14 +53,11 @@ classes wrangle does little or nothing against:
   trust, then committed a backdoor. No CI/CD control stops a change made by a
   trusted maintainer through the normal process.
 - **Typosquatting and dependency confusion** — [W4SP](https://thehackernews.com/2022/11/researchers-uncover-29-malicious-pypi.html),
-  [torchtriton](https://pytorch.org/blog/compromised-nightly-dependency/). These
-  target what *you choose to install*. wrangle does push back on dependency
-  selection more than that framing suggests — OSV and dependency-review fail the
-  build on a known-bad version, and wrangle-lint (WL005) requires a Dependabot
-  cooldown config you must explicitly suppress to skip — but both are reactive
-  (the package has to be reported first), and neither reaches the developer's own
-  workstation: a malicious dependency installed locally that compromises that
-  machine is outside CI, which is all wrangle guards.
+  [torchtriton](https://pytorch.org/blog/compromised-nightly-dependency/). The
+  dependency rows above fail the build on a *reported* bad version, but a fresh
+  typosquat isn't reported yet, and wrangle guards CI, not the developer's
+  workstation — a malicious dependency installed locally that owns that machine
+  is beyond its reach.
 - **A compromise of wrangle itself.** Adopting wrangle means trusting it, like
   any action you depend on. Immutable release tags bound that trust, but they
   don't turn a proof-of-concept into something to put under a production
