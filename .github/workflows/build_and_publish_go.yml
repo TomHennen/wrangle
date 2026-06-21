@@ -161,7 +161,7 @@ jobs:
       metadata-pre: ${{ steps.prep.outputs.metadata-pre }}
     steps:
       # TODO: replace with $/actions/prep when GitHub ships $/ syntax (#136)
-      - uses: TomHennen/wrangle/actions/prep@82020c060864596bc2c1c6e685c47aad29aabc5f # auto-create-release 2026-06-21
+      - uses: TomHennen/wrangle/actions/prep@eba09b9f1b5e31a49c9a69e125e7237aa03be887 # declutter-artifacts-493 2026-06-21
         id: prep
         with:
           build-type: go
@@ -180,7 +180,7 @@ jobs:
       security-events: write
     steps:
       # TODO: replace with $/actions/scan when GitHub ships $/ syntax (#136)
-      - uses: TomHennen/wrangle/actions/scan@82020c060864596bc2c1c6e685c47aad29aabc5f # auto-create-release 2026-06-21
+      - uses: TomHennen/wrangle/actions/scan@eba09b9f1b5e31a49c9a69e125e7237aa03be887 # declutter-artifacts-493 2026-06-21
         if: ${{ inputs.scan-tools != '' }}
         with:
           checkout: "true"
@@ -215,7 +215,7 @@ jobs:
       # TODO: replace with $/build/actions/go/checks when GitHub ships $/ syntax (#136)
       # Self-pinned to PR HEAD until merge — bump-self-refs follow-up
       # repoints to the squashed merge SHA after this lands.
-      - uses: TomHennen/wrangle/build/actions/go/checks@82020c060864596bc2c1c6e685c47aad29aabc5f # auto-create-release 2026-06-21
+      - uses: TomHennen/wrangle/build/actions/go/checks@eba09b9f1b5e31a49c9a69e125e7237aa03be887 # declutter-artifacts-493 2026-06-21
         id: checks
         with:
           path: ${{ inputs.path }}
@@ -278,7 +278,7 @@ jobs:
 
       # TODO: replace with $/build/actions/go/build when GitHub ships $/ syntax (#136)
       # Self-pinned to PR HEAD until merge.
-      - uses: TomHennen/wrangle/build/actions/go/build@82020c060864596bc2c1c6e685c47aad29aabc5f # auto-create-release 2026-06-21
+      - uses: TomHennen/wrangle/build/actions/go/build@eba09b9f1b5e31a49c9a69e125e7237aa03be887 # declutter-artifacts-493 2026-06-21
         id: release
         with:
           path: ${{ inputs.path }}
@@ -369,7 +369,7 @@ jobs:
       # writes non-artifact bookkeeping into dist/ that is not released. This is
       # the same canonical subject set the VSA binds to.
       # TODO: replace with $/actions/attest_provenance when GitHub ships $/ syntax (#136)
-      - uses: TomHennen/wrangle/actions/attest_provenance@82020c060864596bc2c1c6e685c47aad29aabc5f # auto-create-release 2026-06-21
+      - uses: TomHennen/wrangle/actions/attest_provenance@eba09b9f1b5e31a49c9a69e125e7237aa03be887 # declutter-artifacts-493 2026-06-21
         id: attest
         with:
           build-type: go
@@ -395,7 +395,7 @@ jobs:
       contents: write       # create the release if absent and upload the attested archives + checksums + bundles
     steps:
       # TODO: replace with $/actions/verify_release when GitHub ships $/ syntax (#136)
-      - uses: TomHennen/wrangle/actions/verify_release@82020c060864596bc2c1c6e685c47aad29aabc5f # auto-create-release 2026-06-21
+      - uses: TomHennen/wrangle/actions/verify_release@eba09b9f1b5e31a49c9a69e125e7237aa03be887 # declutter-artifacts-493 2026-06-21
         with:
           build-type: go
           shortname: ${{ needs.prep.outputs.shortname }}
