@@ -88,7 +88,7 @@ Recommended commit sequence — each commit is testable on its own.
 1. **SPEC.md skeleton.** Write the design principles, planned step sequence, planned outputs. Discussing this with maintainers before writing code prevents scope creep.
 2. **Composite action skeleton + helpers.** `action.yml` with input validation and a single "build" step that's a placeholder. Helper scripts (`validate_inputs.sh`, etc.) wired up. `test.bats` with structural assertions.
 3. **Composite action implementation.** Real build/test/SBOM steps. Tests pass.
-4. **Reusable workflow.** `build_and_publish_<type>.yml` wrapping the composite + an `attest:` job that runs `actions/attest-build-provenance` (use `subject-path: dist/*` for a flat dist like npm/python, or `subject-checksums: dist/checksums.txt` for a goreleaser-style dist like go) and uploads the signed Sigstore bundle as a workflow artifact + a `vsa:` job that verifies that bundle against the per-eco `wrangle-provenance-<type>-v1` PolicySet (fail-closed) and emits the signed VSA. Outputs (`metadata-artifact-name`, `dist-artifact-name` if applicable, `provenance-artifact-name`).
+4. **Reusable workflow.** `build_and_publish_<type>.yml` wrapping the composite + an `attest:` job that runs `actions/attest-build-provenance` (use `subject-path: dist/*` for a flat dist like npm/python, or `subject-checksums: dist/checksums.txt` for a goreleaser-style dist like go) and uploads the signed Sigstore bundle as a workflow artifact + a `vsa:` job that verifies that bundle against the per-eco `wrangle-provenance-<type>-v1` PolicySet (fail-closed) and emits the signed VSA. Outputs (`metadata-artifact-name`, `dist-artifact-name` if applicable).
 5. **Example workflow.** `gh_workflow_examples/build_<type>.yml` — adopter-copyable. The `build:` job's permissions MUST grant everything wrangle's reusable workflow's nested jobs declare. See "Common gotchas" below.
 6. **Top-level doc updates** (`build/README.md`, `gh_workflow_examples/README.md`, `docs/SPEC.md`).
 7. **README.md.** Adopter-facing how-to. Verify the example actually works end-to-end before merging.
@@ -163,7 +163,7 @@ Wrangle's reusable workflows run an `attest:` job (`actions/attest-build-provena
 
 ### Reusable-workflow output names
 
-The reusable workflow exposes `provenance-artifact-name` (the Sigstore bundle the `attest:` job uploads), `metadata-artifact-name`, and any type-specific outputs (e.g. `dist-artifact-name`). Read the workflow's `workflow_call.outputs` block in its actual source — don't infer names from documentation summaries.
+The reusable workflow exposes `metadata-artifact-name` (the unified metadata artifact, which carries the assembled `<artifact>.intoto.jsonl` bundles on release runs) and any type-specific outputs (e.g. `dist-artifact-name`). Read the workflow's `workflow_call.outputs` block in its actual source — don't infer names from documentation summaries.
 
 ### Cosign keyless verification identity is branch-dependent
 
@@ -231,7 +231,7 @@ Before requesting review on a new build-type PR, verify:
 - [ ] No inline `run:` blocks longer than ~5 lines or containing logic in `action.yml`. Helper scripts live in `build/actions/<type>/`.
 - [ ] Path validation delegates to `lib/validate_path.sh`.
 - [ ] Metadata is written to `metadata/<type>/<shortname>/` and uploaded as `<type>-metadata-<shortname>` (post-#167 convention).
-- [ ] Reusable workflow exposes `metadata-artifact-name`, `provenance-artifact-name` (the attest job's Sigstore bundle, for artifact-producing types), and any type-specific outputs (e.g., `dist-artifact-name` for python).
+- [ ] Reusable workflow exposes `metadata-artifact-name` (carrying the assembled `<artifact>.intoto.jsonl` bundles on release runs) and any type-specific outputs (e.g., `dist-artifact-name` for python).
 - [ ] Integration fixture exists in `tomhennen/wrangle-test` and a `test-<type>:` job is in the template. Permissions cascade through nested reusable workflows is verified (see Common Gotchas).
 - [ ] **End-to-end verification:** `gh attestation verify` (or the build type's VSA) actually succeeds against an artifact your build type produced. The integration test exercises this; if it doesn't, fix the test before requesting review.
 - [ ] **wrangle-test CI run on the integration branch is green** (not just unit tests on the wrangle PR side — the full `dispatch` job).

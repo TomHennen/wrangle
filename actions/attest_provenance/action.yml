@@ -5,7 +5,7 @@ description: >
   attestation API, then sign every build-metadata attestation (SBOM + scan/v1)
   over the same dist subjects with wrangle-attest/bnd, post each to the GitHub
   attestation store, and assemble one per-artifact <artifact>.intoto.jsonl bundle
-  per subject (the shared provenance + that subject's signed metadata). The
+  per artifact (the shared provenance + that subject's signed metadata). The
   bundle directory is uploaded as the bundles workflow artifact the verify job
   appends the VSA to — so every non-VSA signed statement is persisted independent
   of the later policy verdict (#550, #566). The dist, bundles, and metadata
@@ -35,7 +35,7 @@ inputs:
 
 outputs:
   bundles-artifact-name:
-    description: "Name of the per-artifact bundle directory workflow artifact (provenance + signed metadata, one <artifact>.intoto.jsonl per subject) the verify job downloads and appends each VSA to."
+    description: "Workflow-artifact name of the directory of per-artifact <artifact>.intoto.jsonl bundles (provenance + signed metadata) verify downloads to append each VSA."
     value: ${{ steps.names.outputs.bundles }}
 
 runs:

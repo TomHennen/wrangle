@@ -715,10 +715,10 @@ func main() {}
     [[ "$status" -eq 0 ]]
 }
 
-@test "go: workflow exports hashes, provenance, metadata artifact names" {
+@test "go: workflow exports hashes, metadata artifact names" {
     # govulncheck folds into the unified metadata artifact, so there is no
     # separate checks-metadata-artifact-name output (#469).
-    for output in hashes provenance-artifact-name metadata-artifact-name; do
+    for output in hashes metadata-artifact-name; do
         run grep -E "^      ${output}:" "$WORKFLOW"
         [[ "$status" -eq 0 ]]
     done

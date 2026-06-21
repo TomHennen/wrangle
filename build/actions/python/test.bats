@@ -463,10 +463,8 @@ write_pyproject() {
     [[ "$status" -eq 0 ]]
 }
 
-@test "python: workflow exports hashes, provenance-artifact-name, metadata-artifact-name outputs" {
+@test "python: workflow exports hashes, metadata-artifact-name outputs" {
     run grep 'hashes:' "$WORKFLOW"
-    [[ "$status" -eq 0 ]]
-    run grep 'provenance-artifact-name:' "$WORKFLOW"
     [[ "$status" -eq 0 ]]
     run grep 'metadata-artifact-name:' "$WORKFLOW"
     [[ "$status" -eq 0 ]]

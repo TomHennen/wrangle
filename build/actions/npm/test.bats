@@ -764,10 +764,8 @@ write_pkg_json() {
     [[ "$status" -eq 0 ]]
 }
 
-@test "npm: workflow exports hashes, provenance-artifact-name, metadata-artifact-name outputs" {
+@test "npm: workflow exports hashes, metadata-artifact-name outputs" {
     run grep 'hashes:' "$WORKFLOW"
-    [[ "$status" -eq 0 ]]
-    run grep 'provenance-artifact-name:' "$WORKFLOW"
     [[ "$status" -eq 0 ]]
     run grep 'metadata-artifact-name:' "$WORKFLOW"
     [[ "$status" -eq 0 ]]

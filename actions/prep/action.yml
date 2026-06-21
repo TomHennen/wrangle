@@ -47,7 +47,7 @@ outputs:
     description: "Name of the build job's pre-verify metadata transient (release runs)."
     value: ${{ steps.names.outputs.metadata-pre }}
   bundles:
-    description: "Name of the attest job's per-artifact <artifact>.intoto.jsonl bundle directory artifact."
+    description: "Workflow-artifact name for the attest job's bundle directory — one <artifact>.intoto.jsonl per artifact (provenance + signed SBOM/scan); verify appends the VSA."
     value: ${{ steps.names.outputs.bundles }}
   metadata-dir:
     description: "The unified metadata dir (metadata/<type>[/<shortname>]) the bundle and sbom + scan/ live under."

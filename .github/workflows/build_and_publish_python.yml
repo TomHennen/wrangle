@@ -98,12 +98,6 @@ on:
       dist-artifact-name:
         description: "Name of the uploaded dist/ artifact (download with this name to publish)"
         value: ${{ jobs.prep.outputs.dist }}
-      provenance-artifact-name:
-        description: "Name of the attest job's per-artifact bundle directory artifact — one <artifact>.intoto.jsonl per subject, each carrying the SLSA provenance + that subject's signed SBOM/scan. Empty when should-release is false."
-        value: ${{ jobs.attest.outputs.bundles-artifact-name }}
-      attestation-bundle-name:
-        description: "Name of the workflow artifact the per-subject in-toto JSONL bundles ship in. They live inside the unified metadata artifact, so this equals metadata-artifact-name on release runs. Empty when should-release is false."
-        value: ${{ jobs.verify.outputs.attestation-bundle-name }}
       metadata-artifact-name:
         description: "Name of the unified metadata workflow artifact. Format: `python-metadata[-<shortname>]`. Contents and layout: docs/metadata_layout.md."
         value: ${{ jobs.prep.outputs.metadata }}
@@ -293,8 +287,6 @@ jobs:
       id-token: write       # bnd keyless-signs each VSA via this workflow's OIDC identity
       attestations: write   # post each VSA to the GitHub attestation store
       contents: write       # attach the bundle to the release on tag pushes
-    outputs:
-      attestation-bundle-name: ${{ needs.prep.outputs.metadata }}
     steps:
       # TODO: replace with $/actions/verify_release when GitHub ships $/ syntax (#136)
       - uses: TomHennen/wrangle/actions/verify_release@41355971fa6ec07c2fbd2affe89dcbe0e22b6301 # bundle-assembly-attest 2026-06-21
@@ -303,8 +295,7 @@ jobs:
           shortname: ${{ needs.prep.outputs.shortname }}
           dist-files: ${{ needs.build.outputs.dist-files }}
           policy: ${{ inputs.policy }}
-          # No collector: the attest-assembled bundle (provenance + signed
-          # metadata) verify reads is the only collector for go/npm/python.
+          # No extra collector input: the attest-assembled bundle is fed to ampel as the jsonl collector; only container adds an oci: collector.
           # resourceUri names the package the VSAs cover (pkg:pypi, PEP
           # 503-normalized); the consumer/gate check pins it. Each subject
           # digest is the cryptographic bind.
