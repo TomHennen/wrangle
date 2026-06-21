@@ -1,8 +1,14 @@
 # Copy this file to your repo at `.goreleaser.yml` (or `.goreleaser.yaml`).
 #
 # This is the minimum goreleaser config wrangle's Go build type
-# requires. Adjust to your project — common additions are listed in
-# the comments. Full reference: https://goreleaser.com/customization/.
+# requires. wrangle runs goreleaser with --skip=publish: it builds the
+# archives + checksums into dist/ but publishes nothing. wrangle then
+# uploads only the attested archives + checksums.txt (plus signed-VSA
+# bundles) to your pre-existing GitHub Release. Do NOT add goreleaser
+# publisher config — release.draft, brews, dockers, nfpms, announce —
+# here: those verbs never run under --skip=publish, and wrangle only
+# publishes what it can attest. Full reference:
+# https://goreleaser.com/customization/.
 
 version: 2
 
@@ -37,8 +43,9 @@ builds:
 checksum:
   name_template: "checksums.txt"
 
-# Tarball naming for the archives goreleaser uploads. Goreleaser's
-# defaults are reasonable; this is just the explicit form.
+# Tarball naming for the archives goreleaser builds (and wrangle
+# uploads). Goreleaser's defaults are reasonable; this is just the
+# explicit form.
 archives:
   - formats: [tar.gz]
     name_template: "{{ .ProjectName }}_{{ .Version }}_{{ .Os }}_{{ .Arch }}"
@@ -51,22 +58,10 @@ archives:
 snapshot:
   version_template: "{{ .ShortCommit }}-snapshot"
 
-# (Optional) Goreleaser's downstream verbs — wrangle preserves all of
-# these. Add what your project needs:
-#
-# brews:                    # update a Homebrew tap
-#   - repository:
-#       owner: your-org
-#       name: homebrew-tap
-#
-# dockers:                  # push images to ghcr.io etc.
-#   - image_templates:
-#       - "ghcr.io/your-org/your-app:{{ .Tag }}"
-#
-# nfpms:                    # build deb / rpm / apk packages
-#   - vendor: your-org
-#     formats: [deb, rpm]
-#
-# announce:                 # post to Slack / Discord / etc.
-#   slack:
-#     enabled: true
+# NOTE: goreleaser's downstream publisher verbs (brews, dockers, nfpms,
+# announce, …) do NOT run under wrangle — it invokes goreleaser with
+# --skip=publish and publishes only the attested archives + checksums.txt
+# itself, because it can't attest those other outputs. Need attested
+# container images? Pair with wrangle's container build type. Need a
+# Homebrew tap or deb/rpm? Run that from a separate, non-wrangle job
+# against the binaries wrangle published.

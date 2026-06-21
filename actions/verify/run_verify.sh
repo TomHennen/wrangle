@@ -270,10 +270,9 @@ wrangle_run() {
 # and its <artifact>.intoto.jsonl bundle (flat); once per build: a
 # <type>-metadata-<sn>.zip of the metadata dir (sbom + scan/ + bundles). The
 # dist is attached alongside its bundle so no bundle is orphaned without its
-# artifact. For the go build type goreleaser owns the dist + checksums.txt on
-# the release (#463), so wrangle attaches the bundle + metadata zip only.
-# Enumerate via a temp file, not a process substitution, so a find that dies
-# mid-traversal fails closed.
+# artifact. For go, wrangle owns the publish: it also attaches checksums.txt
+# (goreleaser built but published nothing). Enumerate via a temp file, not a
+# process substitution, so a find that dies mid-traversal fails closed.
 wrangle_attach_release() {
     local ref="$GITHUB_REF_NAME"
     if ! gh release view "$ref" >/dev/null 2>&1; then
@@ -298,8 +297,7 @@ wrangle_attach_release() {
     fi
     while IFS= read -r -d '' bundle; do
         gh release upload "$ref" "$bundle" --clobber
-        # Attach the dist sibling alongside its bundle (skip go — goreleaser owns it).
-        [[ "${BUILD_TYPE:-}" == "go" ]] && continue
+        # Attach the dist sibling alongside its bundle so no bundle is orphaned.
         base="${bundle##*/}"
         dist="${DIST_DIR:-dist}/${base%.intoto.jsonl}"
         if [[ -f "$dist" ]]; then
@@ -312,6 +310,19 @@ wrangle_attach_release() {
     done < "$listing"
     rm -f "$listing"
     [[ "$rc" -ne 0 ]] && return "$rc"
+    # go: the attested-artifact set includes checksums.txt — it's not a VSA
+    # subject (it's the manifest the subjects derive from), so it has no bundle
+    # of its own. goreleaser built it but published nothing; wrangle owns the
+    # publish, so attach it too. Fail closed if it's missing.
+    if [[ "${BUILD_TYPE:-}" == "go" ]]; then
+        local checksums="${DIST_DIR:-dist}/checksums.txt"
+        if [[ -f "$checksums" ]]; then
+            gh release upload "$ref" "$checksums" --clobber
+        else
+            printf 'wrangle: go checksums.txt (%s) not found\n' "$checksums" >&2
+            return 1
+        fi
+    fi
     wrangle_attach_metadata_zip "$ref"
 }
 

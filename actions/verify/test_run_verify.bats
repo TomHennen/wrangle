@@ -942,19 +942,32 @@ _require_zip() {
     ! grep -q "release create" "$GH_LOG"   # wrangle never creates the release
 }
 
-@test "run_verify attach: go skips the dist (goreleaser owns it) but still attaches bundle + metadata zip" {
+@test "run_verify attach: go uploads the dist archives, their bundles, and checksums.txt (wrangle owns the publish)" {
     _require_zip
     _install_gh_shim
     _stage_release_assets
+    : > "$DIST_DIR/checksums.txt"
     export BUILD_TYPE="go"
     export GH_VIEW_SEQ="0"
     run "$SCRIPT" attach
     [[ "$status" -eq 0 ]]
     grep -qx "release upload v1.2.3 $BUNDLE_OUT/a.tgz.intoto.jsonl --clobber" "$GH_LOG"
+    grep -qx "release upload v1.2.3 $DIST_DIR/a.tgz --clobber" "$GH_LOG"
+    grep -qx "release upload v1.2.3 $DIST_DIR/b.whl --clobber" "$GH_LOG"
+    # checksums.txt has no bundle of its own but is part of the attested set.
+    grep -qx "release upload v1.2.3 $DIST_DIR/checksums.txt --clobber" "$GH_LOG"
     grep -q "release upload v1.2.3 .*python-metadata.zip --clobber" "$GH_LOG"
-    # The dist itself is goreleaser's to attach — wrangle must not double-attach.
-    ! grep -q "release upload v1.2.3 $DIST_DIR/a.tgz --clobber" "$GH_LOG"
-    ! grep -q "release upload v1.2.3 $DIST_DIR/b.whl --clobber" "$GH_LOG"
+}
+
+@test "run_verify attach: go fails closed when checksums.txt is missing" {
+    _require_zip
+    _install_gh_shim
+    _stage_release_assets
+    export BUILD_TYPE="go"        # no checksums.txt staged
+    export GH_VIEW_SEQ="0"
+    run "$SCRIPT" attach
+    [[ "$status" -ne 0 ]]
+    [[ "$output" == *"checksums.txt"* ]]
 }
 
 @test "run_verify attach: a bundle whose dist is missing fails closed (no orphan bundle)" {

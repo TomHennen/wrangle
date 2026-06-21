@@ -202,10 +202,10 @@ is emitted; consumers use the VSA path above.
 
 ## The timing model: publish first, attest second
 
-Go and container builds publish inline (goreleaser / `docker push`) and the
-attest + verify jobs complete shortly after — typically 30s–2min. This is
-fine because the SLSA contract is "consumer runs the verifier", not
-"consumer trusts that an attestation exists":
+The container build type publishes inline (`docker push`) and its attest +
+verify jobs complete shortly after — typically 30s–2min. This is fine because
+the SLSA contract is "consumer runs the verifier", not "consumer trusts that
+an attestation exists":
 
 - Download during the gap and verify → "no attestation found" → treat as
   untrusted, retry later.
@@ -213,6 +213,10 @@ fine because the SLSA contract is "consumer runs the verifier", not
   the artifact. Broken provenance reaching the store does no harm; the
   verify step is what's load-bearing.
 - Download without verifying → you've opted out of SLSA's guarantees.
+
+The go build type has no such gap: goreleaser only builds, and the verify
+job is what uploads the attested archives + `checksums.txt` to the release —
+so nothing is published before it is attested.
 
 ## Ecosystem-native checks (Python / npm)
 

@@ -1,27 +1,24 @@
 #!/bin/bash
 # Writes the GitHub Actions step summary for the Go release composite.
-# Renders a markdown table with project / version / published flag,
-# plus a list of every file in <dist_dir>/.
+# Renders a markdown table with project / version, plus a list of
+# every file in <dist_dir>/.
 #
-# Usage: build/actions/go/release/generate_summary.sh <input_path> <version> <published>
+# Usage: build/actions/go/release/generate_summary.sh <input_path> <version>
 #
 #   input_path: project directory (used as the "Project" label and
 #               to locate dist/).
 #   version:    the release version (tag or "snapshot").
-#   published:  "true" or "false" — surfaces whether goreleaser
-#               actually published vs. ran in snapshot mode.
 
 set -euo pipefail
 set -f  # processes external arguments — disable globbing per CLAUDE.md
 
-if [[ $# -ne 3 ]]; then
-    printf 'Usage: %s <input_path> <version> <published>\n' "$0" >&2
+if [[ $# -ne 2 ]]; then
+    printf 'Usage: %s <input_path> <version>\n' "$0" >&2
     exit 1
 fi
 
 INPUT_PATH="$1"
 VERSION="$2"
-PUBLISHED="$3"
 
 if [[ -z "${GITHUB_STEP_SUMMARY:-}" ]]; then
     printf 'Note: GITHUB_STEP_SUMMARY not set; printing to stdout instead.\n'
@@ -35,7 +32,6 @@ fi
     printf '| | |\n|---|---|\n'
     printf '| **Project** | %s |\n' "$INPUT_PATH"
     printf '| **Version** | %s |\n' "$VERSION"
-    printf '| **Published** | %s |\n' "$PUBLISHED"
     printf '| **Artifacts** | |\n'
     # Expand dist/* inside a subshell so globbing is restored on every
     # exit path — a bare `set +f` here would leak glob-enabled state to

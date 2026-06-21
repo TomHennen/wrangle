@@ -83,7 +83,7 @@ inputs:
     required: false
     default: "true"
   build-type:
-    description: "Build type (go/python/npm/container) — for go, goreleaser owns the dist on the release so wrangle attaches the bundle + metadata zip only."
+    description: "Build type (go/python/npm/container)."
     required: false
     default: ""
   dist-dir:
