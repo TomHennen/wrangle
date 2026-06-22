@@ -63,6 +63,9 @@ jobs:
 
 Once they've done this they'll get tests executed, vuln scanning, attestations, etc.
 
+> [!NOTE]
+> The build pipelines (Go, Python, npm, Container) don't work on user-owned private repos yet — see [the FAQ](docs/FAQ.md#can-i-use-wrangle-on-a-private-repo).
+
 Wrangle requires Dependabot so your dependencies and action pins keep updating automatically. It can't turn Dependabot on
 for you, but it does check you've set it up: a missing config fails the source scan until you fix it (or suppress the
 finding). Copy gh_workflow_examples/dependabot.yml to .github/dependabot.yml and tailor it to your ecosystem.
