@@ -87,7 +87,7 @@ runs:
         path: ${{ steps.names.outputs.metadata-dir }}/
 
     # TODO: replace with $/actions/verify when GitHub ships $/ syntax (#136)
-    - uses: TomHennen/wrangle/actions/verify@8d07711faa1fae341bcb09d381f046cec2e003ee # declutter-artifacts-493 2026-06-21
+    - uses: TomHennen/wrangle/actions/verify@de14f755ac78854bdcbd16ac94974eb8c5599b57 # main 2026-06-22
       with:
         dist-files: ${{ inputs.dist-files }}
         subjects: ${{ inputs.subjects }}
