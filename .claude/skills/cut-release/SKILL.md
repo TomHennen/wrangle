@@ -110,18 +110,19 @@ All three must hold before you ask the owner to cut. Do not shortcut.
 
 ## Phase 5 — Cut the tag and publish the Release
 
-Only after the owner says "cut it":
+Only after the owner says "cut it". First write the notes **benefit-first, second
+person** — what the adopter gains, not a changelog of internal wins or code structure;
+mention the producer/consumer policies that let adopters check the evidence. Then:
 
 ```bash
-gh release create vX.Y.Z --target <commit> --title vX.Y.Z --generate-notes --latest
+gh release create vX.Y.Z --target <commit> --title vX.Y.Z --notes-file release-notes.md --latest
 ```
 
 - Pick the exact `main` commit that carries the converged pins and bumped refs.
+- Pass the hand-written notes via `--notes-file`. Don't use `--generate-notes` for the
+  final notes — it emits an auto-changelog, not the benefit-first prose.
 - Tag immutability (immutable releases + a no-bypass tag ruleset) is **already configured
   on the repo** — one-time setup, not redone per release (see RELEASING.md).
-- Write release notes **benefit-first, second person** — what the adopter gains, not a
-  changelog of internal wins or code structure. Mention the producer/consumer policies
-  that let adopters check the evidence.
 - `goreleaser` needs a semver-parseable tag — `vX.Y.Z` is fine; never a `pr-<n>` form.
 
 ## After cutting
