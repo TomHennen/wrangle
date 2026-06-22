@@ -39,8 +39,9 @@ tools/converge_action_pins.sh          # bump → commit → repeat until reacha
 ```
 
 - `converge_action_pins.sh` can emit **more than one commit** (one per nesting level).
-  Land them as a **merge commit or a direct push to `main` — never a squash**, or the
-  intermediate branch-SHA pins re-orphan and `main` goes red.
+  Land them via a PR merged as a **merge commit — never a squash** (direct pushes to
+  `main` are blocked by branch protection), or the intermediate branch-SHA pins re-orphan
+  and `main` goes red.
 - **Footgun — pin labels.** `bump_action_pins.sh` writes `# main` only when the target
   SHA is an ancestor of local `main`; otherwise it writes the *current branch name*. So
   bump/converge **after** the content is on `main` (or run detached at `origin/main`) to
@@ -60,20 +61,22 @@ git grep -nE 'TomHennen/wrangle.*@[0-9a-f]{40}' -- "${dirs[@]}" \
 
 ## Phase 2 — Bump adopter-facing version refs
 
-Adopters pin `uses: TomHennen/wrangle/...@vX.Y.Z`. Bump every adopter-facing ref from
-the previous tag to the new one (28 refs across 17 files at v0.3.0). Find them, then
-replace — there is no helper script, so do it deliberately and review the diff:
+Adopters pin wrangle's reusable workflows at a release tag. Bump every adopter-facing
+tag pin from the current latest to the new version. There's no helper script and no
+hardcoded list — discover the surface each time, then replace and review the diff:
 
 ```bash
-PREV=v0.3.0; NEW=v0.4.0          # set to the real versions
+PREV=$(gh release view --json tagName -q .tagName)   # current latest
+NEW=v0.0.0                                            # set to the release you're cutting
 grep -rlE "TomHennen/wrangle[^ ]*@${PREV}" \
   --include='*.yml' --include='*.yaml' --include='*.md' . | grep -v '\.claude/'
-# Surface: gh_workflow_examples/*, build/actions/*/README.md, actions/*/README.md,
-# README.md, docs/{FAQ,SPEC,verifying_artifacts}.md (incl. policy-locator URLs).
 ```
 
-Do **not** touch third-party action refs (e.g. `@v8.1.0`) or test fixtures. The bump is
-a normal PR — owner `LGTM` required.
+The surface is the example workflows, the per-build-type and action READMEs, the
+top-level README, and `docs/` (incl. policy-locator URLs). Don't hand-maintain that list:
+`test/test_pin_consistency.bats` fails closed if any adopter-facing pin disagrees on the
+version, so the grep above is the source of truth. Leave third-party action refs and test
+fixtures alone. The bump is a normal PR — owner `LGTM` required.
 
 ## Phase 3 — Milestone & dependabot hygiene
 
