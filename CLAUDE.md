@@ -105,6 +105,7 @@ For throwaway end-to-end experiments before promoting to the integration compani
 ## Contributing process
 
 - Branch from `main` with descriptive names; PRs must pass CI (`make test`), shellcheck, and actionlint cleanly.
+- **Don't delete a branch that's the base of an open stacked PR** — GitHub auto-closes the dependent; rebase dependents onto `main` first (and `--delete-branch` fails from inside a worktree, where `main` is checked out elsewhere).
 - **No merge without an `LGTM` from the repository owner** — green CI alone is never authorization to merge.
 - If a PR fully fixes a tracked issue, close it from the description with a closing keyword (`Fixes #NNN`); if unsure it fully resolves the issue, ask the owner.
 - Update the README and `gh_workflow_examples/` if the adoption interface changes.
