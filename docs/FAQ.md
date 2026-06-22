@@ -84,6 +84,20 @@ Leave immutable releases off on repos using wrangle's Go/Python/npm build types
 until [#407](https://github.com/TomHennen/wrangle/issues/407) moves the attach
 to a draft → attach → publish flow.
 
+## Can I use wrangle on a private repo?
+
+The **source-only** and **shell** workflows run anywhere. The build pipelines
+(Go, Python, npm, Container) don't work on a **user-owned private repo** yet:
+each one persists SLSA provenance to
+[GitHub's attestation store](https://docs.github.com/rest/repos/attestations#create-an-attestation),
+which GitHub doesn't offer for user-owned private repos. The `attest` job fails,
+`verify` is skipped, and no release is published.
+
+Run a build pipeline on a **public repo**, or on a **private repo owned by an
+org** with a plan that includes private attestations. Scan-tool specifics for
+private repos without Advanced Security are [below](#im-on-a-private-repo-without-advanced-security--which-scan-tools-work).
+Tracking: [#597](https://github.com/TomHennen/wrangle/issues/597).
+
 ## I'm on a private repo without Advanced Security — which scan tools work?
 
 Most of the default `scan-tools` work as-is. The SARIF upload to the Security
