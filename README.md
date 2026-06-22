@@ -64,7 +64,7 @@ jobs:
 Once they've done this they'll get tests executed, vuln scanning, attestations, etc.
 
 > [!NOTE]
-> The build pipelines (Go, Python, npm, Container) don't work on a **user-owned private repo** yet — they persist provenance to GitHub's attestation store, which isn't available there, so no release is published. Use a public repo or an org-owned private repo on a plan with private attestations. See [the FAQ](docs/FAQ.md#can-i-use-wrangle-on-a-private-repo).
+> The build pipelines (Go, Python, npm, Container) don't work on user-owned private repos yet — see [the FAQ](docs/FAQ.md#can-i-use-wrangle-on-a-private-repo).
 
 Wrangle requires Dependabot so your dependencies and action pins keep updating automatically. It can't turn Dependabot on
 for you, but it does check you've set it up: a missing config fails the source scan until you fix it (or suppress the

@@ -90,8 +90,9 @@ The **source-only** and **shell** workflows run anywhere. The build pipelines
 (Go, Python, npm, Container) don't work on a **user-owned private repo** yet:
 each one persists SLSA provenance to
 [GitHub's attestation store](https://docs.github.com/rest/repos/attestations#create-an-attestation),
-which GitHub doesn't offer for user-owned private repos. The `attest` job fails,
-`verify` is skipped, and no release is published.
+which GitHub doesn't offer for user-owned private repos. The release fails with
+`Failed to persist attestation: Feature not available for user-owned private
+repositories`, and nothing is published.
 
 Run a build pipeline on a **public repo**, or on a **private repo owned by an
 org** with a plan that includes private attestations. Scan-tool specifics for
