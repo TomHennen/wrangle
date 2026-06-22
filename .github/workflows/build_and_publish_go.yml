@@ -12,6 +12,9 @@ name: "Build, test, and release a Go project with best practices."
 # publishes only what it can attest. Run those from your own job if you
 # need them. The job/permission split (adopter code never holds
 # contents: write) is in build/actions/go/SPEC.md.
+#
+# attestation: disabled publishes an unattested release (no provenance/VSA;
+# scans still gate it) — the path private repos use today (issue #600).
 
 on:
   workflow_call:
@@ -124,6 +127,21 @@ on:
         required: false
         type: string
         default: policies/wrangle-default-go-v1.hjson
+      attestation:
+        description: |
+          Whether to attest the release. One of:
+            - required (default): produce SLSA provenance + a signed VSA and
+              verify against the policy. Fails fast on a private repo — the
+              attestation path persists to GitHub's attestation store and signs
+              to the public Sigstore log, which would leak a private repo's
+              identity and build timing.
+            - disabled: publish an unattested release (scans still gate it, but
+              no provenance, VSA, or bundles). The path private repos use today;
+              full private attestation is tracked in
+              https://github.com/TomHennen/wrangle/issues/600.
+        required: false
+        type: string
+        default: required
     outputs:
       hashes:
         description: "Base64-encoded SHA-256 hashes of built artifacts (for SLSA provenance)"
@@ -167,6 +185,7 @@ jobs:
           build-type: go
           path: ${{ inputs.path }}
           release-events: ${{ inputs.release-events }}
+          attestation: ${{ inputs.attestation }}
 
   # Source scan. A load-bearing (:fail) finding fails this job, which
   # blocks the release on release events (see release.if) — decoupled
@@ -355,7 +374,7 @@ jobs:
   # signing identity, then sign the SBOM + scan/v1 metadata over the built dist
   # and post it to the attestation store — persisted independent of the verdict
   attest:
-    if: ${{ needs.prep.outputs.should-release == 'true' }}
+    if: ${{ needs.prep.outputs.should-release == 'true' && inputs.attestation != 'disabled' }}
     needs: [prep, release]
     runs-on: ubuntu-latest
     permissions:
@@ -386,7 +405,7 @@ jobs:
   # tag's release (created if absent). fail: true therefore DOES block the publish — a failed
   # policy means the bytes are never uploaded — and fails the workflow conclusion.
   verify:
-    if: ${{ needs.prep.outputs.should-release == 'true' }}
+    if: ${{ needs.prep.outputs.should-release == 'true' && inputs.attestation != 'disabled' }}
     needs: [prep, release, attest]
     runs-on: ubuntu-latest
     permissions:
@@ -405,3 +424,23 @@ jobs:
           # resourceUri is the golang module purl consumers pin when verifying;
           # each subject digest is the cryptographic bind.
           context: buildPoint:git+https://github.com/${{ github.repository }},vsa.resourceUri:pkg:golang/${{ needs.release.outputs.module }}@${{ needs.release.outputs.version }}
+
+  # Unattested publish path (attestation: disabled — private repos today). No
+  # attest/verify/VSA/bundle; the scan + checks gates still block the release.
+  # Holds contents: write (create the release, upload dist + checksums.txt + the
+  # SBOM) but NEVER id-token/attestations — there is nothing to sign — and never
+  # re-enables goreleaser's publishers (the contents: write / adopter-code split
+  # in build/actions/go/SPEC.md).
+  publish-unattested:
+    if: ${{ needs.prep.outputs.should-release == 'true' && inputs.attestation == 'disabled' }}
+    needs: [prep, release]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write   # create the release if absent and upload dist + checksums.txt + SBOM
+    steps:
+      # TODO: replace with $/actions/verify_release when GitHub ships $/ syntax (#136)
+      - uses: TomHennen/wrangle/actions/verify_release@bced262e824e11ac234ebb801a9596ff8e0f0e70 # main 2026-06-22
+        with:
+          build-type: go
+          shortname: ${{ needs.prep.outputs.shortname }}
+          attestation: disabled

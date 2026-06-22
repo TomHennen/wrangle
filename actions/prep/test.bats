@@ -24,12 +24,13 @@ setup() {
     [ "$status" -eq 0 ]
 }
 
-@test "prep: gate and names are skipped in guard-only mode (empty build-type)" {
-    # Both the gate and names steps must be gated on a non-empty build-type
-    # so a scan/CI workflow heads with prep without deriving release/names.
+@test "prep: gate, attestation preflight, and names are skipped in guard-only mode (empty build-type)" {
+    # The gate, attestation-preflight, and names steps must all be gated on a
+    # non-empty build-type so a scan/CI workflow heads with prep without
+    # deriving release/names or running the attestation guard.
     run grep -cF "if: \${{ inputs.build-type != '' }}" "$ACTION"
     [ "$status" -eq 0 ]
-    [ "$output" -eq 2 ]
+    [ "$output" -eq 3 ]
 }
 
 @test "prep: should-release falls back to false when the gate is skipped" {

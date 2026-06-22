@@ -87,17 +87,24 @@ to a draft → attach → publish flow.
 ## Can I use wrangle on a private repo?
 
 The **source-only** and **shell** workflows run anywhere. The build pipelines
-(Go, Python, npm, Container) don't work on a **user-owned private repo** yet:
-each one persists SLSA provenance to
-[GitHub's attestation store](https://docs.github.com/rest/repos/attestations#create-an-attestation),
-which GitHub doesn't offer for user-owned private repos. The release fails with
-`Failed to persist attestation: Feature not available for user-owned private
-repositories`, and nothing is published.
+(Go, Python, npm, Container) **can't attest** a private repo yet: attestation
+persists to GitHub's attestation store and signs to the public Sigstore
+transparency log, which would leak the repo's identity and build timing. So on a
+private repo wrangle fails closed by default and offers an **unattested** mode.
 
-Run a build pipeline on a **public repo**, or on a **private repo owned by an
-org** with a plan that includes private attestations. Scan-tool specifics for
-private repos without Advanced Security are [below](#im-on-a-private-repo-without-advanced-security--which-scan-tools-work).
-Tracking: [#597](https://github.com/TomHennen/wrangle/issues/597).
+Set `attestation: disabled` to publish an unattested release — scans and tests
+still gate it, but no SLSA provenance, VSA, or verification bundles are produced.
+Leaving `attestation: required` (the default) on a private repo's release fails
+the run with an actionable message. Public repos attest as before.
+
+Switching a tag between attested and unattested modes on an existing release is
+unsupported — pick one mode per tag (it fails safe, but stale bundles can be left
+beside clobbered assets and consumer verification stays confusing).
+
+Scan-tool specifics for private repos without Advanced Security are
+[below](#im-on-a-private-repo-without-advanced-security--which-scan-tools-work).
+Full private-repo attestation is tracked in
+[#600](https://github.com/TomHennen/wrangle/issues/600).
 
 ## I'm on a private repo without Advanced Security — which scan tools work?
 

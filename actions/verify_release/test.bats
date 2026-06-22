@@ -55,3 +55,20 @@ setup() {
     run grep -F 'build-type: ${{ inputs.build-type }}' "$ACTION"
     [ "$status" -eq 0 ]
 }
+
+@test "verify_release: disabled attestation skips the verify call and the bundle download" {
+    # The unattested path must NOT call actions/verify (no signing) nor download
+    # bundles (none exist). Both are gated on attestation != 'disabled'.
+    run bash -c "grep -A1 'TomHennen/wrangle/actions/verify@' \"$ACTION\" | grep -F \"if: \\\${{ inputs.attestation != 'disabled' }}\""
+    [ "$status" -eq 0 ]
+    run bash -c "grep -B2 'name: \${{ steps.names.outputs.bundles }}' \"$ACTION\" | grep -F \"inputs.attestation != 'disabled'\""
+    [ "$status" -eq 0 ]
+}
+
+@test "verify_release: disabled attestation runs the unattested publish via run_verify.sh attach-unattested" {
+    run grep -F "run_verify.sh\" attach-unattested" "$ACTION"
+    [ "$status" -eq 0 ]
+    # The unattested publish step is gated on the disabled mode.
+    run bash -c "grep -B14 'attach-unattested' \"$ACTION\" | grep -F \"if: \\\${{ inputs.attestation == 'disabled' }}\""
+    [ "$status" -eq 0 ]
+}
