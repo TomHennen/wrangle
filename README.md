@@ -56,7 +56,7 @@ jobs:
       attestations: write     # GitHub-issued SLSA provenance
       actions: read           # source scan: Scorecard reads the Actions API
       security-events: write  # source-scan SARIF -> Security tab
-    uses: TomHennen/wrangle/.github/workflows/build_and_publish_go.yml@v0.2.2 # zizmor: ignore[unpinned-uses] - immutable
+    uses: TomHennen/wrangle/.github/workflows/build_and_publish_go.yml@v0.3.0 # zizmor: ignore[unpinned-uses] - immutable
     with:
       path: "."
 ```
