@@ -905,6 +905,41 @@ _stage_unattested_assets() {
     if grep -q "intoto.jsonl" "$GH_LOG"; then return 1; fi
 }
 
+@test "run_verify attach-unattested: go publishes only checksums-listed archives, not goreleaser bookkeeping" {
+    # goreleaser writes config.yaml / artifacts.json / metadata.json / CHANGELOG.md
+    # into dist/; a flat glob would wrongly publish them. go must mirror the
+    # attested path and publish only the checksums.txt-enumerated archives.
+    _require_zip
+    _install_gh_shim
+    mkdir -p "$TEST_DIR/dist" "$TEST_DIR/meta"
+    : > "$TEST_DIR/dist/app-linux-amd64.tar.gz"
+    printf 'deadbeef  app-linux-amd64.tar.gz\n' > "$TEST_DIR/dist/checksums.txt"
+    : > "$TEST_DIR/dist/config.yaml"
+    : > "$TEST_DIR/dist/artifacts.json"
+    : > "$TEST_DIR/dist/metadata.json"
+    : > "$TEST_DIR/dist/CHANGELOG.md"
+    : > "$TEST_DIR/meta/sbom.spdx.json"
+    export DIST_DIR="$TEST_DIR/dist"
+    export METADATA_ROOT="$TEST_DIR/meta"
+    export METADATA_ZIP_NAME="go-metadata.zip"
+    export BUILD_TYPE="go"
+    export GH_VIEW_SEQ="0"
+    export GH_BODY="$TEST_DIR/body"; : > "$GH_BODY"
+    export GH_NOTES="$TEST_DIR/notes"; : > "$GH_NOTES"
+    run "$SCRIPT" attach-unattested
+    [[ "$status" -eq 0 ]]
+    grep -qx "release upload v1.2.3 $DIST_DIR/app-linux-amd64.tar.gz --clobber" "$GH_LOG"
+    grep -qx "release upload v1.2.3 $DIST_DIR/checksums.txt --clobber" "$GH_LOG"
+    grep -q "release upload v1.2.3 .*go-metadata.zip --clobber" "$GH_LOG"
+    local bk
+    for bk in config.yaml artifacts.json metadata.json CHANGELOG.md; do
+        if grep -qF "$bk" "$GH_LOG"; then
+            printf 'leaked goreleaser bookkeeping: %s\n' "$bk" >&2
+            return 1
+        fi
+    done
+}
+
 @test "run_verify attach-unattested: marks the release body as unattested" {
     _require_zip
     _install_gh_shim

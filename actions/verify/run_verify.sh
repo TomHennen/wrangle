@@ -312,20 +312,40 @@ wrangle_attach_unattested() {
     local ref="$GITHUB_REF_NAME"
     wrangle_ensure_release "$ref" || return 1
     wrangle_mark_release_unattested "$ref" || return 1
-    local listing dist rc=0
+    local dist_dir="${DIST_DIR:-dist}" listing dist rc=0
     listing="$(mktemp "${RUNNER_TEMP:-/tmp}/dist.XXXXXX")"
-    if ! find "${DIST_DIR:-dist}" -maxdepth 1 -type f -print0 | sort -z > "$listing"; then
+    if [[ "${BUILD_TYPE:-}" == "go" ]]; then
+        # Publish only the checksums.txt-enumerated archives + checksums.txt,
+        # mirroring the attested path — goreleaser writes non-artifact bookkeeping
+        # (config.yaml, artifacts.json, metadata.json, …) into dist/ that is not
+        # released.
+        local checksums="$dist_dir/checksums.txt"
+        if [[ ! -f "$checksums" ]]; then
+            rm -f "$listing"
+            printf 'wrangle: go checksums.txt (%s) not found\n' "$checksums" >&2
+            return 1
+        fi
+        local name
+        while IFS= read -r name; do
+            [[ -n "$name" ]] && printf '%s\0' "$dist_dir/$name"
+        done < <(awk '{ print $2 }' "$checksums") > "$listing"
+        printf '%s\0' "$checksums" >> "$listing"
+    elif ! find "$dist_dir" -maxdepth 1 -type f -print0 | sort -z > "$listing"; then
         rm -f "$listing"
-        printf 'wrangle: failed to enumerate dist under %s\n' "${DIST_DIR:-dist}" >&2
+        printf 'wrangle: failed to enumerate dist under %s\n' "$dist_dir" >&2
         return 1
     fi
-    # Fail closed: an empty dist means goreleaser produced nothing to publish.
+    # Fail closed: nothing to publish means the build produced no artifacts.
     if [[ ! -s "$listing" ]]; then
         rm -f "$listing"
-        printf 'wrangle: no dist files to publish under %s\n' "${DIST_DIR:-dist}" >&2
+        printf 'wrangle: no dist files to publish under %s\n' "$dist_dir" >&2
         return 1
     fi
     while IFS= read -r -d '' dist; do
+        if [[ ! -f "$dist" ]]; then
+            printf 'wrangle: artifact %s listed but not found\n' "$dist" >&2
+            rc=1; break
+        fi
         gh release upload "$ref" "$dist" --clobber || { rc=1; break; }
     done < "$listing"
     rm -f "$listing"
