@@ -578,6 +578,40 @@ FAKE
     [[ "$status" -ne 0 ]]
 }
 
+@test "container: attest and verify jobs are gated off when attestation is disabled" {
+    # Unattested mode skips signing entirely; the image, pushed mid-composite in
+    # build, stays live. Otherwise a private repo's release would still attempt
+    # to sign and leak to the public log.
+    local wf="$REPO_ROOT/.github/workflows/build_and_publish_container.yml"
+    run bash -c "sed -n '/^  attest:/,/^  [a-z]/p' \"$wf\" | grep -F \"inputs.attestation != 'disabled'\""
+    [[ "$status" -eq 0 ]]
+    run bash -c "sed -n '/^  verify:/,\$p' \"$wf\" | grep -F \"inputs.attestation != 'disabled'\""
+    [[ "$status" -eq 0 ]]
+}
+
+@test "container: has NO publish-unattested job — the pushed image is the released artifact" {
+    # Unlike the dist-based build types, container has no dist to upload and no
+    # GitHub release to create: build already pushed the image. Disabled mode is
+    # simply attest+verify skipped, so a dist-style publish job would be wrong.
+    local wf="$REPO_ROOT/.github/workflows/build_and_publish_container.yml"
+    run grep -E '^  publish-unattested:' "$wf"
+    [[ "$status" -ne 0 ]]
+}
+
+@test "container: build stages the metadata pre transient only on an attested release" {
+    # The verify job folds its bundle into the final metadata and owns the final
+    # upload. With verify skipped (non-release OR attestation: disabled), build's
+    # sbom + scan/ IS the final metadata artifact, so it must not be left as a
+    # 1-day pre transient that no verify job ever promotes.
+    local wf="$REPO_ROOT/.github/workflows/build_and_publish_container.yml"
+    run bash -c "grep -F \"metadata-pre-artifact-name\" \"$wf\" | grep -F \"inputs.attestation != 'disabled'\""
+    [[ "$status" -eq 0 ]]
+    # The retention-days ternary must carry the same gate: gating the name but
+    # leaving retention at should-release would 1-day-expire the final artifact.
+    run bash -c "grep -F \"retention-days:\" \"$wf\" | grep -F \"inputs.attestation != 'disabled'\""
+    [[ "$status" -eq 0 ]]
+}
+
 @test "container: workflow has NO provenance job and NO slsa generator/verifier ref" {
     # attest-build-provenance is the sole provenance; the verify job is the sole
     # verify. Patterns are narrow on purpose: a bare `slsa-verifier` would

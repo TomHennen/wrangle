@@ -1,5 +1,12 @@
 name: "Build and publish a container using best practices."
 
+# The image is pushed mid-composite in `build` on every event; attest and
+# verify add provenance + a signed VSA + OCI referrers on release. attestation:
+# disabled skips that signing path and leaves the image published but unattested
+# (no provenance/VSA; scans still gate the build) — the path private repos use
+# today (issue #600). There is no GitHub release to mark: the image itself is the
+# released artifact.
+
 on:
   workflow_call:
     inputs:
@@ -90,6 +97,21 @@ on:
         required: false
         type: string
         default: policies/wrangle-default-container-v1.hjson
+      attestation:
+        description: |
+          Whether to attest the pushed image. One of:
+            - required (default): produce SLSA provenance + a signed VSA, push
+              them as OCI referrers, and verify against the policy. Fails fast on
+              a private repo — the attestation path persists to GitHub's
+              attestation store and signs to the public Sigstore log, which would
+              leak a private repo's identity and build timing.
+            - disabled: leave the pushed image unattested (scans still gate the
+              build, but no provenance, VSA, or referrers). The path private repos
+              use today; full private attestation is tracked in
+              https://github.com/TomHennen/wrangle/issues/600.
+        required: false
+        type: string
+        default: required
     secrets:
       gh_token:
         description: "GitHub token with write access"
@@ -131,6 +153,7 @@ jobs:
           build-type: container
           path: ${{ inputs.path }}
           release-events: ${{ inputs.release-events }}
+          attestation: ${{ inputs.attestation }}
 
   # Source scan. The container push happens mid-composite in `build` and
   # is not release-gated, so a load-bearing (:fail) finding must block
@@ -201,17 +224,19 @@ jobs:
         name: ${{ needs.prep.outputs.scan }}
         path: ${{ steps.build.outputs.metadata-dir }}/scan/
 
-    # Non-release: this is the final unified metadata (sbom + scan/). On
-    # release the verify job appends the bundle and owns the final upload.
+    # On an attested release the verify job appends the bundle and owns the final
+    # upload, so build stages only the pre transient. Otherwise (non-release, or
+    # attestation: disabled with no verify job) this sbom + scan/ IS the final
+    # unified metadata.
     - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
       if: always()
       with:
-        name: ${{ needs.prep.outputs.should-release == 'true' && steps.build.outputs.metadata-pre-artifact-name || steps.build.outputs.metadata-artifact-name }}
+        name: ${{ (needs.prep.outputs.should-release == 'true' && inputs.attestation != 'disabled') && steps.build.outputs.metadata-pre-artifact-name || steps.build.outputs.metadata-artifact-name }}
         path: ${{ steps.build.outputs.metadata-dir }}/
         if-no-files-found: warn
-        # Short-retain only the premeta transient (release path); the
-        # non-release artifact is the final deliverable, kept at repo default.
-        retention-days: ${{ needs.prep.outputs.should-release == 'true' && '1' || '' }}
+        # Short-retain only the premeta transient (attested release path); the
+        # final artifact is the deliverable, kept at repo default.
+        retention-days: ${{ (needs.prep.outputs.should-release == 'true' && inputs.attestation != 'disabled') && '1' || '' }}
 
   # Generate SLSA L3 build provenance via GitHub's attestation API, naming THIS
   # reusable workflow as builder.id (its job_workflow_ref) and the Sigstore
@@ -220,7 +245,7 @@ jobs:
   # the verdict (#550). Both run here, in the same job_workflow_ref identity the
   # PolicySet binds, so the move from verify carries no policy change.
   attest:
-    if: ${{ needs.prep.outputs.should-release == 'true' }}
+    if: ${{ needs.prep.outputs.should-release == 'true' && inputs.attestation != 'disabled' }}
     needs: [prep, build]
     runs-on: ubuntu-latest
     permissions:
@@ -262,7 +287,7 @@ jobs:
   # downstream caller jobs) rather than rolling back the live image. Needs
   # `attest` so the provenance referrer the collector reads already exists.
   verify:
-    if: ${{ needs.prep.outputs.should-release == 'true' }}
+    if: ${{ needs.prep.outputs.should-release == 'true' && inputs.attestation != 'disabled' }}
     needs: [prep, build, attest]
     runs-on: ubuntu-latest
     # No contents: write — the container caller grants only contents: read, so

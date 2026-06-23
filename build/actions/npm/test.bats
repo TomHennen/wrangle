@@ -941,3 +941,25 @@ write_pkg_json() {
     run bash -c "sed -n '/^  verify:/,\$p' \"$WORKFLOW\" | grep -E 'needs:.*attest'"
     [[ "$status" -eq 0 ]]
 }
+
+@test "npm: attest and verify jobs are gated off when attestation is disabled" {
+    # Both signing jobs must drop out in the unattested path; otherwise a private
+    # repo's release would still attempt to sign and leak to the public log.
+    run bash -c "sed -n '/^  attest:/,/^  [a-z]/p' \"$WORKFLOW\" | grep -F \"inputs.attestation != 'disabled'\""
+    [[ "$status" -eq 0 ]]
+    run bash -c "sed -n '/^  verify:/,/^  [a-z]/p' \"$WORKFLOW\" | grep -F \"inputs.attestation != 'disabled'\""
+    [[ "$status" -eq 0 ]]
+}
+
+@test "npm: publish-unattested job is the disabled-mode publish and holds only contents: write" {
+    # The unattested release path: gated on attestation == 'disabled', it creates
+    # the release and uploads dist + SBOM via verify_release, and must NOT request
+    # id-token/attestations (nothing to sign).
+    local job
+    job="$(sed -n '/^  publish-unattested:/,$p' "$WORKFLOW")"
+    grep -qF "inputs.attestation == 'disabled'" <<<"$job"
+    grep -qF "attestation: disabled" <<<"$job"
+    grep -qE '^[[:space:]]+contents: write' <<<"$job"
+    run grep -E '^[[:space:]]+(id-token|attestations):' <<<"$job"
+    [[ "$status" -ne 0 ]]
+}
