@@ -1,3 +1,7 @@
+#!/bin/bash
+set -euo pipefail
+set -f
+
 # test/lib/image_test_harness.bash — helpers for testing a tool container
 # image against the wrangle adapter contract:
 #   docker run <image> /src /output  ->  writes /output/output.sarif,

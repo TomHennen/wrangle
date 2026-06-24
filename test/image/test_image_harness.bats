@@ -17,7 +17,7 @@ setup_file() {
 
 setup() {
     load "../lib/bats_helpers"
-    load "../lib/image_test_harness"
+    load "../lib/image_test_harness.sh"
     wrangle_require_docker
 
     TMP_DIR="$(mktemp -d "${BATS_TMPDIR:-/tmp}/wrangle-img.XXXXXX")"

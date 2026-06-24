@@ -10,11 +10,11 @@ COPY tools/ ./tools/
 RUN cd tools && CGO_ENABLED=0 go build -trimpath \
       -o /out/osv-scanner github.com/google/osv-scanner/v2/cmd/osv-scanner
 
-FROM debian:12-slim@sha256:60eac759739651111db372c07be67863818726f754804b8707c90979bda511df
-RUN apt-get update \
- && apt-get install -y --no-install-recommends jq ca-certificates \
- && rm -rf /var/lib/apt/lists/* \
- && useradd -u 1000 -m wrangle
+# Minimal hardened base (Chainguard wolfi); the adapter entrypoint needs a
+# shell + jq, which distroless lacks.
+FROM cgr.dev/chainguard/wolfi-base@sha256:0b613d8101fae27cf76186351db831ab3db25bfb2ec7161e897cd7e22c6413a3
+RUN apk add --no-cache bash jq ca-certificates \
+ && adduser -D -u 1000 wrangle
 COPY --from=build /out/osv-scanner /usr/local/bin/osv-scanner
 # Preserve the tools/osv + lib layout the adapter expects
 # (adapter.sh -> render_md.sh -> ../../lib/sanitize.sh).
