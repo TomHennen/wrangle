@@ -189,7 +189,7 @@ runs:
       # record of record, not this debug bundle.
       env:
         DOCKER_BUILD_RECORD_UPLOAD: "false"
-      with: # zizmor: ignore[template-injection] value is from steps.normalize.outputs, validated against ^[a-zA-Z0-9_./-]+$ and not shell-evaluated
+      with:
         context: ${{ steps.normalize.outputs.context }}
         file: ${{ steps.normalize.outputs.file }}
         push: true
