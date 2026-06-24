@@ -86,20 +86,19 @@ to a draft → attach → publish flow.
 
 ## Can I use wrangle on a private repo?
 
-The **source-only** and **shell** workflows run anywhere. The build pipelines
-(Go, Python, npm, Container) **can't attest** a private repo yet: attestation
-persists to GitHub's attestation store and signs to the public Sigstore
-transparency log, which would leak the repo's identity and build timing. So on a
-private repo wrangle fails closed by default and offers an **unattested** mode.
+Yes, with one limit on the build pipelines. The **source-only** and **shell**
+workflows run anywhere. The build pipelines (Go, Python, npm, Container) can't
+attest a build on a private repo yet — doing so would publish the repo's
+identity and build timing to a public transparency log — so they fail closed by
+default.
 
-Set `attest-and-verify: disabled` to publish an unattested release — scans and
-tests still gate it, but no SLSA provenance, VSA, or verification bundles are
-produced. Leaving `attest-and-verify: required` (the default) on a private repo's
-release fails the run with an actionable message. Public repos attest as before.
+To ship from a private repo, set **`attest-and-verify: disabled`**: you still
+get tests, scanning, an SBOM, and a published release with checksums — just no
+SLSA provenance or VSA. The default (`required`) instead fails the run with a
+message telling you to switch. Public repos attest as before.
 
-Switching a tag between attested and unattested modes on an existing release is
-unsupported — pick one mode per tag (it fails safe, but stale bundles can be left
-beside clobbered assets and consumer verification stays confusing).
+Pick one mode per tag: switching an existing release between attested and
+unattested is unsupported.
 
 Scan-tool specifics for private repos without Advanced Security are
 [below](#im-on-a-private-repo-without-advanced-security--which-scan-tools-work).

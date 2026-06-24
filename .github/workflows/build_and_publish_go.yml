@@ -421,8 +421,7 @@ jobs:
       always() && !cancelled() &&
       needs.prep.outputs.should-release == 'true' &&
       needs.release.result == 'success' &&
-      (needs.verify.result == 'success' ||
-       (needs.verify.result == 'skipped' && needs.prep.outputs.should-attest != 'true'))
+      (needs.prep.outputs.should-attest != 'true' || needs.verify.result == 'success')
     needs: [prep, release, verify]
     runs-on: ubuntu-latest
     permissions:

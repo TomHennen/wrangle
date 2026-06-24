@@ -884,7 +884,7 @@ SHIM
 _stage_unattested_assets() {
     mkdir -p "$TEST_DIR/dist" "$TEST_DIR/meta"
     : > "$TEST_DIR/dist/app-linux-amd64.tar.gz"
-    : > "$TEST_DIR/dist/checksums.txt"
+    printf 'deadbeef  app-linux-amd64.tar.gz\n' > "$TEST_DIR/dist/checksums.txt"
     : > "$TEST_DIR/meta/sbom.spdx.json"
     export DIST_DIR="$TEST_DIR/dist"
     export METADATA_ROOT="$TEST_DIR/meta"
@@ -905,10 +905,10 @@ _stage_unattested_assets() {
     if grep -q "intoto.jsonl" "$GH_LOG"; then return 1; fi
 }
 
-@test "run_verify attach-unattested: go publishes only checksums-listed archives, not goreleaser bookkeeping" {
-    # goreleaser writes config.yaml / artifacts.json / metadata.json / CHANGELOG.md
-    # into dist/; a flat glob would wrongly publish them. go must mirror the
-    # attested path and publish only the checksums.txt-enumerated archives.
+@test "run_verify attach-unattested: a checksums manifest scopes the upload, excluding build-tool bookkeeping" {
+    # A build tool (e.g. goreleaser) writes config.yaml / artifacts.json /
+    # metadata.json / CHANGELOG.md into dist/; a flat glob would wrongly publish
+    # them. With a checksums manifest present, publish only its entries.
     _require_zip
     _install_gh_shim
     mkdir -p "$TEST_DIR/dist" "$TEST_DIR/meta"
@@ -922,7 +922,6 @@ _stage_unattested_assets() {
     export DIST_DIR="$TEST_DIR/dist"
     export METADATA_ROOT="$TEST_DIR/meta"
     export METADATA_ZIP_NAME="go-metadata.zip"
-    export BUILD_TYPE="go"
     export GH_VIEW_SEQ="0"
     export GH_BODY="$TEST_DIR/body"; : > "$GH_BODY"
     export GH_NOTES="$TEST_DIR/notes"; : > "$GH_NOTES"
@@ -938,6 +937,28 @@ _stage_unattested_assets() {
             return 1
         fi
     done
+}
+
+@test "run_verify attach-unattested: with no checksums manifest, uploads every flat dist file (npm/python)" {
+    # Build types without a checksums manifest (their dist holds only real
+    # artifacts) publish the flat dist — no manifest scoping, no build-type branch.
+    _require_zip
+    _install_gh_shim
+    mkdir -p "$TEST_DIR/dist" "$TEST_DIR/meta"
+    : > "$TEST_DIR/dist/pkg-1.0.0-py3-none-any.whl"
+    : > "$TEST_DIR/dist/pkg-1.0.0.tar.gz"
+    : > "$TEST_DIR/meta/sbom.spdx.json"
+    export DIST_DIR="$TEST_DIR/dist"
+    export METADATA_ROOT="$TEST_DIR/meta"
+    export METADATA_ZIP_NAME="python-metadata.zip"
+    export GH_VIEW_SEQ="0"
+    export GH_BODY="$TEST_DIR/body"; : > "$GH_BODY"
+    export GH_NOTES="$TEST_DIR/notes"; : > "$GH_NOTES"
+    run "$SCRIPT" attach-unattested
+    [[ "$status" -eq 0 ]]
+    grep -qx "release upload v1.2.3 $DIST_DIR/pkg-1.0.0-py3-none-any.whl --clobber" "$GH_LOG"
+    grep -qx "release upload v1.2.3 $DIST_DIR/pkg-1.0.0.tar.gz --clobber" "$GH_LOG"
+    grep -q "release upload v1.2.3 .*python-metadata.zip --clobber" "$GH_LOG"
 }
 
 @test "run_verify attach-unattested: marks the release body as unattested" {

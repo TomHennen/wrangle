@@ -16,9 +16,9 @@
 #          if one exists. Inputs: BUNDLE_OUT, BUILD_TYPE, DIST_DIR,
 #          METADATA_ROOT (zipped into the metadata asset), METADATA_ZIP_NAME.
 #   attach-unattested  the disabled-attestation publish: no bundles/VSAs, so
-#          upload every dist file (go: archives + checksums.txt) and the metadata
-#          zip (sbom + scan/), and mark the release body unattested. Inputs:
-#          DIST_DIR, METADATA_ROOT, METADATA_ZIP_NAME.
+#          upload the release artifacts (a checksums manifest scopes them when
+#          present, else the flat dist) and the metadata zip, and mark the
+#          release body unattested. Inputs: DIST_DIR, METADATA_ROOT, METADATA_ZIP_NAME.
 #
 # Arg-builder functions are pure so unit tests can assert the CLI shape offline.
 # Inputs arrive as env vars: SUBJECTS (newline-separated), POLICY, COLLECTOR,
@@ -312,19 +312,12 @@ wrangle_attach_unattested() {
     local ref="$GITHUB_REF_NAME"
     wrangle_ensure_release "$ref" || return 1
     wrangle_mark_release_unattested "$ref" || return 1
-    local dist_dir="${DIST_DIR:-dist}" listing dist rc=0
+    local dist_dir="${DIST_DIR:-dist}" checksums="${DIST_DIR:-dist}/checksums.txt" listing dist rc=0
     listing="$(mktemp "${RUNNER_TEMP:-/tmp}/dist.XXXXXX")"
-    if [[ "${BUILD_TYPE:-}" == "go" ]]; then
-        # Publish only the checksums.txt-enumerated archives + checksums.txt,
-        # mirroring the attested path — goreleaser writes non-artifact bookkeeping
-        # (config.yaml, artifacts.json, metadata.json, …) into dist/ that is not
-        # released.
-        local checksums="$dist_dir/checksums.txt"
-        if [[ ! -f "$checksums" ]]; then
-            rm -f "$listing"
-            printf 'wrangle: go checksums.txt (%s) not found\n' "$checksums" >&2
-            return 1
-        fi
+    if [[ -f "$checksums" ]]; then
+        # A checksums manifest enumerates exactly the released artifacts, so scope
+        # the upload to it + the manifest — excluding any build-tool bookkeeping
+        # dropped into dist/ (e.g. goreleaser's config.yaml, artifacts.json).
         local name
         while IFS= read -r name; do
             [[ -n "$name" ]] && printf '%s\0' "$dist_dir/$name"

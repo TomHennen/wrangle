@@ -749,10 +749,10 @@ write_pyproject() {
 
 @test "python: publish job is blocked on a failed verify (policy gate preserved)" {
     # LOAD-BEARING. publish must require verify success whenever attesting, and
-    # the skipped-verify escape must be gated on should-attest != 'true'.
+    # publish requires verify success unless unattested (should-attest != 'true').
     local job
     job="$(awk '/^  [a-z][a-z_-]*:$/ { in_section = ($0 == "  publish:") } in_section' "$WORKFLOW")"
     grep -qF "needs.verify.result == 'success'" <<<"$job"
-    grep -qF "needs.verify.result == 'skipped' && needs.prep.outputs.should-attest != 'true'" <<<"$job"
+    grep -qF "needs.prep.outputs.should-attest != 'true' || needs.verify.result == 'success'" <<<"$job"
     grep -qF "needs.prep.outputs.should-release == 'true'" <<<"$job"
 }
