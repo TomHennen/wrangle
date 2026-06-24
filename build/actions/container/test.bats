@@ -69,6 +69,88 @@ teardown() {
     grep -q '^shortname=$' "$GITHUB_OUTPUT"
 }
 
+# --- Build context / dockerfile selection (#596) ---
+
+@test "container: default (no dockerfile) builds the <path> subdir as context, empty file" {
+    # The self-contained-app-dir default: context is the path subdirectory's
+    # own Dockerfile, file empty. This is the pre-#596 behavior and MUST be
+    # byte-identical for existing callers.
+    run "$ACTION_DIR/validate_inputs.sh" "pkg/foo" "ghcr.io" "ghcr.io/owner/img" "enabled"
+    [[ "$status" -eq 0 ]]
+    grep -qx 'context={{defaultContext}}:pkg/foo' "$GITHUB_OUTPUT"
+    grep -qx 'file=' "$GITHUB_OUTPUT"
+}
+
+@test "container: empty dockerfile arg is treated as the default" {
+    # An explicitly-empty dockerfile (the workflow passes "" by default) must
+    # behave exactly like omitting it — context = path subdir, file empty.
+    run "$ACTION_DIR/validate_inputs.sh" "pkg/foo" "ghcr.io" "ghcr.io/owner/img" "enabled" ""
+    [[ "$status" -eq 0 ]]
+    grep -qx 'context={{defaultContext}}:pkg/foo' "$GITHUB_OUTPUT"
+    grep -qx 'file=' "$GITHUB_OUTPUT"
+}
+
+@test "container: dockerfile set builds the repo root as context with the Dockerfile at that subpath" {
+    run "$ACTION_DIR/validate_inputs.sh" "tools/img" "ghcr.io" "ghcr.io/owner/img" "enabled" "tools/img/Dockerfile"
+    [[ "$status" -eq 0 ]]
+    grep -qx 'context={{defaultContext}}' "$GITHUB_OUTPUT"
+    grep -qx 'file=tools/img/Dockerfile' "$GITHUB_OUTPUT"
+    # path still drives shortname/metadata naming in the dockerfile case.
+    grep -qx 'shortname=tools_img' "$GITHUB_OUTPUT"
+}
+
+@test "container: dockerfile input is validated — absolute path rejected" {
+    run "$ACTION_DIR/validate_inputs.sh" "tools/img" "ghcr.io" "ghcr.io/owner/img" "enabled" "/etc/Dockerfile"
+    [[ "$status" -ne 0 ]]
+    [[ "$output" == *"path must be relative"* ]]
+}
+
+@test "container: dockerfile input is validated — traversal rejected" {
+    run "$ACTION_DIR/validate_inputs.sh" "tools/img" "ghcr.io" "ghcr.io/owner/img" "enabled" "../../etc/Dockerfile"
+    [[ "$status" -ne 0 ]]
+    [[ "$output" == *"traversal"* ]]
+}
+
+@test "container: dockerfile input is validated — bad characters rejected" {
+    run "$ACTION_DIR/validate_inputs.sh" "tools/img" "ghcr.io" "ghcr.io/owner/img" "enabled" 'tools/img/Docker;file'
+    [[ "$status" -ne 0 ]]
+    [[ "$output" == *"invalid characters in path"* ]]
+}
+
+@test "container: action.yml exposes a dockerfile input defaulting to empty" {
+    run grep -E '^  dockerfile:' "$ACTION_DIR/action.yml"
+    [[ "$status" -eq 0 ]]
+    run bash -c "sed -n '/^  dockerfile:/,/^  [a-z]/p' \"$ACTION_DIR/action.yml\" | grep -E 'default:[[:space:]]*\"\"'"
+    [[ "$status" -eq 0 ]]
+}
+
+@test "container: action.yml passes dockerfile to validate_inputs.sh" {
+    run grep -E 'validate_inputs.sh.*INPUT_DOCKERFILE' "$ACTION_DIR/action.yml"
+    [[ "$status" -eq 0 ]]
+}
+
+@test "container: reusable workflow exposes a dockerfile input and threads it to the composite" {
+    local wf="$REPO_ROOT/.github/workflows/build_and_publish_container.yml"
+    run grep -E '^      dockerfile:' "$wf"
+    [[ "$status" -eq 0 ]]
+    run grep -F 'dockerfile: ${{ inputs.dockerfile }}' "$wf"
+    [[ "$status" -eq 0 ]]
+}
+
+@test "container: build-push reads context and file from the normalize step (no inline {{defaultContext}} ternary)" {
+    # context/file are computed in validate_inputs.sh and read back as step
+    # outputs, never assembled with an inline GHA expression in the with:
+    # block — that would force {{defaultContext}} brace-escaping and reopen
+    # the template-injection surface this normalization closes.
+    run grep -F 'context: ${{ steps.normalize.outputs.context }}' "$ACTION_DIR/action.yml"
+    [[ "$status" -eq 0 ]]
+    run grep -F 'file: ${{ steps.normalize.outputs.file }}' "$ACTION_DIR/action.yml"
+    [[ "$status" -eq 0 ]]
+    # The old inline form must not creep back.
+    run grep -F 'context: "{{defaultContext}}:${{ steps.normalize.outputs.path }}"' "$ACTION_DIR/action.yml"
+    [[ "$status" -ne 0 ]]
+}
+
 # --- Cache gating (SLSA L3 isolation, #224 / SLSA_L3_AUDIT.md Finding 2) ---
 
 @test "container: validate_inputs.sh accepts every cache policy value" {

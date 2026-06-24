@@ -7,6 +7,17 @@ on:
         description: "A path, within the repo, to the folder containiner a Dockerfile you want to build."
         required: true
         type: string
+      dockerfile:
+        description: |
+          Optional relative path to a Dockerfile when the build needs
+          repo-root files (e.g. a monorepo tool image that COPYs sources from
+          outside `path`). Empty (default) builds the `path` subdirectory as
+          the context with its own Dockerfile; set, it builds the repo root as
+          the context with the Dockerfile at this subpath. `path` still drives
+          the metadata short name in both cases.
+        required: false
+        type: string
+        default: ""
       imagename:
         description: "The full path, including registry, specifying where the image should be published."
         required: true
@@ -171,6 +182,7 @@ jobs:
       uses: TomHennen/wrangle/build/actions/container@bced262e824e11ac234ebb801a9596ff8e0f0e70 # main 2026-06-22
       with:
         path: ${{ inputs.path }}
+        dockerfile: ${{ inputs.dockerfile }}
         imagename: ${{ inputs.imagename }}
         registry: ${{ inputs.registry }}
         github_token: ${{ secrets.GITHUB_TOKEN }}

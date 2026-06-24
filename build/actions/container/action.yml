@@ -8,6 +8,17 @@ inputs:
   path:
     description: "Relative path within the repo to the folder containing a Dockerfile."
     required: true
+  dockerfile:
+    description: |
+      Optional relative path to a Dockerfile when the build needs repo-root
+      files (e.g. a monorepo tool image whose Dockerfile COPYs sources from
+      outside `path`). When empty (default), the build context is the `path`
+      subdirectory and its Dockerfile is read from that directory's root —
+      the self-contained-app-dir default. When set, the build context is the
+      repo root and the Dockerfile is read from this subpath. `path` still
+      drives the short name / metadata naming in both cases.
+    required: false
+    default: ""
   imagename:
     description: "Full image name (e.g., ghcr.io/owner/repo/image)"
     required: true
@@ -94,9 +105,10 @@ runs:
         INPUT_PATH: ${{ inputs.path }}
         INPUT_REGISTRY: ${{ inputs.registry }}
         INPUT_CACHE: ${{ inputs.cache }}
+        INPUT_DOCKERFILE: ${{ inputs.dockerfile }}
       run: |
         set -euo pipefail
-        "${{ github.action_path }}/validate_inputs.sh" "$INPUT_PATH" "$INPUT_REGISTRY" "$INPUT_IMAGENAME" "$INPUT_CACHE"
+        "${{ github.action_path }}/validate_inputs.sh" "$INPUT_PATH" "$INPUT_REGISTRY" "$INPUT_IMAGENAME" "$INPUT_CACHE" "$INPUT_DOCKERFILE"
 
     - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
       with:
@@ -184,8 +196,9 @@ runs:
       # record of record, not this debug bundle.
       env:
         DOCKER_BUILD_RECORD_UPLOAD: "false"
-      with: # zizmor: ignore[template-injection] value is from steps.normalize.outputs.path, validated against ^[a-zA-Z0-9_./-]+$ and not shell-evaluated
-        context: "{{defaultContext}}:${{ steps.normalize.outputs.path }}"
+      with: # zizmor: ignore[template-injection] context/file come from steps.normalize.outputs, computed from path + dockerfile each validated against ^[a-zA-Z0-9_./-]+$ and not shell-evaluated
+        context: ${{ steps.normalize.outputs.context }}
+        file: ${{ steps.normalize.outputs.file }}
         push: true
         tags: ${{ steps.meta.outputs.tags }}
         labels: ${{ steps.meta.outputs.labels }}
