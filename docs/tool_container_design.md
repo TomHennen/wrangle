@@ -96,10 +96,11 @@ input may be a built artifact, not source.
 
 **Output handling.** A tool's *primary* output (above) drives gating. Beyond it, wrangle gives specific
 filenames special handling — `output.sarif` feeds the result/Security-tab upload, `output.md` feeds the
-GHA step summary — and **persists anything else the tool writes to `/output`** into the published
-metadata (and thus the signed attestation). So the contract is "write your primary output; write
-`output.md` if you have a human-readable summary; anything else under `/output` is carried along," not a
-fixed file list.
+GHA step summary — and **carries anything else the tool writes to `/output`** into the published
+metadata. Not everything in that metadata is signed: for a scan tool the SARIF is the attested artifact;
+`output.md` and any extra files are propagated as metadata without promising a signature over each. So
+the contract is "write your primary output (the gated/attested one); write `output.md` for a
+human-readable summary; anything else under `/output` is carried along," not a fixed file list.
 
 ### 3.4 Packaging
 
@@ -146,11 +147,10 @@ thing for the pin tooling to track and for adopters to read.
   tool version. Wrangle bumps a digest when it updates a tool.
 - **Selection stays short-name + policy** — the existing `tools: "osv zizmor:info …"` interface is
   unchanged; a name resolves through the catalog to an image.
-- **Overrides** are an adopter-supplied catalog fragment (a different digest for a built-in, or a whole
-  new tool). Because selection is by short name, an adopter can swap in a *different* tool that does the
-  same job — not just a different image of the same tool. An override is a pin the adopter now owns the
-  freshness of; wrangle can offer rails (a `docker` Dependabot entry, a lint warning on a stale
-  override) but cannot vouch for an image it does not control.
+- **Overrides** are an adopter-supplied catalog fragment — a different digest for a built-in tool, or a
+  new tool under its own name. An override is a pin the adopter now owns the freshness of; wrangle can
+  offer rails (a `docker` Dependabot entry, a lint warning on a stale override) but cannot vouch for an
+  image it does not control.
 
 ### 3.7 Capability declaration
 
@@ -193,6 +193,12 @@ tools:
 
 (During migration a catalog entry may carry `delivery: adapter` to keep running the old in-process
 adapter for a tool not yet containerized; the default is `delivery: image`. See §10.)
+
+A catalog entry may also carry an optional `command:`/`args:`, so several tools can share **one** image
+(a unified `wrangle` binary or a toolbox image) selected by command rather than a separate image per
+tool — handy for the owned-Go tools (§3.4) and for a BYO image that exposes more than one tool. The
+capability rules (§3.7) and least-privilege defaults still apply per entry; the cost is a larger
+per-entry surface to validate (§8).
 
 **Adopter — selecting tools** (pin wrangle, choose which to run, optionally point at an override file):
 
