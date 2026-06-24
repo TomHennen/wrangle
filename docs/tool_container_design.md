@@ -390,6 +390,19 @@ Consequences:
   "built by wrangle's builder from wrangle's repo," not "commit == release tag," so this is expected, not
   a gap.
 
+Two further wrinkles, both consistent with how wrangle already works but worth writing down:
+- **Tool images are wrangle-built, not official upstream tags.** osv ships as `ghcr.io/<org>/wrangle/osv`,
+  built from the canonical package manager — *not* Google's official osv image. That can look odd, but
+  it's the same trust posture adopters already accept for wrangle's actions and workflows (also
+  wrangle-built, not upstream); the manifest-preserving build (§3.4) is what makes it worth doing.
+- **"Is this image meant for distribution?" is answered by the signed VSA, not the tag.** A released tool
+  image carries a wrangle-signed VSA (from the verify step) proving it passed policy; an
+  intermediate/unreleased build does not. So provenance + VSA distinguish a distributable tool image —
+  inspecting provenance alone won't.
+
+Doc follow-ups when this lands: the **FAQ** (why a tool image is wrangle-built rather than the upstream
+official one) and **RELEASING.md** (the tool-image build → bump → tag steps above).
+
 ### 11.1 The deferred wrangle-tools split
 
 The single-repo model carries an inherent self-bootstrap (the repo references artifacts built from
