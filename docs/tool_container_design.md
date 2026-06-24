@@ -361,3 +361,52 @@ model. Still open:
    contract test.
 7. **Revisit the held items** — the attest/verify toolbox (with its speed + VSA-caching payoff, §7) and
    the adopter container value-add, each on its own merits.
+
+## 11. Release lifecycle
+
+A digest-referenced image can't be built from the commit that references it — the image must be
+published before its digest is known. So there is always a one-commit skew between the image (built from
+commit C) and the catalog entry naming its digest (commit C+1). This is the same self-bootstrap the
+nested-action-SHA pins already carry, on a second axis (image digests).
+
+The model that makes this work: **a tool image is an immutable, independently-versioned artifact — the
+digest *is* its version — and a wrangle release references a consistent set of current digests. Cutting a
+release does not rebuild or re-tag tool images.**
+
+- **Tool change** — a PR edits `tools/<tool>/Dockerfile` or its go.mod; on merge to main, CI builds and
+  publishes the image (with provenance) → a new digest; an automated follow-up PR bumps the catalog
+  entry to that digest under the WL005 cooldown, exactly like a Dependabot bump. One source PR + one bot
+  bump PR — not a manual double-bump. A catalog-only digest change touches no Dockerfile, so it triggers
+  no rebuild (no loop).
+- **Release tag** — precondition: the catalog is fresh (every digest is the image built from the current
+  tool source — the §6 freshness/ancestry check, extended to OCI digests). Then tag. No image is built
+  or re-tagged at release time.
+
+Consequences:
+- The catalog at a release commit references images built from *ancestor* commits. That is correct as
+  long as the tool's definition is unchanged between the image's build commit and the release — exactly
+  what the freshness check guarantees. The skew is bounded to the bump commit.
+- A tool image's provenance names *its* build commit, not the release tag. Verification policy checks
+  "built by wrangle's builder from wrangle's repo," not "commit == release tag," so this is expected, not
+  a gap.
+
+### 11.1 The deferred wrangle-tools split
+
+The single-repo model carries an inherent self-bootstrap (the repo references artifacts built from
+itself). A separate `wrangle-tools` repo would remove it: wrangle would consume *external* tool images
+like any third-party dependency — normal cooldown/pin flow, clean dependency direction. The cost is a
+second repo's CI/release overhead and cross-repo coordination (a change spanning a tool *and* a workflow
+becomes two ordered PRs in two repos) — likely more day-to-day friction than the in-repo freshness
+approach for a project this size. **Prove the in-repo model first; split only if the self-bootstrap skew
+proves painful.** It is a reversible follow-on.
+
+The split's real complication is shared libs. The libs tools need are **not disjoint** from what wrangle
+proper needs — e.g. `lib/sanitize.sh` is used by both a tool (`render_md.sh`) and wrangle proper
+(step-summary rendering). So a split can't cleanly put libs on one side, and every option is costly:
+duplicate the libs (drift), add a third `wrangle-lib` repo (more overhead), or fetch libs into the
+Dockerfile from wrangle proper at a pin (a dependency cycle — wrangle references tool images that
+reference wrangle's libs at *some* pin, which goes stale). The clean resolution, if we ever split, is to
+make the in-image tool glue **self-contained** — vendor/inline the small lib bits a tool needs (the
+sanitize logic is tiny) so `wrangle-tools` has zero back-dependency on wrangle proper. That bears on
+today only as a forward-looking lean: if a split feels likely, prefer self-contained tool glue from the
+start; otherwise reaching into shared `lib/` via the repo-root build context (§3.4) is fine in-repo.
