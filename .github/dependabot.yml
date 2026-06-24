@@ -49,3 +49,13 @@ updates:
     open-pull-requests-limit: 5
     cooldown:
       default-days: 7
+
+  # Tool-image and test Dockerfiles: keep pinned base-image digests fresh.
+  - package-ecosystem: "docker"
+    directories:
+      - "/**"
+    schedule:
+      interval: "weekly"
+    open-pull-requests-limit: 5
+    cooldown:
+      default-days: 7
