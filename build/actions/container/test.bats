@@ -478,15 +478,13 @@ FAKE
     [[ "$status" -eq 0 ]]
 }
 
-@test "container: verify job pushes the VSA as its own by-digest OCI referrer (oci-target + attach-to-release false)" {
-    # Container does NOT attach to a release (it produces none); the combined
-    # bundle is the workflow artifact, and the VSA is pushed by image digest as
-    # its own referrer (oci-target), so the verify step turns the release attach
-    # off. The push itself is fail-closed in run_verify.sh.
+@test "container: verify job pushes the VSA as its own by-digest OCI referrer (oci-target)" {
+    # Container produces no release; the combined bundle is the workflow
+    # artifact, and the VSA is pushed by image digest as its own referrer
+    # (oci-target). verify_release has no release-attach step, so there is no
+    # release to turn off. The push itself is fail-closed in run_verify.sh.
     local wf="$REPO_ROOT/.github/workflows/build_and_publish_container.yml"
     run bash -c "sed -n '/^  verify:/,\$p' \"$wf\" | grep -E 'oci-target:'"
-    [[ "$status" -eq 0 ]]
-    run bash -c "sed -n '/^  verify:/,\$p' \"$wf\" | grep -E 'attach-to-release:[[:space:]]*\"false\"'"
     [[ "$status" -eq 0 ]]
 }
 
@@ -566,11 +564,6 @@ FAKE
     [[ "$status" -eq 0 ]]
 }
 
-@test "container: attest job is gated on should-release" {
-    local wf="$REPO_ROOT/.github/workflows/build_and_publish_container.yml"
-    run bash -c "sed -n '/^  attest:/,/^  [a-z]/p' \"$wf\" | grep -E 'if:.*should-release'"
-    [[ "$status" -eq 0 ]]
-}
 
 @test "container: attest job no longer references the verify_attestation action" {
     local wf="$REPO_ROOT/.github/workflows/build_and_publish_container.yml"
@@ -578,37 +571,52 @@ FAKE
     [[ "$status" -ne 0 ]]
 }
 
-@test "container: attest and verify jobs are gated off when attestation is disabled" {
+@test "container: attest and verify jobs are gated on should-attest" {
     # Unattested mode skips signing entirely; the image, pushed mid-composite in
     # build, stays live. Otherwise a private repo's release would still attempt
     # to sign and leak to the public log.
     local wf="$REPO_ROOT/.github/workflows/build_and_publish_container.yml"
-    run bash -c "sed -n '/^  attest:/,/^  [a-z]/p' \"$wf\" | grep -F \"inputs.attestation != 'disabled'\""
+    run bash -c "sed -n '/^  attest:/,/^  [a-z]/p' \"$wf\" | grep -F \"needs.prep.outputs.should-attest == 'true'\""
     [[ "$status" -eq 0 ]]
-    run bash -c "sed -n '/^  verify:/,\$p' \"$wf\" | grep -F \"inputs.attestation != 'disabled'\""
+    run bash -c "sed -n '/^  verify:/,\$p' \"$wf\" | grep -F \"needs.prep.outputs.should-attest == 'true'\""
     [[ "$status" -eq 0 ]]
 }
 
-@test "container: has NO publish-unattested job — the pushed image is the released artifact" {
+@test "container: workflow renames the attestation input to attest-and-verify" {
+    local wf="$REPO_ROOT/.github/workflows/build_and_publish_container.yml"
+    run grep -E '^      attest-and-verify:' "$wf"
+    [[ "$status" -eq 0 ]]
+    run grep -F 'inputs.attestation' "$wf"
+    [[ "$status" -ne 0 ]]
+}
+
+@test "container: prep job exposes should-attest, wired into attest-and-verify" {
+    local wf="$REPO_ROOT/.github/workflows/build_and_publish_container.yml"
+    run bash -c "sed -n '/^  prep:/,/^  [a-z]/p' \"$wf\" | grep -E '^[[:space:]]*should-attest:'"
+    [[ "$status" -eq 0 ]]
+    run grep -F 'attest-and-verify: ${{ inputs.attest-and-verify }}' "$wf"
+    [[ "$status" -eq 0 ]]
+}
+
+@test "container: has NO publish or publish-unattested job — the pushed image is the released artifact" {
     # Unlike the dist-based build types, container has no dist to upload and no
     # GitHub release to create: build already pushed the image. Disabled mode is
-    # simply attest+verify skipped, so a dist-style publish job would be wrong.
+    # simply attest+verify skipped, so any publish job would be wrong.
     local wf="$REPO_ROOT/.github/workflows/build_and_publish_container.yml"
     run grep -E '^  publish-unattested:' "$wf"
+    [[ "$status" -ne 0 ]]
+    run grep -E '^  publish:' "$wf"
     [[ "$status" -ne 0 ]]
 }
 
 @test "container: build stages the metadata pre transient only on an attested release" {
     # The verify job folds its bundle into the final metadata and owns the final
-    # upload. With verify skipped (non-release OR attestation: disabled), build's
-    # sbom + scan/ IS the final metadata artifact, so it must not be left as a
-    # 1-day pre transient that no verify job ever promotes.
+    # upload. With verify skipped (non-release OR unattested), build's sbom +
+    # scan/ IS the final metadata artifact, so the pre transient name is gated on
+    # should-attest — gating it on should-release alone would leave an unattested
+    # release's final metadata as a transient no verify job ever promotes.
     local wf="$REPO_ROOT/.github/workflows/build_and_publish_container.yml"
-    run bash -c "grep -F \"metadata-pre-artifact-name\" \"$wf\" | grep -F \"inputs.attestation != 'disabled'\""
-    [[ "$status" -eq 0 ]]
-    # The retention-days ternary must carry the same gate: gating the name but
-    # leaving retention at should-release would 1-day-expire the final artifact.
-    run bash -c "grep -F \"retention-days:\" \"$wf\" | grep -F \"inputs.attestation != 'disabled'\""
+    run bash -c "grep -F \"metadata-pre-artifact-name\" \"$wf\" | grep -F \"needs.prep.outputs.should-attest == 'true'\""
     [[ "$status" -eq 0 ]]
 }
 

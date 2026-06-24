@@ -708,12 +708,13 @@ write_pkg_json() {
     [[ "$status" -eq 1 ]]
 }
 
-@test "npm: workflow has no publish job (Trusted Publishing OIDC constraint)" {
-    # Publish must be in the adopter's workflow because npm's Trusted
-    # Publishing validates the OIDC token's workflow_ref against the
-    # caller's filename, not the reusable workflow's path.
-    run grep '^  publish:' "$WORKFLOW"
-    [[ "$status" -eq 1 ]]
+@test "npm: workflow has no npm-registry publish job (Trusted Publishing OIDC constraint)" {
+    # npm-registry publish must be in the adopter's workflow because npm's
+    # Trusted Publishing validates the OIDC token's workflow_ref against the
+    # caller's filename. The `publish` job here uploads to a GitHub release, so
+    # assert no `npm publish` step.
+    run grep -E 'npm publish' "$WORKFLOW"
+    [[ "$status" -ne 0 ]]
 }
 
 @test "npm: workflow has a scan job using the scan action" {
@@ -897,11 +898,6 @@ write_pkg_json() {
     [[ "$status" -eq 0 ]]
 }
 
-@test "npm: attest job is gated on should-release" {
-    run bash -c "sed -n '/^  attest:/,/^  [a-z]/p' \"$WORKFLOW\" | grep -E 'if:.*should-release'"
-    [[ "$status" -eq 0 ]]
-}
-
 @test "npm: attest job no longer references the verify_attestation action" {
     run bash -c "sed -n '/^  attest:/,/^  [a-z]/p' \"$WORKFLOW\" | grep 'TomHennen/wrangle/actions/verify_attestation@'"
     [[ "$status" -ne 0 ]]
@@ -942,24 +938,61 @@ write_pkg_json() {
     [[ "$status" -eq 0 ]]
 }
 
-@test "npm: attest and verify jobs are gated off when attestation is disabled" {
-    # Both signing jobs must drop out in the unattested path; otherwise a private
-    # repo's release would still attempt to sign and leak to the public log.
-    run bash -c "sed -n '/^  attest:/,/^  [a-z]/p' \"$WORKFLOW\" | grep -F \"inputs.attestation != 'disabled'\""
+@test "npm: attest and verify jobs are gated on should-attest" {
+    # Both signing jobs drop out unless prep's should-attest is true; otherwise a
+    # private repo's release would still attempt to sign and leak to the public log.
+    run bash -c "sed -n '/^  attest:/,/^  [a-z]/p' \"$WORKFLOW\" | grep -F \"needs.prep.outputs.should-attest == 'true'\""
     [[ "$status" -eq 0 ]]
-    run bash -c "sed -n '/^  verify:/,/^  [a-z]/p' \"$WORKFLOW\" | grep -F \"inputs.attestation != 'disabled'\""
+    run bash -c "sed -n '/^  verify:/,/^  [a-z]/p' \"$WORKFLOW\" | grep -F \"needs.prep.outputs.should-attest == 'true'\""
     [[ "$status" -eq 0 ]]
 }
 
-@test "npm: publish-unattested job is the disabled-mode publish and holds only contents: write" {
-    # The unattested release path: gated on attestation == 'disabled', it creates
-    # the release and uploads dist + SBOM via verify_release, and must NOT request
-    # id-token/attestations (nothing to sign).
-    local job
-    job="$(sed -n '/^  publish-unattested:/,$p' "$WORKFLOW")"
-    grep -qF "inputs.attestation == 'disabled'" <<<"$job"
-    grep -qF "attestation: disabled" <<<"$job"
-    grep -qE '^[[:space:]]+contents: write' <<<"$job"
-    run grep -E '^[[:space:]]+(id-token|attestations):' <<<"$job"
+@test "npm: workflow renames the attestation input to attest-and-verify" {
+    run grep -E '^      attest-and-verify:' "$WORKFLOW"
+    [[ "$status" -eq 0 ]]
+    run grep -F 'inputs.attestation' "$WORKFLOW"
     [[ "$status" -ne 0 ]]
+}
+
+@test "npm: prep job exposes should-attest, wired into attest-and-verify" {
+    run bash -c "sed -n '/^  prep:/,/^  [a-z]/p' \"$WORKFLOW\" | grep -E '^[[:space:]]*should-attest:'"
+    [[ "$status" -eq 0 ]]
+    run grep -F 'attest-and-verify: ${{ inputs.attest-and-verify }}' "$WORKFLOW"
+    [[ "$status" -eq 0 ]]
+}
+
+@test "npm: verify holds id-token + attestations but NOT contents: write" {
+    local job
+    job="$(awk '/^  [a-z][a-z_-]*:$/ { in_section = ($0 == "  verify:") } in_section' "$WORKFLOW")"
+    grep -qE '^      id-token: write' <<<"$job"
+    grep -qE '^      attestations: write' <<<"$job"
+    ! grep -qE '^      contents: write([[:space:]]|$)' <<<"$job"
+}
+
+@test "npm: only the publish job holds contents: write (least privilege)" {
+    for job in scan build attest verify; do
+        section="$(awk -v j="  $job:" '/^  [a-z][a-z_-]*:$/ { in_section = ($0 == j) } in_section' "$WORKFLOW")"
+        ! grep -qE '^      contents: write([[:space:]]|$)' <<<"$section"
+    done
+    section="$(awk '/^  [a-z][a-z_-]*:$/ { in_section = ($0 == "  publish:") } in_section' "$WORKFLOW")"
+    grep -qE '^      contents: write([[:space:]]|$)' <<<"$section"
+}
+
+@test "npm: publish job is the shared release-upload job (contents: write only, no signing)" {
+    local job
+    job="$(awk '/^  [a-z][a-z_-]*:$/ { in_section = ($0 == "  publish:") } in_section' "$WORKFLOW")"
+    grep -qE '^      contents: write([[:space:]]|$)' <<<"$job"
+    ! grep -qE '^      (id-token|attestations):' <<<"$job"
+    grep -qF 'TomHennen/wrangle/actions/publish_release@' <<<"$job"
+    grep -qF 'attest-and-verify: ${{ inputs.attest-and-verify }}' <<<"$job"
+}
+
+@test "npm: publish job is blocked on a failed verify (policy gate preserved)" {
+    # LOAD-BEARING. publish must require verify success whenever attesting, and
+    # the skipped-verify escape must be gated on should-attest != 'true'.
+    local job
+    job="$(awk '/^  [a-z][a-z_-]*:$/ { in_section = ($0 == "  publish:") } in_section' "$WORKFLOW")"
+    grep -qF "needs.verify.result == 'success'" <<<"$job"
+    grep -qF "needs.verify.result == 'skipped' && needs.prep.outputs.should-attest != 'true'" <<<"$job"
+    grep -qF "needs.prep.outputs.should-release == 'true'" <<<"$job"
 }

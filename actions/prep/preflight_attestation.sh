@@ -28,8 +28,15 @@ case "$ATTESTATION" in
         ;;
 esac
 
+# should-attest gates the attest/verify/publish wiring; a written `true` is only
+# ever reached past the private-repo wall below, so it is structurally fail-closed.
+emit_should_attest() {
+    [[ -n "${GITHUB_OUTPUT:-}" ]] && printf 'should-attest=%s\n' "$1" >> "$GITHUB_OUTPUT"
+}
+
 # Only a release run that wants attestation can hit the private-repo wall.
 if [[ "${SHOULD_RELEASE:-false}" != "true" || "$ATTESTATION" != "required" ]]; then
+    emit_should_attest false
     printf 'attestation=%s should-release=%s — attestation preflight passed.\n' "$ATTESTATION" "${SHOULD_RELEASE:-false}"
     exit 0
 fi
@@ -37,9 +44,10 @@ fi
 if [[ "${VISIBILITY:-}" != "public" ]]; then
     printf '::error::wrangle attestation is not supported on private repositories yet.\n' >&2
     printf '::error::It persists to GitHub'\''s attestation store and signs to the public Sigstore transparency log, which would leak this repo'\''s identity and build timing.\n' >&2
-    printf '::error::Set the attestation input to disabled to publish an unattested build (no provenance or VSA).\n' >&2
+    printf '::error::Set the attest-and-verify input to disabled to publish an unattested build (no provenance or VSA).\n' >&2
     printf '::error::Full private-repo attestation is tracked in https://github.com/TomHennen/wrangle/issues/600.\n' >&2
     exit 1
 fi
 
+emit_should_attest true
 printf 'attestation=required visibility=public — attestation preflight passed.\n'

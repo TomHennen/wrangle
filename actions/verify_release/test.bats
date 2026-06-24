@@ -34,7 +34,7 @@ setup() {
     [ "$status" -eq 0 ]
 }
 
-@test "verify_release: calls actions/verify with computed metadata-dir + metadata name" {
+@test "verify_release: calls actions/verify with computed bundle-out + metadata name" {
     run grep -F 'TomHennen/wrangle/actions/verify@' "$ACTION"
     [ "$status" -eq 0 ]
     run grep -F 'bundle-out: ${{ steps.names.outputs.metadata-dir }}' "$ACTION"
@@ -48,27 +48,12 @@ setup() {
     [ "$status" -eq 0 ]
 }
 
-@test "verify_release: threads build-type and attach-release-assets to the release attach" {
-    run grep -F 'attach-release-assets: ${{ inputs.attach-release-assets }}' "$ACTION"
-    [ "$status" -eq 0 ]
-    # build-type drives the go-vs-others dist distinction in the attach step.
-    run grep -F 'build-type: ${{ inputs.build-type }}' "$ACTION"
-    [ "$status" -eq 0 ]
-}
-
-@test "verify_release: disabled attestation skips the verify call and the bundle download" {
-    # The unattested path must NOT call actions/verify (no signing) nor download
-    # bundles (none exist). Both are gated on attestation != 'disabled'.
-    run bash -c "grep -A1 'TomHennen/wrangle/actions/verify@' \"$ACTION\" | grep -F \"if: \\\${{ inputs.attestation != 'disabled' }}\""
-    [ "$status" -eq 0 ]
-    run bash -c "grep -B2 'name: \${{ steps.names.outputs.bundles }}' \"$ACTION\" | grep -F \"inputs.attestation != 'disabled'\""
-    [ "$status" -eq 0 ]
-}
-
-@test "verify_release: disabled attestation runs the unattested publish via run_verify.sh attach-unattested" {
-    run grep -F "run_verify.sh\" attach-unattested" "$ACTION"
-    [ "$status" -eq 0 ]
-    # The unattested publish step is gated on the disabled mode.
-    run bash -c "grep -B14 'attach-unattested' \"$ACTION\" | grep -F \"if: \\\${{ inputs.attestation == 'disabled' }}\""
-    [ "$status" -eq 0 ]
+@test "verify_release: is attested-only — no unattested publish, no attach passthroughs" {
+    # The unattested publish moved to actions/publish_release; verify_release
+    # verifies + signs only. No attach-unattested call, no attestation gating,
+    # and no attach-to-release/attach-release-assets passthroughs survive.
+    ! grep -Fq 'attach-unattested' "$ACTION"
+    ! grep -Fq "inputs.attestation" "$ACTION"
+    ! grep -Fq 'attach-to-release:' "$ACTION"
+    ! grep -Fq 'attach-release-assets:' "$ACTION"
 }

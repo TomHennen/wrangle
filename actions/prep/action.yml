@@ -23,7 +23,7 @@ inputs:
     description: "Which events trigger release-time actions; passed to the release gate."
     required: false
     default: non-pull-request
-  attestation:
+  attest-and-verify:
     description: "required (default) or disabled. required fails fast on a private-repo release run; disabled is the unattested path. Validated by the attestation preflight."
     required: false
     default: required
@@ -32,6 +32,9 @@ outputs:
   should-release:
     description: "true if release-time actions (provenance, publish, verify) should run; false in guard-only mode."
     value: ${{ steps.gate.outputs.should-release || 'false' }}
+  should-attest:
+    description: "true on a release run that attests + verifies (release + attest-and-verify != disabled); gates the attest/verify jobs and the publish job's mode."
+    value: ${{ steps.attest.outputs.should-attest || 'false' }}
   shortname:
     description: "The path-derived shortname namespacing per-build artifacts."
     value: ${{ steps.names.outputs.shortname }}
@@ -82,10 +85,11 @@ runs:
     # build timing to the public Sigstore log. Reads visibility from the event
     # context only — prep holds no token. Runs after the gate so should-release
     # is known; skipped in guard-only mode (no build type ever releases).
-    - shell: bash
+    - id: attest
+      shell: bash
       if: ${{ inputs.build-type != '' }}
       env:
-        ATTESTATION: ${{ inputs.attestation }}
+        ATTESTATION: ${{ inputs.attest-and-verify }}
         SHOULD_RELEASE: ${{ steps.gate.outputs.should-release }}
         VISIBILITY: ${{ github.event.repository.visibility }}
       run: "${{ github.action_path }}/preflight_attestation.sh"

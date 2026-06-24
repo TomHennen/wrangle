@@ -1002,7 +1002,7 @@ _stage_unattested_assets() {
     {
         printf 'Adopter changelog line.\n\n'
         printf '> [!WARNING]\n'
-        printf '> Unattested build (attestation: disabled) — no SLSA provenance or VSA. See https://github.com/TomHennen/wrangle/issues/600.'
+        printf '> Unattested build (attest-and-verify: disabled) — no SLSA provenance or VSA. See https://github.com/TomHennen/wrangle/issues/600.'
     } > "$GH_BODY"
     run "$SCRIPT" attach-unattested
     [[ "$status" -eq 0 ]]

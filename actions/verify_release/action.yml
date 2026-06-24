@@ -13,10 +13,6 @@ description: >
   install, registry login) stays in the container workflow: it is container-only
   and handles registry secrets.
 
-  attestation: disabled skips the verify/sign path entirely and publishes an
-  unattested release (dist + checksums.txt + SBOM, no provenance/VSA/bundles) —
-  the path private repos use today (issue #600).
-
 inputs:
   build-type:
     description: "Build type (go, python, npm, container) — namespaces the computed names and metadata dir."
@@ -48,18 +44,6 @@ inputs:
     description: "OCI image ref to fetch provenance from and push the bundle to (container only). When set, the dist/provenance workflow-artifact downloads are skipped."
     required: false
     default: ""
-  attach-to-release:
-    description: 'When "true" (default) and the run is a tag push, attach the rationalized asset set to the release.'
-    required: false
-    default: "true"
-  attach-release-assets:
-    description: 'When "true" (default) attach the per-subject dist + bundle and the metadata zip. Set "false" to suppress.'
-    required: false
-    default: "true"
-  attestation:
-    description: 'required (default) verifies + signs a VSA per subject. disabled publishes an unattested release (dist + checksums.txt + SBOM, no provenance/VSA/bundles) — the path private repos use today (issue #600).'
-    required: false
-    default: required
 
 runs:
   using: composite
@@ -85,37 +69,17 @@ runs:
         name: ${{ steps.names.outputs.metadata-pre }}
         path: ${{ steps.names.outputs.metadata-dir }}/
 
-    # disabled: no attestation, so no bundles exist and the verify/sign path is
-    # skipped entirely. Upload dist + checksums.txt + the SBOM, marked unattested.
-    - name: Publish unattested release
-      if: ${{ inputs.attestation == 'disabled' }}
-      shell: bash
-      env:
-        WRANGLE_ROOT: ${{ github.action_path }}/../..
-        BUILD_TYPE: ${{ inputs.build-type }}
-        DIST_DIR: dist
-        METADATA_ROOT: ${{ steps.names.outputs.metadata-dir }}
-        METADATA_ZIP_NAME: ${{ steps.names.outputs.metadata }}.zip
-        GH_TOKEN: ${{ github.token }}
-        # No checkout in this job, so gh has no remote to infer the base repo from.
-        GH_REPO: ${{ github.repository }}
-        GITHUB_REF_NAME: ${{ github.ref_name }}
-      run: |
-        "$WRANGLE_ROOT/actions/verify/run_verify.sh" attach-unattested
-
     # The attest job assembled the per-artifact bundles (provenance + signed
     # SBOM/scan, all build types); verify appends the VSA to each. attest owns the
     # signing + store push (and, for container, the OCI referrer push) (#550, #566).
     # Land them in the metadata dir so verify appends in place.
     - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
-      if: ${{ inputs.attestation != 'disabled' }}
       with:
         name: ${{ steps.names.outputs.bundles }}
         path: ${{ steps.names.outputs.metadata-dir }}/
 
     # TODO: replace with $/actions/verify when GitHub ships $/ syntax (#136)
     - uses: TomHennen/wrangle/actions/verify@bced262e824e11ac234ebb801a9596ff8e0f0e70 # main 2026-06-22
-      if: ${{ inputs.attestation != 'disabled' }}
       with:
         dist-files: ${{ inputs.dist-files }}
         subjects: ${{ inputs.subjects }}
@@ -125,14 +89,7 @@ runs:
         # appends each VSA in place.
         bundle-in: ${{ steps.names.outputs.metadata-dir }}
         bundle-out: ${{ steps.names.outputs.metadata-dir }}
-        # The bundle/zip dir; verify writes the per-subject bundles here.
-        metadata-dir: ${{ steps.names.outputs.metadata-dir }}
         artifact-name: ${{ steps.names.outputs.metadata }}
         context: ${{ inputs.context }}
         oci-target: ${{ inputs.oci-target }}
-        attach-to-release: ${{ inputs.attach-to-release }}
-        attach-release-assets: ${{ inputs.attach-release-assets }}
-        # build-type selects the attach behavior; go adds checksums.txt.
-        build-type: ${{ inputs.build-type }}
-        dist-dir: dist
         fail: "true"

@@ -38,6 +38,11 @@ setup() {
     [ "$status" -eq 0 ]
 }
 
+@test "prep: surfaces should-attest from the attestation preflight step" {
+    run grep -F "value: \${{ steps.attest.outputs.should-attest || 'false' }}" "$ACTION"
+    [ "$status" -eq 0 ]
+}
+
 @test "prep: names derives from build-type + path" {
     run grep -F 'BUILD_TYPE: ${{ inputs.build-type }}' "$ACTION"
     [ "$status" -eq 0 ]

@@ -596,11 +596,12 @@ func main() {}
 
 # --- Reusable workflow tests ---
 
-@test "go: workflow has prep, scan, checks, release, attest, verify jobs" {
+@test "go: workflow has prep, scan, checks, release, attest, verify, publish jobs" {
     # prep (guard + gate + names) heads the pipeline; attest
     # (attest-build-provenance) + verify replace the removed
-    # slsa-github-generator provenance: and slsa-verifier verify: jobs.
-    for job in prep scan checks release attest verify; do
+    # slsa-github-generator provenance: and slsa-verifier verify: jobs; publish
+    # is the shared release-upload job (both modes).
+    for job in prep scan checks release attest verify publish; do
         run grep -E "^  ${job}:" "$WORKFLOW"
         [[ "$status" -eq 0 ]]
     done
@@ -653,16 +654,24 @@ func main() {}
     ! grep -qE '^      contents: write([[:space:]]|$)' <<<"$section"
 }
 
-@test "go: only the verify job holds contents: write (least privilege)" {
-    # Load-bearing: contents: write must appear on exactly one job — verify,
-    # which runs no adopter code. If it ever lands on checks/release/scan a
-    # hostile test or build could push to the repo with $GITHUB_TOKEN.
-    for job in scan checks release attest; do
+@test "go: only the publish job holds contents: write (least privilege)" {
+    # Load-bearing: contents: write must appear on exactly one job — publish,
+    # which runs no adopter code. verify lost it (signing-only now). If it ever
+    # lands on checks/release/scan/attest/verify a hostile test or build could
+    # push to the repo with $GITHUB_TOKEN.
+    for job in scan checks release attest verify; do
         section="$(awk -v j="  $job:" '/^  [a-z][a-z_-]*:$/ { in_section = ($0 == j) } in_section' "$WORKFLOW")"
         ! grep -qE '^      contents: write([[:space:]]|$)' <<<"$section"
     done
-    section="$(awk '/^  [a-z][a-z_-]*:$/ { in_section = ($0 == "  verify:") } in_section' "$WORKFLOW")"
+    section="$(awk '/^  [a-z][a-z_-]*:$/ { in_section = ($0 == "  publish:") } in_section' "$WORKFLOW")"
     grep -qE '^      contents: write([[:space:]]|$)' <<<"$section"
+}
+
+@test "go: verify holds id-token + attestations but NOT contents: write" {
+    section="$(awk '/^  [a-z][a-z_-]*:$/ { in_section = ($0 == "  verify:") } in_section' "$WORKFLOW")"
+    grep -qE '^      id-token: write' <<<"$section"
+    grep -qE '^      attestations: write' <<<"$section"
+    ! grep -qE '^      contents: write([[:space:]]|$)' <<<"$section"
 }
 
 @test "go: workflow release job needs checks (quality gates run first)" {
@@ -703,9 +712,28 @@ func main() {}
     grep -qE "needs\\.scan\\.result" <<<"$section"
 }
 
-@test "go: workflow does NOT have a separate publish job (verify owns the upload)" {
-    run grep '^  publish:' "$WORKFLOW"
-    [[ "$status" -ne 0 ]]
+@test "go: publish job is the shared release-upload job (contents: write only, no signing)" {
+    # The publish job creates the release and uploads the asset set in both
+    # attested and unattested modes. It holds contents: write only — never
+    # id-token/attestations (nothing to sign) — and downloads dist + metadata
+    # via publish_release, branching on attest-and-verify.
+    local job
+    job="$(awk '/^  [a-z][a-z_-]*:$/ { in_section = ($0 == "  publish:") } in_section' "$WORKFLOW")"
+    grep -qE '^      contents: write([[:space:]]|$)' <<<"$job"
+    ! grep -qE '^      (id-token|attestations):' <<<"$job"
+    grep -qF 'TomHennen/wrangle/actions/publish_release@' <<<"$job"
+    grep -qF 'attest-and-verify: ${{ inputs.attest-and-verify }}' <<<"$job"
+}
+
+@test "go: publish job is blocked on a failed verify (policy gate preserved)" {
+    # LOAD-BEARING. publish must require verify success whenever attesting, and
+    # the skipped-verify escape must be gated on should-attest != 'true'. A
+    # regression here re-opens the policy-gate-blocks-publish hole.
+    local job
+    job="$(awk '/^  [a-z][a-z_-]*:$/ { in_section = ($0 == "  publish:") } in_section' "$WORKFLOW")"
+    grep -qF "needs.verify.result == 'success'" <<<"$job"
+    grep -qF "needs.verify.result == 'skipped' && needs.prep.outputs.should-attest != 'true'" <<<"$job"
+    grep -qF "needs.prep.outputs.should-release == 'true'" <<<"$job"
 }
 
 @test "go: workflow exposes run-race-detector and run-gofmt-check inputs" {
@@ -1375,8 +1403,28 @@ func TestFails(t *testing.T) {
     [[ "$status" -eq 0 ]]
 }
 
-@test "go: attest job is gated on should-release" {
-    run bash -c "sed -n '/^  attest:/,/^  [a-z]/p' \"$WORKFLOW\" | grep -E 'if:.*should-release'"
+@test "go: attest and verify jobs are gated on should-attest" {
+    # Both signing jobs drop out unless prep's should-attest is true (release run
+    # wanting attestation). A private repo's release never reaches this gate.
+    run bash -c "sed -n '/^  attest:/,/^  [a-z]/p' \"$WORKFLOW\" | grep -F \"needs.prep.outputs.should-attest == 'true'\""
+    [[ "$status" -eq 0 ]]
+    run bash -c "sed -n '/^  verify:/,/^  [a-z]/p' \"$WORKFLOW\" | grep -F \"needs.prep.outputs.should-attest == 'true'\""
+    [[ "$status" -eq 0 ]]
+}
+
+@test "go: workflow renames the attestation input to attest-and-verify" {
+    run grep -E '^      attest-and-verify:' "$WORKFLOW"
+    [[ "$status" -eq 0 ]]
+    run grep -E '^      attestation:' "$WORKFLOW"
+    [[ "$status" -ne 0 ]]
+    run grep -F 'inputs.attestation' "$WORKFLOW"
+    [[ "$status" -ne 0 ]]
+}
+
+@test "go: prep job exposes should-attest, wired into attest/verify/publish" {
+    run bash -c "sed -n '/^  prep:/,/^  [a-z]/p' \"$WORKFLOW\" | grep -E '^[[:space:]]*should-attest:'"
+    [[ "$status" -eq 0 ]]
+    run grep -F 'attest-and-verify: ${{ inputs.attest-and-verify }}' "$WORKFLOW"
     [[ "$status" -eq 0 ]]
 }
 

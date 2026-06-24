@@ -286,8 +286,8 @@ wrangle_attach_metadata_zip() {
 # it used as the idempotency key (a generic alert line would false-match adopter
 # notes and suppress the marker).
 WRANGLE_UNATTESTED_MARKER='> [!WARNING]
-> Unattested build (attestation: disabled) — no SLSA provenance or VSA. See https://github.com/TomHennen/wrangle/issues/600.'
-WRANGLE_UNATTESTED_MARKER_KEY='Unattested build (attestation: disabled)'
+> Unattested build (attest-and-verify: disabled) — no SLSA provenance or VSA. See https://github.com/TomHennen/wrangle/issues/600.'
+WRANGLE_UNATTESTED_MARKER_KEY='Unattested build (attest-and-verify: disabled)'
 
 # Append the unattested marker to the release body, preserving adopter-authored
 # or generated notes. Idempotent: a re-run that finds the marker already present
@@ -303,7 +303,7 @@ wrangle_mark_release_unattested() {
     gh release edit "$ref" --notes "$body"
 }
 
-# Unattested publish (attestation: disabled): there are no bundles or VSAs, so
+# Unattested publish (attest-and-verify: disabled): there are no bundles or VSAs, so
 # attach every dist file (go: the archives + checksums.txt) and the metadata zip
 # (sbom + scan/, no bundles). Same release-create + metadata-zip path as the
 # attested attach; only the per-subject bundle pairing is dropped. Mark the

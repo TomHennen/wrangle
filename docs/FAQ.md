@@ -92,10 +92,10 @@ persists to GitHub's attestation store and signs to the public Sigstore
 transparency log, which would leak the repo's identity and build timing. So on a
 private repo wrangle fails closed by default and offers an **unattested** mode.
 
-Set `attestation: disabled` to publish an unattested release — scans and tests
-still gate it, but no SLSA provenance, VSA, or verification bundles are produced.
-Leaving `attestation: required` (the default) on a private repo's release fails
-the run with an actionable message. Public repos attest as before.
+Set `attest-and-verify: disabled` to publish an unattested release — scans and
+tests still gate it, but no SLSA provenance, VSA, or verification bundles are
+produced. Leaving `attest-and-verify: required` (the default) on a private repo's
+release fails the run with an actionable message. Public repos attest as before.
 
 Switching a tag between attested and unattested modes on an existing release is
 unsupported — pick one mode per tag (it fails safe, but stale bundles can be left

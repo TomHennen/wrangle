@@ -13,6 +13,9 @@
 setup() {
     SCRIPT="$BATS_TEST_DIRNAME/preflight_attestation.sh"
     PREP="$BATS_TEST_DIRNAME/action.yml"
+    GITHUB_OUTPUT="$BATS_TEST_TMPDIR/github_output"
+    : > "$GITHUB_OUTPUT"
+    export GITHUB_OUTPUT
 }
 
 # --- behavioral: refusal ---
@@ -21,7 +24,7 @@ setup() {
     ATTESTATION=required SHOULD_RELEASE=true VISIBILITY=private run "$SCRIPT"
     [[ "$status" -eq 1 ]]
     [[ "$output" == *"not supported on private repositories"* ]]
-    [[ "$output" == *"attestation input to disabled"* ]]
+    [[ "$output" == *"attest-and-verify input to disabled"* ]]
     [[ "$output" == *"issues/600"* ]]
 }
 
@@ -55,6 +58,32 @@ setup() {
     [[ "$status" -eq 0 ]]
 }
 
+# --- behavioral: should-attest output ---
+
+@test "should-attest: required + public + release writes true" {
+    ATTESTATION=required SHOULD_RELEASE=true VISIBILITY=public run "$SCRIPT"
+    [[ "$status" -eq 0 ]]
+    grep -qx 'should-attest=true' "$GITHUB_OUTPUT"
+}
+
+@test "should-attest: disabled + release writes false" {
+    ATTESTATION=disabled SHOULD_RELEASE=true VISIBILITY=public run "$SCRIPT"
+    [[ "$status" -eq 0 ]]
+    grep -qx 'should-attest=false' "$GITHUB_OUTPUT"
+}
+
+@test "should-attest: required + non-release writes false" {
+    ATTESTATION=required SHOULD_RELEASE=false VISIBILITY=public run "$SCRIPT"
+    [[ "$status" -eq 0 ]]
+    grep -qx 'should-attest=false' "$GITHUB_OUTPUT"
+}
+
+@test "should-attest: required + private + release fails closed and never writes true" {
+    ATTESTATION=required SHOULD_RELEASE=true VISIBILITY=private run "$SCRIPT"
+    [[ "$status" -eq 1 ]]
+    ! grep -q 'should-attest=true' "$GITHUB_OUTPUT"
+}
+
 # --- behavioral: input validation ---
 
 @test "behavior: an unknown attestation value fails loudly" {
@@ -86,7 +115,7 @@ setup() {
     # permissions. A token/API read here would break that contract.
     run grep -F 'VISIBILITY: ${{ github.event.repository.visibility }}' "$PREP"
     [[ "$status" -eq 0 ]]
-    run grep -F 'ATTESTATION: ${{ inputs.attestation }}' "$PREP"
+    run grep -F 'ATTESTATION: ${{ inputs.attest-and-verify }}' "$PREP"
     [[ "$status" -eq 0 ]]
 }
 
@@ -96,7 +125,7 @@ setup() {
 }
 
 @test "structure: error message points adopters at the unattested mode and issue #600" {
-    run grep -F 'attestation input to disabled' "$SCRIPT"
+    run grep -F 'attest-and-verify input to disabled' "$SCRIPT"
     [[ "$status" -eq 0 ]]
     run grep -F 'issues/600' "$SCRIPT"
     [[ "$status" -eq 0 ]]
