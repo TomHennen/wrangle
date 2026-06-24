@@ -189,16 +189,26 @@ tools:
     image: ghcr.io/tomhennen/wrangle/syft@sha256:0b72…
     format: spdx-json
     # network omitted → none; no secret
+
+  # owned Go tools can share ONE image — the unified `wrangle` binary — selected by command:
+  wrangle-lint:
+    kind: scan
+    image: ghcr.io/tomhennen/wrangle/wrangle@sha256:c0de…
+    command: ["lint"]
+  wrangle-attest:
+    kind: attest
+    image: ghcr.io/tomhennen/wrangle/wrangle@sha256:c0de…   # same image, different command
+    command: ["attest"]
 ```
 
 (During migration a catalog entry may carry `delivery: adapter` to keep running the old in-process
 adapter for a tool not yet containerized; the default is `delivery: image`. See §10.)
 
-A catalog entry may also carry an optional `command:`/`args:`, so several tools can share **one** image
-(a unified `wrangle` binary or a toolbox image) selected by command rather than a separate image per
-tool — handy for the owned-Go tools (§3.4) and for a BYO image that exposes more than one tool. The
-capability rules (§3.7) and least-privilege defaults still apply per entry; the cost is a larger
-per-entry surface to validate (§8).
+As the `wrangle-lint`/`wrangle-attest` entries above show, an entry can carry an optional
+`command:`/`args:` so several tools share **one** image (a unified `wrangle` binary or a toolbox image),
+selected by command rather than a separate image per tool — handy for the owned-Go tools (§3.4) and for a
+BYO image that exposes more than one tool. The capability rules (§3.7) and least-privilege defaults still
+apply per entry; the cost is a larger per-entry surface to validate (§8).
 
 **Adopter — selecting tools** (pin wrangle, choose which to run, optionally point at an override file):
 
