@@ -26,7 +26,7 @@ Multi-registry support is a planned extension. See "Known limitations" for the s
 | Input | Required | Description |
 |-------|----------|-------------|
 | `path` | yes | Relative path to the directory containing the Dockerfile |
-| `dockerfile` | no | Optional relative path to a Dockerfile when the build needs files from outside `path` (e.g. a monorepo tool image whose Dockerfile `COPY`s repo-root sources). Empty (default): the build context is the `path` subdirectory and its root `Dockerfile` is used — the self-contained-app-dir behavior. Set: the build context is the **repo root** and the Dockerfile is read from this subpath. `path` still drives short-name / metadata naming in both cases. Context size does not affect the L3 provenance claims (materials are `repo@commit` regardless — see `docs/SLSA_L3_AUDIT.md`). |
+| `dockerfile` | no | Path to the Dockerfile. Default: `{path}/Dockerfile` with `path` as the build context. When set, the build context is the repo root (so the Dockerfile can `COPY` files outside `path`). `path` still names the artifacts. |
 | `imagename` | yes | Full image name including registry (e.g., `ghcr.io/owner/repo/image`) |
 | `registry` | yes | Container registry hostname (e.g., `ghcr.io`) |
 | `github_token` | yes | `GITHUB_TOKEN` with `packages:write` scope |

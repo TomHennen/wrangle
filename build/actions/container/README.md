@@ -22,7 +22,6 @@ Copy [`build_and_publish_containers.yml`](../../../gh_workflow_examples/build_an
 
 ## Good to know
 
-- **`dockerfile`** (optional) lets a Dockerfile `COPY` files from outside `path` — e.g. a monorepo image needing repo-root sources. Set it and the build context becomes the repo root with the Dockerfile read from that subpath; leave it empty (default) and `path` is the self-contained context. `path` still names the artifacts either way. See [`SPEC.md`](./SPEC.md#inputs-and-outputs).
 - **`release-events`** (default: `non-pull-request`) gates provenance generation and verification — see [`docs/SPEC.md`](../../../docs/SPEC.md) "Release-events gating". The docker push itself happens earlier and is gated by your workflow's own `on:` triggers.
 - **Release builds never use a cache** — BuildKit's shared cache isn't re-verified on hits, so a poisoned entry could reach the attested image. PR builds get a per-PR isolated cache by default, which closes PR-to-PR cache poisoning; tune that with the `pr-cache` input, documented in [`build_and_publish_container.yml`](../../../.github/workflows/build_and_publish_container.yml).
 - **`pull_request_target` can't trigger this workflow** — that trigger (and `workflow_run` chained from it) is a common exploit vector, so wrangle blocks both at startup.

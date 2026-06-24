@@ -4,17 +4,11 @@ on:
   workflow_call:
     inputs:
       path:
-        description: "A path, within the repo, to the folder containiner a Dockerfile you want to build."
+        description: "The path within the repo that should be used when building the image."
         required: true
         type: string
       dockerfile:
-        description: |
-          Optional relative path to a Dockerfile when the build needs
-          repo-root files (e.g. a monorepo tool image that COPYs sources from
-          outside `path`). Empty (default) builds the `path` subdirectory as
-          the context with its own Dockerfile; set, it builds the repo root as
-          the context with the Dockerfile at this subpath. `path` still drives
-          the metadata short name in both cases.
+        description: "Path to the Dockerfile. Defaults to {path}/Dockerfile. When set, the build context becomes the repo root, so the Dockerfile can COPY files from outside {path}."
         required: false
         type: string
         default: ""

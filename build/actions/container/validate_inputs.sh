@@ -7,11 +7,9 @@
 # imagename are checked here against narrow allowlists because they
 # are container-specific.
 #
-# The optional dockerfile selects the build context: empty (default) builds
-# the <path> subdirectory as context with its own Dockerfile at the root; a
-# set value builds the repo root as context with the Dockerfile at that
-# subpath, so a Dockerfile can COPY files from outside <path> (e.g. a
-# monorepo tool image needing repo-root sources).
+# The optional dockerfile sets build-push-action's file + context: empty
+# (default) = the <path> subdir is the context; set = the repo root is the
+# context, so the Dockerfile can COPY files outside <path>.
 #
 # Usage: build/actions/container/validate_inputs.sh <path> <registry> <imagename> <cache> [dockerfile]
 
