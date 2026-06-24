@@ -155,6 +155,71 @@ orchestrator's decision; otherwise the sandboxed tool would define its own sandb
 recorded in-repo as reviewable lines, default to `network=none, secret=none`, and are relaxed only
 explicitly — consistent with wrangle's least-privilege and input-validation rules.
 
+### 3.8 Configuration, illustrated
+
+The reference model (§3.6) and the capability definition (§3.7) live together in one wrangle-curated
+**catalog** (the `tools.lock` of §3.6). Capabilities — network, secret, output format — don't fit
+cleanly as action inputs, so the catalog file is the natural home for *definition*; the scan action's
+input stays *selection* plus an optional override pointer. Schema below is illustrative; the exact
+format is open (§8).
+
+**Internal — wrangle's curated catalog** (wrangle bumps it; adopters inherit by pinning wrangle):
+
+```yaml
+# tools/catalog.yaml  — wrangle-maintained, one entry per built-in tool
+tools:
+  osv:
+    kind: scan
+    image: ghcr.io/tomhennen/wrangle/osv@sha256:1531…   # built from this repo's go.mod
+    network: egress          # default is none; osv refreshes its advisory DB
+  zizmor:
+    kind: scan
+    image: ghcr.io/tomhennen/wrangle/zizmor@sha256:9a4c…
+    network: egress
+    secret: github-token     # delivered as WRANGLE_EXTRA_GITHUB_TOKEN
+  syft:
+    kind: sbom
+    image: ghcr.io/tomhennen/wrangle/syft@sha256:0b72…
+    format: spdx-json
+    # network omitted → none; no secret
+```
+
+**Adopter — selecting tools** (pin wrangle, choose which to run, optionally point at an override file):
+
+```yaml
+# adopter .github/workflows/scan.yml
+jobs:
+  scan:
+    uses: TomHennen/wrangle/.github/workflows/scan.yml@v0.4.0   # pin → inherit the catalog above
+    with:
+      tools: "osv zizmor:info my-sbom"     # selection + policy (unchanged from today)
+      tool-overrides: .wrangle/tools.yaml  # optional; overrides/extends the catalog
+```
+
+**Adopter — overriding an image and bringing their own tool**:
+
+```yaml
+# adopter .wrangle/tools.yaml  — merged over wrangle's catalog
+tools:
+  osv:                                       # override a curated default with a different digest
+    image: ghcr.io/myorg/osv@sha256:7c1d…    # adopter now owns this pin's freshness
+  my-sbom:                                   # BYO a tool wrangle doesn't ship — full definition
+    kind: sbom
+    image: ghcr.io/myorg/my-sbom-generator@sha256:e88f…
+    format: cyclonedx-json
+    # no network / no secret → runs under the strictest contract by default
+```
+
+What the three pieces demonstrate:
+- **Inheritance** — an adopter who only sets `tools:` runs wrangle's curated, cooldown-vetted images
+  and pins nothing of their own.
+- **Override ownership** — overriding `osv` means pinning a digest the adopter now owns the freshness
+  of; wrangle's pin tooling covers its own catalog, not this entry (wrangle can offer a Dependabot
+  entry / lint warning, §3.6, but not vouch for it).
+- **Trust direction** — `my-sbom`'s capabilities are declared by the *adopter*, in the adopter's file;
+  the image grants itself nothing, and an unspecified capability defaults closed (no network, no
+  secret).
+
 ## 4. Evidence
 
 **Contract mechanic.** A `docker run` invocation of a `scan` adapter and an `sbom` adapter confirms:
@@ -224,11 +289,12 @@ not a meaningful per-delivery signal.)
 
 - **Invocation arg convention** — positional `<src> <out>` (matches today's adapters) vs
   `WRANGLE_SRC`/`WRANGLE_OUTPUT` env (cleaner, more portable).
-- **Reference model** — defaulted action input vs `tools.lock` vs both (lock for defaults, input as
-  per-tool override).
+- **Catalog schema and overrides** — §3.8 settles the broad shape (a manifest holds *definition* —
+  digest + capabilities — because capabilities can't be action inputs; the action carries *selection*
+  plus an override pointer). Open: the exact on-disk schema, the catalog file's name/location, and
+  whether an adopter override is a file path or inline.
 - **Egress granularity** — accept full egress for network-declaring tools, or invest in a filtering
-  proxy for true per-domain allowlists.
-- **Capability-declaration format** — the on-disk shape of the per-tool definition.
+  proxy for true per-domain allowlists (the `network: egress` field in §3.8 is the coarse form).
 - **Registry/hosting and multi-arch** — ghcr namespace; amd64-only first or amd64+arm64.
 - **SPEC.md** — fold the kind-parameterized contract into the Adapter Script Interface.
 
