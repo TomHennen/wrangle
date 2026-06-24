@@ -11,6 +11,7 @@ updates:
       - "/actions/attest_metadata_oci"
       - "/actions/attest_provenance"
       - "/actions/prep"
+      - "/actions/publish_release"
       - "/actions/scan"
       - "/actions/verify"
       - "/actions/verify-vsa"
