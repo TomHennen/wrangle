@@ -126,7 +126,7 @@ jobs:
       metadata-pre: ${{ steps.prep.outputs.metadata-pre }}
     steps:
       # TODO: replace with $/actions/prep when GitHub ships $/ syntax (#136)
-      - uses: TomHennen/wrangle/actions/prep@4d1926d55aca6bfbfa729952dce0644d27536f90 # track2-attest-toolbox-container 2026-06-25
+      - uses: TomHennen/wrangle/actions/prep@0babc31cca5af16908c9eabaa8bf7c1fd382f563 # feat/596-scan-tool-images 2026-06-25
         id: prep
         with:
           build-type: python
@@ -145,7 +145,7 @@ jobs:
       security-events: write
     steps:
       # TODO: replace with $/actions/scan when GitHub ships $/ syntax (#136)
-      - uses: TomHennen/wrangle/actions/scan@4d1926d55aca6bfbfa729952dce0644d27536f90 # track2-attest-toolbox-container 2026-06-25
+      - uses: TomHennen/wrangle/actions/scan@0babc31cca5af16908c9eabaa8bf7c1fd382f563 # feat/596-scan-tool-images 2026-06-25
         if: ${{ inputs.scan-tools != '' }}
         with:
           checkout: "true"
@@ -180,7 +180,7 @@ jobs:
           ref: ${{ inputs.ref || '' }}
 
       # TODO: replace with $/build/actions/python when GitHub ships $/ syntax (#136)
-      - uses: TomHennen/wrangle/build/actions/python@4d1926d55aca6bfbfa729952dce0644d27536f90 # track2-attest-toolbox-container 2026-06-25
+      - uses: TomHennen/wrangle/build/actions/python@0babc31cca5af16908c9eabaa8bf7c1fd382f563 # feat/596-scan-tool-images 2026-06-25
         id: build
         with:
           path: ${{ inputs.path }}
@@ -270,7 +270,7 @@ jobs:
       bundles-artifact-name: ${{ steps.attest.outputs.bundles-artifact-name }}
     steps:
       # TODO: replace with $/actions/attest_provenance when GitHub ships $/ syntax (#136)
-      - uses: TomHennen/wrangle/actions/attest_provenance@4d1926d55aca6bfbfa729952dce0644d27536f90 # track2-attest-toolbox-container 2026-06-25
+      - uses: TomHennen/wrangle/actions/attest_provenance@0babc31cca5af16908c9eabaa8bf7c1fd382f563 # feat/596-scan-tool-images 2026-06-25
         id: attest
         with:
           build-type: python
@@ -293,7 +293,7 @@ jobs:
       contents: write       # create the release if absent and attach the bundle on tag pushes
     steps:
       # TODO: replace with $/actions/verify_release when GitHub ships $/ syntax (#136)
-      - uses: TomHennen/wrangle/actions/verify_release@4d1926d55aca6bfbfa729952dce0644d27536f90 # track2-attest-toolbox-container 2026-06-25
+      - uses: TomHennen/wrangle/actions/verify_release@0babc31cca5af16908c9eabaa8bf7c1fd382f563 # feat/596-scan-tool-images 2026-06-25
         with:
           build-type: python
           shortname: ${{ needs.prep.outputs.shortname }}

@@ -270,6 +270,23 @@ run_orchestrator() {
     [ "$status" -eq 0 ]
 }
 
+@test "orchestrator: skips action-pattern tool even when an adapter.sh is present" {
+    # A tool with an action.yml runs via its uses: step; an adapter.sh present
+    # only as its image entrypoint must not pull it onto the in-process path.
+    mkdir -p "$MOCK_TOOLS/action-img-tool"
+    echo "name: test" > "$MOCK_TOOLS/action-img-tool/action.yml"
+    cat > "$MOCK_TOOLS/action-img-tool/adapter.sh" << 'ADAPT'
+#!/bin/bash
+exit 2
+ADAPT
+    chmod +x "$MOCK_TOOLS/action-img-tool/adapter.sh"
+
+    run_orchestrator -s "$TEST_DIR/src" -o "$TEST_DIR/output" "action-img-tool"
+
+    [ "$status" -eq 0 ]
+    [ ! -f "$TEST_DIR/output/action-img-tool/output.sarif" ]
+}
+
 @test "orchestrator: strips policy suffix from tool names" {
     run_orchestrator -s "$TEST_DIR/src" -o "$TEST_DIR/output" "clean-tool:fail"
 

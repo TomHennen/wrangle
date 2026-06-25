@@ -56,8 +56,9 @@ fi
 
 # Parse tool specs: strip :policy suffixes, collect the tools run by run.sh —
 # adapter-pattern tools (have an adapter.sh) plus catalog image-delivery tools
-# (run via docker run). Action-pattern tools (a directory but no adapter and no
-# image entry) are skipped. Unknown tools (no directory at all) are rejected.
+# (run via docker run). Action-pattern tools (have an action.yml) are invoked
+# via their uses: step, so run.sh skips them even when an adapter.sh is present
+# only as their image entrypoint. Unknown tools (no directory) are rejected.
 TOOL_NAME_RE='^[a-z][a-z0-9_-]*$'
 declare -a run_tools=()
 for spec in "$@"; do
@@ -69,6 +70,11 @@ for spec in "$@"; do
     if [[ ! -d "${TOOLS_DIR}/${tool}" ]]; then
         printf 'wrangle: unknown tool: %s (no directory at %s/%s/)\n' "$tool" "$TOOLS_DIR" "$tool" >&2
         exit 2
+    fi
+    # An action.yml means the tool runs via its uses: step; skip it here even if
+    # an adapter.sh exists (it is only the tool image's contract entrypoint).
+    if [[ -f "${TOOLS_DIR}/${tool}/action.yml" ]]; then
+        continue
     fi
     # Resolve delivery once. Empty -> adapter path; "image" -> docker path; any
     # other non-empty value is a catalog typo, not a silent adapter fallthrough.
@@ -368,6 +374,7 @@ run_one_tool() {
         case "$tool" in
             osv) scanner_name="osv-scanner" ;;
             wrangle-lint) scanner_name="wrangle-lint" ;;
+            zizmor) scanner_name="zizmor" ;;
         esac
         if [[ -n "$scanner_name" ]]; then
             "$SCRIPT_DIR/lib/write_scan_manifest.sh" "$scanner_name" \

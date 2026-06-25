@@ -2,7 +2,7 @@
 
 | Property | Value |
 |----------|-------|
-| Pattern | Action (wraps `zizmorcore/zizmor-action`) |
+| Pattern | Action (wraps `zizmorcore/zizmor-action`); also delivered as a contract image (catalog `delivery: image`) for the `run.sh` docker path |
 | Configuration | `advanced-security: true` — upstream action produces SARIF and uploads to Security tab |
 | SARIF output | Upstream action writes SARIF; wrangle copies to `$WRANGLE_METADATA_DIR/zizmor/output.sarif` for the summary collector |
 | Human-readable output | `output.md` generated from SARIF via `lib/sarif_to_md.sh` for step summary details |

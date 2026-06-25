@@ -39,6 +39,10 @@ jobs:
           # signing job to RUN it is a separate, flagged step (#596).
           - path: tools/attest-toolbox
             imagename: ghcr.io/tomhennen/wrangle/attest-toolbox
+          - path: tools/wrangle-lint
+            imagename: ghcr.io/tomhennen/wrangle/wrangle-lint
+          - path: tools/zizmor
+            imagename: ghcr.io/tomhennen/wrangle/zizmor
     uses: ./.github/workflows/build_and_publish_container.yml
     with:
       path: ${{ matrix.path }}
