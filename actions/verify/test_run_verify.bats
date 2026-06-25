@@ -915,7 +915,48 @@ SHIM
     [[ "$(wc -l < "$shim.calls")" -eq 2 ]]
 }
 
+@test "wrangle_ampel: default (no image) runs the in-job ampel binary unchanged" {
+    # Shim ampel to record it was the binary invoked, with the args passed through.
+    cat > "$TEST_DIR/ampel" <<EOF
+#!/bin/bash
+printf '%s\n' "\$@" > "$TEST_DIR/ampel.args"
+EOF
+    chmod +x "$TEST_DIR/ampel"
+    PATH="$TEST_DIR:$PATH" WRANGLE_VERIFY_AMPEL_IMAGE="" run wrangle_ampel verify --policy=p
+    [ "$status" -eq 0 ]
+    grep -q -- '--policy=p' "$TEST_DIR/ampel.args"
+    # No docker on the default path.
+    [ ! -f "$TEST_DIR/docker.called" ]
+}
+
+@test "wrangle_ampel: a non-digest-pinned image is rejected (fail-closed, no docker)" {
+    cat > "$TEST_DIR/docker" <<EOF
+#!/bin/bash
+touch "$TEST_DIR/docker.called"
+EOF
+    chmod +x "$TEST_DIR/docker"
+    PATH="$TEST_DIR:$PATH" WRANGLE_VERIFY_AMPEL_IMAGE="img:test" \
+        run wrangle_ampel verify
+    [ "$status" -eq 2 ]
+    [ ! -f "$TEST_DIR/docker.called" ]
+}
+
+@test "wrangle_ampel: container path refuses an OCI collector (fail-closed, no docker)" {
+    cat > "$TEST_DIR/docker" <<EOF
+#!/bin/bash
+touch "$TEST_DIR/docker.called"
+EOF
+    chmod +x "$TEST_DIR/docker"
+    local digest_img="img@sha256:0000000000000000000000000000000000000000000000000000000000000000"
+    PATH="$TEST_DIR:$PATH" WRANGLE_VERIFY_AMPEL_IMAGE="$digest_img" COLLECTOR="oci:ghcr.io/x@sha256:abc" \
+        run wrangle_ampel verify
+    [ "$status" -eq 2 ]
+    [ ! -f "$TEST_DIR/docker.called" ]
+}
+
 @test "retry: ampel and bnd invocations both route through wrangle_retry_once" {
-    grep -q 'wrangle_retry_once "$report" ampel' "$SCRIPT"
+    # ampel runs via the wrangle_ampel dispatcher (in-job binary or, opt-in, the
+    # toolbox image) — still through the retry helper.
+    grep -q 'wrangle_retry_once "$report" wrangle_ampel' "$SCRIPT"
     grep -q 'wrangle_retry_once "$vsa" bnd' "$SCRIPT"
 }

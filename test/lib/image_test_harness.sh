@@ -2,7 +2,7 @@
 set -euo pipefail
 set -f
 
-# test/lib/image_test_harness.bash — helpers for testing a tool container
+# test/lib/image_test_harness.sh — helpers for testing a tool container
 # image against the wrangle adapter contract:
 #   docker run <image> /src /output  ->  writes /output/output.sarif,
 #   exits 0 (clean) / 1 (findings) / 2 (tool error); writes nothing outside
