@@ -56,8 +56,13 @@ make_sarif() {
     [ ! -f "$TOOL_DIR/install.sh" ]
 }
 
-@test "zizmor: no adapter.sh exists (action pattern, not adapter)" {
-    [ ! -f "$TOOL_DIR/adapter.sh" ]
+@test "zizmor: adapter.sh is the image contract entrypoint" {
+    # The containerized zizmor (tools/zizmor/Dockerfile, catalog delivery: image)
+    # bundles adapter.sh as its ENTRYPOINT, mapping zizmor's SARIF-mode output to
+    # the 0/1/2 exit contract. The action.yml path coexists until the image digest
+    # is published and adopters move over.
+    [ -f "$TOOL_DIR/adapter.sh" ]
+    [ -x "$TOOL_DIR/adapter.sh" ]
 }
 
 @test "zizmor: action.yml sets advanced-security to true" {

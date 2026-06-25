@@ -368,6 +368,7 @@ run_one_tool() {
         case "$tool" in
             osv) scanner_name="osv-scanner" ;;
             wrangle-lint) scanner_name="wrangle-lint" ;;
+            zizmor) scanner_name="zizmor" ;;
         esac
         if [[ -n "$scanner_name" ]]; then
             "$SCRIPT_DIR/lib/write_scan_manifest.sh" "$scanner_name" \
