@@ -4,9 +4,8 @@ set -f
 
 # lib/setup.sh — Initialize wrangle directories and orchestrator infra.
 #
-# Sources lib/env.sh to define WRANGLE_BIN_DIR and WRANGLE_METADATA_DIR, creates
-# both directories, then installs yq (the YAML parser run.sh uses to read the
-# tool catalog) onto PATH. Called from the scan action's setup step.
+# Sources lib/env.sh to define WRANGLE_BIN_DIR and WRANGLE_METADATA_DIR and
+# creates both directories. Called from the scan action's setup step.
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
@@ -14,5 +13,3 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 source "$SCRIPT_DIR/env.sh"
 
 mkdir -p "$WRANGLE_BIN_DIR" "$WRANGLE_METADATA_DIR"
-
-"$SCRIPT_DIR/install_yq.sh"

@@ -83,13 +83,9 @@ setup() {
 
     # A mock catalog declaring mocktool as a delivery: image tool pointing at
     # the local mock image. network omitted -> none (the default).
-    cat > "$TOOLS/catalog.yaml" <<YAML
-tools:
-  mocktool:
-    kind: scan
-    delivery: image
-    image: $MOCK_IMAGE
-YAML
+    cat > "$TOOLS/catalog.json" <<JSON
+{"tools":{"mocktool":{"kind":"scan","delivery":"image","image":"$MOCK_IMAGE"}}}
+JSON
 
     # An adapter-path tool sharing the same run, to prove the adapter seam is
     # untouched when a catalog image tool is present.
@@ -169,12 +165,9 @@ _run_orch() {
 @test "run.sh: a delivery: adapter catalog entry still runs the adapter" {
     # An entry that names the tool but declares delivery: adapter must NOT be
     # dispatched via docker — it falls through to the in-process adapter.
-    cat > "$TOOLS/catalog.yaml" <<'YAML'
-tools:
-  adaptertool:
-    kind: scan
-    delivery: adapter
-YAML
+    cat > "$TOOLS/catalog.json" <<'JSON'
+{"tools":{"adaptertool":{"kind":"scan","delivery":"adapter"}}}
+JSON
     _run_orch adaptertool
     [ "$status" -eq 0 ]
     [ -f "$OUT/adaptertool/output.sarif" ]
@@ -184,14 +177,9 @@ YAML
 @test "run.sh image dispatch: a declared secret reaches the container env" {
     # A catalog secret: maps WRANGLE_EXTRA_<NAME> into the image as <NAME>,
     # forwarded by name (not on docker's argv). Assert it actually arrives.
-    cat > "$TOOLS/catalog.yaml" <<YAML
-tools:
-  mocktool:
-    kind: scan
-    delivery: image
-    image: $MOCK_IMAGE
-    secret: mock-secret
-YAML
+    cat > "$TOOLS/catalog.json" <<JSON
+{"tools":{"mocktool":{"kind":"scan","delivery":"image","image":"$MOCK_IMAGE","secret":"mock-secret"}}}
+JSON
     printf 'secret' > "$SRC/MODE"
     WRANGLE_TOOLS_DIR="$TOOLS" WRANGLE_EXTRA_MOCK_SECRET="s3cr3t-value" \
         run "$RUN_SH" -s "$SRC" -o "$OUT" mocktool
@@ -217,14 +205,9 @@ YAML
     [[ -n "${OSV_IMAGE:-}" ]] \
         || skip_or_fail "local osv image (wrangle-osv:test) not built"
 
-    cat > "$TOOLS/catalog.yaml" <<YAML
-tools:
-  osv:
-    kind: scan
-    delivery: image
-    image: $OSV_IMAGE
-    network: egress
-YAML
+    cat > "$TOOLS/catalog.json" <<JSON
+{"tools":{"osv":{"kind":"scan","delivery":"image","image":"$OSV_IMAGE","network":"egress"}}}
+JSON
     mkdir -p "$TOOLS/osv"
     printf 'just text, no manifests\n' > "$SRC/README.txt"
     _run_orch osv
@@ -244,14 +227,9 @@ YAML
     [[ -n "${OSV_IMAGE:-}" ]] \
         || skip_or_fail "local osv image (wrangle-osv:test) not built"
 
-    cat > "$TOOLS/catalog.yaml" <<YAML
-tools:
-  osv:
-    kind: scan
-    delivery: image
-    image: $OSV_IMAGE
-    network: egress
-YAML
+    cat > "$TOOLS/catalog.json" <<JSON
+{"tools":{"osv":{"kind":"scan","delivery":"image","image":"$OSV_IMAGE","network":"egress"}}}
+JSON
     mkdir -p "$TOOLS/osv"
     cp "$ORIG_DIR/tools/osv/testdata/vulnerable_go.mod" "$SRC/go.mod"
     _run_orch osv

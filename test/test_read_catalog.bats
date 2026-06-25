@@ -1,35 +1,40 @@
 #!/usr/bin/env bats
 
-# Tests for lib/read_catalog.sh — the yq-backed reader run.sh uses to resolve a
+# Tests for lib/read_catalog.sh — the jq-backed reader run.sh uses to resolve a
 # tool's curated catalog entry (docs/tool_container_design.md §3.6).
 
 load "lib/bats_helpers"
 
 setup() {
-    command -v yq >/dev/null 2>&1 || skip_or_fail "yq not on PATH"
+    command -v jq >/dev/null 2>&1 || skip_or_fail "jq not on PATH"
     ORIG_DIR="$(pwd)"
     READER="$ORIG_DIR/lib/read_catalog.sh"
     TMP_DIR="$(mktemp -d "${TMPDIR:-/tmp}/catalog-XXXXXX")"
-    CATALOG="$TMP_DIR/catalog.yaml"
+    CATALOG="$TMP_DIR/catalog.json"
     export ORIG_DIR READER TMP_DIR CATALOG
 
-    cat > "$CATALOG" <<'YAML'
-# a comment line
-tools:
-  osv:
-    kind: scan
-    delivery: image
-    image: ghcr.io/tomhennen/wrangle/osv@sha256:abc123
-    network: egress          # inline comment after the value
-  syft:
-    kind: sbom
-    delivery: image
-    image: ghcr.io/tomhennen/wrangle/syft@sha256:def456
-    format: spdx-json
-  legacy:
-    kind: scan
-    delivery: adapter
-YAML
+    cat > "$CATALOG" <<'JSON'
+{
+  "tools": {
+    "osv": {
+      "kind": "scan",
+      "delivery": "image",
+      "image": "ghcr.io/tomhennen/wrangle/osv@sha256:abc123",
+      "network": "egress"
+    },
+    "syft": {
+      "kind": "sbom",
+      "delivery": "image",
+      "image": "ghcr.io/tomhennen/wrangle/syft@sha256:def456",
+      "format": "spdx-json"
+    },
+    "legacy": {
+      "kind": "scan",
+      "delivery": "adapter"
+    }
+  }
+}
+JSON
 }
 
 teardown() {
@@ -42,7 +47,7 @@ teardown() {
     [ "$output" = "scan" ]
 }
 
-@test "read_catalog: an inline comment after the value is not part of the scalar" {
+@test "read_catalog: reads a value with no surrounding decoration" {
     run "$READER" "$CATALOG" osv network
     [ "$status" -eq 0 ]
     [ "$output" = "egress" ]
@@ -80,9 +85,15 @@ teardown() {
 }
 
 @test "read_catalog: a missing catalog file yields nothing, exit 0" {
-    run "$READER" "$TMP_DIR/none.yaml" osv kind
+    run "$READER" "$TMP_DIR/none.json" osv kind
     [ "$status" -eq 0 ]
     [ -z "$output" ]
+}
+
+@test "read_catalog: a malformed catalog fails closed (nonzero exit)" {
+    printf 'not valid json' > "$TMP_DIR/broken.json"
+    run "$READER" "$TMP_DIR/broken.json" osv kind
+    [ "$status" -ne 0 ]
 }
 
 @test "read_catalog: wrong argument count errors" {
@@ -92,12 +103,12 @@ teardown() {
 }
 
 @test "read_catalog: the shipped catalog resolves osv as a delivery: image scan tool" {
-    run "$READER" "$ORIG_DIR/tools/catalog.yaml" osv delivery
+    run "$READER" "$ORIG_DIR/tools/catalog.json" osv delivery
     [ "$output" = "image" ]
-    run "$READER" "$ORIG_DIR/tools/catalog.yaml" osv kind
+    run "$READER" "$ORIG_DIR/tools/catalog.json" osv kind
     [ "$output" = "scan" ]
-    run "$READER" "$ORIG_DIR/tools/catalog.yaml" osv image
+    run "$READER" "$ORIG_DIR/tools/catalog.json" osv image
     [[ "$output" == ghcr.io/tomhennen/wrangle/osv@sha256:* ]]
-    run "$READER" "$ORIG_DIR/tools/catalog.yaml" osv network
+    run "$READER" "$ORIG_DIR/tools/catalog.json" osv network
     [ "$output" = "egress" ]
 }

@@ -554,7 +554,7 @@ BEHAVIOR:
        that is handled by lib/check_results.sh in the scan action)
     2. Validate tool name matches ^[a-z][a-z0-9_-]*$ (reject otherwise)
     3. Verify tools/<tool>/ directory exists (reject if not — unknown tool)
-    4. Resolve the tool's tools/catalog.yaml entry. A `delivery: image` entry
+    4. Resolve the tool's tools/catalog.json entry. A `delivery: image` entry
        runs the tool's pinned image via `docker run` (read-only /src, writable
        /output owned by the runner UID, --network none unless the entry
        declares `network: egress`, a `secret:` passed via -e). Otherwise:

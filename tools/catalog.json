@@ -1,0 +1,11 @@
+{
+  "_comment": "wrangle's curated tool catalog; rationale in docs/tool_container_design.md §3.6.",
+  "tools": {
+    "osv": {
+      "kind": "scan",
+      "delivery": "image",
+      "image": "ghcr.io/tomhennen/wrangle/osv@sha256:2c5ee9994a09ceb4b6957b6f528e63dcf2c83862fc2b626d1e2602e6f117ec54",
+      "network": "egress"
+    }
+  }
+}

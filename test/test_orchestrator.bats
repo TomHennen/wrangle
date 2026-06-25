@@ -566,13 +566,9 @@ _image_catalog() {
     # An image tool is "known" by its directory (no adapter.sh — the image is
     # the adapter); the catalog marks delivery: image.
     mkdir -p "$TEST_DIR/src" "$MOCK_TOOLS/imgtool"
-    cat > "$MOCK_TOOLS/catalog.yaml" <<YAML
-tools:
-  imgtool:
-    kind: scan
-    delivery: image
-    image: $1
-YAML
+    cat > "$MOCK_TOOLS/catalog.json" <<JSON
+{"tools":{"imgtool":{"kind":"scan","delivery":"image","image":"$1"}}}
+JSON
 }
 
 @test "orchestrator: image delivery rejects a tag-only (non-digest-pinned) image" {

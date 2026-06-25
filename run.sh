@@ -19,7 +19,7 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 source "$SCRIPT_DIR/lib/env.sh"
 
 # Catalog reader: resolves a tool's curated entry (delivery, image, network,
-# secret) from tools/catalog.yaml. A tool with no entry runs the adapter path.
+# secret) from tools/catalog.json. A tool with no entry runs the adapter path.
 # shellcheck source=lib/read_catalog.sh
 source "$SCRIPT_DIR/lib/read_catalog.sh"
 
@@ -27,7 +27,7 @@ TOOLS_DIR="${WRANGLE_TOOLS_DIR:-${SCRIPT_DIR}/tools}"
 # The catalog lives beside the tools it describes, so a WRANGLE_TOOLS_DIR
 # override (hermetic orchestrator tests) gets its own catalog — or none, in
 # which case every tool runs the adapter path.
-CATALOG="${WRANGLE_CATALOG:-${TOOLS_DIR}/catalog.yaml}"
+CATALOG="${WRANGLE_CATALOG:-${TOOLS_DIR}/catalog.json}"
 
 # is_image[$tool]=1 marks a catalog tool with delivery: image (the docker-run
 # path); absence means the adapter path. Resolved once per tool in the parse
