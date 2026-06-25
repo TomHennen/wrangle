@@ -159,7 +159,7 @@ jobs:
       metadata-pre: ${{ steps.prep.outputs.metadata-pre }}
     steps:
       # TODO: replace with $/actions/prep when GitHub ships $/ syntax (#136)
-      - uses: TomHennen/wrangle/actions/prep@adc8afc55e3b9bc00e93d18043b68a342e72de93 # feat/private-repo-unattested-mode-597 2026-06-25
+      - uses: TomHennen/wrangle/actions/prep@b4b7c21ac3dbb6cb757f34dccb0f8f8fb9cee246 # feat/private-repo-unattested-mode-597 2026-06-25
         id: prep
         with:
           build-type: npm
@@ -179,7 +179,7 @@ jobs:
       security-events: write
     steps:
       # TODO: replace with $/actions/scan when GitHub ships $/ syntax (#136)
-      - uses: TomHennen/wrangle/actions/scan@adc8afc55e3b9bc00e93d18043b68a342e72de93 # feat/private-repo-unattested-mode-597 2026-06-25
+      - uses: TomHennen/wrangle/actions/scan@b4b7c21ac3dbb6cb757f34dccb0f8f8fb9cee246 # feat/private-repo-unattested-mode-597 2026-06-25
         if: ${{ inputs.scan-tools != '' }}
         with:
           checkout: "true"
@@ -216,7 +216,7 @@ jobs:
           ref: ${{ inputs.ref || '' }}
 
       # TODO: replace with $/build/actions/npm when GitHub ships $/ syntax (#136)
-      - uses: TomHennen/wrangle/build/actions/npm@adc8afc55e3b9bc00e93d18043b68a342e72de93 # feat/private-repo-unattested-mode-597 2026-06-25
+      - uses: TomHennen/wrangle/build/actions/npm@b4b7c21ac3dbb6cb757f34dccb0f8f8fb9cee246 # feat/private-repo-unattested-mode-597 2026-06-25
         id: build
         with:
           path: ${{ inputs.path }}
@@ -292,7 +292,7 @@ jobs:
       bundles-artifact-name: ${{ steps.attest.outputs.bundles-artifact-name }}
     steps:
       # TODO: replace with $/actions/attest_provenance when GitHub ships $/ syntax (#136)
-      - uses: TomHennen/wrangle/actions/attest_provenance@adc8afc55e3b9bc00e93d18043b68a342e72de93 # feat/private-repo-unattested-mode-597 2026-06-25
+      - uses: TomHennen/wrangle/actions/attest_provenance@b4b7c21ac3dbb6cb757f34dccb0f8f8fb9cee246 # feat/private-repo-unattested-mode-597 2026-06-25
         id: attest
         with:
           build-type: npm
@@ -314,7 +314,7 @@ jobs:
       attestations: write   # post each VSA to the GitHub attestation store
     steps:
       # TODO: replace with $/actions/verify_release when GitHub ships $/ syntax (#136)
-      - uses: TomHennen/wrangle/actions/verify_release@adc8afc55e3b9bc00e93d18043b68a342e72de93 # feat/private-repo-unattested-mode-597 2026-06-25
+      - uses: TomHennen/wrangle/actions/verify_release@b4b7c21ac3dbb6cb757f34dccb0f8f8fb9cee246 # feat/private-repo-unattested-mode-597 2026-06-25
         with:
           build-type: npm
           shortname: ${{ needs.prep.outputs.shortname }}
@@ -344,7 +344,7 @@ jobs:
       contents: write   # create the release if absent and upload the asset set
     steps:
       # TODO: replace with $/actions/publish_release when GitHub ships $/ syntax (#136)
-      - uses: TomHennen/wrangle/actions/publish_release@adc8afc55e3b9bc00e93d18043b68a342e72de93 # feat/private-repo-unattested-mode-597 2026-06-25
+      - uses: TomHennen/wrangle/actions/publish_release@b4b7c21ac3dbb6cb757f34dccb0f8f8fb9cee246 # feat/private-repo-unattested-mode-597 2026-06-25
         with:
           build-type: npm
           shortname: ${{ needs.prep.outputs.shortname }}
