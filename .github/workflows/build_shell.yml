@@ -77,7 +77,7 @@ jobs:
     permissions: {}    # guard reads env only — no workspace, no API, no secrets
     steps:
       # TODO: replace with $/actions/prep when GitHub ships $/ syntax (#136)
-      - uses: TomHennen/wrangle/actions/prep@b60e9daf023a34ddd5a9544596833403bf79da5e # feat/container-root-context-dockerfile 2026-06-24
+      - uses: TomHennen/wrangle/actions/prep@adc8afc55e3b9bc00e93d18043b68a342e72de93 # feat/private-repo-unattested-mode-597 2026-06-25
 
   # Source scan. A load-bearing (:fail) finding fails the run alongside
   # the shell build/test (there is no artifact to gate publishing of).
@@ -90,7 +90,7 @@ jobs:
       security-events: write
     steps:
       # TODO: replace with $/actions/scan when GitHub ships $/ syntax (#136)
-      - uses: TomHennen/wrangle/actions/scan@b60e9daf023a34ddd5a9544596833403bf79da5e # feat/container-root-context-dockerfile 2026-06-24
+      - uses: TomHennen/wrangle/actions/scan@adc8afc55e3b9bc00e93d18043b68a342e72de93 # feat/private-repo-unattested-mode-597 2026-06-25
         if: ${{ inputs.scan-tools != '' }}
         with:
           checkout: "true"
@@ -134,7 +134,7 @@ jobs:
         # setup-script input and multi-path bats — the main-pinned version
         # would ignore setup-script and fail the dogfooded integration bats.
         # Bump to main post-merge via tools/bump_action_pins.sh.
-        uses: TomHennen/wrangle/build/actions/shell@b60e9daf023a34ddd5a9544596833403bf79da5e # feat/container-root-context-dockerfile 2026-06-24
+        uses: TomHennen/wrangle/build/actions/shell@adc8afc55e3b9bc00e93d18043b68a342e72de93 # feat/private-repo-unattested-mode-597 2026-06-25
         with:
           scan-path: ${{ inputs.scan-path }}
           bats-path: ${{ inputs.bats-path }}
