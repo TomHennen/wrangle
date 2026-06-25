@@ -149,7 +149,7 @@ jobs:
       metadata-pre: ${{ steps.prep.outputs.metadata-pre }}
     steps:
       # TODO: replace with $/actions/prep when GitHub ships $/ syntax (#136)
-      - uses: TomHennen/wrangle/actions/prep@b60e9daf023a34ddd5a9544596833403bf79da5e # feat/container-root-context-dockerfile 2026-06-24
+      - uses: TomHennen/wrangle/actions/prep@36efa42df227a012f138557ebdf2243bbc08330c # track2-attest-toolbox-container 2026-06-25
         id: prep
         with:
           build-type: npm
@@ -168,7 +168,7 @@ jobs:
       security-events: write
     steps:
       # TODO: replace with $/actions/scan when GitHub ships $/ syntax (#136)
-      - uses: TomHennen/wrangle/actions/scan@b60e9daf023a34ddd5a9544596833403bf79da5e # feat/container-root-context-dockerfile 2026-06-24
+      - uses: TomHennen/wrangle/actions/scan@36efa42df227a012f138557ebdf2243bbc08330c # track2-attest-toolbox-container 2026-06-25
         if: ${{ inputs.scan-tools != '' }}
         with:
           checkout: "true"
@@ -205,7 +205,7 @@ jobs:
           ref: ${{ inputs.ref || '' }}
 
       # TODO: replace with $/build/actions/npm when GitHub ships $/ syntax (#136)
-      - uses: TomHennen/wrangle/build/actions/npm@b60e9daf023a34ddd5a9544596833403bf79da5e # feat/container-root-context-dockerfile 2026-06-24
+      - uses: TomHennen/wrangle/build/actions/npm@36efa42df227a012f138557ebdf2243bbc08330c # track2-attest-toolbox-container 2026-06-25
         id: build
         with:
           path: ${{ inputs.path }}
@@ -283,7 +283,7 @@ jobs:
       bundles-artifact-name: ${{ steps.attest.outputs.bundles-artifact-name }}
     steps:
       # TODO: replace with $/actions/attest_provenance when GitHub ships $/ syntax (#136)
-      - uses: TomHennen/wrangle/actions/attest_provenance@b60e9daf023a34ddd5a9544596833403bf79da5e # feat/container-root-context-dockerfile 2026-06-24
+      - uses: TomHennen/wrangle/actions/attest_provenance@36efa42df227a012f138557ebdf2243bbc08330c # track2-attest-toolbox-container 2026-06-25
         id: attest
         with:
           build-type: npm
@@ -306,7 +306,7 @@ jobs:
       contents: write       # create the release if absent and attach the bundle on tag pushes
     steps:
       # TODO: replace with $/actions/verify_release when GitHub ships $/ syntax (#136)
-      - uses: TomHennen/wrangle/actions/verify_release@b60e9daf023a34ddd5a9544596833403bf79da5e # feat/container-root-context-dockerfile 2026-06-24
+      - uses: TomHennen/wrangle/actions/verify_release@36efa42df227a012f138557ebdf2243bbc08330c # track2-attest-toolbox-container 2026-06-25
         with:
           build-type: npm
           shortname: ${{ needs.prep.outputs.shortname }}
