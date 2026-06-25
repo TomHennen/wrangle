@@ -22,8 +22,11 @@ case "$mode" in
         printf 'not valid json{' > "$out/output.sarif"
         exit 0 ;;
     secret)
-        # Record a forwarded secret env var so a test can assert it arrived.
+        # Record forwarded secret env vars so a test can assert each arrived.
+        # MOCK_SECRET covers a generic secret name; GITHUB_TOKEN is the name the
+        # github-token catalog secret (e.g. zizmor's) bridges to.
         printf '%s' "${MOCK_SECRET:-}" > "$out/secret_seen"
+        printf '%s' "${GITHUB_TOKEN:-}" > "$out/github_token_seen"
         printf '{"version":"2.1.0","runs":[{"tool":{"driver":{"name":"mock"}},"results":[]}]}\n' > "$out/output.sarif"
         exit 0 ;;
     netcheck)

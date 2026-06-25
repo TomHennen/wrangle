@@ -1,4 +1,4 @@
-# Hash-pinned zizmor for hermetic installs via pipx.
+# Hash-pinned zizmor for hermetic installs via pip --require-hashes.
 #
 # Managed by Dependabot (pip ecosystem; see .github/dependabot.yml). When the
 # version bumps, all relevant platform hashes must update in the same commit —

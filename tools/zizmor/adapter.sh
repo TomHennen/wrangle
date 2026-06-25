@@ -32,20 +32,15 @@ fi
 
 SARIF_FILE="${OUTPUT_DIR}/output.sarif"
 
-# zizmor reads GH_TOKEN for its online audits (GitHub API). run.sh delivers the
-# catalog secret github-token as GITHUB_TOKEN; bridge the name. Absent token
-# leaves online audits skipped — still a valid (offline) run.
-declare -a token_args=()
-if [[ -n "${GITHUB_TOKEN:-}" ]]; then
-    token_args=(--gh-token "$GITHUB_TOKEN")
-fi
-
-# --no-progress keeps the non-TTY container run quiet. SARIF goes to stdout,
-# redirected to the file. In SARIF mode zizmor exits 0 whether or not it found
+# zizmor reads GITHUB_TOKEN/GH_TOKEN from the environment and enters online mode
+# natively; run.sh injects the catalog secret github-token as GITHUB_TOKEN.
+# Absent token leaves online audits skipped — still a valid (offline) run.
+#
+# SARIF goes to stdout, redirected to the file; zizmor's diagnostics stay on
+# stderr (the run log). In SARIF mode zizmor exits 0 whether or not it found
 # anything — the findings/no-findings split is the SARIF result count below.
 zizmor_exit=0
-zizmor --format sarif --no-progress "${token_args[@]}" "$SRC_DIR" \
-    > "$SARIF_FILE" 2>/dev/null || zizmor_exit=$?
+zizmor --format sarif "$SRC_DIR" > "$SARIF_FILE" || zizmor_exit=$?
 
 # Exit 3 = "no inputs collected" (no workflows/actions/Dependabot config in the
 # tree) — a clean scan, not an error. zizmor writes nothing, so synthesize an
@@ -64,6 +59,13 @@ fi
 
 if ! jq empty "$SARIF_FILE" 2>/dev/null; then
     printf 'wrangle/zizmor: produced invalid JSON in SARIF output\n' >&2
+    exit 2
+fi
+
+# Valid JSON isn't enough: an empty document parses but isn't SARIF. Require the
+# runs array so a silent empty output can't pass as a clean scan.
+if ! jq -e 'has("runs") and (.runs | type == "array")' "$SARIF_FILE" >/dev/null 2>&1; then
+    printf 'wrangle/zizmor: SARIF output missing runs array\n' >&2
     exit 2
 fi
 

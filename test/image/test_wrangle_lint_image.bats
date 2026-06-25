@@ -14,7 +14,7 @@ setup_file() {
     local root
     root="$(cd "$(dirname "$BATS_TEST_FILENAME")/../.." && pwd)"
     docker build -q -f "$root/tools/wrangle-lint/Dockerfile" \
-        -t wrangle-lint:test "$root" >/dev/null 2>&1 || true
+        -t wrangle-lint:test "$root" >/dev/null
 }
 
 setup() {

@@ -187,6 +187,21 @@ JSON
     [ "$(cat "$OUT/mocktool/secret_seen")" = "s3cr3t-value" ]
 }
 
+@test "run.sh image dispatch: github-token secret reaches the container as GITHUB_TOKEN" {
+    # zizmor reads GITHUB_TOKEN from the environment for its online audits (no
+    # --gh-token argv). A catalog secret: github-token must therefore arrive as
+    # the GITHUB_TOKEN env var inside the container, sourced from run.sh's
+    # WRANGLE_EXTRA_GITHUB_TOKEN. This guards the env-bridge the adapter relies on.
+    cat > "$TOOLS/catalog.json" <<JSON
+{"tools":{"mocktool":{"kind":"scan","delivery":"image","image":"$MOCK_IMAGE","secret":"github-token"}}}
+JSON
+    printf 'secret' > "$SRC/MODE"
+    WRANGLE_TOOLS_DIR="$TOOLS" WRANGLE_EXTRA_GITHUB_TOKEN="ghs_mocktoken" \
+        run "$RUN_SH" -s "$SRC" -o "$OUT" mocktool
+    [ "$status" -eq 0 ]
+    [ "$(cat "$OUT/mocktool/github_token_seen")" = "ghs_mocktoken" ]
+}
+
 @test "run.sh image dispatch: no network: declared -> --network none" {
     # network omitted in the catalog -> closed by default. With --network none
     # the container sees only loopback, so no non-lo interface may appear.
