@@ -5,12 +5,20 @@ set -f  # disable globbing — handles external field/tool names
 # lib/read_catalog.sh — read one field of one tool from wrangle's curated tool
 # catalog (tools/catalog.yaml).
 #
-# The catalog is wrangle-maintained and has a fixed, flat shape — a top-level
-# `tools:` map of `<name>:` entries, each a block of `<field>: <scalar>` lines
-# at a constant indent — so a strict line scanner reads it without a YAML
+# The catalog is wrangle-maintained and has a fixed, flat shape, e.g.:
+#
+#   tools:
+#     osv:
+#       kind: scan
+#       network: egress
+#     syft:
+#       kind: sbom
+#
+# A top-level `tools:` map, each entry a block of 4-space-indented
+# `<field>: <scalar>` lines, so a strict line scanner reads it without a YAML
 # dependency in the security-critical orchestrator. It is NOT a general YAML
-# parser: it accepts only that shape (block-style maps, scalar values, `#`
-# comments) and a malformed entry simply yields no value.
+# parser: it accepts only that shape and a malformed entry simply yields no
+# value (the test suite differentially checks it against a real YAML parser).
 #
 # Usage: read_catalog.sh <catalog_file> <tool> <field>
 # Prints the scalar value (trailing inline `# comment` and surrounding quotes
