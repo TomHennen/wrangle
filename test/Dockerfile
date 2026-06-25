@@ -49,6 +49,27 @@ RUN set -euo pipefail && \
     tar -xzf "/tmp/$TARBALL" -C /usr/local/bin actionlint && \
     rm "/tmp/$TARBALL"
 
+# Install yq — pinned version, checksum-verified. The orchestrator reads
+# tools/catalog.yaml through it (lib/read_catalog.sh); the test image pins the
+# same version + digest lib/install_yq.sh installs so the read_catalog tests run
+# against a real yq in CI.
+ARG YQ_VERSION=4.53.3
+ARG YQ_CHECKSUM_ARM64=578648e463a11c1b6db6010cbf41eafed6bee79466fcffa1bb446672cf7945ea
+ARG YQ_CHECKSUM_AMD64=fa52a4e758c63d38299163fbdd1edfb4c4963247918bf9c1c5d31d84789eded4
+RUN set -euo pipefail && \
+    ARCH="$(uname -m)" && \
+    case "$ARCH" in \
+        aarch64) GOARCH=arm64; EXPECTED_CHECKSUM="$YQ_CHECKSUM_ARM64" ;; \
+        x86_64)  GOARCH=amd64; EXPECTED_CHECKSUM="$YQ_CHECKSUM_AMD64" ;; \
+        *) echo "Unsupported arch: $ARCH" >&2; exit 1 ;; \
+    esac && \
+    BIN="yq_linux_${GOARCH}" && \
+    curl --fail -sSL -o "/tmp/$BIN" \
+        "https://github.com/mikefarah/yq/releases/download/v${YQ_VERSION}/${BIN}" && \
+    echo "$EXPECTED_CHECKSUM  /tmp/$BIN" | sha256sum -c - && \
+    install -m 0755 "/tmp/$BIN" /usr/local/bin/yq && \
+    rm "/tmp/$BIN"
+
 # Install Go — pinned version with checksum verification. Used by
 # build/actions/go/test.bats layer-3 integration tests (real gofmt,
 # go vet, go test, govulncheck against fixtures). Other build types'
