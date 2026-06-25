@@ -148,15 +148,69 @@ fi
 declare -a summary_tools=()
 declare -a summary_statuses=()
 
-for tool in "${run_tools[@]}"; do
+# run_tool_image <tool> <image> <output_dir> — run a digest-pinned image under
+# the contract sandbox (read-only /src, writable /output owned by the runner
+# UID, capabilities dropped, no new privileges). Network defaults closed; a
+# declared secret (already name-validated by the caller) is forwarded into the
+# container by name only. Returns the container's exit code under the 0/1/2
+# adapter contract.
+run_tool_image() {
+    local tool="$1" image="$2" tool_out="$3"
+    local net secret secret_var extra_var src_abs out_abs
+
+    # Network defaults closed; a tool grants egress only by declaring it.
+    # "egress" maps to docker's default bridge network (full egress, the
+    # access these tools already have today).
+    net="none"
+    [[ "$(read_catalog_field "$CATALOG" "$tool" network)" == "egress" ]] && net="bridge"
+
+    # docker inherits no host env; a secret-declaring tool gets its
+    # WRANGLE_EXTRA_<name> forwarded by name only, mirroring the adapter
+    # path's WRANGLE_EXTRA_* forwarding. Default: no secrets.
+    local -a docker_env=()
+    secret="$(read_catalog_field "$CATALOG" "$tool" secret)"
+    if [[ -n "$secret" ]]; then
+        # Map a catalog secret name (e.g. github-token) to its env var
+        # (WRANGLE_EXTRA_GITHUB_TOKEN). Export the value into run.sh's own
+        # env and pass docker the name only, so the value never lands on
+        # docker's argv (visible via ps/proc).
+        secret_var="$(printf '%s' "$secret" | tr 'a-z-' 'A-Z_')"
+        extra_var="WRANGLE_EXTRA_${secret_var}"
+        if [[ -n "${!extra_var:-}" ]]; then
+            export "${secret_var}=${!extra_var}"
+            docker_env+=(-e "${secret_var}")
+        fi
+    fi
+
+    # Absolute paths: docker -v needs them, and src_dir/output_dir may be
+    # relative to cwd.
+    src_abs="$(cd "$src_dir" && pwd)"
+    out_abs="$(cd "$tool_out" && pwd)"
+
+    local rc=0
+    timeout "$ADAPTER_TIMEOUT" docker run --rm --network "$net" \
+        --cap-drop ALL --security-opt no-new-privileges \
+        -u "$(id -u):$(id -g)" \
+        -v "$src_abs":/src:ro -v "$out_abs":/output \
+        "${docker_env[@]}" \
+        -- "$image" /src /output || rc=$?
+    return "$rc"
+}
+
+# run_one_tool <tool> — run a single tool through its delivery path (image via
+# docker, otherwise the in-process adapter), map its exit to the 0/1/2 contract,
+# generate human-readable output and the scan manifest, and record the result.
+# Updates overall_status and the summary arrays.
+run_one_tool() {
+    local tool="$1"
     printf '::group::wrangle/%s\n' "$tool"
     printf 'wrangle: === %s ===\n' "$tool"
 
-    tool_status="pass"
-    adapter_exit=0
+    local tool_status="pass"
+    local adapter_exit=0
     # tool_output_dir is the SAME ${output_dir}/${tool}/ both paths write to —
     # the downstream collectors consume ${metadata}/${tool}/output.sarif.
-    tool_output_dir="${output_dir}/${tool}"
+    local tool_output_dir="${output_dir}/${tool}"
     mkdir -p "$tool_output_dir"
 
     if [[ -n "${is_image[$tool]:-}" ]]; then
@@ -166,6 +220,7 @@ for tool in "${run_tools[@]}"; do
         # exit contract and writes output.sarif (+ output.md) into /output.
         printf 'wrangle: running %s (image)...\n' "$tool"
 
+        local image
         image="$(read_catalog_field "$CATALOG" "$tool" image)"
         if [[ -z "$image" ]]; then
             printf 'wrangle: %s: catalog declares delivery: image but no image\n' "$tool" >&2
@@ -174,7 +229,7 @@ for tool in "${run_tools[@]}"; do
             summary_tools+=("$tool")
             summary_statuses+=("$tool_status")
             printf '::endgroup::\n'
-            continue
+            return
         fi
         # Require an @sha256 digest pin (a tag alone is mutable); the registry
         # host may carry a :port (e.g. registry.internal:5000/osv@sha256:...).
@@ -185,60 +240,30 @@ for tool in "${run_tools[@]}"; do
             summary_tools+=("$tool")
             summary_statuses+=("$tool_status")
             printf '::endgroup::\n'
-            continue
+            return
         fi
-
-        # Network defaults closed; a tool grants egress only by declaring it.
-        # "egress" maps to docker's default bridge network (full egress, the
-        # access these tools already have today).
-        net="none"
-        [[ "$(read_catalog_field "$CATALOG" "$tool" network)" == "egress" ]] && net="bridge"
-
-        # docker inherits no host env; a secret-declaring tool gets its
-        # WRANGLE_EXTRA_<name> forwarded by name only, mirroring the adapter
-        # path's WRANGLE_EXTRA_* forwarding. Default: no secrets.
-        declare -a docker_env=()
+        # A declared secret name must be a valid env-var stem before it is
+        # mapped into the container (config error, not a tool result).
+        local secret
         secret="$(read_catalog_field "$CATALOG" "$tool" secret)"
-        if [[ -n "$secret" ]]; then
-            if [[ ! "$secret" =~ ^[a-z][a-z0-9-]*$ ]]; then
-                printf 'wrangle: %s: invalid catalog secret name: %s\n' "$tool" "$secret" >&2
-                tool_status="error"
-                overall_status=2
-                summary_tools+=("$tool")
-                summary_statuses+=("$tool_status")
-                printf '::endgroup::\n'
-                continue
-            fi
-            # Map a catalog secret name (e.g. github-token) to its env var
-            # (WRANGLE_EXTRA_GITHUB_TOKEN). Export the value into run.sh's own
-            # env and pass docker the name only, so the value never lands on
-            # docker's argv (visible via ps/proc).
-            secret_var="$(printf '%s' "$secret" | tr 'a-z-' 'A-Z_')"
-            extra_var="WRANGLE_EXTRA_${secret_var}"
-            if [[ -n "${!extra_var:-}" ]]; then
-                export "${secret_var}=${!extra_var}"
-                docker_env+=(-e "${secret_var}")
-            fi
+        if [[ -n "$secret" ]] && [[ ! "$secret" =~ ^[a-z][a-z0-9-]*$ ]]; then
+            printf 'wrangle: %s: invalid catalog secret name: %s\n' "$tool" "$secret" >&2
+            tool_status="error"
+            overall_status=2
+            summary_tools+=("$tool")
+            summary_statuses+=("$tool_status")
+            printf '::endgroup::\n'
+            return
         fi
 
-        # Absolute paths: docker -v needs them, and src_dir/output_dir may be
-        # relative to cwd.
-        src_abs="$(cd "$src_dir" && pwd)"
-        out_abs="$(cd "$tool_output_dir" && pwd)"
-
-        timeout "$ADAPTER_TIMEOUT" docker run --rm --network "$net" \
-            --cap-drop ALL --security-opt no-new-privileges \
-            -u "$(id -u):$(id -g)" \
-            -v "$src_abs":/src:ro -v "$out_abs":/output \
-            "${docker_env[@]}" \
-            -- "$image" /src /output || adapter_exit=$?
+        run_tool_image "$tool" "$image" "$tool_output_dir" || adapter_exit=$?
     else
         # Adapter-pattern (in-process) path.
 
         # Step 1: Install — only tools with a bespoke install.sh (the escape
         # hatch for tools no package manager ships); go.mod tools were all
         # installed upfront.
-        install_exit=0
+        local install_exit=0
         if [[ -f "${TOOLS_DIR}/${tool}/install.sh" ]]; then
             printf 'wrangle: installing %s...\n' "$tool"
             timeout "$INSTALL_TIMEOUT" "${TOOLS_DIR}/${tool}/install.sh" || install_exit=$?
@@ -255,11 +280,12 @@ for tool in "${run_tools[@]}"; do
             summary_tools+=("$tool")
             summary_statuses+=("$tool_status")
             printf '::endgroup::\n'
-            continue
+            return
         fi
 
         # Step 2: Snapshot workspace for post-execution filesystem check
         # Records file paths, sizes, and mtimes to detect additions, removals, and modifications
+        local pre_snapshot post_snapshot
         pre_snapshot="$(mktemp "${TMPDIR:-/tmp}/wrangle-pre-XXXXX")"
         # Exclude output_dir from snapshot — when metadata dir is inside src_dir
         # (workspace-relative), adapter writes there are expected, not rogue.
@@ -269,7 +295,7 @@ for tool in "${run_tools[@]}"; do
         printf 'wrangle: running %s...\n' "$tool"
 
         # Build restricted environment: only allowlisted variables + WRANGLE_EXTRA_*
-        adapter_env=(
+        local -a adapter_env=(
             "PATH=${PATH}"
             "HOME=${HOME:-}"
             "TMPDIR=${TMPDIR:-/tmp}"
@@ -278,6 +304,7 @@ for tool in "${run_tools[@]}"; do
             "GITHUB_STEP_SUMMARY=${GITHUB_STEP_SUMMARY:-}"
         )
         # Forward WRANGLE_EXTRA_* variables with prefix stripped
+        local key value stripped_key
         while IFS='=' read -r key value; do
             if [[ "$key" == WRANGLE_EXTRA_* ]]; then
                 stripped_key="${key#WRANGLE_EXTRA_}"
@@ -337,7 +364,7 @@ for tool in "${run_tools[@]}"; do
     # itself no-ops on a missing SARIF. The scanner name can differ from the
     # orchestrator token (osv -> osv-scanner); keyed per tool, one line each.
     if [[ "$tool_status" != "error" ]]; then
-        scanner_name=""
+        local scanner_name=""
         case "$tool" in
             osv) scanner_name="osv-scanner" ;;
             wrangle-lint) scanner_name="wrangle-lint" ;;
@@ -352,6 +379,10 @@ for tool in "${run_tools[@]}"; do
     summary_tools+=("$tool")
     summary_statuses+=("$tool_status")
     printf '::endgroup::\n'
+}
+
+for tool in "${run_tools[@]}"; do
+    run_one_tool "$tool"
 done
 
 # Print summary table
