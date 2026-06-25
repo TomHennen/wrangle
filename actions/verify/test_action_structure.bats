@@ -47,13 +47,15 @@ tool_block_has() {
     grep -q 'OCI_TARGET: ${{ inputs.oci-target }}' "$ACTION"
 }
 
-@test "attach step is gated on both attach-to-release and attach-release-assets and threads the asset env" {
-    grep -Fq "inputs.attach-to-release == 'true' && inputs.attach-release-assets == 'true'" "$ACTION"
-    grep -Fq 'BUILD_TYPE: ${{ inputs.build-type }}' "$ACTION"
-    grep -Fq 'DIST_DIR: ${{ inputs.dist-dir }}' "$ACTION"
-    grep -Fq 'METADATA_ZIP_NAME: ${{ inputs.artifact-name }}.zip' "$ACTION"
-    # No checkout in the verify job, so gh needs GH_REPO to resolve the release.
-    grep -Fq 'GH_REPO: ${{ github.repository }}' "$ACTION"
+@test "verify signs + uploads only; it makes no release calls and needs no contents: write" {
+    # Release upload moved to actions/publish_release; verify is verify+sign+
+    # upload-bundle. It must hold no run_verify.sh attach call, no gh release
+    # call, and no contents: write / GH token wiring.
+    ! grep -Eq 'run_verify\.sh" attach' "$ACTION"
+    ! grep -q 'gh release' "$ACTION"
+    ! grep -q 'GH_REPO' "$ACTION"
+    ! grep -q 'GH_TOKEN' "$ACTION"
+    ! grep -qE '^[[:space:]]+contents: write' "$ACTION"
 }
 
 @test "verify does not build the whole tool set or the scan-only binaries" {

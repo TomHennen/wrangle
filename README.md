@@ -64,7 +64,7 @@ jobs:
 Once they've done this they'll get tests executed, vuln scanning, attestations, etc.
 
 > [!NOTE]
-> The build pipelines (Go, Python, npm, Container) don't work on user-owned private repos yet — see [the FAQ](docs/FAQ.md#can-i-use-wrangle-on-a-private-repo).
+> On a private repo the build pipelines can't attest yet (attestation would leak the repo to a public log), so they run in unattested mode via `attest-and-verify: disabled` — see [the FAQ](docs/FAQ.md#can-i-use-wrangle-on-a-private-repo).
 
 Wrangle requires Dependabot so your dependencies and action pins keep updating automatically. It can't turn Dependabot on
 for you, but it does check you've set it up: a missing config fails the source scan until you fix it (or suppress the

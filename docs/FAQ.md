@@ -86,18 +86,24 @@ to a draft → attach → publish flow.
 
 ## Can I use wrangle on a private repo?
 
-The **source-only** and **shell** workflows run anywhere. The build pipelines
-(Go, Python, npm, Container) don't work on a **user-owned private repo** yet:
-each one persists SLSA provenance to
-[GitHub's attestation store](https://docs.github.com/rest/repos/attestations#create-an-attestation),
-which GitHub doesn't offer for user-owned private repos. The release fails with
-`Failed to persist attestation: Feature not available for user-owned private
-repositories`, and nothing is published.
+Yes, with one limit on the build pipelines. The **source-only** and **shell**
+workflows run anywhere. The build pipelines (Go, Python, npm, Container) can't
+attest a build on a private repo yet — doing so would publish the repo's
+identity and build timing to a public transparency log — so they fail closed by
+default.
 
-Run a build pipeline on a **public repo**, or on a **private repo owned by an
-org** with a plan that includes private attestations. Scan-tool specifics for
-private repos without Advanced Security are [below](#im-on-a-private-repo-without-advanced-security--which-scan-tools-work).
-Tracking: [#597](https://github.com/TomHennen/wrangle/issues/597).
+To ship from a private repo, set **`attest-and-verify: disabled`**: you still
+get tests, scanning, an SBOM, and a published release with checksums — just no
+SLSA provenance or VSA. The default (`required`) instead fails the run with a
+message telling you to switch. Public repos attest as before.
+
+Pick one mode per tag: switching an existing release between attested and
+unattested is unsupported.
+
+Scan-tool specifics for private repos without Advanced Security are
+[below](#im-on-a-private-repo-without-advanced-security--which-scan-tools-work).
+Full private-repo attestation is tracked in
+[#600](https://github.com/TomHennen/wrangle/issues/600).
 
 ## I'm on a private repo without Advanced Security — which scan tools work?
 

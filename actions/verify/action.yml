@@ -6,18 +6,17 @@
 # consumers verify with cosign --certificate-identity-regexp.
 #
 # Caller permissions: id-token: write (sign); attestations: write (post each VSA
-# to the GitHub attestation store); contents: write only on the tag/publish job
-# (attach to release); packages: write only with oci-target.
+# to the GitHub attestation store); packages: write only with oci-target. The
+# completed bundles ship as a workflow artifact; the publish job attaches them.
 name: Wrangle Verify
 description: >
   Verify a release's provenance against a wrangle PolicySet using ampel, sign
   one SLSA VSA per dist subject, and append it to that subject's attest-assembled
   <artifact>.intoto.jsonl bundle (provenance + signed metadata) — the completed
-  bundles in bundle-out are uploaded as one workflow artifact and attached to the
-  GitHub release on a tag push. Each signed VSA is also posted to the GitHub
-  attestation store for by-digest discovery (needs attestations: write). With
-  oci-target set (container build type) the VSA is also pushed to the registry as
-  an OCI referrer, which needs packages: write.
+  bundles in bundle-out are uploaded as one workflow artifact. Each signed VSA is
+  also posted to the GitHub attestation store for by-digest discovery (needs
+  attestations: write). With oci-target set (container build type) the VSA is also
+  pushed to the registry as an OCI referrer, which needs packages: write.
 
 inputs:
   subjects:
@@ -77,29 +76,6 @@ inputs:
     description: 'When "true" (default) a FAILED result fails the step and blocks the release.'
     required: false
     default: "true"
-  attach-to-release:
-    description: 'When "true" (default) and the run is a tag push, attach the rationalized asset set to the release.'
-    required: false
-    default: "true"
-  attach-release-assets:
-    description: 'When "true" (default) attach the per-subject dist + bundle and the metadata zip. Set "false" to suppress the release-asset attach.'
-    required: false
-    default: "true"
-  build-type:
-    description: "Build type (go/python/npm/container)."
-    required: false
-    default: ""
-  dist-dir:
-    description: "Directory holding the dist files, attached per subject alongside their bundles."
-    required: false
-    default: "dist"
-  metadata-dir:
-    description: >
-      Directory the per-subject bundles are written into and zipped from for the
-      release metadata asset (sbom + scan/ + bundles); production wires this to
-      the same value as bundle-out.
-    required: false
-    default: ""
   oci-target:
     description: >
       When set, push each signed VSA to this OCI image reference
@@ -162,22 +138,3 @@ runs:
         name: ${{ inputs.artifact-name }}
         path: ${{ inputs.bundle-out }}/
         if-no-files-found: error
-
-    # On a tag push, attach the rationalized asset set to the tag's GitHub
-    # release, creating it if none exists.
-    - name: Attach assets to release
-      if: github.ref_type == 'tag' && inputs.attach-to-release == 'true' && inputs.attach-release-assets == 'true'
-      shell: bash
-      env:
-        WRANGLE_ROOT: ${{ github.action_path }}/../..
-        BUNDLE_OUT: ${{ inputs.bundle-out }}
-        BUILD_TYPE: ${{ inputs.build-type }}
-        DIST_DIR: ${{ inputs.dist-dir }}
-        METADATA_ROOT: ${{ inputs.metadata-dir }}
-        METADATA_ZIP_NAME: ${{ inputs.artifact-name }}.zip
-        GH_TOKEN: ${{ github.token }}
-        # The verify job has no checkout, so gh has no git remote to infer the
-        # base repo from; set it explicitly or every gh release call no-ops.
-        GH_REPO: ${{ github.repository }}
-      run: |
-        "$WRANGLE_ROOT/actions/verify/run_verify.sh" attach

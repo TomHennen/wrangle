@@ -669,9 +669,16 @@ _install_gh_shim() {
 printf '%s\n' "$*" >> "$GH_LOG"
 case "$1 $2" in
   "release view")
+    # The body read (release view --json body) is separate from the existence
+    # probe: serve the staged body and never consume a GH_VIEW_SEQ slot.
+    if [[ "$*" == *"--json body"* ]]; then cat "${GH_BODY:-/dev/null}"; exit 0; fi
     n=$(cat "$GH_VIEW_N" 2>/dev/null || echo 0); n=$((n + 1)); printf '%s' "$n" > "$GH_VIEW_N"
     code=$(printf '%s' "$GH_VIEW_SEQ" | cut -d' ' -f"$n"); exit "${code:-1}" ;;
   "release create") exit "${GH_CREATE_CODE:-0}" ;;
+  "release edit")
+    # Capture the --notes value (the new body) so tests can assert what was set.
+    prev=""; for a in "$@"; do [[ "$prev" == "--notes" ]] && printf '%s' "$a" > "${GH_NOTES:-/dev/null}"; prev="$a"; done
+    exit "${GH_EDIT_CODE:-0}" ;;
   "release upload")
     [[ -n "${GH_KEEP_ZIP:-}" && "$4" == *.zip ]] && cp "$4" "$GH_KEEP_ZIP"
     exit "${GH_UPLOAD_CODE:-0}" ;;
@@ -683,6 +690,25 @@ SHIM
     export GH_LOG="$TEST_DIR/gh.log"; : > "$GH_LOG"
     export GH_VIEW_N="$TEST_DIR/gh.viewn"; : > "$GH_VIEW_N"
     export GITHUB_REF_NAME="v1.2.3"
+}
+
+@test "run_verify: ensure_release is race-safe — a lost create succeeds if the release now exists" {
+    # Sibling build-type publishes race to create the same release; the loser's
+    # create 422s, but the release exists by then, so publish must proceed.
+    _install_gh_shim
+    export GH_VIEW_SEQ="1 0"   # absent, then present (another job won the create)
+    export GH_CREATE_CODE=1    # our create loses the race
+    run wrangle_ensure_release v1.2.3
+    [[ "$status" -eq 0 ]]
+}
+
+@test "run_verify: ensure_release fails closed when create fails and the release stays absent" {
+    _install_gh_shim
+    export GH_VIEW_SEQ="1 1"   # absent, still absent
+    export GH_CREATE_CODE=1
+    run wrangle_ensure_release v1.2.3
+    [[ "$status" -ne 0 ]]
+    [[ "$output" == *"failed to create"* ]]
 }
 
 # Stage the metadata dir (bundles + sbom) + a dist dir whose <artifact> files
@@ -864,6 +890,188 @@ SHIM
     [[ "$status" -eq 0 ]]
     [[ "$output" != *"workflow artifact only"* ]]
     grep -qx "release upload v1.2.3 $BUNDLE_OUT/a.tgz.intoto.jsonl --clobber" "$GH_LOG"
+}
+
+# --- attach-unattested (wrangle_attach_unattested) ---
+#
+# The disabled-attestation publish: no bundles or VSAs, so every dist file (go:
+# archives + checksums.txt) and the metadata zip are uploaded, and the release
+# body is marked unattested. Same gh shim as the attested attach.
+
+# Stage a dist dir (no bundles) + the metadata dir, plus the env attach-unattested
+# reads. The metadata zip is sourced from METADATA_ROOT.
+_stage_unattested_assets() {
+    mkdir -p "$TEST_DIR/dist" "$TEST_DIR/meta"
+    : > "$TEST_DIR/dist/app-linux-amd64.tar.gz"
+    printf 'deadbeef  app-linux-amd64.tar.gz\n' > "$TEST_DIR/dist/checksums.txt"
+    : > "$TEST_DIR/meta/sbom.spdx.json"
+    export DIST_DIR="$TEST_DIR/dist"
+    export METADATA_ROOT="$TEST_DIR/meta"
+    export METADATA_ZIP_NAME="go-metadata.zip"
+}
+
+@test "run_verify attach-unattested: uploads every dist file + checksums.txt and the metadata zip, no bundles" {
+    _require_zip
+    _install_gh_shim
+    _stage_unattested_assets
+    export GH_VIEW_SEQ="0"            # release exists
+    run "$SCRIPT" attach-unattested
+    [[ "$status" -eq 0 ]]
+    grep -qx "release upload v1.2.3 $DIST_DIR/app-linux-amd64.tar.gz --clobber" "$GH_LOG"
+    grep -qx "release upload v1.2.3 $DIST_DIR/checksums.txt --clobber" "$GH_LOG"
+    grep -q "release upload v1.2.3 .*go-metadata.zip --clobber" "$GH_LOG"
+    # No bundle (.intoto.jsonl) is uploaded in unattested mode.
+    if grep -q "intoto.jsonl" "$GH_LOG"; then return 1; fi
+}
+
+@test "run_verify attach-unattested: a checksums manifest scopes the upload, excluding build-tool bookkeeping" {
+    # A build tool (e.g. goreleaser) writes config.yaml / artifacts.json /
+    # metadata.json / CHANGELOG.md into dist/; a flat glob would wrongly publish
+    # them. With a checksums manifest present, publish only its entries.
+    _require_zip
+    _install_gh_shim
+    mkdir -p "$TEST_DIR/dist" "$TEST_DIR/meta"
+    : > "$TEST_DIR/dist/app-linux-amd64.tar.gz"
+    printf 'deadbeef  app-linux-amd64.tar.gz\n' > "$TEST_DIR/dist/checksums.txt"
+    : > "$TEST_DIR/dist/config.yaml"
+    : > "$TEST_DIR/dist/artifacts.json"
+    : > "$TEST_DIR/dist/metadata.json"
+    : > "$TEST_DIR/dist/CHANGELOG.md"
+    : > "$TEST_DIR/meta/sbom.spdx.json"
+    export DIST_DIR="$TEST_DIR/dist"
+    export METADATA_ROOT="$TEST_DIR/meta"
+    export METADATA_ZIP_NAME="go-metadata.zip"
+    export GH_VIEW_SEQ="0"
+    export GH_BODY="$TEST_DIR/body"; : > "$GH_BODY"
+    export GH_NOTES="$TEST_DIR/notes"; : > "$GH_NOTES"
+    run "$SCRIPT" attach-unattested
+    [[ "$status" -eq 0 ]]
+    grep -qx "release upload v1.2.3 $DIST_DIR/app-linux-amd64.tar.gz --clobber" "$GH_LOG"
+    grep -qx "release upload v1.2.3 $DIST_DIR/checksums.txt --clobber" "$GH_LOG"
+    grep -q "release upload v1.2.3 .*go-metadata.zip --clobber" "$GH_LOG"
+    local bk
+    for bk in config.yaml artifacts.json metadata.json CHANGELOG.md; do
+        if grep -qF "$bk" "$GH_LOG"; then
+            printf 'leaked goreleaser bookkeeping: %s\n' "$bk" >&2
+            return 1
+        fi
+    done
+}
+
+@test "run_verify attach-unattested: with no checksums manifest, uploads every flat dist file (npm/python)" {
+    # Build types without a checksums manifest (their dist holds only real
+    # artifacts) publish the flat dist — no manifest scoping, no build-type branch.
+    _require_zip
+    _install_gh_shim
+    mkdir -p "$TEST_DIR/dist" "$TEST_DIR/meta"
+    : > "$TEST_DIR/dist/pkg-1.0.0-py3-none-any.whl"
+    : > "$TEST_DIR/dist/pkg-1.0.0.tar.gz"
+    : > "$TEST_DIR/meta/sbom.spdx.json"
+    export DIST_DIR="$TEST_DIR/dist"
+    export METADATA_ROOT="$TEST_DIR/meta"
+    export METADATA_ZIP_NAME="python-metadata.zip"
+    export GH_VIEW_SEQ="0"
+    export GH_BODY="$TEST_DIR/body"; : > "$GH_BODY"
+    export GH_NOTES="$TEST_DIR/notes"; : > "$GH_NOTES"
+    run "$SCRIPT" attach-unattested
+    [[ "$status" -eq 0 ]]
+    grep -qx "release upload v1.2.3 $DIST_DIR/pkg-1.0.0-py3-none-any.whl --clobber" "$GH_LOG"
+    grep -qx "release upload v1.2.3 $DIST_DIR/pkg-1.0.0.tar.gz --clobber" "$GH_LOG"
+    grep -q "release upload v1.2.3 .*python-metadata.zip --clobber" "$GH_LOG"
+}
+
+@test "run_verify attach-unattested: marks the release body as unattested" {
+    _require_zip
+    _install_gh_shim
+    _stage_unattested_assets
+    export GH_VIEW_SEQ="0"
+    export GH_BODY="$TEST_DIR/body"; : > "$GH_BODY"
+    export GH_NOTES="$TEST_DIR/notes"; : > "$GH_NOTES"
+    run "$SCRIPT" attach-unattested
+    [[ "$status" -eq 0 ]]
+    # The release notes are edited to flag the missing provenance and link #600.
+    grep -q "release edit v1.2.3 --notes" "$GH_LOG"
+    grep -q "issues/600" "$GH_NOTES"
+}
+
+@test "run_verify attach-unattested: preserves a pre-existing release body and appends the marker" {
+    # Generated/adopter notes must survive: the marker is appended, not a
+    # wholesale --notes replacement that would destroy the existing body.
+    _require_zip
+    _install_gh_shim
+    _stage_unattested_assets
+    export GH_VIEW_SEQ="0"
+    export GH_BODY="$TEST_DIR/body"
+    printf 'Adopter changelog line.\n' > "$GH_BODY"
+    export GH_NOTES="$TEST_DIR/notes"; : > "$GH_NOTES"
+    run "$SCRIPT" attach-unattested
+    [[ "$status" -eq 0 ]]
+    grep -q "Adopter changelog line." "$GH_NOTES"
+    grep -q "issues/600" "$GH_NOTES"
+}
+
+@test "run_verify attach-unattested: appends the marker even when notes already contain an unrelated alert" {
+    # The idempotency key must be unique to the unattested marker, not a generic
+    # alert line: an adopter's own `> [!WARNING]` block must not suppress it.
+    _require_zip
+    _install_gh_shim
+    _stage_unattested_assets
+    export GH_VIEW_SEQ="0"
+    export GH_BODY="$TEST_DIR/body"
+    {
+        printf '> [!WARNING]\n'
+        printf '> Breaking change in this release.\n'
+    } > "$GH_BODY"
+    export GH_NOTES="$TEST_DIR/notes"; : > "$GH_NOTES"
+    run "$SCRIPT" attach-unattested
+    [[ "$status" -eq 0 ]]
+    grep -q "Breaking change in this release." "$GH_NOTES"
+    grep -q "issues/600" "$GH_NOTES"
+}
+
+@test "run_verify attach-unattested: re-running does not duplicate the unattested banner" {
+    # Idempotent: a second publish over a release that already carries the marker
+    # leaves the body unchanged (no second edit, no duplicated banner).
+    _require_zip
+    _install_gh_shim
+    _stage_unattested_assets
+    export GH_VIEW_SEQ="0"
+    export GH_BODY="$TEST_DIR/body"
+    export GH_NOTES="$TEST_DIR/notes"; : > "$GH_NOTES"
+    # Seed the body with exactly what the first run would have written.
+    {
+        printf 'Adopter changelog line.\n\n'
+        printf '> [!WARNING]\n'
+        printf '> Unattested build (attest-and-verify: disabled) — no SLSA provenance or VSA. See https://github.com/TomHennen/wrangle/issues/600.'
+    } > "$GH_BODY"
+    run "$SCRIPT" attach-unattested
+    [[ "$status" -eq 0 ]]
+    # The marker is already present, so no release-edit call is made.
+    if grep -q "release edit" "$GH_LOG"; then return 1; fi
+    [[ ! -s "$GH_NOTES" ]]
+}
+
+@test "run_verify attach-unattested: missing release is created, then assets upload" {
+    _require_zip
+    _install_gh_shim
+    _stage_unattested_assets
+    export GH_VIEW_SEQ="1"            # view fails (no release)
+    run "$SCRIPT" attach-unattested
+    [[ "$status" -eq 0 ]]
+    grep -qx "release create v1.2.3 --generate-notes --title v1.2.3" "$GH_LOG"
+    grep -qx "release upload v1.2.3 $DIST_DIR/app-linux-amd64.tar.gz --clobber" "$GH_LOG"
+}
+
+@test "run_verify attach-unattested: fails closed on an empty dist (nothing built)" {
+    _install_gh_shim
+    _stage_unattested_assets
+    # find -delete, not a glob: run_verify.sh sources with `set -f`, so a
+    # `rm "$DIST_DIR"/*` here would no-op under noglob and leave the dist full.
+    find "$DIST_DIR" -mindepth 1 -delete
+    export GH_VIEW_SEQ="0"
+    run "$SCRIPT" attach-unattested
+    [[ "$status" -ne 0 ]]
+    [[ "$output" == *"no dist files to publish"* ]]
 }
 
 # --- wrangle_retry_once -----------------------------------------------------

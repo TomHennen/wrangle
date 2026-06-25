@@ -34,7 +34,7 @@ setup() {
     [ "$status" -eq 0 ]
 }
 
-@test "verify_release: calls actions/verify with computed metadata-dir + metadata name" {
+@test "verify_release: calls actions/verify with computed bundle-out + metadata name" {
     run grep -F 'TomHennen/wrangle/actions/verify@' "$ACTION"
     [ "$status" -eq 0 ]
     run grep -F 'bundle-out: ${{ steps.names.outputs.metadata-dir }}' "$ACTION"
@@ -48,10 +48,12 @@ setup() {
     [ "$status" -eq 0 ]
 }
 
-@test "verify_release: threads build-type and attach-release-assets to the release attach" {
-    run grep -F 'attach-release-assets: ${{ inputs.attach-release-assets }}' "$ACTION"
-    [ "$status" -eq 0 ]
-    # build-type drives the go-vs-others dist distinction in the attach step.
-    run grep -F 'build-type: ${{ inputs.build-type }}' "$ACTION"
-    [ "$status" -eq 0 ]
+@test "verify_release: is attested-only — no unattested publish, no attach passthroughs" {
+    # The unattested publish moved to actions/publish_release; verify_release
+    # verifies + signs only. No attach-unattested call, no attestation gating,
+    # and no attach-to-release/attach-release-assets passthroughs survive.
+    ! grep -Fq 'attach-unattested' "$ACTION"
+    ! grep -Fq "inputs.attestation" "$ACTION"
+    ! grep -Fq 'attach-to-release:' "$ACTION"
+    ! grep -Fq 'attach-release-assets:' "$ACTION"
 }

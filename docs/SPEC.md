@@ -902,7 +902,9 @@ Wrangle's reusable workflows have two kinds of checks that sit at workflow start
 
 The `_guard` / `_gate` suffix is the name's contract: `_guard` = abort on fail, `_gate` = signal and let downstream branch.
 
-**Adding refusal categories:** add the check to `actions/prep/preflight_guard.sh`, add a matching row to the "refuses" list above, and add a structural assertion to `actions/prep/test_preflight_guard.bats`.
+**Attestation preflight — a non-trigger refusal:** [`actions/prep/preflight_attestation.sh`](../actions/prep/preflight_attestation.sh) is a third refusal shape, gated on the build inputs rather than the trigger. On a release run (`should-release == true`) with `attest-and-verify: required`, prep refuses (`exit 1`) unless `github.event.repository.visibility == public` — attestation would persist to GitHub's attestation store and sign to the public Sigstore transparency log, leaking a private repo's identity and build timing. Visibility is read from the event context only (prep holds no token and makes no API call); an empty visibility (no repository object on the event) and `internal` are both treated as non-public. `attest-and-verify: disabled` skips this wall and takes the unattested publish path instead. prep emits `should-attest` (`should-release && attest-and-verify != disabled`, written only past the visibility wall so it is structurally fail-closed); the go/python/npm `attest` and `verify` jobs gate on it, and a single least-privileged `publish` job (`contents: write` only) does the release upload in both modes, gated so an attested run publishes only when `verify` succeeded. Container has no `publish` job — its image is pushed mid-build and is the released artifact.
+
+**Adding refusal categories:** a *trigger* refusal goes in `actions/prep/preflight_guard.sh` with a matching row in the "refuses" list above and a structural assertion in `actions/prep/test_preflight_guard.bats`; a refusal gated on build inputs rather than the trigger (as the attestation preflight is) belongs in its own preflight script and bats, wired into prep alongside the guard.
 
 ### Integrity Verification
 

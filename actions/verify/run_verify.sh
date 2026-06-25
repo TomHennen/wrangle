@@ -15,6 +15,10 @@
 #          <type>-metadata-<sn>.zip) to the GitHub release for the current tag,
 #          if one exists. Inputs: BUNDLE_OUT, BUILD_TYPE, DIST_DIR,
 #          METADATA_ROOT (zipped into the metadata asset), METADATA_ZIP_NAME.
+#   attach-unattested  the disabled-attestation publish: no bundles/VSAs, so
+#          upload the release artifacts (a checksums manifest scopes them when
+#          present, else the flat dist) and the metadata zip, and mark the
+#          release body unattested. Inputs: DIST_DIR, METADATA_ROOT, METADATA_ZIP_NAME.
 #
 # Arg-builder functions are pure so unit tests can assert the CLI shape offline.
 # Inputs arrive as env vars: SUBJECTS (newline-separated), POLICY, COLLECTOR,
@@ -205,16 +209,22 @@ wrangle_run() {
 # artifact. For go, wrangle owns the publish: it also attaches checksums.txt
 # (goreleaser built but published nothing). Enumerate via a temp file, not a
 # process substitution, so a find that dies mid-traversal fails closed.
+# Ensure a published release exists for $1, creating an empty one if absent.
+# Fail closed if creation fails — never fall through to upload.
+wrangle_ensure_release() {
+    local ref="$1"
+    gh release view "$ref" >/dev/null 2>&1 && return 0
+    gh release create "$ref" --generate-notes --title "$ref" >/dev/null 2>&1 && return 0
+    # Create races sibling build-type publishes targeting the same release: a 422
+    # means another job won the create, so re-check before failing closed.
+    gh release view "$ref" >/dev/null 2>&1 && return 0
+    printf 'wrangle: failed to create GitHub release for %s\n' "$ref" >&2
+    return 1
+}
+
 wrangle_attach_release() {
     local ref="$GITHUB_REF_NAME"
-    # No release for the tag: create an empty published release to fill with only
-    # attested assets. Fail closed if creation fails — never fall through to upload.
-    if ! gh release view "$ref" >/dev/null 2>&1; then
-        if ! gh release create "$ref" --generate-notes --title "$ref"; then
-            printf 'wrangle: failed to create GitHub release for %s\n' "$ref" >&2
-            return 1
-        fi
-    fi
+    wrangle_ensure_release "$ref" || return 1
     local listing bundle base dist rc=0
     listing="$(mktemp "${RUNNER_TEMP:-/tmp}/bundles.XXXXXX")"
     if ! find "$BUNDLE_OUT" -type f -name '*.intoto.jsonl' -print0 | sort -z > "$listing"; then
@@ -273,11 +283,76 @@ wrangle_attach_metadata_zip() {
     rm -f "$zip"
 }
 
+# The marker appended to an unattested release body, and a substring unique to
+# it used as the idempotency key (a generic alert line would false-match adopter
+# notes and suppress the marker).
+WRANGLE_UNATTESTED_MARKER='> [!WARNING]
+> Unattested build (attest-and-verify: disabled) — no SLSA provenance or VSA. See https://github.com/TomHennen/wrangle/issues/600.'
+WRANGLE_UNATTESTED_MARKER_KEY='Unattested build (attest-and-verify: disabled)'
+
+# Append the unattested marker to the release body, preserving adopter-authored
+# or generated notes. Idempotent: a re-run that finds the marker already present
+# leaves the body untouched.
+wrangle_mark_release_unattested() {
+    local ref="$1" body
+    body="$(gh release view "$ref" --json body -q .body)" || return 1
+    case "$body" in
+        *"$WRANGLE_UNATTESTED_MARKER_KEY"*) return 0 ;;
+    esac
+    [[ -n "$body" ]] && body+=$'\n\n'
+    body+="$WRANGLE_UNATTESTED_MARKER"
+    gh release edit "$ref" --notes "$body"
+}
+
+# Unattested publish (attest-and-verify: disabled): there are no bundles or VSAs, so
+# attach every dist file (go: the archives + checksums.txt) and the metadata zip
+# (sbom + scan/, no bundles). Same release-create + metadata-zip path as the
+# attested attach; only the per-subject bundle pairing is dropped. Mark the
+# release body so a reader knows it carries no provenance.
+wrangle_attach_unattested() {
+    local ref="$GITHUB_REF_NAME"
+    wrangle_ensure_release "$ref" || return 1
+    wrangle_mark_release_unattested "$ref" || return 1
+    local dist_dir="${DIST_DIR:-dist}" checksums="${DIST_DIR:-dist}/checksums.txt" listing dist rc=0
+    listing="$(mktemp "${RUNNER_TEMP:-/tmp}/dist.XXXXXX")"
+    if [[ -f "$checksums" ]]; then
+        # A checksums manifest enumerates exactly the released artifacts, so scope
+        # the upload to it + the manifest — excluding any build-tool bookkeeping
+        # dropped into dist/ (e.g. goreleaser's config.yaml, artifacts.json).
+        local name
+        while IFS= read -r name; do
+            [[ -n "$name" ]] && printf '%s\0' "$dist_dir/$name"
+        done < <(awk '{ print $2 }' "$checksums") > "$listing"
+        printf '%s\0' "$checksums" >> "$listing"
+    elif ! find "$dist_dir" -maxdepth 1 -type f -print0 | sort -z > "$listing"; then
+        rm -f "$listing"
+        printf 'wrangle: failed to enumerate dist under %s\n' "$dist_dir" >&2
+        return 1
+    fi
+    # Fail closed: nothing to publish means the build produced no artifacts.
+    if [[ ! -s "$listing" ]]; then
+        rm -f "$listing"
+        printf 'wrangle: no dist files to publish under %s\n' "$dist_dir" >&2
+        return 1
+    fi
+    while IFS= read -r -d '' dist; do
+        if [[ ! -f "$dist" ]]; then
+            printf 'wrangle: artifact %s listed but not found\n' "$dist" >&2
+            rc=1; break
+        fi
+        gh release upload "$ref" "$dist" --clobber || { rc=1; break; }
+    done < "$listing"
+    rm -f "$listing"
+    [[ "$rc" -ne 0 ]] && return "$rc"
+    wrangle_attach_metadata_zip "$ref"
+}
+
 main() {
     case "${1:-}" in
-        run)    wrangle_run ;;
-        attach) wrangle_attach_release ;;
-        *) printf 'Usage: %s {run|attach}\n' "${0##*/}" >&2; return 2 ;;
+        run)              wrangle_run ;;
+        attach)           wrangle_attach_release ;;
+        attach-unattested) wrangle_attach_unattested ;;
+        *) printf 'Usage: %s {run|attach|attach-unattested}\n' "${0##*/}" >&2; return 2 ;;
     esac
 }
 

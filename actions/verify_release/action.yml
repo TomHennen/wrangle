@@ -44,14 +44,6 @@ inputs:
     description: "OCI image ref to fetch provenance from and push the bundle to (container only). When set, the dist/provenance workflow-artifact downloads are skipped."
     required: false
     default: ""
-  attach-to-release:
-    description: 'When "true" (default) and the run is a tag push, attach the rationalized asset set to the release.'
-    required: false
-    default: "true"
-  attach-release-assets:
-    description: 'When "true" (default) attach the per-subject dist + bundle and the metadata zip. Set "false" to suppress.'
-    required: false
-    default: "true"
 
 runs:
   using: composite
@@ -87,7 +79,7 @@ runs:
         path: ${{ steps.names.outputs.metadata-dir }}/
 
     # TODO: replace with $/actions/verify when GitHub ships $/ syntax (#136)
-    - uses: TomHennen/wrangle/actions/verify@b60e9daf023a34ddd5a9544596833403bf79da5e # feat/container-root-context-dockerfile 2026-06-24
+    - uses: TomHennen/wrangle/actions/verify@b4b7c21ac3dbb6cb757f34dccb0f8f8fb9cee246 # feat/private-repo-unattested-mode-597 2026-06-25
       with:
         dist-files: ${{ inputs.dist-files }}
         subjects: ${{ inputs.subjects }}
@@ -97,14 +89,7 @@ runs:
         # appends each VSA in place.
         bundle-in: ${{ steps.names.outputs.metadata-dir }}
         bundle-out: ${{ steps.names.outputs.metadata-dir }}
-        # The bundle/zip dir; verify writes the per-subject bundles here.
-        metadata-dir: ${{ steps.names.outputs.metadata-dir }}
         artifact-name: ${{ steps.names.outputs.metadata }}
         context: ${{ inputs.context }}
         oci-target: ${{ inputs.oci-target }}
-        attach-to-release: ${{ inputs.attach-to-release }}
-        attach-release-assets: ${{ inputs.attach-release-assets }}
-        # build-type selects the attach behavior; go adds checksums.txt.
-        build-type: ${{ inputs.build-type }}
-        dist-dir: dist
         fail: "true"

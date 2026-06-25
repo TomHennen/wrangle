@@ -396,11 +396,14 @@ write_pyproject() {
     [[ "$status" -eq 1 ]]
 }
 
-@test "python: workflow has no publish job (Trusted Publishing OIDC constraint)" {
-    # Publish must be in the adopter's workflow because PyPI rejects OIDC
-    # tokens whose workflow_ref points at a reusable workflow.
-    run grep '^  publish:' "$WORKFLOW"
-    [[ "$status" -eq 1 ]]
+@test "python: workflow has no PyPI publish job (Trusted Publishing OIDC constraint)" {
+    # PyPI publish must be in the adopter's workflow because PyPI rejects OIDC
+    # tokens whose workflow_ref points at a reusable workflow. The `publish` job
+    # here uploads to a GitHub release (no PyPI), so assert no pypi-publish step.
+    run grep -F 'pypa/gh-action-pypi-publish' "$WORKFLOW"
+    [[ "$status" -ne 0 ]]
+    run grep -E 'twine upload|pypi-publish' "$WORKFLOW"
+    [[ "$status" -ne 0 ]]
 }
 
 @test "python: workflow has a scan job using the scan action" {
@@ -655,11 +658,6 @@ write_pyproject() {
     [[ "$status" -eq 0 ]]
 }
 
-@test "python: attest job is gated on should-release" {
-    run bash -c "sed -n '/^  attest:/,/^  [a-z]/p' \"$WORKFLOW\" | grep -E 'if:.*should-release'"
-    [[ "$status" -eq 0 ]]
-}
-
 @test "python: attest job no longer references the verify_attestation action" {
     run bash -c "sed -n '/^  attest:/,/^  [a-z]/p' \"$WORKFLOW\" | grep 'TomHennen/wrangle/actions/verify_attestation@'"
     [[ "$status" -ne 0 ]]
@@ -698,4 +696,63 @@ write_pyproject() {
     [[ "$status" -eq 0 ]]
     run bash -c "sed -n '/^  verify:/,\$p' \"$WORKFLOW\" | grep -E 'needs:.*attest'"
     [[ "$status" -eq 0 ]]
+}
+
+@test "python: attest and verify jobs are gated on should-attest" {
+    # Both signing jobs drop out unless prep's should-attest is true; otherwise a
+    # private repo's release would still attempt to sign and leak to the public log.
+    run bash -c "sed -n '/^  attest:/,/^  [a-z]/p' \"$WORKFLOW\" | grep -F \"needs.prep.outputs.should-attest == 'true'\""
+    [[ "$status" -eq 0 ]]
+    run bash -c "sed -n '/^  verify:/,/^  [a-z]/p' \"$WORKFLOW\" | grep -F \"needs.prep.outputs.should-attest == 'true'\""
+    [[ "$status" -eq 0 ]]
+}
+
+@test "python: workflow renames the attestation input to attest-and-verify" {
+    run grep -E '^      attest-and-verify:' "$WORKFLOW"
+    [[ "$status" -eq 0 ]]
+    run grep -F 'inputs.attestation' "$WORKFLOW"
+    [[ "$status" -ne 0 ]]
+}
+
+@test "python: prep job exposes should-attest, wired into attest-and-verify" {
+    run bash -c "sed -n '/^  prep:/,/^  [a-z]/p' \"$WORKFLOW\" | grep -E '^[[:space:]]*should-attest:'"
+    [[ "$status" -eq 0 ]]
+    run grep -F 'attest-and-verify: ${{ inputs.attest-and-verify }}' "$WORKFLOW"
+    [[ "$status" -eq 0 ]]
+}
+
+@test "python: verify holds id-token + attestations but NOT contents: write" {
+    local job
+    job="$(awk '/^  [a-z][a-z_-]*:$/ { in_section = ($0 == "  verify:") } in_section' "$WORKFLOW")"
+    grep -qE '^      id-token: write' <<<"$job"
+    grep -qE '^      attestations: write' <<<"$job"
+    ! grep -qE '^      contents: write([[:space:]]|$)' <<<"$job"
+}
+
+@test "python: only the publish job holds contents: write (least privilege)" {
+    for job in scan build attest verify; do
+        section="$(awk -v j="  $job:" '/^  [a-z][a-z_-]*:$/ { in_section = ($0 == j) } in_section' "$WORKFLOW")"
+        ! grep -qE '^      contents: write([[:space:]]|$)' <<<"$section"
+    done
+    section="$(awk '/^  [a-z][a-z_-]*:$/ { in_section = ($0 == "  publish:") } in_section' "$WORKFLOW")"
+    grep -qE '^      contents: write([[:space:]]|$)' <<<"$section"
+}
+
+@test "python: publish job is the shared release-upload job (contents: write only, no signing)" {
+    local job
+    job="$(awk '/^  [a-z][a-z_-]*:$/ { in_section = ($0 == "  publish:") } in_section' "$WORKFLOW")"
+    grep -qE '^      contents: write([[:space:]]|$)' <<<"$job"
+    ! grep -qE '^      (id-token|attestations):' <<<"$job"
+    grep -qF 'TomHennen/wrangle/actions/publish_release@' <<<"$job"
+    grep -qF 'attest-and-verify: ${{ inputs.attest-and-verify }}' <<<"$job"
+}
+
+@test "python: publish job is blocked on a failed verify (policy gate preserved)" {
+    # LOAD-BEARING. publish must require verify success whenever attesting, and
+    # publish requires verify success unless unattested (should-attest != 'true').
+    local job
+    job="$(awk '/^  [a-z][a-z_-]*:$/ { in_section = ($0 == "  publish:") } in_section' "$WORKFLOW")"
+    grep -qF "needs.verify.result == 'success'" <<<"$job"
+    grep -qF "needs.prep.outputs.should-attest != 'true' || needs.verify.result == 'success'" <<<"$job"
+    grep -qF "needs.prep.outputs.should-release == 'true'" <<<"$job"
 }
