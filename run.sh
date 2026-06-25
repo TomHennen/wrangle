@@ -29,12 +29,10 @@ TOOLS_DIR="${WRANGLE_TOOLS_DIR:-${SCRIPT_DIR}/tools}"
 # which case every tool runs the adapter path.
 CATALOG="${WRANGLE_CATALOG:-${TOOLS_DIR}/catalog.yaml}"
 
-# delivery_of <tool>: prints "image" for a catalog tool with delivery: image,
-# else nothing (the adapter path). Centralizes the single source of the
-# adapter-vs-image branch so the go-install and dispatch loops can't diverge.
-delivery_of() {
-    [[ "$(read_catalog_field "$CATALOG" "$1" delivery)" == "image" ]] && printf 'image'
-}
+# is_image[$tool]=1 marks a catalog tool with delivery: image (the docker-run
+# path); absence means the adapter path. Resolved once per tool in the parse
+# loop so the go-install and dispatch loops branch on the same single answer.
+declare -A is_image=()
 
 # Defaults
 src_dir="."
@@ -58,9 +56,8 @@ fi
 
 # Parse tool specs: strip :policy suffixes, collect the tools run by run.sh —
 # adapter-pattern tools (have an adapter.sh) plus catalog image-delivery tools
-# (run via docker run, §3.5). Action-pattern tools (a directory but no adapter
-# and no image entry) are skipped. Unknown tools (no directory at all) are
-# rejected.
+# (run via docker run). Action-pattern tools (a directory but no adapter and no
+# image entry) are skipped. Unknown tools (no directory at all) are rejected.
 TOOL_NAME_RE='^[a-z][a-z0-9_-]*$'
 declare -a run_tools=()
 for spec in "$@"; do
@@ -73,7 +70,17 @@ for spec in "$@"; do
         printf 'wrangle: unknown tool: %s (no directory at %s/%s/)\n' "$tool" "$TOOLS_DIR" "$tool" >&2
         exit 2
     fi
-    if [[ -n "$(delivery_of "$tool")" ]] || [[ -f "${TOOLS_DIR}/${tool}/adapter.sh" ]]; then
+    # Resolve delivery once. Empty -> adapter path; "image" -> docker path; any
+    # other non-empty value is a catalog typo, not a silent adapter fallthrough.
+    delivery="$(read_catalog_field "$CATALOG" "$tool" delivery)"
+    case "$delivery" in
+        image) is_image[$tool]=1 ;;
+        ''|adapter) ;;
+        *)
+            printf 'wrangle: %s: unrecognized catalog delivery: %s\n' "$tool" "$delivery" >&2
+            exit 2 ;;
+    esac
+    if [[ -n "${is_image[$tool]:-}" ]] || [[ -f "${TOOLS_DIR}/${tool}/adapter.sh" ]]; then
         run_tools+=("$tool")
     fi
 done
@@ -102,7 +109,7 @@ ADAPTER_TIMEOUT="${WRANGLE_ADAPTER_TIMEOUT:-600}"
 declare -a go_pkgs=()
 for tool in "${run_tools[@]}"; do
     # Image-delivery tools ship prebuilt in their image — never go-install them.
-    [[ -n "$(delivery_of "$tool")" ]] && continue
+    [[ -n "${is_image[$tool]:-}" ]] && continue
     go_tools_file="${TOOLS_DIR}/${tool}/go-tools"
     [[ -f "$go_tools_file" ]] || continue
     while IFS= read -r pkg || [[ -n "$pkg" ]]; do
@@ -152,7 +159,7 @@ for tool in "${run_tools[@]}"; do
     tool_output_dir="${output_dir}/${tool}"
     mkdir -p "$tool_output_dir"
 
-    if [[ -n "$(delivery_of "$tool")" ]]; then
+    if [[ -n "${is_image[$tool]:-}" ]]; then
         # Image-delivery: run the tool's pinned image under the contract
         # sandbox (read-only /src, writable /output owned by the runner UID).
         # The image's entrypoint IS the adapter, so it maps the same 0/1/2
@@ -169,26 +176,47 @@ for tool in "${run_tools[@]}"; do
             printf '::endgroup::\n'
             continue
         fi
+        # Require a digest-pinned image: a tag alone is mutable and unverifiable.
+        if [[ ! "$image" =~ ^[a-z0-9./_-]+(:[a-z0-9._-]+)?@sha256:[0-9a-f]{64}$ ]]; then
+            printf 'wrangle: %s: image not digest-pinned: %s\n' "$tool" "$image" >&2
+            tool_status="error"
+            overall_status=2
+            summary_tools+=("$tool")
+            summary_statuses+=("$tool_status")
+            printf '::endgroup::\n'
+            continue
+        fi
 
         # Network defaults closed; a tool grants egress only by declaring it.
         # "egress" maps to docker's default bridge network (full egress, the
-        # access these tools already have today — a per-domain allowlist is a
-        # tracked later nice-to-have, design §3.1).
+        # access these tools already have today).
         net="none"
         [[ "$(read_catalog_field "$CATALOG" "$tool" network)" == "egress" ]] && net="bridge"
 
         # docker inherits no host env; a secret-declaring tool gets its
-        # WRANGLE_EXTRA_<name> passed explicitly with -e, mirroring the
-        # adapter path's WRANGLE_EXTRA_* forwarding. Default: no secrets.
+        # WRANGLE_EXTRA_<name> forwarded by name only, mirroring the adapter
+        # path's WRANGLE_EXTRA_* forwarding. Default: no secrets.
         declare -a docker_env=()
         secret="$(read_catalog_field "$CATALOG" "$tool" secret)"
         if [[ -n "$secret" ]]; then
+            if [[ ! "$secret" =~ ^[a-z][a-z0-9-]*$ ]]; then
+                printf 'wrangle: %s: invalid catalog secret name: %s\n' "$tool" "$secret" >&2
+                tool_status="error"
+                overall_status=2
+                summary_tools+=("$tool")
+                summary_statuses+=("$tool_status")
+                printf '::endgroup::\n'
+                continue
+            fi
             # Map a catalog secret name (e.g. github-token) to its env var
-            # (WRANGLE_EXTRA_GITHUB_TOKEN); pass the bare name into the image.
+            # (WRANGLE_EXTRA_GITHUB_TOKEN). Export the value into run.sh's own
+            # env and pass docker the name only, so the value never lands on
+            # docker's argv (visible via ps/proc).
             secret_var="$(printf '%s' "$secret" | tr 'a-z-' 'A-Z_')"
             extra_var="WRANGLE_EXTRA_${secret_var}"
             if [[ -n "${!extra_var:-}" ]]; then
-                docker_env+=(-e "${secret_var}=${!extra_var}")
+                export "${secret_var}=${!extra_var}"
+                docker_env+=(-e "${secret_var}")
             fi
         fi
 
@@ -198,10 +226,11 @@ for tool in "${run_tools[@]}"; do
         out_abs="$(cd "$tool_output_dir" && pwd)"
 
         timeout "$ADAPTER_TIMEOUT" docker run --rm --network "$net" \
+            --cap-drop ALL --security-opt no-new-privileges \
             -u "$(id -u):$(id -g)" \
             -v "$src_abs":/src:ro -v "$out_abs":/output \
             "${docker_env[@]}" \
-            "$image" /src /output || adapter_exit=$?
+            -- "$image" /src /output || adapter_exit=$?
     else
         # Adapter-pattern (in-process) path.
 

@@ -41,16 +41,20 @@ setup() {
     OUT="$TMP_DIR/out"
     TOOLS="$TMP_DIR/tools"
     mkdir -p "$SRC" "$OUT" "$TOOLS/mocktool" "$TOOLS/adaptertool"
-    export ORIG_DIR RUN_SH TMP_DIR SRC OUT TOOLS
+
+    # run.sh requires a digest-pinned image; a locally-built tag has no registry
+    # digest, so address the mock by its image ID (name@sha256:<id> runs fine).
+    MOCK_IMAGE="wrangle-mock-tool@$(docker image inspect wrangle-mock-tool:test --format '{{.Id}}')"
+    export ORIG_DIR RUN_SH TMP_DIR SRC OUT TOOLS MOCK_IMAGE
 
     # A mock catalog declaring mocktool as a delivery: image tool pointing at
     # the local mock image. network omitted -> none (the default).
-    cat > "$TOOLS/catalog.yaml" <<'YAML'
+    cat > "$TOOLS/catalog.yaml" <<YAML
 tools:
   mocktool:
     kind: scan
     delivery: image
-    image: wrangle-mock-tool:test
+    image: $MOCK_IMAGE
 YAML
 
     # An adapter-path tool sharing the same run, to prove the adapter seam is
@@ -143,6 +147,35 @@ YAML
     grep -q '"name":"adaptertool"' "$OUT/adaptertool/output.sarif"
 }
 
+@test "run.sh image dispatch: a declared secret reaches the container env" {
+    # A catalog secret: maps WRANGLE_EXTRA_<NAME> into the image as <NAME>,
+    # forwarded by name (not on docker's argv). Assert it actually arrives.
+    cat > "$TOOLS/catalog.yaml" <<YAML
+tools:
+  mocktool:
+    kind: scan
+    delivery: image
+    image: $MOCK_IMAGE
+    secret: mock-secret
+YAML
+    printf 'secret' > "$SRC/MODE"
+    WRANGLE_TOOLS_DIR="$TOOLS" WRANGLE_EXTRA_MOCK_SECRET="s3cr3t-value" \
+        run "$RUN_SH" -s "$SRC" -o "$OUT" mocktool
+    [ "$status" -eq 0 ]
+    [ "$(cat "$OUT/mocktool/secret_seen")" = "s3cr3t-value" ]
+}
+
+@test "run.sh image dispatch: no network: declared -> --network none" {
+    # network omitted in the catalog -> closed by default. With --network none
+    # the container sees only loopback, so no non-lo interface may appear.
+    printf 'netcheck' > "$SRC/MODE"
+    _run_orch mocktool
+    [ "$status" -eq 0 ]
+    [ -f "$OUT/mocktool/net_ifaces" ]
+    run grep -vx 'lo' "$OUT/mocktool/net_ifaces"
+    [ -z "$output" ]
+}
+
 @test "run.sh image dispatch: real osv image on a clean tree -> exit 0" {
     # The locally-built osv image (setup_file) against a source tree with no
     # package manifests. osv reports no sources -> empty SARIF, exit 0. Needs
@@ -150,12 +183,13 @@ YAML
     docker image inspect wrangle-osv:test >/dev/null 2>&1 \
         || skip_or_fail "local osv image (wrangle-osv:test) not built"
 
-    cat > "$TOOLS/catalog.yaml" <<'YAML'
+    osv_image="wrangle-osv@$(docker image inspect wrangle-osv:test --format '{{.Id}}')"
+    cat > "$TOOLS/catalog.yaml" <<YAML
 tools:
   osv:
     kind: scan
     delivery: image
-    image: wrangle-osv:test
+    image: $osv_image
     network: egress
 YAML
     mkdir -p "$TOOLS/osv"
@@ -177,12 +211,13 @@ YAML
     docker image inspect wrangle-osv:test >/dev/null 2>&1 \
         || skip_or_fail "local osv image (wrangle-osv:test) not built"
 
-    cat > "$TOOLS/catalog.yaml" <<'YAML'
+    osv_image="wrangle-osv@$(docker image inspect wrangle-osv:test --format '{{.Id}}')"
+    cat > "$TOOLS/catalog.yaml" <<YAML
 tools:
   osv:
     kind: scan
     delivery: image
-    image: wrangle-osv:test
+    image: $osv_image
     network: egress
 YAML
     mkdir -p "$TOOLS/osv"

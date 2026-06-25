@@ -3,7 +3,7 @@ set -euo pipefail
 set -f  # disable globbing — handles external field/tool names
 
 # lib/read_catalog.sh — read one field of one tool from wrangle's curated tool
-# catalog (tools/catalog.yaml, docs/tool_container_design.md §3.6).
+# catalog (tools/catalog.yaml).
 #
 # The catalog is wrangle-maintained and has a fixed, flat shape — a top-level
 # `tools:` map of `<name>:` entries, each a block of `<field>: <scalar>` lines

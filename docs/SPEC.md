@@ -780,7 +780,7 @@ The install scripts include OS/arch detection (`linux/darwin`, `amd64/arm64`) as
    - `test.bats` — structural tests (action.yml exists, SHA pinned, etc.)
 2. Add a `uses: ./tools/foo` step in `actions/scan/action.yml`
 
-Everything for one tool lives in one directory. No Docker images, no registry management, no workflow changes for adopters.
+Everything for one tool lives in one directory, with no workflow changes for adopters. Most tools deliver as a downloaded binary or a wrapped action; a tool that needs a container delivers as one via the catalog (`delivery: image`, see Design Decisions below).
 
 ### Tool Sub-specifications
 
@@ -821,20 +821,18 @@ The `.wrangle/` directory is in `.gitignore` to prevent accidental commits. The 
 
 ## Design Decisions
 
-### Binary downloads over Docker images
+### Binary downloads as the default, container images per-tool
 
-**Previous approach:** Tools were wrapped in Docker images, pushed to ghcr.io, and run via `docker run` with volume mounts.
-
-**New approach:** Tools are downloaded as standalone binaries and run directly.
-
-**Rationale:**
+**Default:** Tools are downloaded as standalone binaries (or wrapped as actions) and run directly, because for most tools that wins on:
 - **Speed:** No image pull latency (cached binary downloads are near-instant)
 - **Simplicity:** No container registry to manage, no image build pipeline
 - **Portability:** Works on any runner (macOS, self-hosted, ARM — not just Linux with Docker)
 - **Testability:** No Docker-in-Docker complexity; scripts testable with bats-core locally
 - **Adoption friction:** No authentication needed to pull tool images
 
-The container *build/publish* workflow (for building adopters' Docker images) remains unchanged.
+**Per-tool exception:** A tool whose upstream ships only as a container, or that needs an isolated runtime, opts into container delivery through the catalog (`delivery: image` with a digest-pinned `image:`); the orchestrator runs it via `docker run` under the adapter contract sandbox. Binary/adapter delivery remains the default. See [docs/tool_container_design.md](tool_container_design.md).
+
+The container *build/publish* workflow (for building adopters' Docker images) is a separate concern and remains unchanged.
 
 ### Reusable workflow + composite action (two layers)
 
