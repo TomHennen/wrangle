@@ -1,0 +1,43 @@
+name: publish tool images
+
+# Build, publish, and attest wrangle's containerized tool images. One matrix
+# entry per tool — enroll a new tool by adding a line. The trigger is
+# deliberately broad (any tools/ or lib/ change) so we over-build rather than
+# miss a build: a tool image's build context is the repo root (the Dockerfile
+# builds from tools/go.mod and bundles adapter glue from lib/). See
+# docs/tool_container_design.md.
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - tools/**
+      - lib/**
+
+permissions: {}
+
+jobs:
+  publish:
+    permissions:
+      contents: read          # checkout + source scan
+      id-token: write         # OIDC for keyless Cosign signing
+      packages: write         # push image + provenance to GHCR
+      attestations: write     # GitHub-issued SLSA provenance
+      actions: read           # source scan reads the Actions API
+      security-events: write  # source-scan SARIF -> Security tab
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - path: tools/osv
+            imagename: ghcr.io/tomhennen/wrangle/osv
+    uses: ./.github/workflows/build_and_publish_container.yml
+    with:
+      path: ${{ matrix.path }}
+      dockerfile: ${{ matrix.path }}/Dockerfile
+      imagename: ${{ matrix.imagename }}
+      registry: ghcr.io
+      release-events: main-and-tags
+    secrets:
+      gh_token: ${{ secrets.GITHUB_TOKEN }}
