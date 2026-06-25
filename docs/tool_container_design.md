@@ -310,6 +310,12 @@ not a meaningful per-delivery signal.)
   is what would unlock **VSA-verified caching** of all tool images — verifying each image's provenance at
   pull time, the clean L3-safe replacement for the build cache we currently disable. That is a bootstrap
   (wrangle's own verify image verifying the others) we return to with this track, not in the scan MVP.
+  **Status (#596 Track 2):** the toolbox image (`tools/attest-toolbox/`, all four binaries from
+  `tools/go.mod`) is built and published like the scan images, and `actions/verify` has an opt-in
+  `WRANGLE_VERIFY_AMPEL_IMAGE` that runs *ampel verify only* (no signing token, network egress only) via
+  that image — off by default, byte-identical when unset, and not on the L3 release path. Containerizing
+  the signing steps (bnd/cosign, which need the OIDC token) and the OCI-collector verify path remain
+  deferred.
 - **Separate feature:** emitting an attested container of an adopter's own Go app (the "free container"
   value-add via goreleaser/ko). It reuses some machinery but serves adopter UX, not the goals here.
 - **Left as-is:** tools with official GitHub Actions that gain nothing from containerization stay

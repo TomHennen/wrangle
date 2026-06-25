@@ -93,6 +93,48 @@ wrangle_bnd_sign_args() {
     printf '%s\n' statement "$1"
 }
 
+# Run ampel: the in-job binary by default, or — when WRANGLE_VERIFY_AMPEL_IMAGE
+# names a toolbox image (#596, experimental) — that image via `docker run`.
+#
+# Security surface of the container path (the reason it is opt-in, off by
+# default, and excluded from the L3 release path):
+#   - ampel verify reads local bundle/policy files and fetches PUBLIC Sigstore /
+#     Rekor data to verify signatures. It needs network egress (--network host
+#     for the runner's egress) but NO secret: it does not sign, so the OIDC
+#     signing token is never passed in. Signing (bnd) and the store push stay in
+#     the job, outside the container — the token never reaches the image.
+#   - Mounts use IDENTICAL host paths inside the container, so the args built by
+#     wrangle_ampel_verify_args (all absolute) need no rewriting. policy/bundle
+#     dirs mount read-only; only the results dir is writable.
+#   - The `oci:` collector (container build type) needs registry auth inside the
+#     container, which is not yet plumbed — so the container path refuses when
+#     COLLECTOR is set rather than silently degrading. go/npm/python verify
+#     (empty COLLECTOR) is the only path it serves today.
+# Default (unset image): the call is `ampel "$@"`, byte-identical to before.
+wrangle_ampel() {
+    local image="${WRANGLE_VERIFY_AMPEL_IMAGE:-}"
+    if [[ -z "$image" ]]; then
+        ampel "$@"
+        return
+    fi
+    if [[ -n "${COLLECTOR:-}" ]]; then
+        printf 'wrangle: WRANGLE_VERIFY_AMPEL_IMAGE does not yet support an OCI collector (%s)\n' "$COLLECTOR" >&2
+        return 2
+    fi
+    local results_dir policy_dir
+    results_dir="$(cd "$(dirname "$WRANGLE_AMPEL_RESULTS")" && pwd)"
+    policy_dir="$REPO_ROOT/policies"
+    # No -e for any token; --network host gives ampel the runner's egress to
+    # reach Sigstore/Rekor; non-root as the caller so the unsigned VSA it writes
+    # is consumable by the in-job signing step.
+    docker run --rm --network host -u "$(id -u):$(id -g)" \
+        -v "$BUNDLE_OUT":"$BUNDLE_OUT":ro \
+        -v "$policy_dir":"$policy_dir":ro \
+        -v "$results_dir":"$results_dir" \
+        -e HOME=/tmp \
+        "$image" ampel "$@"
+}
+
 # ampel verify one subject -> unsigned VSA at $2, streaming the report to the
 # step summary. $1 is the subject; $3 the attest-assembled bundle fed to the
 # policy as the jsonl collector.
@@ -111,7 +153,9 @@ wrangle_verify_emit_vsa() {
     # the policy verdict, and piping straight into the truncating sanitizer could
     # SIGPIPE ampel and flip a PASS into a blocked release.
     report="$(mktemp)"
-    wrangle_retry_once "$report" ampel "${args[@]}" || rc=$?
+    # The container ampel path (opt-in) mounts the dir holding the unsigned VSA.
+    local WRANGLE_AMPEL_RESULTS="$results_path"
+    wrangle_retry_once "$report" wrangle_ampel "${args[@]}" || rc=$?
     wrangle_sanitize_output < "$report" >> "$GITHUB_STEP_SUMMARY"
     # The step summary is easy to miss, so echo a failed report to the job log.
     if [[ "$rc" -ne 0 ]]; then
