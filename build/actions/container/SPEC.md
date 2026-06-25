@@ -26,6 +26,7 @@ Multi-registry support is a planned extension. See "Known limitations" for the s
 | Input | Required | Description |
 |-------|----------|-------------|
 | `path` | yes | Relative path to the directory containing the Dockerfile |
+| `dockerfile` | no | Path to the Dockerfile. Default: `{path}/Dockerfile` with `path` as the build context. When set, the build context is the repo root (so the Dockerfile can `COPY` files outside `path`). `path` still names the artifacts. |
 | `imagename` | yes | Full image name including registry (e.g., `ghcr.io/owner/repo/image`) |
 | `registry` | yes | Container registry hostname (e.g., `ghcr.io`) |
 | `github_token` | yes | `GITHUB_TOKEN` with `packages:write` scope |
@@ -43,6 +44,7 @@ Multi-registry support is a planned extension. See "Known limitations" for the s
 | Input | Required | Description |
 |-------|----------|-------------|
 | `path` | yes | Passed through to composite action |
+| `dockerfile` | no | Passed through to composite action (see the composite-action input above) |
 | `imagename` | yes | Passed through to composite action |
 | `registry` | yes | Passed through to composite action |
 
@@ -117,6 +119,7 @@ All inputs are passed through `env:` blocks — never interpolated directly in `
 | Input | Validation |
 |-------|-----------|
 | `path` | Must be relative (no leading `/`), no `..` traversal, characters match `^[a-zA-Z0-9_./-]+$` |
+| `dockerfile` | When set, same rules as `path` (relative, no `..`, `^[a-zA-Z0-9_./-]+$`) via `lib/validate_path.sh` — it flows into the build as `docker/build-push-action`'s `file`. Empty is allowed and selects the default `path`-subdirectory context. |
 | `registry` | Characters match `^[a-z0-9.-]+$` |
 | `imagename` | Characters match `^[a-z0-9./:_-]+$` |
 

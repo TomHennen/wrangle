@@ -161,7 +161,7 @@ jobs:
       metadata-pre: ${{ steps.prep.outputs.metadata-pre }}
     steps:
       # TODO: replace with $/actions/prep when GitHub ships $/ syntax (#136)
-      - uses: TomHennen/wrangle/actions/prep@bced262e824e11ac234ebb801a9596ff8e0f0e70 # main 2026-06-22
+      - uses: TomHennen/wrangle/actions/prep@b60e9daf023a34ddd5a9544596833403bf79da5e # feat/container-root-context-dockerfile 2026-06-24
         id: prep
         with:
           build-type: go
@@ -180,7 +180,7 @@ jobs:
       security-events: write
     steps:
       # TODO: replace with $/actions/scan when GitHub ships $/ syntax (#136)
-      - uses: TomHennen/wrangle/actions/scan@bced262e824e11ac234ebb801a9596ff8e0f0e70 # main 2026-06-22
+      - uses: TomHennen/wrangle/actions/scan@b60e9daf023a34ddd5a9544596833403bf79da5e # feat/container-root-context-dockerfile 2026-06-24
         if: ${{ inputs.scan-tools != '' }}
         with:
           checkout: "true"
@@ -215,7 +215,7 @@ jobs:
       # TODO: replace with $/build/actions/go/checks when GitHub ships $/ syntax (#136)
       # Self-pinned to PR HEAD until merge — bump-self-refs follow-up
       # repoints to the squashed merge SHA after this lands.
-      - uses: TomHennen/wrangle/build/actions/go/checks@bced262e824e11ac234ebb801a9596ff8e0f0e70 # main 2026-06-22
+      - uses: TomHennen/wrangle/build/actions/go/checks@b60e9daf023a34ddd5a9544596833403bf79da5e # feat/container-root-context-dockerfile 2026-06-24
         id: checks
         with:
           path: ${{ inputs.path }}
@@ -278,7 +278,7 @@ jobs:
 
       # TODO: replace with $/build/actions/go/build when GitHub ships $/ syntax (#136)
       # Self-pinned to PR HEAD until merge.
-      - uses: TomHennen/wrangle/build/actions/go/build@bced262e824e11ac234ebb801a9596ff8e0f0e70 # main 2026-06-22
+      - uses: TomHennen/wrangle/build/actions/go/build@b60e9daf023a34ddd5a9544596833403bf79da5e # feat/container-root-context-dockerfile 2026-06-24
         id: release
         with:
           path: ${{ inputs.path }}
@@ -369,7 +369,7 @@ jobs:
       # writes non-artifact bookkeeping into dist/ that is not released. This is
       # the same canonical subject set the VSA binds to.
       # TODO: replace with $/actions/attest_provenance when GitHub ships $/ syntax (#136)
-      - uses: TomHennen/wrangle/actions/attest_provenance@bced262e824e11ac234ebb801a9596ff8e0f0e70 # main 2026-06-22
+      - uses: TomHennen/wrangle/actions/attest_provenance@b60e9daf023a34ddd5a9544596833403bf79da5e # feat/container-root-context-dockerfile 2026-06-24
         id: attest
         with:
           build-type: go
@@ -395,7 +395,7 @@ jobs:
       contents: write       # create the release if absent and upload the attested archives + checksums + bundles
     steps:
       # TODO: replace with $/actions/verify_release when GitHub ships $/ syntax (#136)
-      - uses: TomHennen/wrangle/actions/verify_release@bced262e824e11ac234ebb801a9596ff8e0f0e70 # main 2026-06-22
+      - uses: TomHennen/wrangle/actions/verify_release@b60e9daf023a34ddd5a9544596833403bf79da5e # feat/container-root-context-dockerfile 2026-06-24
         with:
           build-type: go
           shortname: ${{ needs.prep.outputs.shortname }}
