@@ -176,8 +176,9 @@ for tool in "${run_tools[@]}"; do
             printf '::endgroup::\n'
             continue
         fi
-        # Require a digest-pinned image: a tag alone is mutable and unverifiable.
-        if [[ ! "$image" =~ ^[a-z0-9./_-]+(:[a-z0-9._-]+)?@sha256:[0-9a-f]{64}$ ]]; then
+        # Require an @sha256 digest pin (a tag alone is mutable); the registry
+        # host may carry a :port (e.g. registry.internal:5000/osv@sha256:...).
+        if [[ ! "$image" =~ ^[a-z0-9._-]+(:[0-9]+)?(/[a-z0-9._-]+)*@sha256:[0-9a-f]{64}$ ]]; then
             printf 'wrangle: %s: image not digest-pinned: %s\n' "$tool" "$image" >&2
             tool_status="error"
             overall_status=2

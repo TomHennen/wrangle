@@ -14,19 +14,54 @@
 # (no network, exit/output selectable) so they assert run.sh's seam, not osv's
 # scanning. A separate test exercises the real, locally-built osv image.
 
+# A throwaway local registry gives a locally-built image a REAL repo digest
+# that resolves on any engine; run.sh's digest-pin check rejects a tag, and a
+# bare image ID resolves only on the containerd image store (empty RepoDigests
+# on classic overlay2). Pin registry:2 by digest (docker dependabot covers /**).
+REGISTRY_IMAGE="registry:2@sha256:a3d8aaa63ed8681a604f1dea0aa03f100d5895b6a58ace528858a7b332415373"
+REGISTRY_PORT=5000
+REGISTRY_HOST="localhost:${REGISTRY_PORT}"
+
+# _push_for_digest <local-tag> <repo-name> — tag into the local registry, push,
+# and echo the engine-portable <host>/<repo>@sha256:<digest> reference.
+_push_for_digest() {
+    local local_tag="$1" ref="${REGISTRY_HOST}/$2:test"
+    docker tag "$local_tag" "$ref" >/dev/null
+    docker push -q "$ref" >/dev/null
+    docker inspect --format '{{index .RepoDigests 0}}' "$ref"
+}
+
 setup_file() {
     load "../lib/bats_helpers"
     command -v docker >/dev/null 2>&1 && docker info >/dev/null 2>&1 || return 0
     local root
     root="$(cd "$(dirname "$BATS_TEST_FILENAME")/../.." && pwd)"
+
+    REGISTRY_CONTAINER="wrangle-test-registry-$$"
+    docker run -d -p "${REGISTRY_PORT}:5000" --name "$REGISTRY_CONTAINER" \
+        "$REGISTRY_IMAGE" >/dev/null
+    export REGISTRY_CONTAINER
+
     # Mock contract image: <src>/MODE selects clean|findings|error.
     docker build -q -t wrangle-mock-tool:test \
         "$root/test/fixtures/image-contract" >/dev/null
+    MOCK_IMAGE="$(_push_for_digest wrangle-mock-tool:test wrangle-mock-tool)"
+    export MOCK_IMAGE
+
     # The osv tool image, built locally from this repo (the published image is
     # private; unit tests must not depend on pulling it). Best-effort: the
-    # real-osv test below skips when this tag is absent.
-    docker build -q -f "$root/tools/osv/Dockerfile" -t wrangle-osv:test \
-        "$root" >/dev/null 2>&1 || true
+    # real-osv test below skips when this image isn't present.
+    if docker build -q -f "$root/tools/osv/Dockerfile" -t wrangle-osv:test \
+        "$root" >/dev/null 2>&1; then
+        OSV_IMAGE="$(_push_for_digest wrangle-osv:test wrangle-osv)"
+        export OSV_IMAGE
+    fi
+}
+
+teardown_file() {
+    if [[ -n "${REGISTRY_CONTAINER:-}" ]]; then
+        docker rm -f "$REGISTRY_CONTAINER" >/dev/null 2>&1 || true
+    fi
 }
 
 setup() {
@@ -42,10 +77,9 @@ setup() {
     TOOLS="$TMP_DIR/tools"
     mkdir -p "$SRC" "$OUT" "$TOOLS/mocktool" "$TOOLS/adaptertool"
 
-    # run.sh requires a digest-pinned image; a locally-built tag has no registry
-    # digest, so address the mock by its image ID (name@sha256:<id> runs fine).
-    MOCK_IMAGE="wrangle-mock-tool@$(docker image inspect wrangle-mock-tool:test --format '{{.Id}}')"
-    export ORIG_DIR RUN_SH TMP_DIR SRC OUT TOOLS MOCK_IMAGE
+    # MOCK_IMAGE is the local-registry digest pin from setup_file (a real,
+    # engine-portable repo digest, which run.sh's digest-pin check requires).
+    export ORIG_DIR RUN_SH TMP_DIR SRC OUT TOOLS
 
     # A mock catalog declaring mocktool as a delivery: image tool pointing at
     # the local mock image. network omitted -> none (the default).
@@ -180,16 +214,15 @@ YAML
     # The locally-built osv image (setup_file) against a source tree with no
     # package manifests. osv reports no sources -> empty SARIF, exit 0. Needs
     # no network for this path. Skips when the local osv image isn't present.
-    docker image inspect wrangle-osv:test >/dev/null 2>&1 \
+    [[ -n "${OSV_IMAGE:-}" ]] \
         || skip_or_fail "local osv image (wrangle-osv:test) not built"
 
-    osv_image="wrangle-osv@$(docker image inspect wrangle-osv:test --format '{{.Id}}')"
     cat > "$TOOLS/catalog.yaml" <<YAML
 tools:
   osv:
     kind: scan
     delivery: image
-    image: $osv_image
+    image: $OSV_IMAGE
     network: egress
 YAML
     mkdir -p "$TOOLS/osv"
@@ -208,16 +241,15 @@ YAML
     # Drives the published-image entrypoint over a deliberately-vulnerable
     # go.mod (gogo/protobuf <1.3.2, CVE-2021-3121). Needs the osv.dev API, so
     # it skips offline; egress is granted by the catalog network: egress.
-    docker image inspect wrangle-osv:test >/dev/null 2>&1 \
+    [[ -n "${OSV_IMAGE:-}" ]] \
         || skip_or_fail "local osv image (wrangle-osv:test) not built"
 
-    osv_image="wrangle-osv@$(docker image inspect wrangle-osv:test --format '{{.Id}}')"
     cat > "$TOOLS/catalog.yaml" <<YAML
 tools:
   osv:
     kind: scan
     delivery: image
-    image: $osv_image
+    image: $OSV_IMAGE
     network: egress
 YAML
     mkdir -p "$TOOLS/osv"

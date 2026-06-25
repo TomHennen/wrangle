@@ -557,3 +557,36 @@ FAKEGO
     [ "$status" -eq 0 ]
     [ ! -f "$TEST_DIR/output/clean-tool/wrangle_attestation_metadata.json" ]
 }
+
+# --- image delivery: digest-pin enforcement (no docker; regex runs first) ---
+
+# Drive run.sh's image-ref validation directly: the @sha256 check rejects a
+# tag-only image before any docker call, and accepts a registry host:port pin.
+_image_catalog() {
+    # An image tool is "known" by its directory (no adapter.sh — the image is
+    # the adapter); the catalog marks delivery: image.
+    mkdir -p "$TEST_DIR/src" "$MOCK_TOOLS/imgtool"
+    cat > "$MOCK_TOOLS/catalog.yaml" <<YAML
+tools:
+  imgtool:
+    kind: scan
+    delivery: image
+    image: $1
+YAML
+}
+
+@test "orchestrator: image delivery rejects a tag-only (non-digest-pinned) image" {
+    _image_catalog "registry.internal:5000/osv:latest"
+    run_orchestrator -s "$TEST_DIR/src" -o "$TEST_DIR/output" "imgtool"
+    [ "$status" -eq 2 ]
+    [[ "$output" == *"not digest-pinned"* ]]
+}
+
+@test "orchestrator: image delivery accepts a registry host:port digest pin" {
+    digest="sha256:0000000000000000000000000000000000000000000000000000000000000000"
+    _image_catalog "registry.internal:5000/wrangle-osv@$digest"
+    run_orchestrator -s "$TEST_DIR/src" -o "$TEST_DIR/output" "imgtool"
+    # The pin passes validation, so the digest-pin error never fires; the run
+    # then fails at docker (image absent / docker may be unavailable here).
+    [[ "$output" != *"not digest-pinned"* ]]
+}
