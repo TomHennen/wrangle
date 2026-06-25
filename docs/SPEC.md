@@ -545,7 +545,8 @@ OPTIONS:
 ARGUMENTS:
   tool1, tool2   Tool specs to run (e.g., osv, zizmor, scorecard:info).
                  Optional :fail/:info suffix is stripped before processing.
-                 Action-pattern tools (no adapter.sh) are silently skipped.
+                 Action-pattern tools (no adapter.sh, no catalog image
+                 entry) are silently skipped.
 
 BEHAVIOR:
   For each tool:
@@ -553,12 +554,18 @@ BEHAVIOR:
        that is handled by lib/check_results.sh in the scan action)
     2. Validate tool name matches ^[a-z][a-z0-9_-]*$ (reject otherwise)
     3. Verify tools/<tool>/ directory exists (reject if not — unknown tool)
-    4. Skip if tools/<tool>/adapter.sh is missing (the tool is
-       action-pattern, handled by uses: steps in the scan action)
-    5. Run tools/<tool>/install.sh if present — go.mod tools were all
-       installed upfront (timeout: 5 minutes)
+    4. Resolve the tool's tools/catalog.yaml entry. A `delivery: image` entry
+       runs the tool's pinned image via `docker run` (read-only /src, writable
+       /output owned by the runner UID, --network none unless the entry
+       declares `network: egress`, a `secret:` passed via -e). Otherwise:
+       skip if tools/<tool>/adapter.sh is missing (the tool is action-pattern,
+       handled by uses: steps in the scan action).
+    5. (adapter path) Run tools/<tool>/install.sh if present — go.mod tools
+       were all installed upfront (timeout: 5 minutes)
     6. Create <output_dir>/<tool>/
-    7. Run tools/<tool>/adapter.sh <src_dir> <output_dir>/<tool>/ (timeout: 10 minutes)
+    7. Run the adapter or image with <src_dir> and <output_dir>/<tool>/; both
+       write output.sarif there under the same 0/1/2 exit contract
+       (timeout: 10 minutes)
     8. Record pass/fail status
 
   After all tools:
