@@ -213,12 +213,13 @@ wrangle_run() {
 # Fail closed if creation fails — never fall through to upload.
 wrangle_ensure_release() {
     local ref="$1"
-    if ! gh release view "$ref" >/dev/null 2>&1; then
-        if ! gh release create "$ref" --generate-notes --title "$ref"; then
-            printf 'wrangle: failed to create GitHub release for %s\n' "$ref" >&2
-            return 1
-        fi
-    fi
+    gh release view "$ref" >/dev/null 2>&1 && return 0
+    gh release create "$ref" --generate-notes --title "$ref" >/dev/null 2>&1 && return 0
+    # Create races sibling build-type publishes targeting the same release: a 422
+    # means another job won the create, so re-check before failing closed.
+    gh release view "$ref" >/dev/null 2>&1 && return 0
+    printf 'wrangle: failed to create GitHub release for %s\n' "$ref" >&2
+    return 1
 }
 
 wrangle_attach_release() {

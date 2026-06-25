@@ -692,6 +692,25 @@ SHIM
     export GITHUB_REF_NAME="v1.2.3"
 }
 
+@test "run_verify: ensure_release is race-safe — a lost create succeeds if the release now exists" {
+    # Sibling build-type publishes race to create the same release; the loser's
+    # create 422s, but the release exists by then, so publish must proceed.
+    _install_gh_shim
+    export GH_VIEW_SEQ="1 0"   # absent, then present (another job won the create)
+    export GH_CREATE_CODE=1    # our create loses the race
+    run wrangle_ensure_release v1.2.3
+    [[ "$status" -eq 0 ]]
+}
+
+@test "run_verify: ensure_release fails closed when create fails and the release stays absent" {
+    _install_gh_shim
+    export GH_VIEW_SEQ="1 1"   # absent, still absent
+    export GH_CREATE_CODE=1
+    run wrangle_ensure_release v1.2.3
+    [[ "$status" -ne 0 ]]
+    [[ "$output" == *"failed to create"* ]]
+}
+
 # Stage the metadata dir (bundles + sbom) + a dist dir whose <artifact> files
 # match each bundle's <artifact>.intoto.jsonl name, plus the env the attach
 # reads. Production wires bundle-out and metadata-dir to the same dir, so the
