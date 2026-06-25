@@ -3,7 +3,7 @@ set -euo pipefail
 set -f  # disable globbing — processes external input paths
 
 # Mock tool honoring the wrangle adapter contract, used only to test the image
-# harness (test/lib/image_test_harness.bash). A real tool can't produce a
+# harness (test/lib/image_test_harness.sh). A real tool can't produce a
 # controlled exit-2 / malformed-SARIF on demand, so a mock drives each path.
 # Behavior is selected by the contents of <src>/MODE.
 

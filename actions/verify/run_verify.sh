@@ -94,42 +94,45 @@ wrangle_bnd_sign_args() {
 }
 
 # Run ampel: the in-job binary by default, or — when WRANGLE_VERIFY_AMPEL_IMAGE
-# names a toolbox image (#596, experimental) — that image via `docker run`.
-#
-# Security surface of the container path (the reason it is opt-in, off by
-# default, and excluded from the L3 release path):
-#   - ampel verify reads local bundle/policy files and fetches PUBLIC Sigstore /
-#     Rekor data to verify signatures. It needs network egress (--network host
-#     for the runner's egress) but NO secret: it does not sign, so the OIDC
-#     signing token is never passed in. Signing (bnd) and the store push stay in
-#     the job, outside the container — the token never reaches the image.
-#   - Mounts use IDENTICAL host paths inside the container, so the args built by
-#     wrangle_ampel_verify_args (all absolute) need no rewriting. policy/bundle
-#     dirs mount read-only; only the results dir is writable.
-#   - The `oci:` collector (container build type) needs registry auth inside the
-#     container, which is not yet plumbed — so the container path refuses when
-#     COLLECTOR is set rather than silently degrading. go/npm/python verify
-#     (empty COLLECTOR) is the only path it serves today.
-# Default (unset image): the call is `ampel "$@"`, byte-identical to before.
+# names a toolbox image — that image via `docker run`. The container path is an
+# experimental prototype seam (#596); the catalog-driven capability grant plus
+# digest/provenance gating that must precede wiring it into any workflow are #619.
+# Constraints of the container path: no token enters the container (ampel verify
+# never signs); policy/bundle mount read-only, only the results dir is writable;
+# it fails closed (exit 2) on an oci: collector, whose registry auth isn't plumbed.
 wrangle_ampel() {
     local image="${WRANGLE_VERIFY_AMPEL_IMAGE:-}"
     if [[ -z "$image" ]]; then
         ampel "$@"
         return
     fi
+    # Partial guard for #619: refuse a floating ref so the prototype only ever
+    # runs a digest-pinned image (the catalog/provenance gating is still #619).
+    if [[ ! "$image" =~ @sha256:[0-9a-f]{64}$ ]]; then
+        printf 'wrangle: WRANGLE_VERIFY_AMPEL_IMAGE must be @sha256:-digest-pinned (got %s)\n' "$image" >&2
+        return 2
+    fi
     if [[ -n "${COLLECTOR:-}" ]]; then
         printf 'wrangle: WRANGLE_VERIFY_AMPEL_IMAGE does not yet support an OCI collector (%s)\n' "$COLLECTOR" >&2
         return 2
     fi
-    local results_dir policy_dir
-    results_dir="$(cd "$(dirname "$WRANGLE_AMPEL_RESULTS")" && pwd)"
-    policy_dir="$REPO_ROOT/policies"
-    # No -e for any token; --network host gives ampel the runner's egress to
-    # reach Sigstore/Rekor; non-root as the caller so the unsigned VSA it writes
-    # is consumable by the in-job signing step.
+    local results_dir policy policy_mount
+    results_dir="$(cd "$(dirname "${WRANGLE_AMPEL_RESULTS:?wrangle_ampel needs WRANGLE_AMPEL_RESULTS set}")" && pwd)"
+    # Mount the resolved policy's actual parent, not a hardcoded policies/: a
+    # relative policy resolves to $REPO_ROOT/<policy>, which may sit elsewhere. A
+    # network locator (*://*) is fetched, not read from disk, so it needs no mount.
+    policy="$(wrangle_resolve_policy "$POLICY")"
+    case "$policy" in
+        *://*) policy_mount=() ;;
+        *)     policy_mount=(-v "$(dirname "$policy")":"$(dirname "$policy")":ro) ;;
+    esac
+    # No -e for any token; --network host gives ampel the runner's egress to reach
+    # Sigstore/Rekor; non-root as the caller so the unsigned VSA it writes is
+    # consumable by the in-job signing step. The dist file is intentionally NOT
+    # mounted — file subjects are pre-hashed in-job, so the container never reads them.
     docker run --rm --network host -u "$(id -u):$(id -g)" \
         -v "$BUNDLE_OUT":"$BUNDLE_OUT":ro \
-        -v "$policy_dir":"$policy_dir":ro \
+        "${policy_mount[@]}" \
         -v "$results_dir":"$results_dir" \
         -e HOME=/tmp \
         "$image" ampel "$@"

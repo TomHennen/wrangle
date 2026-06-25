@@ -1,6 +1,6 @@
 #!/usr/bin/env bats
 
-# Validates the image test harness (test/lib/image_test_harness.bash) against a
+# Validates the image test harness (test/lib/image_test_harness.sh) against a
 # mock contract-conforming tool image, so the harness itself is trustworthy
 # before real tool images rely on it. Needs docker, so it lives under test/image/
 # (outside the Makefile's unit `bats` glob) and runs in the dogfooded shell

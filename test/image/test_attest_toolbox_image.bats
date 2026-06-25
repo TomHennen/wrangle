@@ -43,9 +43,10 @@ setup() {
     [[ "$output" == *v3.0.6* ]]
 }
 
-@test "attest-toolbox: bnd runs" {
+@test "attest-toolbox: bnd reports its version" {
     run docker run --rm "$IMG" bnd version
     [ "$status" -eq 0 ]
+    [[ "$output" == *v0.4.3* ]]
 }
 
 @test "attest-toolbox: runs as a non-root user with HOME=/tmp" {

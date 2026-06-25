@@ -929,13 +929,26 @@ EOF
     [ ! -f "$TEST_DIR/docker.called" ]
 }
 
+@test "wrangle_ampel: a non-digest-pinned image is rejected (fail-closed, no docker)" {
+    cat > "$TEST_DIR/docker" <<EOF
+#!/bin/bash
+touch "$TEST_DIR/docker.called"
+EOF
+    chmod +x "$TEST_DIR/docker"
+    PATH="$TEST_DIR:$PATH" WRANGLE_VERIFY_AMPEL_IMAGE="img:test" \
+        run wrangle_ampel verify
+    [ "$status" -eq 2 ]
+    [ ! -f "$TEST_DIR/docker.called" ]
+}
+
 @test "wrangle_ampel: container path refuses an OCI collector (fail-closed, no docker)" {
     cat > "$TEST_DIR/docker" <<EOF
 #!/bin/bash
 touch "$TEST_DIR/docker.called"
 EOF
     chmod +x "$TEST_DIR/docker"
-    PATH="$TEST_DIR:$PATH" WRANGLE_VERIFY_AMPEL_IMAGE="img:test" COLLECTOR="oci:ghcr.io/x@sha256:abc" \
+    local digest_img="img@sha256:0000000000000000000000000000000000000000000000000000000000000000"
+    PATH="$TEST_DIR:$PATH" WRANGLE_VERIFY_AMPEL_IMAGE="$digest_img" COLLECTOR="oci:ghcr.io/x@sha256:abc" \
         run wrangle_ampel verify
     [ "$status" -eq 2 ]
     [ ! -f "$TEST_DIR/docker.called" ]
