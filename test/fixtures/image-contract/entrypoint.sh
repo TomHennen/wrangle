@@ -21,6 +21,17 @@ case "$mode" in
     malformed)
         printf 'not valid json{' > "$out/output.sarif"
         exit 0 ;;
+    secret)
+        # Record a forwarded secret env var so a test can assert it arrived.
+        printf '%s' "${MOCK_SECRET:-}" > "$out/secret_seen"
+        printf '{"version":"2.1.0","runs":[{"tool":{"driver":{"name":"mock"}},"results":[]}]}\n' > "$out/output.sarif"
+        exit 0 ;;
+    netcheck)
+        # Record the container's network interfaces. With --network none only
+        # loopback exists, so a test can assert egress is closed by default.
+        (ls /sys/class/net 2>/dev/null || printf '') > "$out/net_ifaces"
+        printf '{"version":"2.1.0","runs":[{"tool":{"driver":{"name":"mock"}},"results":[]}]}\n' > "$out/output.sarif"
+        exit 0 ;;
     *)
         printf '{"version":"2.1.0","runs":[{"tool":{"driver":{"name":"mock"}},"results":[]}]}\n' > "$out/output.sarif"
         exit 0 ;;

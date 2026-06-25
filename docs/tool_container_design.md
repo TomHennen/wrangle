@@ -152,6 +152,13 @@ thing for the pin tooling to track and for adopters to read.
   offer rails (a `docker` Dependabot entry, a lint warning on a stale override) but cannot vouch for an
   image it does not control.
 
+The shipped catalog (`tools/catalog.json`) is keyed by the short name the `tools:` selection uses, parsed
+with `jq` (`lib/read_catalog.sh`). Capabilities default closed: an absent `network`/`secret` means none,
+and a tool not listed — or one with `delivery: adapter` — runs the in-process adapter path. The `kind`
+field is recorded but unused today; the `command:`/`args:`/`WRANGLE_KIND` passthrough and kind-based
+(scan vs sbom) dispatch land when a command-shared or sbom tool does. `osv` carries `network: egress`
+because it refreshes its advisory DB from osv.dev.
+
 ### 3.7 Capability declaration
 
 Two distinct layers:
@@ -172,33 +179,39 @@ Schema below is the proposed shape; exact field names and file locations are bik
 
 **Internal — wrangle's curated catalog** (wrangle bumps it; adopters inherit by pinning wrangle):
 
-```yaml
-# tools/catalog.yaml  — wrangle-maintained, one entry per built-in tool
-tools:
-  osv:
-    kind: scan
-    image: ghcr.io/tomhennen/wrangle/osv@sha256:1531…   # installed from this repo's go.mod
-    network: egress          # default is none; osv refreshes its advisory DB
-  zizmor:
-    kind: scan
-    image: ghcr.io/tomhennen/wrangle/zizmor@sha256:9a4c…
-    network: egress
-    secret: github-token     # delivered as WRANGLE_EXTRA_GITHUB_TOKEN
-  syft:
-    kind: sbom
-    image: ghcr.io/tomhennen/wrangle/syft@sha256:0b72…
-    format: spdx-json
-    # network omitted → none; no secret
-
-  # owned Go tools can share ONE image — the unified `wrangle` binary — selected by command:
-  wrangle-lint:
-    kind: scan
-    image: ghcr.io/tomhennen/wrangle/wrangle@sha256:c0de…
-    command: ["lint"]
-  wrangle-attest:
-    kind: attest
-    image: ghcr.io/tomhennen/wrangle/wrangle@sha256:c0de…   # same image, different command
-    command: ["attest"]
+```jsonc
+// tools/catalog.json  — wrangle-maintained, one entry per built-in tool
+{
+  "tools": {
+    "osv": {
+      "kind": "scan",
+      "image": "ghcr.io/tomhennen/wrangle/osv@sha256:1531…",  // installed from this repo's go.mod
+      "network": "egress"     // default is none; osv refreshes its advisory DB
+    },
+    "zizmor": {
+      "kind": "scan",
+      "image": "ghcr.io/tomhennen/wrangle/zizmor@sha256:9a4c…",
+      "network": "egress",
+      "secret": "github-token"   // delivered as WRANGLE_EXTRA_GITHUB_TOKEN
+    },
+    "syft": {
+      "kind": "sbom",
+      "image": "ghcr.io/tomhennen/wrangle/syft@sha256:0b72…",
+      "format": "spdx-json"      // network omitted → none; no secret
+    },
+    // owned Go tools can share ONE image — the unified `wrangle` binary — selected by command
+    "wrangle-lint": {
+      "kind": "scan",
+      "image": "ghcr.io/tomhennen/wrangle/wrangle@sha256:c0de…",
+      "command": ["lint"]
+    },
+    "wrangle-attest": {
+      "kind": "attest",
+      "image": "ghcr.io/tomhennen/wrangle/wrangle@sha256:c0de…",  // same image, different command
+      "command": ["attest"]
+    }
+  }
+}
 ```
 
 (During migration a catalog entry may carry `delivery: adapter` to keep running the old in-process
@@ -219,21 +232,25 @@ jobs:
     uses: TomHennen/wrangle/.github/workflows/scan.yml@<wrangle-version>  # pin a wrangle release
     with:
       tools: "osv zizmor:info my-sbom"     # selection + policy (unchanged from today)
-      tool-overrides: .wrangle/tools.yaml  # optional; overrides/extends the catalog
+      tool-overrides: .wrangle/tools.json  # optional; overrides/extends the catalog
 ```
 
 **Adopter — overriding an image and bringing their own tool**:
 
-```yaml
-# adopter .wrangle/tools.yaml  — merged over wrangle's catalog
-tools:
-  osv:                                       # override a curated default with a different digest
-    image: ghcr.io/myorg/osv@sha256:7c1d…    # adopter now owns this pin's freshness
-  my-sbom:                                   # BYO a tool wrangle doesn't ship — full definition
-    kind: sbom
-    image: ghcr.io/myorg/my-sbom-generator@sha256:e88f…
-    format: cyclonedx-json
-    # no network / no secret → runs under the strictest contract by default
+```jsonc
+// adopter .wrangle/tools.json  — merged over wrangle's catalog
+{
+  "tools": {
+    "osv": {                                       // override a curated default with a different digest
+      "image": "ghcr.io/myorg/osv@sha256:7c1d…"    // adopter now owns this pin's freshness
+    },
+    "my-sbom": {                                   // BYO a tool wrangle doesn't ship — full definition
+      "kind": "sbom",
+      "image": "ghcr.io/myorg/my-sbom-generator@sha256:e88f…",
+      "format": "cyclonedx-json"                   // no network / no secret → strictest contract by default
+    }
+  }
+}
 ```
 
 What the three pieces demonstrate:
