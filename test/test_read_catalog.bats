@@ -119,7 +119,7 @@ teardown() {
     run "$READER" "$ORIG_DIR/tools/catalog.json" zizmor kind
     [ "$output" = "scan" ]
     run "$READER" "$ORIG_DIR/tools/catalog.json" zizmor image
-    [[ "$output" == ghcr.io/tomhennen/wrangle/zizmor@sha256:[0-9a-f]* ]]
+    [[ "$output" =~ ^ghcr\.io/tomhennen/wrangle/zizmor@sha256:[0-9a-f]{64}$ ]]
     run "$READER" "$ORIG_DIR/tools/catalog.json" zizmor network
     [ "$output" = "egress" ]
     run "$READER" "$ORIG_DIR/tools/catalog.json" zizmor secret
@@ -132,7 +132,7 @@ teardown() {
     run "$READER" "$ORIG_DIR/tools/catalog.json" wrangle-lint kind
     [ "$output" = "scan" ]
     run "$READER" "$ORIG_DIR/tools/catalog.json" wrangle-lint image
-    [[ "$output" == ghcr.io/tomhennen/wrangle/wrangle-lint@sha256:[0-9a-f]* ]]
+    [[ "$output" =~ ^ghcr\.io/tomhennen/wrangle/wrangle-lint@sha256:[0-9a-f]{64}$ ]]
     run "$READER" "$ORIG_DIR/tools/catalog.json" wrangle-lint network
     [ "$output" = "none" ]
     run "$READER" "$ORIG_DIR/tools/catalog.json" wrangle-lint secret

@@ -56,6 +56,8 @@ with:
 
 `dependency-review` only runs on `pull_request` events (the upstream action needs the PR diff); on `push` it is silently skipped, the same way `scorecard` is skipped on PRs. Per-tool configuration is not yet exposed — see [#221](https://github.com/TomHennen/wrangle/issues/221).
 
+Zizmor's online audits use the workflow token by default; pass `github-token: ""` to keep them offline.
+
 ## Out of scope (today)
 
 - **Build-time scanning of installed dependencies.** OSV reads lockfiles, not installed `node_modules/`, wheels, or extracted container layers. Layer binary scanners (Trivy, Grype) at install time if you need that.
