@@ -1,0 +1,170 @@
+#!/usr/bin/env bats
+
+# Unit tests for the VSA gate primitive (lib/verify_image_vsa.sh, #596),
+# exercised directly: the verdict assertion against captured real `gh attestation
+# verify --format json` output, and verify_image_vsa's retry/fail-closed control
+# flow against a gh shim. The real-gh contract (a live published image, real
+# identity/ref rejection) is covered by test/image/test_verify_tool_image_real_gh.bats.
+
+setup() {
+    LIB="$(cd "$(dirname "$BATS_TEST_FILENAME")/.." && pwd)/lib/verify_image_vsa.sh"
+    FIXTURES="$(cd "$(dirname "$BATS_TEST_FILENAME")/.." && pwd)/test/fixtures/tool-image-vsa"
+    TMP_DIR="$(mktemp -d "${BATS_TMPDIR:-/tmp}/wrangle-vsa.XXXXXX")"
+    BIN="$TMP_DIR/bin"
+    COUNT="$TMP_DIR/gh.count"
+    mkdir -p "$BIN"
+    : > "$COUNT"
+
+    # A clean bin of symlinks to the real tools the lib needs (mktemp, grep,
+    # sleep, printf, cat, jq, timeout), with gh excluded so only the shim below
+    # is ever on PATH. Per-test PATH overrides drop jq or the gh shim to probe
+    # the env-error paths.
+    local dir f name
+    IFS=':' read -ra _dirs <<< "$PATH"
+    for dir in "${_dirs[@]}"; do
+        [[ -d "$dir" ]] || continue
+        for f in "$dir"/*; do
+            [[ -x "$f" && ! -d "$f" ]] || continue
+            name="${f##*/}"
+            [[ "$name" == gh ]] && continue
+            [[ -e "$BIN/$name" ]] || ln -s "$f" "$BIN/$name"
+        done
+    done
+
+    # shellcheck source=/dev/null
+    source "$LIB"
+    export TMP_DIR BIN COUNT FIXTURES
+}
+
+teardown() {
+    [[ -n "${TMP_DIR:-}" ]] && rm -rf "$TMP_DIR"
+}
+
+_image="ghcr.io/tomhennen/wrangle/imgtool@sha256:c8abda59e3a64520128c427d2fe9bd223c27e0a2056181ead1b9d3c6a5fb3b75"
+
+# gh shim: counts invocations and replays a scripted sequence of outcomes from
+# GH_SEQ (space-separated, one per attempt; the last repeats). Each outcome is a
+# stdout/stderr/exit shape of real `gh attestation verify`.
+_install_gh_shim() {
+    cat > "$BIN/gh" <<'GH'
+#!/usr/bin/env bash
+n=$(($(wc -l < "$GH_COUNT") + 1)); printf '\n' >> "$GH_COUNT"
+read -ra seq <<< "$GH_SEQ"
+mode="${seq[n-1]:-${seq[${#seq[@]}-1]}}"
+case "$mode" in
+    transient) printf 'Error: tuf refresh failed: dial tcp: connection refused\n' >&2; exit 1 ;;
+    noattest)  printf 'Error: no attestations found in the OCI registry\n' >&2; exit 1 ;;
+    timeout)   exit 124 ;;
+    malformed) printf 'not json at all\n' ;;
+    failed|passed|nol3)
+        verdict=PASSED; levels='["SLSA_BUILD_LEVEL_3"]'
+        [[ "$mode" == failed ]] && verdict=FAILED
+        [[ "$mode" == nol3 ]]   && levels='["SLSA_BUILD_LEVEL_2"]'
+        printf '[{"verificationResult":{"statement":{"predicate":{"verificationResult":"%s","verifiedLevels":%s}}}}]\n' "$verdict" "$levels"
+        ;;
+esac
+GH
+    chmod +x "$BIN/gh"
+}
+
+# --- vsa_assert_passed_l3: the sole verdict check, against real captured output
+
+@test "assert: real captured PASSED osv attestation -> accepted" {
+    run bash -c "source '$LIB'; vsa_assert_passed_l3 < '$FIXTURES/osv_passed_vsa.json'"
+    [ "$status" -eq 0 ]
+}
+
+@test "assert: empty array -> rejected" {
+    run bash -c "source '$LIB'; printf '[]' | vsa_assert_passed_l3"
+    [ "$status" -ne 0 ]
+}
+
+@test "assert: FAILED verdict -> rejected" {
+    body='[{"verificationResult":{"statement":{"predicate":{"verificationResult":"FAILED","verifiedLevels":["SLSA_BUILD_LEVEL_3"]}}}}]'
+    run bash -c "source '$LIB'; printf '%s' '$body' | vsa_assert_passed_l3"
+    [ "$status" -ne 0 ]
+}
+
+@test "assert: PASSED but not SLSA Build L3 -> rejected" {
+    body='[{"verificationResult":{"statement":{"predicate":{"verificationResult":"PASSED","verifiedLevels":["SLSA_BUILD_LEVEL_2"]}}}}]'
+    run bash -c "source '$LIB'; printf '%s' '$body' | vsa_assert_passed_l3"
+    [ "$status" -ne 0 ]
+}
+
+@test "assert: malformed JSON -> rejected" {
+    run bash -c "source '$LIB'; printf 'not json' | vsa_assert_passed_l3"
+    [ "$status" -ne 0 ]
+}
+
+# --- verify_image_vsa: env pre-checks (fail closed with a clear message)
+
+@test "verify: gh absent -> rc 2, clear message" {
+    # BIN excludes gh and no shim is installed.
+    run env PATH="$BIN" bash -c "source '$LIB'; verify_image_vsa '$_image'"
+    [ "$status" -eq 2 ]
+    [[ "$output" == *"gh not found"* ]]
+}
+
+@test "verify: jq absent -> rc 2, clear message" {
+    _install_gh_shim
+    rm -f "$BIN/jq"
+    run env PATH="$BIN" GH_COUNT="$COUNT" GH_SEQ="passed" bash -c "source '$LIB'; verify_image_vsa '$_image'"
+    [ "$status" -eq 2 ]
+    [[ "$output" == *"jq not found"* ]]
+}
+
+# --- verify_image_vsa: verdict outcomes
+
+@test "verify: attested PASSED L3 -> rc 0" {
+    _install_gh_shim
+    run env PATH="$BIN" GH_COUNT="$COUNT" GH_SEQ="passed" bash -c "source '$LIB'; verify_image_vsa '$_image'"
+    [ "$status" -eq 0 ]
+}
+
+@test "verify: gh rc 0 but FAILED verdict -> rc 1, no wasted retries" {
+    _install_gh_shim
+    run env PATH="$BIN" GH_COUNT="$COUNT" GH_SEQ="failed" bash -c "source '$LIB'; verify_image_vsa '$_image'"
+    [ "$status" -eq 1 ]
+    [ "$(wc -l < "$COUNT")" -eq 1 ]
+}
+
+@test "verify: malformed gh JSON -> rc 1, fail closed" {
+    _install_gh_shim
+    run env PATH="$BIN" GH_COUNT="$COUNT" GH_SEQ="malformed" bash -c "source '$LIB'; verify_image_vsa '$_image'"
+    [ "$status" -eq 1 ]
+}
+
+# --- verify_image_vsa: retry control flow
+
+@test "verify: definitive no-attestation failure -> rc 1 with NO retries" {
+    _install_gh_shim
+    run env PATH="$BIN" GH_COUNT="$COUNT" GH_SEQ="noattest" bash -c "source '$LIB'; verify_image_vsa '$_image'"
+    [ "$status" -eq 1 ]
+    # A definitive verdict must not burn the retry budget.
+    [ "$(wc -l < "$COUNT")" -eq 1 ]
+}
+
+@test "verify: transient then success -> retries, then rc 0" {
+    _install_gh_shim
+    run env PATH="$BIN" GH_COUNT="$COUNT" GH_SEQ="transient passed" WRANGLE_VERIFY_RETRIES=3 \
+        bash -c "source '$LIB'; verify_image_vsa '$_image'"
+    [ "$status" -eq 0 ]
+    [ "$(wc -l < "$COUNT")" -eq 2 ]
+    [[ "$output" == *"transient"* ]]
+}
+
+@test "verify: persistent transient failure -> retries exhausted, rc 1" {
+    _install_gh_shim
+    run env PATH="$BIN" GH_COUNT="$COUNT" GH_SEQ="transient" WRANGLE_VERIFY_RETRIES=3 \
+        bash -c "source '$LIB'; verify_image_vsa '$_image'"
+    [ "$status" -eq 1 ]
+    [ "$(wc -l < "$COUNT")" -eq 3 ]
+}
+
+@test "verify: timeout (124) is treated as transient -> retried" {
+    _install_gh_shim
+    run env PATH="$BIN" GH_COUNT="$COUNT" GH_SEQ="timeout timeout passed" WRANGLE_VERIFY_RETRIES=3 \
+        bash -c "source '$LIB'; verify_image_vsa '$_image'"
+    [ "$status" -eq 0 ]
+    [ "$(wc -l < "$COUNT")" -eq 3 ]
+}

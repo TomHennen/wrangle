@@ -31,17 +31,30 @@ vsa_assert_passed_l3() {
                     . == "SLSA_BUILD_LEVEL_3"))' >/dev/null
 }
 
+# _vsa_err_is_transient — true if gh's stderr looks like a network/registry/
+# Sigstore-availability blip (worth a retry), not a verification verdict. Erring
+# toward "not transient" only fails faster; it can never pass a bad image,
+# because a "verified" result still requires gh rc 0 AND vsa_assert_passed_l3,
+# re-checked on every attempt against a deterministic attestation.
+_vsa_err_is_transient() {
+    printf '%s' "$1" | grep -qiE \
+'connection refused|connection reset|dial tcp|no such host|i/o timeout|deadline exceeded|tls handshake|tuf refresh failed|failed to create tuf client|temporary failure|network is unreachable|server error|\b5[0-9][0-9]\b|timeout|: eof'
+}
+
 # verify_image_vsa <image> — verify a digest-pinned OCI image carries a PASSED,
 # SLSA-L3 wrangle VSA signed by the container build+publish workflow at an
 # allowed ref. The OCI referrer (--bundle-from-oci) is the canonical, fail-closed
-# delivery. Returns:
+# delivery. Transient failures (network/registry/Sigstore-TUF unreachable,
+# timeout) are retried with backoff; a definitive verdict (non-PASSED VSA, no
+# attestation, identity/ref mismatch) fails closed at once. Returns:
 #   0  verified PASSED at SLSA Build L3
-#   1  not provably PASSED (no / non-PASSED VSA, identity or ref mismatch, gh
-#      runtime or network failure, timeout)
+#   1  not provably PASSED (no / non-PASSED VSA, identity or ref mismatch, or a
+#      transient failure that did not clear within the retry budget)
 #   2  environment error (gh or jq not on PATH)
 verify_image_vsa() {
     local image="$1"
     local timeout_s="${WRANGLE_VERIFY_TIMEOUT:-120}"
+    local max_attempts="${WRANGLE_VERIFY_RETRIES:-3}"
 
     if ! command -v gh >/dev/null 2>&1; then
         printf 'wrangle: gh not found; cannot verify tool image attestation\n' >&2
@@ -52,19 +65,42 @@ verify_image_vsa() {
         return 2
     fi
 
-    local rc=0
-    timeout "$timeout_s" gh attestation verify "oci://${image}" \
-        --repo TomHennen/wrangle \
-        --bundle-from-oci \
-        --cert-identity-regex "$WRANGLE_CONTAINER_SIGNER_REGEX" \
-        --cert-oidc-issuer "$WRANGLE_VSA_OIDC_ISSUER" \
-        --predicate-type "$WRANGLE_VSA_PREDICATE_TYPE" \
-        --format json \
-        | vsa_assert_passed_l3 \
-        || rc=$?
-    # Any failure past the env pre-checks is "not provably PASSED": refuse.
-    [[ "$rc" -eq 0 ]] || return 1
-    return 0
+    local attempt backoff=1 rc out err err_file
+    err_file="$(mktemp)"
+    for ((attempt = 1; attempt <= max_attempts; attempt++)); do
+        rc=0
+        out="$(timeout "$timeout_s" gh attestation verify "oci://${image}" \
+            --repo TomHennen/wrangle \
+            --bundle-from-oci \
+            --cert-identity-regex "$WRANGLE_CONTAINER_SIGNER_REGEX" \
+            --cert-oidc-issuer "$WRANGLE_VSA_OIDC_ISSUER" \
+            --predicate-type "$WRANGLE_VSA_PREDICATE_TYPE" \
+            --format json 2>"$err_file")" || rc=$?
+
+        if [[ "$rc" -eq 0 ]]; then
+            # gh checked signature, identity, and digest; the verdict is ours.
+            if printf '%s' "$out" | vsa_assert_passed_l3; then
+                rm -f "$err_file"
+                return 0
+            fi
+            break  # gh verified but the VSA is not PASSED/L3: definitive.
+        fi
+
+        err="$(cat "$err_file")"
+        # A timeout (124) is transient by nature; otherwise classify the stderr.
+        if [[ "$attempt" -lt "$max_attempts" ]] \
+            && { [[ "$rc" -eq 124 ]] || _vsa_err_is_transient "$err"; }; then
+            printf 'wrangle: tool-image VSA verify attempt %d/%d failed (transient), retrying in %ds...\n' \
+                "$attempt" "$max_attempts" "$backoff" >&2
+            sleep "$backoff"
+            backoff=$((backoff * 2))
+            continue
+        fi
+        break  # definitive failure, or retries exhausted.
+    done
+
+    rm -f "$err_file"
+    return 1
 }
 
 if [[ "${BASH_SOURCE[0]}" == "${0}" ]]; then
