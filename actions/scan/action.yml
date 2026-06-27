@@ -72,7 +72,7 @@ runs:
     # double-checkout.
     - name: Check out source
       if: inputs.checkout == 'true'
-      uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
+      uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
       with:
         persist-credentials: false
         ref: ${{ inputs.ref }}
@@ -141,7 +141,7 @@ runs:
     # TODO: replace with $/tools/scorecard when $/ syntax ships (#136, #137)
     - name: Scorecard
       if: always() && contains(inputs.tools, 'scorecard') && github.event_name != 'pull_request'
-      uses: TomHennen/wrangle/tools/scorecard@b353868e735487a639ac415b9a7c9aa31d28a366 # main 2026-06-27
+      uses: TomHennen/wrangle/tools/scorecard@3ba1e4fba153b332ebada17450bf0c6d91bccb00 # deps/bump-checkout-v7-uniform 2026-06-27
 
     # Dependency Review is PR-only — the upstream action requires
     # github.event.pull_request.base.sha / head.sha to compute the diff.
@@ -153,7 +153,7 @@ runs:
     # The wrapper's inline defaults (fail-on-severity: high) still apply.
     - name: Dependency Review
       if: always() && contains(inputs.tools, 'dependency-review') && github.event_name == 'pull_request'
-      uses: TomHennen/wrangle/tools/dependency-review@b353868e735487a639ac415b9a7c9aa31d28a366 # main 2026-06-27
+      uses: TomHennen/wrangle/tools/dependency-review@3ba1e4fba153b332ebada17450bf0c6d91bccb00 # deps/bump-checkout-v7-uniform 2026-06-27
 
     - name: Generate step summary
       if: always()
