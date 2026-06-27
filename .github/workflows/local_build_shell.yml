@@ -60,3 +60,9 @@ jobs:
       # at merge.
       - name: Check action pin freshness
         run: ./tools/check_pin_freshness.sh
+
+      # Static catalog hygiene (#596): every curated tool image is digest-pinned
+      # on the wrangle namespace and capabilities are default-closed. Network-free,
+      # so it runs every PR; the registry adoption-lag check is a release gate.
+      - name: Validate tool catalog
+        run: ./tools/check_catalog.sh

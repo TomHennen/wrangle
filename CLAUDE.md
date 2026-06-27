@@ -52,6 +52,7 @@ All shell conventions — preamble form, quoting, `printf` over `echo`, `[[ ]]` 
 - **Action reference pinning** — required pin format per context, the `@main` prohibition, and self-reference bumping: [DEP_MGMT.md](DEP_MGMT.md).
 - **Installing and verifying tools** — install-method decision tree, integrity-tier ladder, and freshness-first rule: [DEP_MGMT.md](DEP_MGMT.md). Install-script mechanics (`lib/download_verify.sh`, `$WRANGLE_BIN_DIR`, idempotency, atomic `mv`) are the Install Script Interface contract in SPEC.md.
 - **Pin drift across files** — single-source or a divergence-fail test: [DEP_MGMT.md § Drift](DEP_MGMT.md#drift).
+- **Curated tool-image digests** (`tools/catalog.json`) — digest-pinned on the wrangle namespace, enforced by `tools/check_catalog.sh`; adoption-lag against `:latest` checked at release by `tools/check_catalog_freshness.sh` (fix with `tools/bump_catalog_digest.sh`).
 
 ## Adapter contract (full: SPEC.md §Adapter Script Interface)
 

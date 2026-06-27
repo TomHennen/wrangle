@@ -1,4 +1,4 @@
-.PHONY: all test lint shellcheck shellstyle workflowstyle gotest bats zizmor integration bump-action-pins converge-action-pins
+.PHONY: all test lint shellcheck shellstyle workflowstyle gotest bats zizmor integration bump-action-pins converge-action-pins check-catalog check-catalog-freshness bump-catalog-digest
 
 # bash, not the default sh: the integration recipe sources lib/env.sh,
 # whose `set -o pipefail` dash doesn't reliably support.
@@ -83,3 +83,19 @@ bump-action-pins:
 # See tools/converge_action_pins.sh, #539, and #552.
 converge-action-pins:
 	@./tools/converge_action_pins.sh
+
+# Static, network-free catalog validator (digest-pinned, on-namespace, capability
+# enum). Runs every PR; see tools/check_catalog.sh.
+check-catalog:
+	@./tools/check_catalog.sh
+
+# Adoption-lag freshness check: compares each curated image digest against its
+# :latest tag in the registry (network). A release precondition, not a per-PR
+# gate. See tools/check_catalog_freshness.sh.
+check-catalog-freshness:
+	@./tools/check_catalog_freshness.sh
+
+# One-command fix when check-catalog-freshness reports drift.
+# Usage: make bump-catalog-digest TOOL=osv DIGEST=sha256:<64hex>
+bump-catalog-digest:
+	@./tools/bump_catalog_digest.sh $(TOOL) $(DIGEST)

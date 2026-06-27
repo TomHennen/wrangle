@@ -95,6 +95,7 @@ whatever is already set.
 | Python tool | `==version --hash=sha256:` in `requirements.txt` |
 | Binary with no package manager | version pinned in the install script |
 | Container base image | OCI `@sha256:` digest |
+| Curated tool image (`tools/catalog.json`) | `ghcr.io/tomhennen/wrangle/<tool>@sha256:` digest — static-checked by `tools/check_catalog.sh` (per-PR), adoption-lag-checked by `tools/check_catalog_freshness.sh` (release gate). Rationale: [docs/tool_container_design.md](docs/tool_container_design.md) §8, §11 |
 
 `@main` MUST NOT appear in any `uses:` line, anywhere — including examples and docs.
 
@@ -109,6 +110,13 @@ whatever is already set.
   `check_pin_ancestry` reuses). **`make converge-action-pins`** repeats the bump
   across commits when a nested chain needs more than one cycle — land its commits
   as a merge commit (see [docs/e2e_testing.md](docs/e2e_testing.md)).
+- **Curated tool images** (`tools/catalog.json`) — `tools/check_catalog.sh`
+  fails any entry that isn't digest-pinned on the wrangle namespace (per-PR);
+  `tools/check_catalog_freshness.sh` compares each pinned digest against the
+  registry's `:latest` and prints a `tools/bump_catalog_digest.sh` remediation
+  when the catalog is behind (a release precondition, not a per-PR gate, to keep
+  registry calls off PRs). It proves adoption-lag only, not that the digest was
+  built from current source (the stronger provenance check is deferred).
 - **Manual today:** the binary+provenance installs (branch 2) and the base-image
   digest. Automating that surface — ideally one mechanism that also covers
   wrangle's own self-references — is #264.
