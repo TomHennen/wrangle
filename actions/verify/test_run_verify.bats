@@ -830,12 +830,25 @@ _require_zip() {
     _install_gh_shim
     _stage_release_assets
     export BUILD_TYPE="python"
-    export GH_VIEW_SEQ="1"            # view fails (no release)
+    export GH_VIEW_SEQ="1 1"          # release absent before and after the failed create
     export GH_CREATE_CODE="1"        # create fails
     run "$SCRIPT" attach
     [[ "$status" -ne 0 ]]
     [[ "$output" == *"failed to create GitHub release"* ]]
     if grep -q "release upload" "$GH_LOG"; then return 1; fi
+}
+
+@test "run_verify attach: a create that loses the concurrent race still uploads" {
+    _require_zip
+    _install_gh_shim
+    _stage_release_assets
+    export BUILD_TYPE="python"
+    export GH_VIEW_SEQ="1 0"          # absent, then a peer job's release appears
+    export GH_CREATE_CODE="1"        # our create loses the race
+    run "$SCRIPT" attach
+    [[ "$status" -eq 0 ]]
+    grep -qx "release create v1.2.3 --generate-notes --title v1.2.3" "$GH_LOG"
+    grep -qx "release upload v1.2.3 $BUNDLE_OUT/a.tgz.intoto.jsonl --clobber" "$GH_LOG"
 }
 
 # The verify job has no checkout, so gh resolves the base repo from GH_REPO
