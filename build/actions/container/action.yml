@@ -125,8 +125,6 @@ runs:
           type=ref,event=tag
           type=semver,pattern={{version}}
           type=semver,pattern={{major}}.{{minor}}
-          # tools/check_catalog_freshness.sh reads this :latest tag to detect
-          # catalog adoption lag; dropping it breaks that release gate.
           type=raw,value=latest,enable=${{ github.ref == 'refs/heads/main' }}
 
     - name: Log in to the Container registry
