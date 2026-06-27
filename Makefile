@@ -1,4 +1,4 @@
-.PHONY: all test lint shellcheck shellstyle workflowstyle gotest bats zizmor integration bump-action-pins converge-action-pins check-catalog check-catalog-freshness bump-catalog-digest
+.PHONY: all test lint shellcheck shellstyle workflowstyle gotest bats zizmor integration bump-action-pins converge-action-pins check-catalog check-catalog-freshness check-catalog-provenance-freshness bump-catalog-digest
 
 # bash, not the default sh: the integration recipe sources lib/env.sh,
 # whose `set -o pipefail` dash doesn't reliably support.
@@ -94,6 +94,13 @@ check-catalog:
 # gate. See tools/check_catalog_freshness.sh.
 check-catalog-freshness:
 	@./tools/check_catalog_freshness.sh
+
+# Provenance source-freshness: reads each pinned image's signed SLSA provenance
+# and fails if its build commit's tool source differs from HEAD (network + full
+# git history). A release precondition, not a per-PR gate. See
+# tools/check_catalog_provenance_freshness.sh.
+check-catalog-provenance-freshness:
+	@./tools/check_catalog_provenance_freshness.sh
 
 # One-command fix when check-catalog-freshness reports drift.
 # Usage: make bump-catalog-digest TOOL=osv DIGEST=sha256:<64hex>

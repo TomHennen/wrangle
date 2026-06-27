@@ -313,12 +313,18 @@ not a meaningful per-delivery signal.)
   published fix is actually *adopted*: the catalog's image digest must be freshness-checked so a stale
   pin cannot pass CI green (the #539/#544 class). The OCI axis is served by a *parallel* set of
   catalog-aware checks — `tools/check_catalog.sh` (static digest/namespace hygiene, per-PR),
-  `tools/check_catalog_freshness.sh` (adoption-lag vs `:latest`, a release gate), `tools/bump_catalog_digest.sh`
-  (the fix) — plus the DEP_MGMT.md image integrity rung; the git-pin tools (`check_pin_ancestry`,
-  `check_pin_freshness`, `bump_action_pins`, WL005) are left untouched, since digests and git SHAs are
-  different axes. Because the digest lives in one curated place (§3.6), this stays a narrow,
-  wrangle-internal task, required only before *production consumption*, not before prototyping. Still open:
-  provenance-based source-freshness, a digest cooldown, and the advisory→blocking promotion (#623).
+  `tools/check_catalog_freshness.sh` (adoption-lag vs `:latest`, a release gate),
+  `tools/check_catalog_provenance_freshness.sh` (built-from-current-source: each pinned digest's signed
+  SLSA provenance → build commit → diff the tool dir + `lib/` + `tools/go.mod`/`go.sum` against HEAD; an
+  ancestor-bound release gate that is the OCI analog of `check_pin_ancestry`/`check_pin_freshness`),
+  `tools/bump_catalog_digest.sh` (the fix) — plus the DEP_MGMT.md image integrity rung; the git-pin tools
+  (`check_pin_ancestry`, `check_pin_freshness`, `bump_action_pins`, WL005) are left untouched, since
+  digests and git SHAs are different axes. Because the digest lives in one curated place (§3.6), this
+  stays a narrow, wrangle-internal task, required only before *production consumption*, not before
+  prototyping. Provenance source-freshness is what gates the containerized signing path (#619): a stale
+  image is still validly attested, so the pull-time VSA gate passes it — only source-freshness catches a
+  stale image about to run with the signing token. Still open (#623): a digest cooldown and the
+  adoption-lag check's advisory→blocking promotion.
 - **Pull-time consumer VSA gate.** Before a curated image runs, the orchestrator verifies it carries a
   PASSED, SLSA-Build-L3 wrangle verification-summary attestation signed by the container build+publish
   workflow, fail-closed (`run.sh` `verify_tool_image`, `lib/verify_image_vsa.sh`). The signer identity is
@@ -425,9 +431,10 @@ release does not rebuild or re-tag tool images.**
   bump PR — not a manual double-bump. A catalog-only digest change touches no Dockerfile, so it triggers
   no rebuild (no loop).
 - **Release tag** — precondition: the catalog is fresh. `check_catalog_freshness.sh` proves the shipped
-  half — no digest is behind its published `:latest` (adoption lag); the stronger "every digest is the
-  image built from the current tool source" guarantee is the deferred provenance check (#623). Then tag.
-  No image is built or re-tagged at release time.
+  half — no digest is behind its published `:latest` (adoption lag); `check_catalog_provenance_freshness.sh`
+  proves the stronger half — every digest is the image built from the current tool source, read from each
+  image's signed provenance. Both are blocking release gates that fail closed on a backend error (exit 2 =
+  precondition unverified). Then tag. No image is built or re-tagged at release time.
 
 Consequences:
 - The catalog at a release commit references images built from *ancestor* commits. That is correct as

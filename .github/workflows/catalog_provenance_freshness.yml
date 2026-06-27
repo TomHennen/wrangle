@@ -1,0 +1,49 @@
+name: Catalog Provenance Freshness
+
+# Advisory source-freshness check (#633): weekly, reads each curated tool-image
+# digest's signed SLSA build provenance and fails if the image was not built
+# from the current tool source (the tool dir, lib/, tools/go.mod + go.sum at the
+# build commit differ from HEAD). This is the §11 guarantee the adoption-lag
+# check (catalog_freshness.yml) cannot prove: a stale image is still validly
+# attested, so only this catches it. Kept off the per-PR path (network +
+# attestation reads); the same check is a blocking release precondition (see the
+# cut-release runbook), where exit 2 fails closed. Advisory here because it
+# depends on a live registry + Sigstore — a failed run notifies.
+
+on:
+  schedule:
+    - cron: "37 9 * * 1"
+  workflow_dispatch:
+
+permissions: {}
+
+jobs:
+  provenance-freshness:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          persist-credentials: false
+          # The check resolves each image's build commit and diffs it against
+          # HEAD, so it needs full history.
+          fetch-depth: 0
+
+      # Source drift (exit 1) fails the run as the actionable signal; a transient
+      # registry/Sigstore-unreachable (exit 2) warns but does not, so a backend
+      # blip can't page on a false negative. The blocking release gate inverts
+      # this — exit 2 there means the precondition is UNVERIFIED.
+      - name: Check catalog image provenance freshness
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set +e
+          ./tools/check_catalog_provenance_freshness.sh
+          rc=$?
+          if [[ "$rc" -eq 2 ]]; then
+            printf '::warning::registry/attestation unreachable; provenance freshness undetermined this run\n'
+            exit 0
+          fi
+          exit "$rc"

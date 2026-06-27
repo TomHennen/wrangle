@@ -117,6 +117,21 @@ All three must hold before you ask the owner to cut. Do not shortcut.
    it does not prove the digest was built from current source.) **Exit 2
    (registry unreachable) means the precondition is UNVERIFIED — do not proceed.**
    Retry until the result is 0 or 1; a visible exit-2 is not a satisfied gate.
+
+   Then confirm each digest was built from the **current** tool source (the
+   stronger §11 guarantee the adoption-lag check does not prove — and the gate
+   for the containerized signing path, #633). Run on a full-history checkout
+   (`git fetch --unshallow` if shallow):
+
+   ```bash
+   ./tools/check_catalog_provenance_freshness.sh   # 0 fresh; 1 a digest's source changed since its build; 2 backend unreachable
+   ```
+
+   On exit 1, the pinned image predates a change to its tool source (`tools/<tool>/`,
+   `lib/`, or `tools/go.mod`/`go.sum`): re-publish the image, then bump the catalog
+   digest, then re-check. **Exit 2 fails closed — the precondition is UNVERIFIED,
+   do not proceed** (the blocking gate inverts the weekly advisory workflow, which
+   warns on exit 2).
 3. **Empirically-verified download + verify commands.** Re-run the consumer
    download-and-verify recipe in
    [docs/verifying_artifacts.md](../../../docs/verifying_artifacts.md) against a **real**
