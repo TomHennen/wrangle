@@ -23,6 +23,7 @@ setup() {
 }
 
 # install_crane <mode> — a fake `crane` whose `digest` output/return is fixed.
+# Heredoc is expanded at write time, so each mode bakes its constant in.
 install_crane() {
     cat >"$BIN_DIR/crane" <<SHIM
 #!/usr/bin/env bash
@@ -33,6 +34,26 @@ case "$1" in
 esac
 SHIM
     chmod +x "$BIN_DIR/crane"
+}
+
+# install_curl — a fake `curl` exercising the craneless production fallback
+# (_digest_via_curl). It dispatches on the request URL and reads $SHIM_DIGEST /
+# $SHIM_TOKEN_FAIL from the environment at run time.
+install_curl() {
+    cat >"$BIN_DIR/curl" <<'SHIM'
+#!/usr/bin/env bash
+for a in "$@"; do
+  case "$a" in
+    */token\?*)
+      [[ -n "${SHIM_TOKEN_FAIL:-}" ]] && exit 22
+      printf '{"token":"t"}\n'; exit 0 ;;
+    *manifests/*)
+      printf 'HTTP/2 200\r\ndocker-content-digest: %s\r\n\r\n' "${SHIM_DIGEST}"; exit 0 ;;
+  esac
+done
+exit 0
+SHIM
+    chmod +x "$BIN_DIR/curl"
 }
 
 @test "check_catalog_freshness: in-sync digest passes (exit 0)" {
@@ -65,4 +86,35 @@ SHIM
     run "$SCRIPT"
     [ "$status" -eq 0 ]
     [[ "$output" == *"0 curated image"* ]]
+}
+
+@test "check_catalog_freshness: malformed catalog is an env error (exit 2)" {
+    install_crane insync
+    printf '{ not json\n' > "$CATALOG"
+    run "$SCRIPT"
+    [ "$status" -eq 2 ]
+    [[ "$output" == *"not valid JSON"* ]]
+}
+
+# The craneless production path (weekly workflow + release gate run on a runner
+# without crane), exercised via a curl shim.
+@test "check_catalog_freshness: curl fallback in-sync passes (exit 0)" {
+    install_curl
+    SHIM_DIGEST="$DIGEST_A" run "$SCRIPT"
+    [ "$status" -eq 0 ]
+    [[ "$output" == *"match :latest"* ]]
+}
+
+@test "check_catalog_freshness: curl fallback drift fails with remediation (exit 1)" {
+    install_curl
+    SHIM_DIGEST="$DIGEST_B" run "$SCRIPT"
+    [ "$status" -eq 1 ]
+    [[ "$output" == *"bump_catalog_digest.sh osv $DIGEST_B"* ]]
+}
+
+@test "check_catalog_freshness: curl fallback token failure is an env error (exit 2)" {
+    install_curl
+    SHIM_TOKEN_FAIL=1 SHIM_DIGEST="$DIGEST_A" run "$SCRIPT"
+    [ "$status" -eq 2 ]
+    [[ "$output" == *"could not resolve"* ]]
 }

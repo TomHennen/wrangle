@@ -82,7 +82,7 @@ validate_catalog() {
                 rc=1
             fi
         fi
-    done < <(jq -r '.tools | keys[]' "$file")
+    done < <(jq -r '.tools // {} | keys[]' "$file")
 
     return "$rc"
 }

@@ -43,11 +43,11 @@ _digest_via_curl() {
     registry="${imagename%%/*}"
     repo="${imagename#*/}"
 
-    token="$(curl -fsSL "https://${registry}/token?scope=repository:${repo}:pull" 2>/dev/null \
+    token="$(curl -fsSL --connect-timeout 10 --max-time 30 "https://${registry}/token?scope=repository:${repo}:pull" 2>/dev/null \
         | jq -r '.token // empty' 2>/dev/null)" || return 1
     [[ -n "$token" ]] || return 1
 
-    digest="$(curl -fsS -I -X GET \
+    digest="$(curl -fsS -I -X GET --connect-timeout 10 --max-time 30 \
         -H "Authorization: Bearer ${token}" \
         -H 'Accept: application/vnd.oci.image.index.v1+json,application/vnd.docker.distribution.manifest.list.v2+json,application/vnd.oci.image.manifest.v1+json,application/vnd.docker.distribution.manifest.v2+json' \
         "https://${registry}/v2/${repo}/manifests/latest" 2>/dev/null \
@@ -80,6 +80,10 @@ check_freshness() {
         printf 'check_catalog_freshness: catalog not found: %s\n' "$file" >&2
         return 2
     fi
+    if ! jq -e . "$file" >/dev/null 2>&1; then
+        printf 'check_catalog_freshness: %s is not valid JSON\n' "$file" >&2
+        return 2
+    fi
 
     while IFS= read -r tool; do
         [[ -z "$tool" ]] && continue
@@ -103,12 +107,14 @@ check_freshness() {
             printf '  remediation: tools/bump_catalog_digest.sh %s %s\n' "$tool" "$resolved" >&2
             drift=1
         fi
-    done < <(jq -r '.tools | keys[]' "$file")
+    done < <(jq -r '.tools // {} | keys[]' "$file")
 
-    if [[ "$backend_err" -eq 1 ]]; then
-        rc=2
-    elif [[ "$drift" -eq 1 ]]; then
+    # A confirmed drift (1) wins over a transient backend error (2): the drift is
+    # actionable regardless of another tool's reachability, and must not be masked.
+    if [[ "$drift" -eq 1 ]]; then
         rc=1
+    elif [[ "$backend_err" -eq 1 ]]; then
+        rc=2
     else
         printf 'check_catalog_freshness: all %d curated image digest(s) match :latest\n' "$checked"
     fi
