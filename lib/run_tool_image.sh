@@ -14,7 +14,7 @@ set -f
 # exit code under the 0/1/2 adapter contract.
 run_tool_image() {
     local tool="$1" image="$2" tool_out="$3" src_dir="$4" catalog="$5" timeout_s="$6"
-    local net secret secret_var extra_var src_abs out_abs
+    local net kind format secret secret_var extra_var src_abs out_abs
 
     # Network defaults closed; a tool grants egress only by declaring it.
     # "egress" maps to docker's default bridge network (full egress, the
@@ -22,10 +22,19 @@ run_tool_image() {
     net="none"
     [[ "$(read_catalog_field "$catalog" "$tool" network)" == "egress" ]] && net="bridge"
 
+    # The tool kind (§3.1) is passed in so the in-image adapter knows which
+    # contract it runs; an sbom tool also gets its declared output format.
+    local -a docker_env=()
+    kind="$(read_catalog_field "$catalog" "$tool" kind)"
+    [[ -n "$kind" ]] && docker_env+=(-e "WRANGLE_KIND=$kind")
+    if [[ "$kind" == "sbom" ]]; then
+        format="$(read_catalog_field "$catalog" "$tool" format)"
+        [[ -n "$format" ]] && docker_env+=(-e "WRANGLE_SBOM_FORMAT=$format")
+    fi
+
     # docker inherits no host env; a secret-declaring tool gets its
     # WRANGLE_EXTRA_<name> forwarded by name only, mirroring the adapter
     # path's WRANGLE_EXTRA_* forwarding. Default: no secrets.
-    local -a docker_env=()
     secret="$(read_catalog_field "$catalog" "$tool" secret)"
     if [[ -n "$secret" ]]; then
         # Map a catalog secret name (e.g. github-token) to its env var

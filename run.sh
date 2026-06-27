@@ -214,6 +214,11 @@ run_one_tool() {
     local tool_output_dir="${output_dir}/${tool}"
     mkdir -p "$tool_output_dir"
 
+    # Tool kind (§3.3) drives exit-code mapping and output handling. Absent
+    # (an adapter-path tool with no catalog entry) means the default scan kind.
+    local kind
+    kind="$(read_catalog_field "$CATALOG" "$tool" kind)"
+
     if [[ -n "${is_image[$tool]:-}" ]]; then
         # Image-delivery: run the tool's pinned image under the contract
         # sandbox (read-only /src, writable /output owned by the runner UID).
@@ -337,56 +342,103 @@ run_one_tool() {
         rm -f "$pre_snapshot" "$post_snapshot"
     fi
 
-    case "$adapter_exit" in
-        0)
-            tool_status="pass"
-            ;;
-        1)
-            tool_status="findings"
-            if [[ "$overall_status" -lt 1 ]]; then
-                overall_status=1
-            fi
-            ;;
-        124)
-            # timeout(1) returns 124 when the command times out
-            printf 'wrangle: %s adapter timed out after %ds\n' "$tool" "$ADAPTER_TIMEOUT" >&2
-            tool_status="error"
-            overall_status=2
+    case "$kind" in
+        sbom)
+            # sbom has no findings state (§3.3): 0 ok / 2 error, and any other
+            # code — including 1 — is a tool error.
+            case "$adapter_exit" in
+                0)
+                    tool_status="pass"
+                    ;;
+                124)
+                    printf 'wrangle: %s adapter timed out after %ds\n' "$tool" "$ADAPTER_TIMEOUT" >&2
+                    tool_status="error"
+                    overall_status=2
+                    ;;
+                *)
+                    printf 'wrangle: %s adapter failed (exit %d)\n' "$tool" "$adapter_exit" >&2
+                    tool_status="error"
+                    overall_status=2
+                    ;;
+            esac
             ;;
         *)
-            printf 'wrangle: %s adapter failed (exit %d)\n' "$tool" "$adapter_exit" >&2
-            tool_status="error"
-            overall_status=2
+            # scan (default): 0 clean / 1 findings / 2 error.
+            case "$adapter_exit" in
+                0)
+                    tool_status="pass"
+                    ;;
+                1)
+                    tool_status="findings"
+                    if [[ "$overall_status" -lt 1 ]]; then
+                        overall_status=1
+                    fi
+                    ;;
+                124)
+                    # timeout(1) returns 124 when the command times out
+                    printf 'wrangle: %s adapter timed out after %ds\n' "$tool" "$ADAPTER_TIMEOUT" >&2
+                    tool_status="error"
+                    overall_status=2
+                    ;;
+                *)
+                    printf 'wrangle: %s adapter failed (exit %d)\n' "$tool" "$adapter_exit" >&2
+                    tool_status="error"
+                    overall_status=2
+                    ;;
+            esac
             ;;
     esac
 
-    # Generate human-readable output if the adapter didn't produce one.
-    # Only on successful runs — on error the SARIF may be missing or
-    # incomplete, and showing "No findings" would be misleading.
-    if [[ "$tool_status" != "error" ]] \
-        && [[ -f "${tool_output_dir}/output.sarif" ]] \
-        && [[ ! -s "${tool_output_dir}/output.md" ]] \
-        && [[ ! -s "${tool_output_dir}/output.txt" ]]; then
-        "$SCRIPT_DIR/lib/sarif_to_md.sh" "${tool_output_dir}/output.sarif" \
-            > "${tool_output_dir}/output.md" 2>/dev/null || true
-    fi
+    if [[ "$kind" == "sbom" ]]; then
+        # sbom output is the declared SBOM file; no output.md (§3.3). On a clean
+        # run, write the attest manifest so the verify job signs the SBOM —
+        # mapping the declared format to its filename and in-toto predicate.
+        if [[ "$tool_status" != "error" ]]; then
+            local format sbom_file="" predicate=""
+            format="$(read_catalog_field "$CATALOG" "$tool" format)"
+            case "$format" in
+                spdx-json)
+                    sbom_file="sbom.spdx.json"; predicate="https://spdx.dev/Document" ;;
+                cyclonedx-json)
+                    sbom_file="sbom.cyclonedx.json"; predicate="https://cyclonedx.org/bom" ;;
+                *)
+                    printf 'wrangle: %s: unknown sbom format: %s\n' "$tool" "$format" >&2 ;;
+            esac
+            if [[ -n "$sbom_file" ]] && [[ -f "${tool_output_dir}/${sbom_file}" ]]; then
+                "$SCRIPT_DIR/lib/write_attest_manifest.sh" \
+                    "$tool_output_dir" "$predicate" "$sbom_file" \
+                    || printf 'wrangle: failed to write %s sbom manifest\n' "$tool" >&2
+            fi
+        fi
+    else
+        # Generate human-readable output if the adapter didn't produce one.
+        # Only on successful runs — on error the SARIF may be missing or
+        # incomplete, and showing "No findings" would be misleading.
+        if [[ "$tool_status" != "error" ]] \
+            && [[ -f "${tool_output_dir}/output.sarif" ]] \
+            && [[ ! -s "${tool_output_dir}/output.md" ]] \
+            && [[ ! -s "${tool_output_dir}/output.txt" ]]; then
+            "$SCRIPT_DIR/lib/sarif_to_md.sh" "${tool_output_dir}/output.sarif" \
+                > "${tool_output_dir}/output.md" 2>/dev/null || true
+        fi
 
-    # Write the scan/v1 attestation manifest next to output.sarif so the
-    # trusted verify job's wrangle-attest engine wraps + signs it. Skip on
-    # error (an attestation must claim a real scan result); write_scan_manifest
-    # itself no-ops on a missing SARIF. The scanner name can differ from the
-    # orchestrator token (osv -> osv-scanner); keyed per tool, one line each.
-    if [[ "$tool_status" != "error" ]]; then
-        local scanner_name=""
-        case "$tool" in
-            osv) scanner_name="osv-scanner" ;;
-            wrangle-lint) scanner_name="wrangle-lint" ;;
-            zizmor) scanner_name="zizmor" ;;
-        esac
-        if [[ -n "$scanner_name" ]]; then
-            "$SCRIPT_DIR/lib/write_scan_manifest.sh" "$scanner_name" \
-                "${tool_output_dir}/output.sarif" \
-                || printf 'wrangle: failed to write %s scan manifest\n' "$tool" >&2
+        # Write the scan/v1 attestation manifest next to output.sarif so the
+        # trusted verify job's wrangle-attest engine wraps + signs it. Skip on
+        # error (an attestation must claim a real scan result); write_scan_manifest
+        # itself no-ops on a missing SARIF. The scanner name can differ from the
+        # orchestrator token (osv -> osv-scanner); keyed per tool, one line each.
+        if [[ "$tool_status" != "error" ]]; then
+            local scanner_name=""
+            case "$tool" in
+                osv) scanner_name="osv-scanner" ;;
+                wrangle-lint) scanner_name="wrangle-lint" ;;
+                zizmor) scanner_name="zizmor" ;;
+            esac
+            if [[ -n "$scanner_name" ]]; then
+                "$SCRIPT_DIR/lib/write_scan_manifest.sh" "$scanner_name" \
+                    "${tool_output_dir}/output.sarif" \
+                    || printf 'wrangle: failed to write %s scan manifest\n' "$tool" >&2
+            fi
         fi
     fi
 
