@@ -110,6 +110,7 @@ For throwaway end-to-end experiments before promoting to the integration compani
 - **No merge without an `LGTM` from the repository owner** — green CI alone is never authorization to merge.
 - If a PR fully fixes a tracked issue, close it from the description with a closing keyword (`Fixes #NNN`); if unsure it fully resolves the issue, ask the owner.
 - Update the README and `gh_workflow_examples/` if the adoption interface changes.
+- Re-render the affected demo in `docs/demos/` if a change alters a flow it shows (e.g. the `ampel verify` command in the VSA verification GIF) — see [docs/demos/README.md](docs/demos/README.md).
 - For personal-environment preferences that shouldn't be checked in, use `CLAUDE.local.md` (git-ignored).
 
 ## Open work and future ideas
