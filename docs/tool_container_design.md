@@ -1,12 +1,13 @@
 # Tool containerization (#596)
 
 Status: **partially implemented.** osv ships as a pinned OCI image on `main`, dispatched by the
-orchestrator via `docker run` and gated at pull time by a fail-closed VSA check; the remaining scan tools
-and the signing-path container (#619) are in progress. SPEC.md remains the contract of record.
+orchestrator via `docker run` and gated at pull time by a fail-closed VSA check; more scan tools and the
+signing-path container (#619) are in progress. Not every tool containerizes: scorecard and
+dependency-review stay action-pattern (the C3 escape hatch below). SPEC.md remains the contract of record.
 
-Wrangle's tool layer is re-homed so each tool ships as a **pinned OCI image implementing the adapter
-contract**, invoked by the orchestrator via `docker run`. The container is the unit of distribution *and*
-isolation.
+Wrangle's adapter tool layer is re-homed so each such tool ships as a **pinned OCI image implementing the
+adapter contract**, invoked by the orchestrator via `docker run`. The container is the unit of
+distribution *and* isolation.
 
 ## 1. Problem
 

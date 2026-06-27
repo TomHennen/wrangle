@@ -215,11 +215,10 @@ run_tool_image() {
 
 # verify_tool_image <tool> <image> — curated-image policy around the
 # verify_image_vsa primitive. Fail closed: a wrangle-published image must carry a
-# PASSED, SLSA-L3 wrangle VSA (a subset of policies/wrangle-vsa-consumer-v1.hjson
-# — digest binding substitutes for, and is stronger than, the policy's
-# resourceUri check) before it runs. Returns 0 to proceed, 1 to refuse. Skips
-# (returns 0) when verification is disabled or the image is not wrangle-published
-# (an adopter override is trusted under a different identity).
+# PASSED, SLSA-L3 wrangle VSA whose resourceUri is this image ref (matching
+# policies/wrangle-vsa-consumer-v1.hjson) before it runs. Returns 0 to proceed, 1
+# to refuse. Skips (returns 0) when verification is disabled or the image is not
+# wrangle-published (an adopter override is trusted under a different identity).
 verify_tool_image() {
     local tool="$1" image="$2"
 

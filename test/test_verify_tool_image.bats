@@ -76,7 +76,7 @@ case "${GH_SHIM_MODE:-passed}" in
         verdict="PASSED"
         [[ "$GH_SHIM_MODE" == "failed" ]] && verdict="FAILED"
         cat <<JSON
-[{"verificationResult":{"statement":{"predicateType":"https://slsa.dev/verification_summary/v1","subject":[{"digest":{"sha256":"c8abda59e3a64520128c427d2fe9bd223c27e0a2056181ead1b9d3c6a5fb3b75"}}],"predicate":{"verificationResult":"$verdict","resourceUri":"ghcr.io/tomhennen/wrangle/imgtool","verifiedLevels":["SLSA_BUILD_LEVEL_3"],"slsaVersion":"1.1"}}}}]
+[{"verificationResult":{"statement":{"predicateType":"https://slsa.dev/verification_summary/v1","subject":[{"digest":{"sha256":"c8abda59e3a64520128c427d2fe9bd223c27e0a2056181ead1b9d3c6a5fb3b75"}}],"predicate":{"verificationResult":"$verdict","resourceUri":"ghcr.io/tomhennen/wrangle/imgtool@sha256:c8abda59e3a64520128c427d2fe9bd223c27e0a2056181ead1b9d3c6a5fb3b75","verifiedLevels":["SLSA_BUILD_LEVEL_3"],"slsaVersion":"1.1"}}}}]
 JSON
         ;;
 esac

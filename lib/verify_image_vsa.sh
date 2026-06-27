@@ -18,15 +18,19 @@ WRANGLE_CONTAINER_SIGNER_REGEX='^https://github\.com/TomHennen/wrangle/\.github/
 WRANGLE_VSA_OIDC_ISSUER='https://token.actions.githubusercontent.com'
 WRANGLE_VSA_PREDICATE_TYPE='https://slsa.dev/verification_summary/v1'
 
-# vsa_assert_passed_l3 — read a `gh attestation verify --format json` array on
-# stdin; succeed only if it is non-empty AND every entry is a PASSED VSA verified
-# at SLSA Build L3. gh checks signature, identity, and digest but NEVER the
-# predicate verdict, so this is the ONLY check that the verdict is PASSED;
-# dropping it makes the gate theater. Array-safe — an empty array fails.
+# vsa_assert_passed_l3 <expected_resource_uri> — read a `gh attestation verify
+# --format json` array on stdin; succeed only if it is non-empty AND every entry
+# is a PASSED VSA, verified at SLSA Build L3, whose resourceUri equals the
+# expected image ref. gh checks signature, identity, and the subject digest but
+# NEVER the predicate verdict or resourceUri, so this is the ONLY check of those;
+# resourceUri-binding is the SLSA VSA spec's producer-intent check and matches
+# policies/wrangle-vsa-consumer-v1.hjson. Array-safe — an empty array fails.
 vsa_assert_passed_l3() {
-    jq -e '
+    local expected_uri="$1"
+    jq -e --arg uri "$expected_uri" '
         length > 0 and all(.[];
             .verificationResult.statement.predicate.verificationResult == "PASSED"
+            and .verificationResult.statement.predicate.resourceUri == $uri
             and any(.verificationResult.statement.predicate.verifiedLevels[];
                     . == "SLSA_BUILD_LEVEL_3"))' >/dev/null
 }
@@ -78,8 +82,9 @@ verify_image_vsa() {
             --format json 2>"$err_file")" || rc=$?
 
         if [[ "$rc" -eq 0 ]]; then
-            # gh checked signature, identity, and digest; the verdict is ours.
-            if printf '%s' "$out" | vsa_assert_passed_l3; then
+            # gh bound signature, identity, and subject digest; the verdict and
+            # resourceUri (== this image ref) are ours.
+            if printf '%s' "$out" | vsa_assert_passed_l3 "$image"; then
                 rm -f "$err_file"
                 return 0
             fi

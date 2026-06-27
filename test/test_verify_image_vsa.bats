@@ -1,10 +1,16 @@
 #!/usr/bin/env bats
 
 # Unit tests for the VSA gate primitive (lib/verify_image_vsa.sh, #596),
-# exercised directly: the verdict assertion against captured real `gh attestation
-# verify --format json` output, and verify_image_vsa's retry/fail-closed control
-# flow against a gh shim. The real-gh contract (a live published image, real
-# identity/ref rejection) is covered by test/image/test_verify_tool_image_real_gh.bats.
+# exercised directly: the verdict/resourceUri assertion against captured real
+# `gh attestation verify --format json` output, and verify_image_vsa's
+# retry/fail-closed control flow against a gh shim. The real-gh contract (a live
+# published image, real identity/ref rejection) is covered by
+# test/image/test_verify_tool_image_real_gh.bats.
+
+# The osv attestation's resourceUri (== the digest-pinned image ref) in the real
+# fixture; the gate binds resourceUri to the requested image.
+_osv_uri="ghcr.io/tomhennen/wrangle/osv@sha256:c8abda59e3a64520128c427d2fe9bd223c27e0a2056181ead1b9d3c6a5fb3b75"
+_image="ghcr.io/tomhennen/wrangle/imgtool@sha256:c8abda59e3a64520128c427d2fe9bd223c27e0a2056181ead1b9d3c6a5fb3b75"
 
 setup() {
     LIB="$(cd "$(dirname "$BATS_TEST_FILENAME")/.." && pwd)/lib/verify_image_vsa.sh"
@@ -33,14 +39,15 @@ setup() {
 
     # shellcheck source=/dev/null
     source "$LIB"
-    export TMP_DIR BIN COUNT FIXTURES
+    # The shim emits this as the VSA's resourceUri; matches $_image so the gate's
+    # resourceUri binding is satisfied unless a test overrides it.
+    GH_RESOURCE_URI="$_image"
+    export TMP_DIR BIN COUNT FIXTURES GH_RESOURCE_URI
 }
 
 teardown() {
     [[ -n "${TMP_DIR:-}" ]] && rm -rf "$TMP_DIR"
 }
-
-_image="ghcr.io/tomhennen/wrangle/imgtool@sha256:c8abda59e3a64520128c427d2fe9bd223c27e0a2056181ead1b9d3c6a5fb3b75"
 
 # gh shim: counts invocations and replays a scripted sequence of outcomes from
 # GH_SEQ (space-separated, one per attempt; the last repeats). Each outcome is a
@@ -60,39 +67,45 @@ case "$mode" in
         verdict=PASSED; levels='["SLSA_BUILD_LEVEL_3"]'
         [[ "$mode" == failed ]] && verdict=FAILED
         [[ "$mode" == nol3 ]]   && levels='["SLSA_BUILD_LEVEL_2"]'
-        printf '[{"verificationResult":{"statement":{"predicate":{"verificationResult":"%s","verifiedLevels":%s}}}}]\n' "$verdict" "$levels"
+        printf '[{"verificationResult":{"statement":{"predicate":{"verificationResult":"%s","resourceUri":"%s","verifiedLevels":%s}}}}]\n' \
+            "$verdict" "${GH_RESOURCE_URI:-}" "$levels"
         ;;
 esac
 GH
     chmod +x "$BIN/gh"
 }
 
-# --- vsa_assert_passed_l3: the sole verdict check, against real captured output
+# --- vsa_assert_passed_l3: the verdict + resourceUri check, against real output
 
-@test "assert: real captured PASSED osv attestation -> accepted" {
-    run bash -c "source '$LIB'; vsa_assert_passed_l3 < '$FIXTURES/osv_passed_vsa.json'"
+@test "assert: real captured PASSED osv attestation, matching resourceUri -> accepted" {
+    run bash -c "source '$LIB'; vsa_assert_passed_l3 '$_osv_uri' < '$FIXTURES/osv_passed_vsa.json'"
     [ "$status" -eq 0 ]
 }
 
+@test "assert: real PASSED attestation but WRONG expected resourceUri -> rejected" {
+    run bash -c "source '$LIB'; vsa_assert_passed_l3 'ghcr.io/tomhennen/wrangle/other@sha256:dead' < '$FIXTURES/osv_passed_vsa.json'"
+    [ "$status" -ne 0 ]
+}
+
 @test "assert: empty array -> rejected" {
-    run bash -c "source '$LIB'; printf '[]' | vsa_assert_passed_l3"
+    run bash -c "source '$LIB'; printf '[]' | vsa_assert_passed_l3 '$_image'"
     [ "$status" -ne 0 ]
 }
 
 @test "assert: FAILED verdict -> rejected" {
-    body='[{"verificationResult":{"statement":{"predicate":{"verificationResult":"FAILED","verifiedLevels":["SLSA_BUILD_LEVEL_3"]}}}}]'
-    run bash -c "source '$LIB'; printf '%s' '$body' | vsa_assert_passed_l3"
+    body='[{"verificationResult":{"statement":{"predicate":{"verificationResult":"FAILED","resourceUri":"'$_image'","verifiedLevels":["SLSA_BUILD_LEVEL_3"]}}}}]'
+    run bash -c "source '$LIB'; printf '%s' '$body' | vsa_assert_passed_l3 '$_image'"
     [ "$status" -ne 0 ]
 }
 
 @test "assert: PASSED but not SLSA Build L3 -> rejected" {
-    body='[{"verificationResult":{"statement":{"predicate":{"verificationResult":"PASSED","verifiedLevels":["SLSA_BUILD_LEVEL_2"]}}}}]'
-    run bash -c "source '$LIB'; printf '%s' '$body' | vsa_assert_passed_l3"
+    body='[{"verificationResult":{"statement":{"predicate":{"verificationResult":"PASSED","resourceUri":"'$_image'","verifiedLevels":["SLSA_BUILD_LEVEL_2"]}}}}]'
+    run bash -c "source '$LIB'; printf '%s' '$body' | vsa_assert_passed_l3 '$_image'"
     [ "$status" -ne 0 ]
 }
 
 @test "assert: malformed JSON -> rejected" {
-    run bash -c "source '$LIB'; printf 'not json' | vsa_assert_passed_l3"
+    run bash -c "source '$LIB'; printf 'not json' | vsa_assert_passed_l3 '$_image'"
     [ "$status" -ne 0 ]
 }
 
@@ -115,10 +128,17 @@ GH
 
 # --- verify_image_vsa: verdict outcomes
 
-@test "verify: attested PASSED L3 -> rc 0" {
+@test "verify: attested PASSED L3, resourceUri matches -> rc 0" {
     _install_gh_shim
     run env PATH="$BIN" GH_COUNT="$COUNT" GH_SEQ="passed" bash -c "source '$LIB'; verify_image_vsa '$_image'"
     [ "$status" -eq 0 ]
+}
+
+@test "verify: PASSED L3 but resourceUri is a DIFFERENT image -> rc 1, fail closed" {
+    _install_gh_shim
+    run env PATH="$BIN" GH_COUNT="$COUNT" GH_SEQ="passed" GH_RESOURCE_URI="ghcr.io/tomhennen/wrangle/other@sha256:dead" \
+        bash -c "source '$LIB'; verify_image_vsa '$_image'"
+    [ "$status" -eq 1 ]
 }
 
 @test "verify: gh rc 0 but FAILED verdict -> rc 1, no wasted retries" {
