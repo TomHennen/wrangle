@@ -15,6 +15,8 @@ set -f
 #       non-image tool / bad digest / unreadable catalog.
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+# shellcheck source=../lib/read_catalog.sh
+source "$SCRIPT_DIR/../lib/read_catalog.sh"
 
 DIGEST_RE='^sha256:[0-9a-f]{64}$'
 
@@ -33,8 +35,8 @@ bump_catalog_digest() {
     fi
 
     local delivery image
-    delivery="$(jq -r --arg t "$tool" '.tools[$t].delivery // empty' "$file")"
-    image="$(jq -r --arg t "$tool" '.tools[$t].image // empty' "$file")"
+    delivery="$(read_catalog_field "$file" "$tool" delivery)"
+    image="$(read_catalog_field "$file" "$tool" image)"
     if [[ -z "$delivery" && -z "$image" ]]; then
         printf 'bump_catalog_digest: unknown tool: %s\n' "$tool" >&2
         return 2

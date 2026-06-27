@@ -4,8 +4,10 @@ name: Catalog Freshness
 # digest in tools/catalog.json against its :latest tag in the registry. A drift
 # means a newer tool image was published but the catalog still pins the old one.
 # Kept off the per-PR path to avoid per-PR registry calls; the same check is a
-# release precondition (see the cut-release runbook). Advisory today — a failed
-# run notifies; the intended rollout is to a blocking release gate.
+# release precondition (see the cut-release runbook). Advisory first because it
+# depends on a live registry (network/registry flake), unlike the deterministic
+# git-only pin checks which block directly — a failed run notifies; the intended
+# rollout is to a blocking release gate that fails closed on exit 2.
 
 on:
   schedule:

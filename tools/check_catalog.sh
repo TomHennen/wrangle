@@ -7,25 +7,28 @@ set -f  # disable globbing — handles external tool/field names
 # docs/tool_container_design.md §8: keep the catalog honest so a mutable or
 # off-namespace image reference can't pass CI green.
 #
-# For every tool it asserts: the file is valid JSON, a `kind` is declared, and a
-# declared `network`/`secret` is from the allowed, default-closed set. For every
-# `delivery: image` entry it additionally asserts the image is digest-pinned
-# (@sha256: + 64 hex, never a bare tag / :latest / @latest) on the curated
-# registry namespace ghcr.io/tomhennen/wrangle/<name>; a digest-pinned image on a
-# genuinely different host is allowed as a fallback, but anything on the curated
-# host that is off-namespace is rejected.
+# For every tool it asserts: the file is valid JSON, a `kind` is declared, the
+# `delivery` (if set) is one run.sh recognizes, and a declared `network`/`secret`
+# is from the allowed, default-closed set. For every `delivery: image` entry it
+# additionally asserts the image is digest-pinned (@sha256: + 64 hex, never a bare
+# tag / :latest / @latest) on the curated namespace ghcr.io/tomhennen/wrangle/<tool>
+# — adopter overrides never live in this in-repo catalog (§3.6), so a different
+# host or namespace is a violation.
 #
 # Catalog path: $WRANGLE_CATALOG, else the catalog beside this script.
 #
 # Exit: 0 clean, 1 a violation (offending tool+field printed), 2 usage/env error.
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+# shellcheck source=../lib/read_catalog.sh
+source "$SCRIPT_DIR/../lib/read_catalog.sh"
 
 NETWORK_ALLOWED_RE='^(none|egress)$'
 SECRET_NAME_RE='^[a-z][a-z0-9-]*$'
-IMAGE_STRICT_RE='^ghcr\.io/tomhennen/wrangle/[a-z0-9._-]+@sha256:[0-9a-f]{64}$'
-IMAGE_GHCR_RE='^ghcr\.io/'
-IMAGE_DIGEST_RE='^[a-z0-9._-]+(:[0-9]+)?(/[a-z0-9._-]+)*@sha256:[0-9a-f]{64}$'
+# Tool segment matches run.sh's tool-name shape, so no leading dot/dash or `..`
+# can survive into a registry path.
+CURATED_PREFIX='ghcr.io/tomhennen/wrangle/'
+IMAGE_STRICT_RE='^ghcr\.io/tomhennen/wrangle/[a-z][a-z0-9_-]*@sha256:[0-9a-f]{64}$'
 
 # validate_catalog <catalog_file> — print one line per violation to stderr.
 # Returns 0 clean, 1 any violation. A malformed/unparseable catalog is itself a
@@ -46,39 +49,46 @@ validate_catalog() {
     while IFS= read -r tool; do
         [[ -z "$tool" ]] && continue
 
-        kind="$(jq -r --arg t "$tool" '.tools[$t].kind // empty' "$file")"
+        kind="$(read_catalog_field "$file" "$tool" kind)"
         if [[ -z "$kind" ]]; then
             printf 'check_catalog: %s: missing kind\n' "$tool" >&2
             rc=1
         fi
 
-        network="$(jq -r --arg t "$tool" '.tools[$t].network // empty' "$file")"
+        network="$(read_catalog_field "$file" "$tool" network)"
         if [[ -n "$network" ]] && [[ ! "$network" =~ $NETWORK_ALLOWED_RE ]]; then
             printf 'check_catalog: %s: invalid network value: %s\n' "$tool" "$network" >&2
             rc=1
         fi
 
-        secret="$(jq -r --arg t "$tool" '.tools[$t].secret // empty' "$file")"
+        secret="$(read_catalog_field "$file" "$tool" secret)"
         if [[ -n "$secret" ]] && [[ ! "$secret" =~ $SECRET_NAME_RE ]]; then
             printf 'check_catalog: %s: invalid secret name: %s\n' "$tool" "$secret" >&2
             rc=1
         fi
 
-        delivery="$(jq -r --arg t "$tool" '.tools[$t].delivery // empty' "$file")"
+        # Same allowlist run.sh enforces: empty/adapter/image. A typo'd value must
+        # not skip image enforcement and pass green.
+        delivery="$(read_catalog_field "$file" "$tool" delivery)"
+        case "$delivery" in
+            ''|adapter|image) ;;
+            *)
+                printf 'check_catalog: %s: unrecognized delivery: %s\n' "$tool" "$delivery" >&2
+                rc=1 ;;
+        esac
+
         if [[ "$delivery" == "image" ]]; then
-            image="$(jq -r --arg t "$tool" '.tools[$t].image // empty' "$file")"
+            image="$(read_catalog_field "$file" "$tool" image)"
             if [[ -z "$image" ]]; then
                 printf 'check_catalog: %s: delivery: image but no image\n' "$tool" >&2
                 rc=1
             elif [[ "$image" =~ $IMAGE_STRICT_RE ]]; then
                 : # curated, digest-pinned — ok
-            elif [[ "$image" =~ $IMAGE_GHCR_RE ]]; then
-                printf 'check_catalog: %s: image off the curated namespace ghcr.io/tomhennen/wrangle/: %s\n' "$tool" "$image" >&2
+            elif [[ "$image" == "$CURATED_PREFIX"* ]]; then
+                printf 'check_catalog: %s: image not digest-pinned (needs ghcr.io/tomhennen/wrangle/<tool>@sha256:<64hex>): %s\n' "$tool" "$image" >&2
                 rc=1
-            elif [[ "$image" =~ $IMAGE_DIGEST_RE ]]; then
-                : # non-curated host, still digest-pinned — ok
             else
-                printf 'check_catalog: %s: image not digest-pinned (needs @sha256:<64hex>): %s\n' "$tool" "$image" >&2
+                printf 'check_catalog: %s: image off the curated namespace ghcr.io/tomhennen/wrangle/: %s\n' "$tool" "$image" >&2
                 rc=1
             fi
         fi

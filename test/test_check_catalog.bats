@@ -19,11 +19,11 @@ write_catalog() { printf '%s\n' "$1" > "$CATALOG"; }
     [ "$status" -eq 0 ]
 }
 
-@test "check_catalog: mutable tag (no digest) fails" {
+@test "check_catalog: mutable tag on the curated namespace reports not-digest-pinned" {
     write_catalog '{"tools":{"osv":{"kind":"scan","delivery":"image","image":"ghcr.io/tomhennen/wrangle/osv:latest"}}}'
     run "$SCRIPT"
     [ "$status" -eq 1 ]
-    [[ "$output" == *"osv"* ]]
+    [[ "$output" == *"not digest-pinned"* ]]
 }
 
 @test "check_catalog: off-namespace ghcr image fails" {
@@ -61,10 +61,24 @@ write_catalog() { printf '%s\n' "$1" > "$CATALOG"; }
     [[ "$output" == *"not valid JSON"* ]]
 }
 
-@test "check_catalog: non-ghcr digest-pinned image passes (fallback)" {
+@test "check_catalog: non-ghcr digest-pinned image is off-namespace (fails)" {
     write_catalog '{"tools":{"osv":{"kind":"scan","delivery":"image","image":"registry.example.com/team/osv@sha256:'"$(printf 'a%.0s' {1..64})"'"}}}'
     run "$SCRIPT"
-    [ "$status" -eq 0 ]
+    [ "$status" -eq 1 ]
+    [[ "$output" == *"off the curated namespace"* ]]
+}
+
+@test "check_catalog: typo'd delivery value fails (no silent image-check skip)" {
+    write_catalog '{"tools":{"osv":{"kind":"scan","delivery":"imagge","image":"ghcr.io/tomhennen/wrangle/osv:latest"}}}'
+    run "$SCRIPT"
+    [ "$status" -eq 1 ]
+    [[ "$output" == *"unrecognized delivery"* ]]
+}
+
+@test "check_catalog: dot-dot tool segment is rejected" {
+    write_catalog '{"tools":{"osv":{"kind":"scan","delivery":"image","image":"ghcr.io/tomhennen/wrangle/..@sha256:'"$(printf 'a%.0s' {1..64})"'"}}}'
+    run "$SCRIPT"
+    [ "$status" -eq 1 ]
 }
 
 @test "check_catalog: extra argument is a usage error (exit 2)" {

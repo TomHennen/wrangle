@@ -6,8 +6,19 @@
 # prefers crane when present, so the shim deterministically drives the resolve
 # path without any real registry call.
 
+load "lib/bats_helpers"
+
 DIGEST_A="sha256:$(printf 'a%.0s' {1..64})"
 DIGEST_B="sha256:$(printf 'b%.0s' {1..64})"
+
+# The curl-fallback path is only reached when crane is absent (the script prefers
+# crane). A real crane on a dev host would hit the live registry, so force the
+# intent: skip locally / fail in CI (where crane is absent, so this is a no-op).
+require_craneless() {
+    if command -v crane >/dev/null 2>&1; then
+        skip_or_fail "crane present; curl fallback not exercised"
+    fi
+}
 
 setup() {
     SCRIPT="$(cd "$(dirname "$BATS_TEST_FILENAME")/.." && pwd)/tools/check_catalog_freshness.sh"
@@ -31,6 +42,19 @@ case "$1" in
     insync) printf '%s\n' "$DIGEST_A" ;;     # matches the catalog pin
     drift)  printf '%s\n' "$DIGEST_B" ;;     # newer :latest than the pin
     down)   exit 1 ;;                          # registry unreachable
+esac
+SHIM
+    chmod +x "$BIN_DIR/crane"
+}
+
+# install_crane_per_image — a fake `crane` that behaves per image ($2 is
+# <imagename>:latest): toola drifts, toolb's registry lookup fails.
+install_crane_per_image() {
+    cat >"$BIN_DIR/crane" <<SHIM
+#!/usr/bin/env bash
+case "\$2" in
+    *toola*) printf '%s\n' "$DIGEST_B" ;;    # resolves != pinned DIGEST_A -> drift
+    *toolb*) exit 1 ;;                          # backend unreachable
 esac
 SHIM
     chmod +x "$BIN_DIR/crane"
@@ -96,9 +120,23 @@ SHIM
     [[ "$output" == *"not valid JSON"* ]]
 }
 
+# Security-critical precedence: a confirmed drift must not be masked by another
+# tool's backend error.
+@test "check_catalog_freshness: drift wins over a second tool's backend error (exit 1)" {
+    install_crane_per_image
+    printf '%s\n' \
+        '{"tools":{"toola":{"kind":"scan","delivery":"image","image":"ghcr.io/tomhennen/wrangle/toola@'"$DIGEST_A"'"},"toolb":{"kind":"scan","delivery":"image","image":"ghcr.io/tomhennen/wrangle/toolb@'"$DIGEST_A"'"}}}' \
+        > "$CATALOG"
+    run "$SCRIPT"
+    [ "$status" -eq 1 ]
+    [[ "$output" == *"behind :latest"* ]]
+    [[ "$output" == *"could not resolve"* ]]
+}
+
 # The craneless production path (weekly workflow + release gate run on a runner
 # without crane), exercised via a curl shim.
 @test "check_catalog_freshness: curl fallback in-sync passes (exit 0)" {
+    require_craneless
     install_curl
     SHIM_DIGEST="$DIGEST_A" run "$SCRIPT"
     [ "$status" -eq 0 ]
@@ -106,6 +144,7 @@ SHIM
 }
 
 @test "check_catalog_freshness: curl fallback drift fails with remediation (exit 1)" {
+    require_craneless
     install_curl
     SHIM_DIGEST="$DIGEST_B" run "$SCRIPT"
     [ "$status" -eq 1 ]
@@ -113,8 +152,17 @@ SHIM
 }
 
 @test "check_catalog_freshness: curl fallback token failure is an env error (exit 2)" {
+    require_craneless
     install_curl
     SHIM_TOKEN_FAIL=1 SHIM_DIGEST="$DIGEST_A" run "$SCRIPT"
+    [ "$status" -eq 2 ]
+    [[ "$output" == *"could not resolve"* ]]
+}
+
+@test "check_catalog_freshness: curl fallback malformed digest header is an env error (exit 2)" {
+    require_craneless
+    install_curl
+    SHIM_DIGEST="not-a-digest" run "$SCRIPT"
     [ "$status" -eq 2 ]
     [[ "$output" == *"could not resolve"* ]]
 }

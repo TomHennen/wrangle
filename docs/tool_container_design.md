@@ -304,12 +304,15 @@ not a meaningful per-delivery signal.)
   *"tool X produced this,"* never *"this is correct"* — important for adopter-supplied tools.
 - **Adoption enforcement (the residual prerequisite).** Installing via the canonical package manager
   keeps the dependency manifest in-repo, so CVE *detection* keeps working. What remains is ensuring a
-  published fix is actually *adopted*: the catalog's image digest must be freshness/ancestry/cooldown-
-  checked so a stale pin cannot pass CI green (the #539/#544 class). This means teaching the pin
-  toolchain (WL005 cooldown, `check_pin_ancestry`, `check_pin_freshness`, `bump_action_pins`,
-  `self_ref_pin_paths`) to understand OCI `@sha256:` digests, adding a `docker` Dependabot ecosystem, and
-  a DEP_MGMT.md integrity rung for images. Because the digest lives in one curated place (§3.6), this is a
-  narrow, wrangle-internal task, required only before *production consumption*, not before prototyping.
+  published fix is actually *adopted*: the catalog's image digest must be freshness-checked so a stale
+  pin cannot pass CI green (the #539/#544 class). The OCI axis is served by a *parallel* set of
+  catalog-aware checks — `tools/check_catalog.sh` (static digest/namespace hygiene, per-PR),
+  `tools/check_catalog_freshness.sh` (adoption-lag vs `:latest`, a release gate), `tools/bump_catalog_digest.sh`
+  (the fix) — plus the DEP_MGMT.md image integrity rung; the git-pin tools (`check_pin_ancestry`,
+  `check_pin_freshness`, `bump_action_pins`, WL005) are left untouched, since digests and git SHAs are
+  different axes. Because the digest lives in one curated place (§3.6), this stays a narrow,
+  wrangle-internal task, required only before *production consumption*, not before prototyping. Still open:
+  provenance-based source-freshness, a digest cooldown, and the advisory→blocking promotion (#623).
 - **Adopter-supplied images** are adopter-trusted, not wrangle-trusted: they run under the strictest
   contract by default (no network, no secrets), any relaxation is explicit, and wrangle's signature
   covers provenance of the run, not correctness of the tool.

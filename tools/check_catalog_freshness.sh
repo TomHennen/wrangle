@@ -24,14 +24,22 @@ set -f  # disable globbing — handles external tool names
 # Digest resolution prefers `crane digest`; with no crane it falls back to an
 # anonymous GHCR registry-API call over curl (the curated images are public).
 #
+# Coupling: this is only meaningful because build/actions/container/action.yml
+# pushes the `:latest` tag on main; if that tag stops being published, every
+# curated entry resolves a backend error (exit 2), not a false in-sync.
+#
 # Catalog path: $WRANGLE_CATALOG, else the catalog beside this script.
 #
 # Exit: 0 all in sync, 1 a digest drifted (bump remediation printed),
 #       2 the registry was unreachable or a backend failed (NOT a false failure).
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+# shellcheck source=../lib/read_catalog.sh
+source "$SCRIPT_DIR/../lib/read_catalog.sh"
 
-CURATED_PREFIX_RE='^ghcr\.io/tomhennen/wrangle/[a-z0-9._-]+$'
+# Tool segment matches run.sh's tool-name shape, so a crafted `..` segment can't
+# turn curl's path into a cross-repo query.
+CURATED_PREFIX_RE='^ghcr\.io/tomhennen/wrangle/[a-z][a-z0-9_-]*$'
 DIGEST_RE='^sha256:[0-9a-f]{64}$'
 
 # _digest_via_curl <imagename> — anonymous GHCR digest of <imagename>:latest via
@@ -87,9 +95,9 @@ check_freshness() {
 
     while IFS= read -r tool; do
         [[ -z "$tool" ]] && continue
-        delivery="$(jq -r --arg t "$tool" '.tools[$t].delivery // empty' "$file")"
+        delivery="$(read_catalog_field "$file" "$tool" delivery)"
         [[ "$delivery" == "image" ]] || continue
-        image="$(jq -r --arg t "$tool" '.tools[$t].image // empty' "$file")"
+        image="$(read_catalog_field "$file" "$tool" image)"
         imagename="${image%@sha256:*}"
         pinned="${image##*@}"
 
