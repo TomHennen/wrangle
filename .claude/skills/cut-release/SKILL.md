@@ -127,9 +127,8 @@ All three must hold before you ask the owner to cut. Do not shortcut.
    ./tools/check_catalog_provenance_freshness.sh   # 0 fresh; 1 a digest's source changed since its build; 2 backend unreachable
    ```
 
-   On exit 1, the pinned image predates a change to its tool source (`tools/<tool>/`,
-   `lib/`, or `tools/go.mod`/`go.sum`): re-publish the image, then bump the catalog
-   digest, then re-check. **Exit 2 fails closed — the precondition is UNVERIFIED,
+   On exit 1, the pinned image predates a change under `tools/` or `lib/`:
+   re-publish the image, then bump the catalog digest, then re-check. **Exit 2 fails closed — the precondition is UNVERIFIED,
    do not proceed** (the blocking gate inverts the weekly advisory workflow, which
    warns on exit 2).
 3. **Empirically-verified download + verify commands.** Re-run the consumer

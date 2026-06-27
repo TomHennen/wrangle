@@ -118,9 +118,9 @@ whatever is already set.
   registry calls off PRs). It proves adoption-lag only;
   `tools/check_catalog_provenance_freshness.sh` proves the stronger half — it
   reads each pinned digest's signed SLSA provenance, takes the build commit, and
-  fails if the tool's source (its dir, `lib/`, `tools/go.mod`/`go.sum`) changed
-  between that commit and HEAD (also a release gate, needs full git history). A
-  digest cooldown remains deferred (#623).
+  fails if any image build input (`tools/` + `lib/`, the publish trigger's paths,
+  excluding the catalog file) changed between that commit and HEAD (also a release
+  gate, needs full git history). A digest cooldown remains deferred (#623).
 - **Manual today:** the binary+provenance installs (branch 2) and the base-image
   digest. Automating that surface — ideally one mechanism that also covers
   wrangle's own self-references — is #264.

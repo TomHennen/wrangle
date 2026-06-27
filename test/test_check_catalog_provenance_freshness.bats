@@ -123,6 +123,40 @@ require x v1.2.3'
     [[ "$output" == *"built from current source"* ]]
 }
 
+# Regression: an image that compiles a first-party binary from a SIBLING package
+# (e.g. attest-toolbox builds tools/wrangle-attest) must be flagged when the
+# sibling changes — a per-tool-dir diff would miss it and call the stale signing
+# image fresh.
+@test "provenance freshness: a change to a sibling source package the image compiles is stale (exit 1)" {
+    install_gh
+    mkdir -p "$REPO/tools/sibpkg"
+    printf 'package main\n' > "$REPO/tools/sibpkg/sign.go"
+    git -C "$REPO" add -A && git -C "$REPO" commit -qm sibpkg
+    local base; base="$(git -C "$REPO" rev-parse HEAD)"
+    # The catalog image is sibtool; its source lives in the sibling dir, not osv/.
+    _catalog "ghcr.io/tomhennen/wrangle/sibtool@$DIGEST"
+    _commit tools/sibpkg/sign.go 'package main
+// changed'
+    cd "$REPO"
+    SHIM_COMMIT="$base" run "$SCRIPT"
+    [ "$status" -eq 1 ]
+    [[ "$output" == *"source changed"* ]]
+}
+
+# Regression: a catalog-only digest bump is itself a tools/ change; it must NOT
+# flag the freshly-built image it points at as stale (the §11 no-loop rule).
+@test "provenance freshness: a catalog-only digest bump does not flag its own image stale (exit 0)" {
+    install_gh
+    printf '{}\n' > "$REPO/tools/catalog.json"
+    git -C "$REPO" add -A && git -C "$REPO" commit -qm "in-repo catalog"
+    local base; base="$(git -C "$REPO" rev-parse HEAD)"
+    _commit tools/catalog.json '{"bumped":true}'
+    cd "$REPO"
+    SHIM_COMMIT="$base" run "$SCRIPT"
+    [ "$status" -eq 0 ]
+    [[ "$output" == *"built from current source"* ]]
+}
+
 @test "provenance freshness: attestation backend unreachable is an env error (exit 2)" {
     install_gh
     cd "$REPO"

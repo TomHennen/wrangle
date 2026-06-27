@@ -14,11 +14,16 @@ set -f  # disable globbing — handles external tool names
 # build+publish signer identity (the same trust anchor lib/verify_image_vsa.sh
 # uses — single-sourced here), takes the source commit the image was built from,
 # and asserts that commit is an ancestor of HEAD whose tool source is unchanged
-# up to HEAD. The diff set is the image's build inputs: the tool dir, lib/, and
-# the shared tools/go.mod + tools/go.sum the binary is compiled from
-# (.github/workflows/local_publish_images.yml builds the context from those). A
-# go.mod-only tool-version bump that never re-published the image is exactly the
-# stale-but-green-with-the-signing-token hole the adoption-lag check cannot see.
+# up to HEAD. The diff set is the publish trigger's own inputs — all of tools/
+# and lib/ (.github/workflows/local_publish_images.yml rebuilds the whole image
+# matrix on any tools/** or lib/** change) — minus the catalog file itself. The
+# whole-tools/ set is deliberate: an image may compile a first-party binary from
+# a SIBLING package (attest-toolbox builds tools/wrangle-attest), so a per-tool
+# dir would miss a sibling change and report a stale SIGNING image as fresh — a
+# false-fresh in the exact case the gate exists for. False-stale (a tools/ change
+# outside the image) is acceptable and matches the trigger; false-fresh is not.
+# tools/catalog.json is excluded because a digest bump is itself a tools/ change
+# that must not flag its own freshly-built image stale (the §11 no-loop rule).
 #
 # This is THE gate for the containerized signing path: a stale toolbox image is
 # still validly attested, so the pull-time VSA gate (verify_image_vsa) passes it;
@@ -32,7 +37,9 @@ set -f  # disable globbing — handles external tool names
 # Exit: 0 every curated image is built from current source,
 #       1 a tool's source changed since its pinned image was built (republish +
 #         bump needed), or the provenance does not bind a wrangle source commit,
-#       2 the registry/attestation backend was unreachable, or gh/jq/git missing.
+#       2 the registry/attestation backend was unreachable (an image carrying NO
+#         provenance lands here too — gh exits non-zero, fail-closed), or gh/jq/
+#         git missing.
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 # shellcheck source=../lib/read_catalog.sh
@@ -48,16 +55,21 @@ COMMIT_RE='^[0-9a-f]{40}$'
 # The source repo the provenance must name (case-insensitive); a build commit is
 # only trusted from a resolvedDependency on wrangle's own repo.
 WRANGLE_SOURCE_URI_PREFIX='git+https://github.com/tomhennen/wrangle@'
-# Image build inputs, relative to the repo root — what a republish would change.
-PROVENANCE_DIFF_SHARED=(lib tools/go.mod tools/go.sum)
+# Image build inputs = the publish trigger's paths, minus the catalog file (a
+# digest bump must not flag its own image stale). Whole tools/ covers sibling
+# first-party packages; go.mod/go.sum live under it.
+PROVENANCE_DIFF_PATHS=(tools lib ':(exclude)tools/catalog.json')
 
 # provenance_build_commit <image> — print the single wrangle source commit the
 # image's signed build provenance names. Non-zero on a backend failure (gh) or
 # when no single, unambiguous wrangle commit is bound.
 provenance_build_commit() {
     local image="$1" json rc=0 commits
+    local timeout_s="${WRANGLE_VERIFY_TIMEOUT:-120}"
     json="$(mktemp)"
-    wrangle_retry_once "$json" gh attestation verify "oci://${image}" \
+    # `timeout` bounds the local release-gate path (the runbook is not job-bounded
+    # like the weekly workflow), matching lib/verify_image_vsa.sh.
+    wrangle_retry_once "$json" timeout "$timeout_s" gh attestation verify "oci://${image}" \
         --repo TomHennen/wrangle \
         --bundle-from-oci \
         --cert-identity-regex "$WRANGLE_CONTAINER_SIGNER_REGEX" \
@@ -145,10 +157,12 @@ check_provenance_freshness() {
             continue
         fi
 
-        # Stale iff the tool's build inputs changed between the build commit and
-        # HEAD. --quiet exits 1 on differences, 0 on none, >1 on error.
+        # Stale iff any image build input changed between the build commit and
+        # HEAD. The diff set is the publish trigger's paths (not the catalog key's
+        # dir), so a binary built from a sibling package is covered. --quiet exits
+        # 1 on differences, 0 on none, >1 on error.
         local diff_rc=0
-        git -C "$repo_root" diff --quiet "$commit" HEAD -- "tools/$tool" "${PROVENANCE_DIFF_SHARED[@]}" 2>/dev/null || diff_rc=$?
+        git -C "$repo_root" diff --quiet "$commit" HEAD -- "${PROVENANCE_DIFF_PATHS[@]}" 2>/dev/null || diff_rc=$?
         case "$diff_rc" in
             0) ;;  # built from current source
             1)
