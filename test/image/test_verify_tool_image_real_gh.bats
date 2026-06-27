@@ -53,6 +53,17 @@ _gh_verify() {
     [ "$status" -eq 0 ]
 }
 
+@test "real gh: gate PASSES against the catalog-pinned attest-toolbox image" {
+    # The verify path's in-container ampel-verify gate runs on this image; the pin
+    # the workflow consumes must itself be a PASSED, L3 wrangle VSA. Read it from
+    # the live catalog so a stale pin fails here, not only at runtime.
+    local image
+    image="$(jq -r '.tools["attest-toolbox"].image // empty' "$ROOT/tools/catalog.json")"
+    [ -n "$image" ]
+    run timeout 120 bash "$ROOT/lib/verify_image_vsa.sh" "$image"
+    [ "$status" -eq 0 ]
+}
+
 @test "real gh: gate FAILS closed against an unattested image" {
     run timeout 120 bash "$ROOT/lib/verify_image_vsa.sh" "$UNATTESTED_IMAGE"
     [ "$status" -eq 1 ]

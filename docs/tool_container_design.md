@@ -352,10 +352,13 @@ not a meaningful per-delivery signal.)
   having to verify its own verifier.
   **Status (#596 Track 2):** the toolbox image (`tools/attest-toolbox/`, all four binaries from
   `tools/go.mod`) is built and published like the scan images, and `actions/verify` has an opt-in
-  `WRANGLE_VERIFY_AMPEL_IMAGE` that runs *ampel verify only* (no signing token, network egress only) via
-  that image — off by default, byte-identical when unset, and not on the L3 release path. Containerizing
-  the signing steps (bnd/cosign, which need the OIDC token) and the OCI-collector verify path remain
-  deferred.
+  `WRANGLE_VERIFY_AMPEL_TOOLBOX` toggle that runs *ampel verify only* (no signing token) via that image —
+  resolved from the curated catalog's `attest-toolbox` grant (digest-pinned, `network: egress`, no token)
+  and provenance-verified host-side (`verify_image_vsa`) before it runs. Off by default, byte-identical
+  when unset, and not on the L3 release path; supported for the go/python/npm build types only (the
+  container build type's `oci:` collector needs in-container registry auth, fail-closed and deferred).
+  Containerizing the signing steps (bnd/cosign, which need the OIDC token) and the OCI-collector verify
+  path remain deferred.
 - **Separate feature:** emitting an attested container of an adopter's own Go app (the "free container"
   value-add via goreleaser/ko). It reuses some machinery but serves adopter UX, not the goals here.
 - **Left as-is:** tools with official GitHub Actions that gain nothing from containerization stay
