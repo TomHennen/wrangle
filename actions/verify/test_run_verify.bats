@@ -1028,6 +1028,29 @@ EOF
     [ ! -f "$TEST_DIR/docker.args" ]
 }
 
+@test "wrangle_ampel: WRANGLE_VERIFY_TOOL_IMAGES=0 break-glass skips verify and still runs" {
+    # The sole path that dispatches without verifying — gh must never be consulted.
+    cat > "$TEST_DIR/gh" <<EOF
+#!/bin/bash
+touch "$TEST_DIR/gh.called"
+EOF
+    chmod +x "$TEST_DIR/gh"
+    cat > "$TEST_DIR/docker" <<EOF
+#!/bin/bash
+printf '%s\n' "\$*" > "$TEST_DIR/docker.args"
+EOF
+    chmod +x "$TEST_DIR/docker"
+    _stub_toolbox_catalog
+    export WRANGLE_AMPEL_RESULTS="$TEST_DIR/results/vsa.json"
+    mkdir -p "$TEST_DIR/results" "$BUNDLE_OUT"
+    PATH="$TEST_DIR:$PATH" WRANGLE_VERIFY_AMPEL_TOOLBOX=1 WRANGLE_VERIFY_TOOL_IMAGES=0 \
+        run wrangle_ampel verify --policy=p
+    [ "$status" -eq 0 ]
+    grep -q "verification disabled by configuration" <<< "$output"
+    [ ! -f "$TEST_DIR/gh.called" ]
+    grep -q -- "$_toolbox_image ampel verify" "$TEST_DIR/docker.args"
+}
+
 @test "retry: ampel and bnd invocations both route through wrangle_retry_once" {
     # ampel runs via the wrangle_ampel dispatcher (in-job binary or, opt-in, the
     # toolbox image) — still through the retry helper.
