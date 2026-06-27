@@ -222,6 +222,8 @@ run_tool_image() {
 verify_tool_image() {
     local tool="$1" image="$2"
 
+    # Break-glass for a sustained Sigstore-TUF outage, which the gate hard-depends
+    # on every run; not a routine off-switch.
     if [[ "${WRANGLE_VERIFY_TOOL_IMAGES:-1}" == "0" ]]; then
         printf 'wrangle: %s: tool-image VSA verification disabled by configuration\n' "$tool" >&2
         return 0

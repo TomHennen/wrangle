@@ -325,7 +325,10 @@ not a meaningful per-delivery signal.)
   matched by a regex that admits `@refs/heads/main` (curated tool images build from `main`) as well as a
   release tag — carrying no release-tag-only constraint is deliberate. **Curated tool images must stay
   public:** the gate reads the OCI attestation referrer with the default workflow token, so a private
-  image would fail that read and, fail-closed, block the scan.
+  image would fail that read and, fail-closed, block the scan. The gate hard-depends on Sigstore's TUF
+  CDN every run (it refreshes the trusted root and fails closed if unreachable); `WRANGLE_VERIFY_TOOL_IMAGES=0`
+  is a documented **break-glass stopgap** for a sustained Sigstore-TUF outage, to be removed once offline
+  trusted-root verification (#632) lands and drops that hard dependency — not a routine off-switch.
 - **Adopter-supplied images** are adopter-trusted, not wrangle-trusted: they run under the strictest
   contract by default (no network, no secrets), any relaxation is explicit, and wrangle's signature
   covers provenance of the run, not correctness of the tool.
