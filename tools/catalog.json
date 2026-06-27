@@ -4,7 +4,7 @@
     "osv": {
       "kind": "scan",
       "delivery": "image",
-      "image": "ghcr.io/tomhennen/wrangle/osv@sha256:2c5ee9994a09ceb4b6957b6f528e63dcf2c83862fc2b626d1e2602e6f117ec54",
+      "image": "ghcr.io/tomhennen/wrangle/osv@sha256:c8abda59e3a64520128c427d2fe9bd223c27e0a2056181ead1b9d3c6a5fb3b75",
       "network": "egress"
     }
   }
