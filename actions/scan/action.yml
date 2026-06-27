@@ -117,13 +117,7 @@ runs:
       env:
         WRANGLE_TOOLS: ${{ inputs.tools }}
         WRANGLE_ROOT: ${{ github.action_path }}/../..
-        # run.sh forwards this name-only into the container of any tool that
-        # declares secret: github-token (zizmor, for its online audits); an
-        # empty value is skipped, leaving those tools offline.
         WRANGLE_EXTRA_GITHUB_TOKEN: ${{ inputs.github-token }}
-        # An adapter-pattern tool that builds from source (e.g. via `go
-        # install`) can exceed run.sh's 300s default install timeout on a cold
-        # runner.
         WRANGLE_INSTALL_TIMEOUT: "900"
       run: |
         # shellcheck source=../../lib/env.sh
