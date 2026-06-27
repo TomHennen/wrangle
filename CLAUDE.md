@@ -94,7 +94,7 @@ Wrangle uses its own workflows. If a wrangle feature does not work on the wrangl
 
 A PR that changes a composite action (or a file it reads, like a `policies/*.hjson` PolicySet) and wires it into a reusable workflow needs a **bootstrap pin**: the nested `uses: TomHennen/wrangle/actions/<name>@<sha>` self-reference is fetched from its pinned (main) SHA, not the PR head, so the integration test otherwise runs the old action. The pin → merge → bump lifecycle and the `check_pin_ancestry` control are in [docs/e2e_testing.md](docs/e2e_testing.md).
 
-For throwaway end-to-end experiments before promoting to the integration companion or `wrangle-test`, use the scratch repo [`TomHennen/wrangle-agent-playground`](https://github.com/TomHennen/wrangle-agent-playground) — commit/push/PR there freely; nothing in it is permanent.
+For throwaway end-to-end experiments before promoting to the integration companion or `wrangle-test`, use the scratch repos [`TomHennen/wrangle-agent-playground`](https://github.com/TomHennen/wrangle-agent-playground) (public) and [`TomHennen/wrangle-agent-playground-private`](https://github.com/TomHennen/wrangle-agent-playground-private) (private — for private-repo-specific behavior like Advanced-Security SARIF upload or attestation) — commit/push/PR there freely; nothing in them is permanent.
 
 ## Security
 
