@@ -257,3 +257,52 @@ JSON
     [ "$rc" -eq 1 ]
     grep -q "CVE-2021-3121" "$OUT/osv/output.md"
 }
+
+# A catalog declaring mocktool as an sbom-kind image tool. The mock writes
+# sbom.<format>.json and records the WRANGLE_KIND/WRANGLE_SBOM_FORMAT it saw.
+_sbom_catalog() {
+    cat > "$TOOLS/catalog.json" <<JSON
+{"tools":{"mocktool":{"kind":"sbom","delivery":"image","image":"$MOCK_IMAGE","format":"spdx-json"}}}
+JSON
+}
+
+@test "run.sh sbom dispatch: clean -> exit 0, sbom.spdx.json + attest manifest" {
+    _sbom_catalog
+    printf 'sbom' > "$SRC/MODE"
+    _run_orch mocktool
+    [ "$status" -eq 0 ]
+    [ -f "$OUT/mocktool/sbom.spdx.json" ]
+    [ "$(jq -r '.spdxVersion' "$OUT/mocktool/sbom.spdx.json")" = "SPDX-2.3" ]
+    # The sbom path writes the attest manifest with the SPDX predicate and the
+    # SBOM filename — never an output.md.
+    [ -f "$OUT/mocktool/wrangle_attestation_metadata.json" ]
+    [ "$(jq -r '."predicate-type"' "$OUT/mocktool/wrangle_attestation_metadata.json")" = "https://spdx.dev/Document" ]
+    [ "$(jq -r '."result-file"' "$OUT/mocktool/wrangle_attestation_metadata.json")" = "sbom.spdx.json" ]
+    [ ! -f "$OUT/mocktool/output.md" ]
+}
+
+@test "run.sh sbom dispatch: WRANGLE_KIND + WRANGLE_SBOM_FORMAT reach the container" {
+    _sbom_catalog
+    printf 'sbom' > "$SRC/MODE"
+    _run_orch mocktool
+    [ "$status" -eq 0 ]
+    [ "$(cat "$OUT/mocktool/kind_seen")" = "sbom" ]
+    [ "$(cat "$OUT/mocktool/format_seen")" = "spdx-json" ]
+}
+
+@test "run.sh sbom dispatch: exit 1 has no findings state -> error (exit 2)" {
+    _sbom_catalog
+    printf 'sbom-findings' > "$SRC/MODE"
+    _run_orch mocktool
+    # sbom has no findings state: a tool exit 1 is an error, not findings.
+    [ "$status" -eq 2 ]
+    # An errored sbom run writes no attest manifest.
+    [ ! -f "$OUT/mocktool/wrangle_attestation_metadata.json" ]
+}
+
+@test "run.sh sbom dispatch: tool error -> exit 2" {
+    _sbom_catalog
+    printf 'sbom-error' > "$SRC/MODE"
+    _run_orch mocktool
+    [ "$status" -eq 2 ]
+}
