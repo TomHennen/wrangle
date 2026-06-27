@@ -39,10 +39,16 @@ esac
 # spdx-json -> sbom.spdx.json, cyclonedx-json -> sbom.cyclonedx.json
 OUT_FILE="${OUTPUT_DIR}/sbom.${FORMAT%-json}.json"
 
+# Capture syft's stderr so a real failure surfaces (its progress logs go to
+# stderr, the SBOM to stdout).
+ERR_FILE="$(mktemp "${TMPDIR:-/tmp}/wrangle-syft-err-XXXXXX")"
+trap 'rm -f "$ERR_FILE"' EXIT
+
 syft_exit=0
-syft dir:"$SRC_DIR" -o "$FORMAT" > "$OUT_FILE" 2>/dev/null || syft_exit=$?
+syft dir:"$SRC_DIR" -o "$FORMAT" > "$OUT_FILE" 2> "$ERR_FILE" || syft_exit=$?
 if [[ "$syft_exit" -ne 0 ]]; then
     printf 'wrangle/syft: syft exited with code %d\n' "$syft_exit" >&2
+    cat "$ERR_FILE" >&2
     exit 2
 fi
 

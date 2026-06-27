@@ -26,6 +26,8 @@ RUN apk add --no-cache bash jq ca-certificates \
  && adduser -D -u 1000 wrangle
 COPY --from=build /out/syft /usr/local/bin/syft
 COPY tools/syft/adapter.sh /wrangle/tools/syft/adapter.sh
+# The orchestrator runs the image under an arbitrary -u uid with no /etc/passwd
+# entry, so HOME must point at a writable path syft can use for caches.
 ENV HOME=/tmp
 USER wrangle
 ENTRYPOINT ["/wrangle/tools/syft/adapter.sh"]

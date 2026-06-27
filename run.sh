@@ -400,6 +400,7 @@ run_one_tool() {
                 spdx-json)
                     sbom_file="sbom.spdx.json"; predicate="https://spdx.dev/Document" ;;
                 cyclonedx-json)
+                    # Wired for a future cyclonedx runtime; only spdx-json ships today.
                     sbom_file="sbom.cyclonedx.json"; predicate="https://cyclonedx.org/bom" ;;
                 *)
                     printf 'wrangle: %s: unknown sbom format: %s\n' "$tool" "$format" >&2 ;;
