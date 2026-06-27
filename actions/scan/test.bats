@@ -110,9 +110,36 @@ setup() {
     [ "$checkout_line" -lt "$setup_line" ]
 }
 
-@test "scan: references zizmor action" {
-    run grep 'uses:.*tools/zizmor' "$ACTION_DIR/action.yml"
+@test "scan: has upload-sarif step for zizmor" {
+    run grep -A2 'Upload Zizmor SARIF' "$ACTION_DIR/action.yml"
     [ "$status" -eq 0 ]
+    [[ "$output" == *"upload-sarif"* ]]
+}
+
+@test "scan: zizmor SARIF has correct category (wrangle/zizmor)" {
+    run grep 'category: wrangle/zizmor' "$ACTION_DIR/action.yml"
+    [ "$status" -eq 0 ]
+}
+
+@test "scan: zizmor SARIF upload is gated on zizmor being in the tools input" {
+    run grep -A1 'Upload Zizmor SARIF' "$ACTION_DIR/action.yml"
+    [ "$status" -eq 0 ]
+    [[ "$output" == *"contains(inputs.tools, 'zizmor')"* ]]
+}
+
+@test "scan: does not wire zizmor as a uses: action step (runs via the image path)" {
+    run grep 'uses:.*tools/zizmor' "$ACTION_DIR/action.yml"
+    [ "$status" -ne 0 ]
+}
+
+@test "scan: forwards the github-token to run.sh as WRANGLE_EXTRA_GITHUB_TOKEN" {
+    # run.sh hands this name-only to any tool that declares secret: github-token
+    # (zizmor's online audits). The input defaults to the workflow token.
+    run grep -F 'WRANGLE_EXTRA_GITHUB_TOKEN: ${{ inputs.github-token }}' "$ACTION_DIR/action.yml"
+    [ "$status" -eq 0 ]
+    run bash -c "grep -A6 '^  github-token:' '$ACTION_DIR/action.yml' | grep -m1 'default:'"
+    [ "$status" -eq 0 ]
+    [[ "$output" == *'default: ${{ github.token }}'* ]]
 }
 
 @test "scan: references scorecard action" {

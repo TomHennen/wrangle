@@ -126,8 +126,7 @@ whatever is already set.
 A pin literal (version, SHA, checksum) that lives in more than one file must be
 **single-sourced or guarded by a divergence-fail test** — never left to humans to
 update in lockstep. The pip versions are single-sourced by `requirements.txt` (the Go tools
-likewise, by `tools/go.mod`); the existing `tools/zizmor`
-requirements↔`action.yml` `bats` guard is the pattern to copy for the rest. Known unguarded duplicates are tracked in #286.
+likewise, by `tools/go.mod`). Known unguarded duplicates are tracked in #286.
 
 ## For reviewers
 

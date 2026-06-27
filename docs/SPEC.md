@@ -644,7 +644,7 @@ The scan action parses the `tools` input to dispatch adapter-pattern tools (thos
 
 The **step summary is the primary output**. It works on all repos — private, no Advanced Security, etc. SARIF upload to the Security tab is additive. The **metadata directory** (`$GITHUB_WORKSPACE/.wrangle/metadata/`) is a complete catalog of which tools ran and what they found, enabling future signed attestations.
 
-**Portability:** Shell script paths use `${{ github.action_path }}` for resolution relative to the composite action's own directory. Action-pattern tool steps use `./` paths (e.g., `uses: ./tools/zizmor`), which resolve to the same repo at the called ref — so when an adopter pins `@<sha>`, all internal actions resolve at that commit, and when wrangle's own CI runs on a PR branch, they resolve at the PR's code.
+**Portability:** Shell script paths use `${{ github.action_path }}` for resolution relative to the composite action's own directory. Action-pattern tool steps use `./` paths (e.g., `uses: ./tools/scorecard`), which resolve to the same repo at the called ref — so when an adopter pins `@<sha>`, all internal actions resolve at that commit, and when wrangle's own CI runs on a PR branch, they resolve at the PR's code.
 
 **Path constraint:** The composite action resolves the orchestrator via `${{ github.action_path }}/../../run.sh`, which means the scan action MUST remain at exactly `actions/scan/` (two directories below the repo root). This is a hard structural constraint — moving the action to a different depth breaks the relative path. If the directory layout changes, these paths must be updated in the same commit.
 
@@ -712,7 +712,7 @@ This is the entire file an adopter needs. No secrets, no configuration, no depen
 | Tool | Pattern | What it does |
 |------|---------|-------------|
 | [OSV-Scanner](https://github.com/google/osv-scanner) | Adapter | Scans dependencies against the OSV database |
-| [Zizmor](https://github.com/zizmorcore/zizmor) | Action (wraps `zizmorcore/zizmor-action`) | Security-focused linting of GitHub Actions workflows |
+| [Zizmor](https://github.com/zizmorcore/zizmor) | Adapter (containerized) | Security-focused linting of GitHub Actions workflows |
 | [OSSF Scorecard](https://scorecard.dev/) | Action (wraps `ossf/scorecard-action`) | Assesses repo security health across 18+ categories |
 | [Dependency Review](https://github.com/actions/dependency-review-action) | Action (wraps `actions/dependency-review-action`) | PR-time gate: blocks PRs that introduce known-vulnerable dependencies. Runs on `pull_request` events only |
 | wrangle-lint | Adapter (first-party Go) | Audits the adopter's `.github/dependabot.yml` for config footguns that silently defeat dependency hygiene (see `tools/wrangle-lint/SPEC.md`) |
@@ -791,7 +791,7 @@ Each tool's detailed specification lives in `tools/<name>/SPEC.md` alongside the
 | Tool | Pattern | Default policy | Details |
 |------|---------|---------------|---------|
 | OSV-Scanner | Adapter | `:fail` | [`tools/osv/SPEC.md`](../tools/osv/SPEC.md) |
-| Zizmor | Action | `:fail` | [`tools/zizmor/SPEC.md`](../tools/zizmor/SPEC.md) |
+| Zizmor | Adapter | `:fail` | [`tools/zizmor/SPEC.md`](../tools/zizmor/SPEC.md) |
 | OSSF Scorecard | Action | `:info` | [`tools/scorecard/SPEC.md`](../tools/scorecard/SPEC.md) |
 | Dependency Review | Action | `:fail` | [`tools/dependency-review/SPEC.md`](../tools/dependency-review/SPEC.md) |
 
