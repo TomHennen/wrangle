@@ -29,6 +29,11 @@ TOOLS_DIR="${WRANGLE_TOOLS_DIR:-${SCRIPT_DIR}/tools}"
 # which case every tool runs the adapter path.
 CATALOG="${WRANGLE_CATALOG:-${TOOLS_DIR}/catalog.json}"
 
+# Namespace prefix of wrangle-published tool images. Only these carry wrangle's
+# VSA identity, so only these get the wrangle-signer attestation gate; an
+# adopter-override image (other namespace) is trusted under its own identity.
+CURATED_IMAGE_PREFIX="ghcr.io/tomhennen/wrangle/"
+
 # is_image[$tool]=1 marks a catalog tool with delivery: image (the docker-run
 # path); absence means the adapter path. Resolved once per tool in the parse
 # loop so the go-install and dispatch loops branch on the same single answer.
@@ -104,6 +109,7 @@ overall_status=0
 # Timeout defaults (seconds)
 INSTALL_TIMEOUT="${WRANGLE_INSTALL_TIMEOUT:-300}"
 ADAPTER_TIMEOUT="${WRANGLE_ADAPTER_TIMEOUT:-600}"
+VERIFY_TIMEOUT="${WRANGLE_VERIFY_TIMEOUT:-120}"
 
 # Build only the Go tools the requested adapters need: each adapter lists its
 # package(s) in tools/<tool>/go-tools, version-pinned in tools/go.mod (env.sh
@@ -203,6 +209,49 @@ run_tool_image() {
     return "$rc"
 }
 
+# verify_tool_image <tool> <image> — fail-closed pull-time VSA gate. A curated
+# wrangle image MUST carry a PASSED verification-summary attestation signed by
+# wrangle's container build+publish workflow before it runs. Returns 0 to
+# proceed, non-zero to refuse. gh attestation verify checks signature, identity,
+# and digest but never the predicate verdict — the jq is the ONLY check that the
+# verdict is PASSED; dropping it makes the gate theater. Output is a JSON array,
+# asserted array-safely (empty array fails). Skips (returns 0) when disabled or
+# when the image is not wrangle-published.
+verify_tool_image() {
+    local tool="$1" image="$2"
+
+    if [[ "${WRANGLE_VERIFY_TOOL_IMAGES:-1}" == "0" ]]; then
+        printf 'wrangle: %s: tool-image VSA verification disabled by configuration\n' "$tool" >&2
+        return 0
+    fi
+
+    if [[ "$image" != "${CURATED_IMAGE_PREFIX}"* ]]; then
+        printf 'wrangle: %s: non-wrangle image, not wrangle-identity-verified: %s\n' "$tool" "$image" >&2
+        return 0
+    fi
+
+    if ! command -v gh >/dev/null 2>&1; then
+        printf 'wrangle: %s: gh not found; cannot verify tool image attestation\n' "$tool" >&2
+        return 1
+    fi
+
+    local rc=0
+    timeout "$VERIFY_TIMEOUT" gh attestation verify "oci://${image}" \
+        --repo TomHennen/wrangle \
+        --bundle-from-oci \
+        --signer-workflow TomHennen/wrangle/.github/workflows/build_and_publish_container.yml \
+        --predicate-type https://slsa.dev/verification_summary/v1 \
+        --format json \
+        | jq -e 'length>0 and all(.[]; .verificationResult.statement.predicate.verificationResult=="PASSED")' >/dev/null \
+        || rc=$?
+    if [[ "$rc" -ne 0 ]]; then
+        printf 'wrangle: %s: tool-image VSA verification failed (image not provably PASSED)\n' "$tool" >&2
+        return 1
+    fi
+    printf 'wrangle: %s: tool-image VSA verified PASSED\n' "$tool"
+    return 0
+}
+
 # run_one_tool <tool> — run a single tool through its delivery path (image via
 # docker, otherwise the in-process adapter), map its exit to the 0/1/2 contract,
 # generate human-readable output and the scan manifest, and record the result.
@@ -254,6 +303,17 @@ run_one_tool() {
         secret="$(read_catalog_field "$CATALOG" "$tool" secret)"
         if [[ -n "$secret" ]] && [[ ! "$secret" =~ ^[a-z][a-z0-9-]*$ ]]; then
             printf 'wrangle: %s: invalid catalog secret name: %s\n' "$tool" "$secret" >&2
+            tool_status="error"
+            overall_status=2
+            summary_tools+=("$tool")
+            summary_statuses+=("$tool_status")
+            printf '::endgroup::\n'
+            return
+        fi
+
+        # Fail closed: refuse to dispatch a curated image that cannot be proven
+        # to carry a PASSED wrangle VSA.
+        if ! verify_tool_image "$tool" "$image"; then
             tool_status="error"
             overall_status=2
             summary_tools+=("$tool")
