@@ -6,6 +6,19 @@
       "delivery": "image",
       "image": "ghcr.io/tomhennen/wrangle/osv@sha256:2c5ee9994a09ceb4b6957b6f528e63dcf2c83862fc2b626d1e2602e6f117ec54",
       "network": "egress"
+    },
+    "zizmor": {
+      "kind": "scan",
+      "delivery": "image",
+      "image": "ghcr.io/tomhennen/wrangle/zizmor@sha256:03653b75ef7026b4ca156efbea8c470da79c6943e43bb743cb5cc30279d5fcf4",
+      "network": "egress",
+      "secret": "github-token"
+    },
+    "wrangle-lint": {
+      "kind": "scan",
+      "delivery": "image",
+      "image": "ghcr.io/tomhennen/wrangle/wrangle-lint@sha256:d04bc484426550135d7e2d597da3b6637cfba9225c8f6477b1f60bea9efc7f3d",
+      "network": "none"
     }
   }
 }

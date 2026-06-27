@@ -61,10 +61,10 @@ integration:
 	@if [[ -n "$$GOTMPDIR" ]]; then mkdir -p "$$GOTMPDIR"; fi
 	@source lib/env.sh && ./test/setup_integration.sh && bats $(BATS_PARALLEL) $(INTEGRATION_BATS)
 
-# Workflow security linting (matches tools/zizmor/action.yml's CI invocation).
+# Workflow security linting against the wrangle repo itself.
 # --no-online-audits keeps the test container offline-friendly; the audits
 # that need network (e.g. known-vulnerable-actions against the GitHub
-# Advisories DB) are exercised by the same upstream action in CI. unpinned-uses
+# Advisories DB) are exercised by the zizmor tool image in CI. unpinned-uses
 # works offline, so this run does enforce SHA-pinning locally.
 zizmor:
 	@echo "=== zizmor ==="

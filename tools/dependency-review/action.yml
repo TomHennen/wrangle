@@ -4,7 +4,7 @@ description: |
   blocking layer for vulnerable dependency introductions. Wraps the
   upstream action and converts its vulnerable-changes JSON output to
   SARIF for the wrangle metadata directory. This is the "action pattern"
-  — see tools/zizmor/action.yml for the same shape.
+  — see tools/scorecard/action.yml for the same shape.
 
   Only runs on pull_request events: the upstream action requires
   github.event.pull_request.base.sha / head.sha to compute the diff.

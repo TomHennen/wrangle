@@ -130,11 +130,6 @@ runs:
     # pinned tag or the PR branch for local CI).
     # Each tool action handles its own log banner and human-readable
     # output generation (output.md) — see tools/<name>/action.yml.
-    # TODO: replace with $/tools/zizmor when $/ syntax ships (#136, #137)
-    - name: Zizmor
-      if: always() && contains(inputs.tools, 'zizmor')
-      uses: TomHennen/wrangle/tools/zizmor@0babc31cca5af16908c9eabaa8bf7c1fd382f563 # feat/596-scan-tool-images 2026-06-25
-
     # Scorecard only runs on push events — it requires GITHUB_TOKEN scopes
     # that aren't available on PRs and uses Docker, which only mounts
     # $GITHUB_WORKSPACE. Skipping on PRs avoids guaranteed failures.
@@ -219,9 +214,13 @@ runs:
         sarif_file: ${{ github.workspace }}/.wrangle/metadata/wrangle-lint/output.sarif
         category: wrangle/wrangle-lint
 
-    # Zizmor SARIF upload is handled by the upstream zizmor-action
-    # (advanced-security: true). Adding a wrangle upload here would create
-    # a duplicate code scanning configuration.
+    - name: Upload Zizmor SARIF
+      if: always() && contains(inputs.tools, 'zizmor')
+      uses: github/codeql-action/upload-sarif@8aad20d150bbac5944a9f9d289da16a4b0d87c1e # v4.36.2
+      continue-on-error: true
+      with:
+        sarif_file: ${{ github.workspace }}/.wrangle/metadata/zizmor/output.sarif
+        category: wrangle/zizmor
 
     # Scorecard does not upload to the Security tab: its value is the score,
     # carried by the scorecard.dev/result/v0.1 attestation, not SARIF
