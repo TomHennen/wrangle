@@ -116,8 +116,7 @@ All three must hold before you ask the owner to cut. Do not shortcut.
    land it as a normal PR under the cooldown, then re-check. (Adoption-lag only —
    it does not prove the digest was built from current source.) **Exit 2
    (registry unreachable) means the precondition is UNVERIFIED — do not proceed.**
-   Retry (or install `crane`) until the result is 0 or 1; a visible exit-2 is not
-   a satisfied gate.
+   Retry until the result is 0 or 1; a visible exit-2 is not a satisfied gate.
 3. **Empirically-verified download + verify commands.** Re-run the consumer
    download-and-verify recipe in
    [docs/verifying_artifacts.md](../../../docs/verifying_artifacts.md) against a **real**

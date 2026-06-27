@@ -21,8 +21,9 @@ set -f  # disable globbing — handles external tool names
 #       :latest unchanged. The publish trigger covers tools/** and lib/**, so the
 #       window is small but real.
 #
-# Digest resolution prefers `crane digest`; with no crane it falls back to an
-# anonymous GHCR registry-API call over curl (the curated images are public).
+# Digest resolution is an anonymous GHCR registry-API call over curl (the curated
+# images are public); the index media types in Accept return the same multi-arch
+# index digest the catalog pins.
 #
 # Coupling: this is only meaningful because build/actions/container/action.yml
 # pushes the `:latest` tag on main; if that tag stops being published, every
@@ -42,11 +43,10 @@ source "$SCRIPT_DIR/../lib/read_catalog.sh"
 CURATED_PREFIX_RE='^ghcr\.io/tomhennen/wrangle/[a-z][a-z0-9_-]*$'
 DIGEST_RE='^sha256:[0-9a-f]{64}$'
 
-# _digest_via_curl <imagename> — anonymous GHCR digest of <imagename>:latest via
-# the registry API. Prints the index/manifest digest on success; non-zero on any
-# failure. The index media types in Accept make this return the same digest
-# `crane digest` does for a multi-arch image.
-_digest_via_curl() {
+# resolve_latest_digest <imagename> — anonymous GHCR digest of <imagename>:latest
+# via the registry API. Prints the index digest on success; non-zero on any
+# backend failure (token fetch, registry read, or a missing/malformed digest).
+resolve_latest_digest() {
     local imagename="$1" registry repo token digest
     registry="${imagename%%/*}"
     repo="${imagename#*/}"
@@ -62,21 +62,6 @@ _digest_via_curl() {
         | tr -d '\r' | sed -n 's/^[Dd]ocker-[Cc]ontent-[Dd]igest:[[:space:]]*//p')" || return 1
     [[ "$digest" =~ $DIGEST_RE ]] || return 1
     printf '%s' "$digest"
-}
-
-# resolve_latest_digest <imagename> — digest of <imagename>:latest. Prints it on
-# success; non-zero on backend failure. Crane (when present) is authoritative;
-# only without crane does it fall back to curl, so tests that shim crane stay
-# hermetic.
-resolve_latest_digest() {
-    local imagename="$1" digest
-    if command -v crane >/dev/null 2>&1; then
-        digest="$(crane digest "${imagename}:latest" 2>/dev/null)" || return 1
-        [[ "$digest" =~ $DIGEST_RE ]] || return 1
-        printf '%s' "$digest"
-    else
-        _digest_via_curl "$imagename"
-    fi
 }
 
 # check_freshness <catalog_file> — returns 0 in sync, 1 drift, 2 backend error.
