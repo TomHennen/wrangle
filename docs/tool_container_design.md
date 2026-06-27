@@ -327,6 +327,10 @@ not a meaningful per-delivery signal.)
   is what would unlock **VSA-verified caching** of all tool images — verifying each image's provenance at
   pull time, the clean L3-safe replacement for the build cache we currently disable. That is a bootstrap
   (wrangle's own verify image verifying the others) we return to with this track, not in the scan MVP.
+  The bootstrap is escapable without the containerized verifier: an external anchor — `gh attestation
+  verify`, or `cosign verify-blob-attestation --new-bundle-format` plus a `jq` predicate-field check (the
+  no-AMPEL path in `docs/ampel_research.md`) — checks a tool image's attestation without wrangle first
+  having to verify its own verifier.
   **Status (#596 Track 2):** the toolbox image (`tools/attest-toolbox/`, all four binaries from
   `tools/go.mod`) is built and published like the scan images, and `actions/verify` has an opt-in
   `WRANGLE_VERIFY_AMPEL_IMAGE` that runs *ampel verify only* (no signing token, network egress only) via
