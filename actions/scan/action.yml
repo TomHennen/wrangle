@@ -118,6 +118,10 @@ runs:
         WRANGLE_TOOLS: ${{ inputs.tools }}
         WRANGLE_ROOT: ${{ github.action_path }}/../..
         WRANGLE_EXTRA_GITHUB_TOKEN: ${{ inputs.github-token }}
+        # run.sh's curated-image VSA gate runs `gh attestation verify` in its own
+        # process (not an adapter), so it needs gh's own token; adapters stay
+        # isolated (env -i) and read only WRANGLE_EXTRA_GITHUB_TOKEN.
+        GH_TOKEN: ${{ inputs.github-token }}
         WRANGLE_INSTALL_TIMEOUT: "900"
       run: |
         # shellcheck source=../../lib/env.sh
