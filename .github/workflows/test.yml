@@ -28,9 +28,31 @@ jobs:
           key: gotest-${{ runner.os }}-${{ hashFiles('test/Dockerfile', 'tools/go.sum') }}
           restore-keys: gotest-${{ runner.os }}-
 
+      - uses: docker/setup-buildx-action@d7f5e7f509e45cec5c76c4d5afdd7de93d0b3df5 # v4.1.0
+
+      # Prebuild the test image with a GitHub Actions layer cache so the
+      # ephemeral runner reuses the toolchain layers (Go, actionlint, …) instead
+      # of redownloading them every run (#308). load makes the image available to
+      # the docker run in test.sh, which skips its own build on the prebuilt env.
+      # provenance/sbom off: this is a test tool that attests nothing, so its
+      # cache stays off release builds' L3 cache-isolation surface (docs/SLSA_L3_AUDIT.md).
+      - name: Prebuild test image (cached)
+        uses: docker/build-push-action@f9f3042f7e2789586610d6e8b85c8f03e5195baf # v7.2.0
+        with:
+          context: .
+          file: test/Dockerfile
+          tags: wrangle-test
+          load: true
+          push: false
+          provenance: false
+          sbom: false
+          cache-from: type=gha,scope=wrangle-test
+          cache-to: type=gha,mode=max,scope=wrangle-test
+
       - name: Run tests
         env:
           WRANGLE_GOCACHE_DIR: ${{ runner.temp }}/gocache
+          WRANGLE_TEST_IMAGE_PREBUILT: "1"
         run: ./test.sh
 
   # Real keyless signing through the engine: the unit suite is hermetic
