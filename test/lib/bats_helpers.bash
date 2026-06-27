@@ -20,3 +20,22 @@ skip_or_fail() {
     fi
     skip "$1"
 }
+
+# wrangle_image_build <cache-slug> <docker-build-arg>...
+# Build a tool image, passing args after the slug verbatim to the builder.
+# With WRANGLE_BUILDX_CACHE set (the dogfood workflow) it builds through a
+# persistent buildx local layer cache so the from-source builds aren't
+# recompiled every run; unset (local) it's a plain docker build.
+wrangle_image_build() {
+    local slug="$1"
+    shift
+    if [[ -n "${WRANGLE_BUILDX_CACHE:-}" ]]; then
+        local dir="$WRANGLE_BUILDX_CACHE/$slug"
+        docker buildx build --load -q \
+            --cache-from "type=local,src=$dir" \
+            --cache-to "type=local,dest=$dir,mode=max" \
+            "$@" >/dev/null
+    else
+        docker build -q "$@" >/dev/null
+    fi
+}

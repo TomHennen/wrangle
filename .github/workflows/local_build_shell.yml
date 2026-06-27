@@ -34,6 +34,10 @@ jobs:
       go-cache: enabled
       go-tools-dir: tools
       cache-setup-tools: enabled
+      # Cache the from-source tool-image builds in the image bats suite
+      # (attest-toolbox/osv/wrangle-lint/zizmor) so their in-container Go
+      # builds aren't recompiled every run.
+      cache-image-builds: enabled
     # The integration bats include the pull-time VSA gate's real-gh test
     # (test/image/test_verify_tool_image_real_gh.bats); gh needs a token to
     # read the public attestation. The job's own read-only token suffices.

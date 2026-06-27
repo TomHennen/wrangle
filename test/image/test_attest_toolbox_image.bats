@@ -12,8 +12,8 @@ setup_file() {
     local root
     root="$(cd "$(dirname "$BATS_TEST_FILENAME")/../.." && pwd)"
     # Build context is the repo root (the Dockerfile builds from tools/go.mod).
-    docker build -q -t wrangle-attest-toolbox:test \
-        -f "$root/tools/attest-toolbox/Dockerfile" "$root" >/dev/null
+    wrangle_image_build attest-toolbox -t wrangle-attest-toolbox:test \
+        -f "$root/tools/attest-toolbox/Dockerfile" "$root"
 }
 
 setup() {

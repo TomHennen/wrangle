@@ -51,8 +51,8 @@ setup_file() {
     # The osv tool image, built locally from this repo (the published image is
     # private; unit tests must not depend on pulling it). Best-effort: the
     # real-osv test below skips when this image isn't present.
-    if docker build -q -f "$root/tools/osv/Dockerfile" -t wrangle-osv:test \
-        "$root" >/dev/null 2>&1; then
+    if wrangle_image_build osv -f "$root/tools/osv/Dockerfile" -t wrangle-osv:test \
+        "$root" 2>/dev/null; then
         OSV_IMAGE="$(_push_for_digest wrangle-osv:test wrangle-osv)"
         export OSV_IMAGE
     fi
