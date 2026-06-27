@@ -28,6 +28,11 @@ source "$SCRIPT_DIR/lib/read_catalog.sh"
 # shellcheck source=lib/verify_image_vsa.sh
 source "$SCRIPT_DIR/lib/verify_image_vsa.sh"
 
+# Image-delivery runner: run_tool_image dispatches a curated image under the
+# contract sandbox. Expects CATALOG, src_dir, and ADAPTER_TIMEOUT in scope.
+# shellcheck source=lib/run_tool_image.sh
+source "$SCRIPT_DIR/lib/run_tool_image.sh"
+
 TOOLS_DIR="${WRANGLE_TOOLS_DIR:-${SCRIPT_DIR}/tools}"
 # The catalog lives beside the tools it describes, so a WRANGLE_TOOLS_DIR
 # override (hermetic orchestrator tests) gets its own catalog — or none, in
@@ -164,55 +169,6 @@ fi
 declare -a summary_tools=()
 declare -a summary_statuses=()
 
-# run_tool_image <tool> <image> <output_dir> — run a digest-pinned image under
-# the contract sandbox (read-only /src, writable /output owned by the runner
-# UID, capabilities dropped, no new privileges). Network defaults closed; a
-# declared secret (already name-validated by the caller) is forwarded into the
-# container by name only. Returns the container's exit code under the 0/1/2
-# adapter contract.
-run_tool_image() {
-    local tool="$1" image="$2" tool_out="$3"
-    local net secret secret_var extra_var src_abs out_abs
-
-    # Network defaults closed; a tool grants egress only by declaring it.
-    # "egress" maps to docker's default bridge network (full egress, the
-    # access these tools already have today).
-    net="none"
-    [[ "$(read_catalog_field "$CATALOG" "$tool" network)" == "egress" ]] && net="bridge"
-
-    # docker inherits no host env; a secret-declaring tool gets its
-    # WRANGLE_EXTRA_<name> forwarded by name only, mirroring the adapter
-    # path's WRANGLE_EXTRA_* forwarding. Default: no secrets.
-    local -a docker_env=()
-    secret="$(read_catalog_field "$CATALOG" "$tool" secret)"
-    if [[ -n "$secret" ]]; then
-        # Map a catalog secret name (e.g. github-token) to its env var
-        # (WRANGLE_EXTRA_GITHUB_TOKEN). Export the value into run.sh's own
-        # env and pass docker the name only, so the value never lands on
-        # docker's argv (visible via ps/proc).
-        secret_var="$(printf '%s' "$secret" | tr 'a-z-' 'A-Z_')"
-        extra_var="WRANGLE_EXTRA_${secret_var}"
-        if [[ -n "${!extra_var:-}" ]]; then
-            export "${secret_var}=${!extra_var}"
-            docker_env+=(-e "${secret_var}")
-        fi
-    fi
-
-    # Absolute paths: docker -v needs them, and src_dir/output_dir may be
-    # relative to cwd.
-    src_abs="$(cd "$src_dir" && pwd)"
-    out_abs="$(cd "$tool_out" && pwd)"
-
-    local rc=0
-    timeout "$ADAPTER_TIMEOUT" docker run --rm --network "$net" \
-        --cap-drop ALL --security-opt no-new-privileges \
-        -u "$(id -u):$(id -g)" \
-        -v "$src_abs":/src:ro -v "$out_abs":/output \
-        "${docker_env[@]}" \
-        -- "$image" /src /output || rc=$?
-    return "$rc"
-}
-
 # verify_tool_image <tool> <image> — curated-image policy around the
 # verify_image_vsa primitive. Fail closed: a wrangle-published image must carry a
 # PASSED, SLSA-L3 wrangle VSA whose resourceUri is this image ref (matching
@@ -312,7 +268,8 @@ run_one_tool() {
             return
         fi
 
-        run_tool_image "$tool" "$image" "$tool_output_dir" || adapter_exit=$?
+        run_tool_image "$tool" "$image" "$tool_output_dir" \
+            "$src_dir" "$CATALOG" "$ADAPTER_TIMEOUT" || adapter_exit=$?
     else
         # Adapter-pattern (in-process) path.
 
