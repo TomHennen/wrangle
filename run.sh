@@ -23,6 +23,11 @@ source "$SCRIPT_DIR/lib/env.sh"
 # shellcheck source=lib/read_catalog.sh
 source "$SCRIPT_DIR/lib/read_catalog.sh"
 
+# Pull-time VSA verification primitive: verify_image_vsa runs the fail-closed
+# attestation gate the curated-image policy below applies.
+# shellcheck source=lib/verify_image_vsa.sh
+source "$SCRIPT_DIR/lib/verify_image_vsa.sh"
+
 TOOLS_DIR="${WRANGLE_TOOLS_DIR:-${SCRIPT_DIR}/tools}"
 # The catalog lives beside the tools it describes, so a WRANGLE_TOOLS_DIR
 # override (hermetic orchestrator tests) gets its own catalog — or none, in
@@ -109,7 +114,6 @@ overall_status=0
 # Timeout defaults (seconds)
 INSTALL_TIMEOUT="${WRANGLE_INSTALL_TIMEOUT:-300}"
 ADAPTER_TIMEOUT="${WRANGLE_ADAPTER_TIMEOUT:-600}"
-VERIFY_TIMEOUT="${WRANGLE_VERIFY_TIMEOUT:-120}"
 
 # Build only the Go tools the requested adapters need: each adapter lists its
 # package(s) in tools/<tool>/go-tools, version-pinned in tools/go.mod (env.sh
@@ -209,14 +213,13 @@ run_tool_image() {
     return "$rc"
 }
 
-# verify_tool_image <tool> <image> — fail-closed pull-time VSA gate. A curated
-# wrangle image MUST carry a PASSED verification-summary attestation signed by
-# wrangle's container build+publish workflow before it runs. Returns 0 to
-# proceed, non-zero to refuse. gh attestation verify checks signature, identity,
-# and digest but never the predicate verdict — the jq is the ONLY check that the
-# verdict is PASSED; dropping it makes the gate theater. Output is a JSON array,
-# asserted array-safely (empty array fails). Skips (returns 0) when disabled or
-# when the image is not wrangle-published.
+# verify_tool_image <tool> <image> — curated-image policy around the
+# verify_image_vsa primitive. Fail closed: a wrangle-published image must carry a
+# PASSED, SLSA-L3 wrangle VSA (a subset of policies/wrangle-vsa-consumer-v1.hjson
+# — digest binding substitutes for, and is stronger than, the policy's
+# resourceUri check) before it runs. Returns 0 to proceed, 1 to refuse. Skips
+# (returns 0) when verification is disabled or the image is not wrangle-published
+# (an adopter override is trusted under a different identity).
 verify_tool_image() {
     local tool="$1" image="$2"
 
@@ -230,26 +233,12 @@ verify_tool_image() {
         return 0
     fi
 
-    if ! command -v gh >/dev/null 2>&1; then
-        printf 'wrangle: %s: gh not found; cannot verify tool image attestation\n' "$tool" >&2
-        return 1
+    if verify_image_vsa "$image"; then
+        printf 'wrangle: %s: tool-image VSA verified PASSED\n' "$tool" >&2
+        return 0
     fi
-
-    local rc=0
-    timeout "$VERIFY_TIMEOUT" gh attestation verify "oci://${image}" \
-        --repo TomHennen/wrangle \
-        --bundle-from-oci \
-        --signer-workflow TomHennen/wrangle/.github/workflows/build_and_publish_container.yml \
-        --predicate-type https://slsa.dev/verification_summary/v1 \
-        --format json \
-        | jq -e 'length>0 and all(.[]; .verificationResult.statement.predicate.verificationResult=="PASSED")' >/dev/null \
-        || rc=$?
-    if [[ "$rc" -ne 0 ]]; then
-        printf 'wrangle: %s: tool-image VSA verification failed (image not provably PASSED)\n' "$tool" >&2
-        return 1
-    fi
-    printf 'wrangle: %s: tool-image VSA verified PASSED\n' "$tool"
-    return 0
+    printf 'wrangle: %s: tool-image VSA verification failed (image not provably PASSED)\n' "$tool" >&2
+    return 1
 }
 
 # run_one_tool <tool> — run a single tool through its delivery path (image via
