@@ -378,8 +378,8 @@ model. Still open:
 2. **Freeze the contract in SPEC.md** — the `scan` and `sbom` kinds, the invocation, the isolation
    mapping, and the output-handling rule (§3.1–3.3).
 3. **Stand up the per-image test harness** (§8) — so subsequent migrations are validated fast.
-4. **Make the pin toolchain digest-aware** (§6) — required before any image is consumed in a production
-   wrangle workflow.
+4. **Make the catalog digest-aware** (§6) — the parallel `check_catalog*` / `bump_catalog_digest` checks;
+   required before any image is consumed in a production wrangle workflow.
 5. **Go all-in for the `scan` kind.** Rather than a long mixed-mode tail, migrate the scan adapter tools
    together once the prototype proves out; the catalog's `delivery:` field covers the brief cutover (and
    any tool that stays adapter/action-pattern). osv, then zizmor, behind the curated catalog.
@@ -404,9 +404,10 @@ release does not rebuild or re-tag tool images.**
   entry to that digest under the WL005 cooldown, exactly like a Dependabot bump. One source PR + one bot
   bump PR — not a manual double-bump. A catalog-only digest change touches no Dockerfile, so it triggers
   no rebuild (no loop).
-- **Release tag** — precondition: the catalog is fresh (every digest is the image built from the current
-  tool source — the §6 freshness/ancestry check, extended to OCI digests). Then tag. No image is built
-  or re-tagged at release time.
+- **Release tag** — precondition: the catalog is fresh. `check_catalog_freshness.sh` proves the shipped
+  half — no digest is behind its published `:latest` (adoption lag); the stronger "every digest is the
+  image built from the current tool source" guarantee is the deferred provenance check (#623). Then tag.
+  No image is built or re-tagged at release time.
 
 Consequences:
 - The catalog at a release commit references images built from *ancestor* commits. That is correct as
