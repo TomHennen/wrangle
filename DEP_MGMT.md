@@ -95,7 +95,7 @@ whatever is already set.
 | Python tool | `==version --hash=sha256:` in `requirements.txt` |
 | Binary with no package manager | version pinned in the install script |
 | Container base image | OCI `@sha256:` digest |
-| Curated tool image (`tools/catalog.json`) | `ghcr.io/tomhennen/wrangle/<tool>@sha256:` digest — static-checked by `tools/check_catalog.sh` (per-PR), adoption-lag-checked by `tools/check_catalog_freshness.sh` (release gate). Rationale: [docs/tool_container_design.md](docs/tool_container_design.md) §8, §11 |
+| Curated tool image (`tools/catalog.json`) | `ghcr.io/tomhennen/wrangle/<tool>@sha256:` digest — static-checked by `tools/check_catalog.sh` (per-PR), adoption-lag-checked by `tools/check_catalog_freshness.sh` and source-freshness-checked by `tools/check_catalog_provenance_freshness.sh` (release gates). Rationale: [docs/tool_container_design.md](docs/tool_container_design.md) §8, §11 |
 
 `@main` MUST NOT appear in any `uses:` line, anywhere — including examples and docs.
 
@@ -115,8 +115,12 @@ whatever is already set.
   `tools/check_catalog_freshness.sh` compares each pinned digest against the
   registry's `:latest` and prints a `tools/bump_catalog_digest.sh` remediation
   when the catalog is behind (a release precondition, not a per-PR gate, to keep
-  registry calls off PRs). It proves adoption-lag only, not that the digest was
-  built from current source (the stronger provenance check is deferred).
+  registry calls off PRs). It proves adoption-lag only;
+  `tools/check_catalog_provenance_freshness.sh` proves the stronger half — it
+  reads each pinned digest's signed SLSA provenance, takes the build commit, and
+  fails if the tool's source (its dir, `lib/`, `tools/go.mod`/`go.sum`) changed
+  between that commit and HEAD (also a release gate, needs full git history). A
+  digest cooldown remains deferred (#623).
 - **Manual today:** the binary+provenance installs (branch 2) and the base-image
   digest. Automating that surface — ideally one mechanism that also covers
   wrangle's own self-references — is #264.
