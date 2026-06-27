@@ -2,6 +2,10 @@
 set -euo pipefail
 set -f
 
+_SIGN_METADATA_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+# shellcheck source=lib/retry.sh
+source "$_SIGN_METADATA_DIR/retry.sh"
+
 # lib/sign_metadata.sh — Shared build-metadata signing primitives.
 #
 # Source this to sign the build metadata (SBOM + each scan/<tool>/ manifest
@@ -16,19 +20,6 @@ set -f
 # wrangle_read_subjects), GITHUB_REPOSITORY (store push target), GITHUB_TOKEN
 # (bnd reads it to auth the store push), COMMIT (scanned git commit woven into
 # the scan/v1 envelope). bnd keyless-signs via the caller's OIDC identity.
-
-# Run a command, retrying once on failure to absorb transient Sigstore I/O.
-# Re-evaluation is deterministic, so a retry can only flip a transient failure.
-# $1 is the stdout capture, truncated per attempt. WRANGLE_RETRY_DELAY spaces
-# the attempts (tests set it to 0).
-wrangle_retry_once() {
-    local out="$1"; shift
-    "$@" > "$out" && return 0
-    local rc=$?
-    printf 'wrangle: %s failed (exit %s); retrying once for transient Sigstore I/O\n' "$1" "$rc" >&2
-    sleep "${WRANGLE_RETRY_DELAY:-5}"
-    "$@" > "$out"
-}
 
 # Build the wrangle-attest arg vector (one arg per line for mapfile) that signs
 # the build metadata into in-toto statements. $1 = subject arg

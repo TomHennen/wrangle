@@ -34,6 +34,11 @@ jobs:
       go-cache: enabled
       go-tools-dir: tools
       cache-setup-tools: enabled
+    # The integration bats include the pull-time VSA gate's real-gh test
+    # (test/image/test_verify_tool_image_real_gh.bats); gh needs a token to
+    # read the public attestation. The job's own read-only token suffices.
+    secrets:
+      gh_token: ${{ secrets.GITHUB_TOKEN }}
 
   # Wrangle-internal (self-ref pins are not an adopter concern, so this
   # lives in the dogfood caller, not the reusable build_shell.yml). Fails
