@@ -42,8 +42,7 @@ fi
 # cache (warm across runs). In CI the runner is ephemeral, so the workflow
 # prebuilds the image with a GitHub Actions layer cache and sets
 # WRANGLE_TEST_IMAGE_PREBUILT to have this script reuse it instead of rebuilding
-# (#308). The image is a test tool that attests nothing, so caching it is L3-safe
-# (docs/SLSA_L3_AUDIT.md).
+# (#308).
 if [[ -z "${WRANGLE_TEST_IMAGE_PREBUILT:-}" ]]; then
     echo "=== Building test container ==="
     docker build -t "$IMAGE_NAME" -f "$SCRIPT_DIR/test/Dockerfile" "$SCRIPT_DIR"
