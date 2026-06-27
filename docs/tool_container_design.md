@@ -1,11 +1,12 @@
-# Tool containerization — proposal (#596)
+# Tool containerization (#596)
 
-Status: **proposal for discussion, not yet implemented.** SPEC.md remains the contract of record until
-this lands.
+Status: **partially implemented.** osv ships as a pinned OCI image on `main`, dispatched by the
+orchestrator via `docker run` and gated at pull time by a fail-closed VSA check; the remaining scan tools
+and the signing-path container (#619) are in progress. SPEC.md remains the contract of record.
 
-This proposes re-homing wrangle's tool layer so each tool ships as a **pinned OCI image implementing the
-adapter contract**, invoked by the orchestrator via `docker run`. The container becomes the unit of
-distribution *and* isolation.
+Wrangle's tool layer is re-homed so each tool ships as a **pinned OCI image implementing the adapter
+contract**, invoked by the orchestrator via `docker run`. The container is the unit of distribution *and*
+isolation.
 
 ## 1. Problem
 
@@ -134,6 +135,10 @@ The orchestrator (`run.sh`) issues the `docker run`; tools are **not** wired in 
 This is what lets wrangle own the surface — mounts, network, user, environment, exit-code mapping, and
 output layout — rather than ceding it to whatever an action's `action.yml` chooses to do. It also keeps
 the model CI-agnostic (#171) and flattens the nested `uses: ./tools/*` composition (#137).
+
+The pull-time VSA gate this orchestration adds (`run.sh` `verify_tool_image`) verifies via `gh attestation
+verify`, a coherence cost against the CI-agnostic claim above (#171); `cosign verify-attestation` (SPEC.md
+§247) is the documented portable equivalent, and the seam where a future verifier-selector would plug in.
 
 ### 3.6 Reference model: a curated catalog
 
@@ -313,6 +318,13 @@ not a meaningful per-delivery signal.)
   different axes. Because the digest lives in one curated place (§3.6), this stays a narrow,
   wrangle-internal task, required only before *production consumption*, not before prototyping. Still open:
   provenance-based source-freshness, a digest cooldown, and the advisory→blocking promotion (#623).
+- **Pull-time consumer VSA gate.** Before a curated image runs, the orchestrator verifies it carries a
+  PASSED, SLSA-Build-L3 wrangle verification-summary attestation signed by the container build+publish
+  workflow, fail-closed (`run.sh` `verify_tool_image`, `lib/verify_image_vsa.sh`). The signer identity is
+  matched by a regex that admits `@refs/heads/main` (curated tool images build from `main`) as well as a
+  release tag — carrying no release-tag-only constraint is deliberate. **Curated tool images must stay
+  public:** the gate reads the OCI attestation referrer with the default workflow token, so a private
+  image would fail that read and, fail-closed, block the scan.
 - **Adopter-supplied images** are adopter-trusted, not wrangle-trusted: they run under the strictest
   contract by default (no network, no secrets), any relaxation is explicit, and wrangle's signature
   covers provenance of the run, not correctness of the tool.
