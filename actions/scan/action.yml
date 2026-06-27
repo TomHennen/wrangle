@@ -136,7 +136,7 @@ runs:
     # TODO: replace with $/tools/scorecard when $/ syntax ships (#136, #137)
     - name: Scorecard
       if: always() && contains(inputs.tools, 'scorecard') && github.event_name != 'pull_request'
-      uses: TomHennen/wrangle/tools/scorecard@0babc31cca5af16908c9eabaa8bf7c1fd382f563 # feat/596-scan-tool-images 2026-06-25
+      uses: TomHennen/wrangle/tools/scorecard@acfe27929139a7941c197ca8eb46b9922428b6c4 # feat/596-flip-zizmor-wrangle-lint-catalog 2026-06-27
 
     # Dependency Review is PR-only — the upstream action requires
     # github.event.pull_request.base.sha / head.sha to compute the diff.
@@ -148,7 +148,7 @@ runs:
     # The wrapper's inline defaults (fail-on-severity: high) still apply.
     - name: Dependency Review
       if: always() && contains(inputs.tools, 'dependency-review') && github.event_name == 'pull_request'
-      uses: TomHennen/wrangle/tools/dependency-review@0babc31cca5af16908c9eabaa8bf7c1fd382f563 # feat/596-scan-tool-images 2026-06-25
+      uses: TomHennen/wrangle/tools/dependency-review@acfe27929139a7941c197ca8eb46b9922428b6c4 # feat/596-flip-zizmor-wrangle-lint-catalog 2026-06-27
 
     - name: Generate step summary
       if: always()
