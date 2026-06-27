@@ -24,18 +24,13 @@ setup() {
     ROOT="$(cd "$(dirname "$BATS_TEST_FILENAME")/../.." && pwd)"
 }
 
-# A zero subject digest and a fixed context satisfy the consumer policy's
-# required context keys; the verdict is irrelevant to these smoke tests.
 ZERO_SUBJECT=sha256:0000000000000000000000000000000000000000000000000000000000000000
 VSA_CONTEXT=expectedResourceUri:ghcr.io/x/y@sha256:abc,sourceRepo:https://github.com/x/y
 
-# Run `ampel verify` in the image as $1 (a `docker run -u` value), mounting the
-# policy dir read-only and a writable results dir, exactly as the opt-in
-# in-container path does (actions/verify/run_verify.sh). --network none keeps it
-# offline: the consumer VSA policy is the one bundled policy that fetches no
-# remote ampel fragments. An empty collector yields a FAILED verdict (exit 1
-# under --exit-code=true), but the VSA is still written — the smoke test asserts
-# the run reaches that write, not the verdict.
+# Run `ampel verify` in the image as the `docker run -u` value $1. The consumer
+# VSA policy fetches no remote fragments, so --network none proves no egress is
+# needed; the empty collector makes FAILED the expected verdict, but the VSA is
+# still written.
 wrangle_ampel_verify_in_image() {
     local user="$1" results="$2"
     mkdir -p "$results"
@@ -102,4 +97,7 @@ wrangle_ampel_verify_in_image() {
     chmod 0777 "$results"
     run wrangle_ampel_verify_in_image "99999:99999" "$results"
     [ -f "$results/vsa.json" ]
+    run jq -r '.predicateType' "$results/vsa.json"
+    [ "$status" -eq 0 ]
+    [ "$output" = "https://slsa.dev/verification_summary/v1" ]
 }
