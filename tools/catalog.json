@@ -19,6 +19,13 @@
       "delivery": "image",
       "image": "ghcr.io/tomhennen/wrangle/wrangle-lint@sha256:d04bc484426550135d7e2d597da3b6637cfba9225c8f6477b1f60bea9efc7f3d",
       "network": "none"
+    },
+    "syft": {
+      "kind": "sbom",
+      "delivery": "image",
+      "image": "ghcr.io/tomhennen/wrangle/syft@sha256:0000000000000000000000000000000000000000000000000000000000000000",
+      "format": "spdx-json",
+      "network": "none"
     }
   }
 }
