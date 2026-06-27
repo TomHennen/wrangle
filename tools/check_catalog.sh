@@ -8,8 +8,9 @@ set -f  # disable globbing — handles external tool/field names
 # off-namespace image reference can't pass CI green.
 #
 # For every tool it asserts: the file is valid JSON, a `kind` is declared, the
-# `delivery` (if set) is one run.sh recognizes, and a declared `network`/`secret`
-# is from the allowed, default-closed set. For every `delivery: image` entry it
+# `delivery` (if set) is one run.sh recognizes, a declared `network`/`secret`
+# is from the allowed, default-closed set, and an `sbom` tool declares a
+# supported `format` (absent on any other kind). For every `delivery: image` entry it
 # additionally asserts the image is digest-pinned (@sha256: + 64 hex, never a bare
 # tag / :latest / @latest) on the curated namespace ghcr.io/tomhennen/wrangle/<tool>
 # — adopter overrides never live in this in-repo catalog (§3.6), so a different
@@ -25,6 +26,10 @@ source "$SCRIPT_DIR/../lib/read_catalog.sh"
 
 NETWORK_ALLOWED_RE='^(none|egress)$'
 SECRET_NAME_RE='^[a-z][a-z0-9-]*$'
+# An sbom tool declares its output format; the orchestrator maps it to a
+# filename + predicate. An absent or off-list format hits run.sh's default arm,
+# producing an unsigned SBOM that still reports pass — so require it here.
+SBOM_FORMAT_ALLOWED_RE='^(spdx-json|cyclonedx-json)$'
 # Tool segment matches run.sh's tool-name shape, so no leading dot/dash or `..`
 # can survive into a registry path.
 CURATED_PREFIX='ghcr.io/tomhennen/wrangle/'
@@ -45,13 +50,26 @@ validate_catalog() {
         return 1
     fi
 
-    local tool kind delivery image network secret
+    local tool kind delivery image network secret format
     while IFS= read -r tool; do
         [[ -z "$tool" ]] && continue
 
         kind="$(read_catalog_field "$file" "$tool" kind)"
         if [[ -z "$kind" ]]; then
             printf 'check_catalog: %s: missing kind\n' "$tool" >&2
+            rc=1
+        fi
+
+        # An sbom tool MUST declare a supported format; a format on any other
+        # kind is a typo, not a silently-ignored field.
+        format="$(read_catalog_field "$file" "$tool" format)"
+        if [[ "$kind" == "sbom" ]]; then
+            if [[ ! "$format" =~ $SBOM_FORMAT_ALLOWED_RE ]]; then
+                printf 'check_catalog: %s: sbom requires format spdx-json|cyclonedx-json, got: %s\n' "$tool" "$format" >&2
+                rc=1
+            fi
+        elif [[ -n "$format" ]]; then
+            printf 'check_catalog: %s: format is only valid for kind: sbom\n' "$tool" >&2
             rc=1
         fi
 
