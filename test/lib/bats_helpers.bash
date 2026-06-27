@@ -20,3 +20,27 @@ skip_or_fail() {
     fi
     skip "$1"
 }
+
+# wrangle_image_build <cache-slug> <docker-build-arg>...
+# Build a tool image for the image tests. When the dogfood workflow exports
+# WRANGLE_BUILDX_CACHE it builds through a persistent buildx local layer cache
+# (cache-image-builds in build_shell.yml), so the from-source Go builds in
+# these Dockerfiles are restored across runs instead of recompiled inside the
+# container — caches the host can't reach. Unset (local runs) it's a plain
+# build against the daemon's own layer cache. BuildKit re-derives any layer
+# whose inputs changed, so a restored-but-stale cache can never serve a layer
+# that doesn't match the current Dockerfile/source. Args after the slug pass
+# verbatim to the builder (-t, -f, context, ...).
+wrangle_image_build() {
+    local slug="$1"
+    shift
+    if [[ -n "${WRANGLE_BUILDX_CACHE:-}" ]]; then
+        local dir="$WRANGLE_BUILDX_CACHE/$slug"
+        docker buildx build --load -q \
+            --cache-from "type=local,src=$dir" \
+            --cache-to "type=local,dest=$dir,mode=max" \
+            "$@" >/dev/null
+    else
+        docker build -q "$@" >/dev/null
+    fi
+}

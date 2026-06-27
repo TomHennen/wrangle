@@ -67,6 +67,19 @@ on:
         required: false
         type: string
         default: ""
+      cache-image-builds:
+        description: >
+          Set to "enabled" to give docker-image builds in the suite a
+          persistent buildx layer cache (WRANGLE_BUILDX_CACHE), so tool images
+          a setup-script or bats test builds from source aren't recompiled
+          inside the container every run — work the host go-cache can't reach.
+          Requires go-tools-dir (the cache key tracks its go.sum). Test/scan
+          only: BuildKit re-derives any layer whose inputs changed, so a stale
+          cache only slows a run, never serves mismatched layers; this attests
+          nothing. Empty (default) disables it.
+        required: false
+        type: string
+        default: ""
     secrets:
       gh_token:
         description: >
@@ -140,6 +153,36 @@ jobs:
         with:
           path: ${{ runner.temp }}/.wrangle/bin
           key: setup-tools-${{ runner.os }}-${{ hashFiles(format('{0}/go.sum', inputs.go-tools-dir)) }}
+
+      # The suite builds tool images from source (their Dockerfiles compile the
+      # Go signing/scan binaries); a docker-container builder lets BuildKit
+      # import/export a layer cache the ephemeral runner would otherwise lose.
+      - name: Set up buildx for cached tool-image builds
+        if: ${{ inputs.cache-image-builds == 'enabled' && inputs.go-tools-dir != '' }}
+        uses: docker/setup-buildx-action@d7f5e7f509e45cec5c76c4d5afdd7de93d0b3df5 # v4.1.0
+
+      # Persist the buildx layer cache across runs. Keyed on the tool manifest's
+      # go.sum (the dominant from-source build layer); a unique run_id suffix +
+      # restore-keys keeps every run warm from the latest without the immutable-
+      # key staleness. Test/scan only — the cache attests nothing, and BuildKit
+      # rebuilds any layer whose inputs changed, so a restored cache can't taint
+      # an image (docs/SLSA_L3_AUDIT.md).
+      - name: Cache tool-image build layers
+        if: ${{ inputs.cache-image-builds == 'enabled' && inputs.go-tools-dir != '' }}
+        uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
+        with:
+          path: ${{ runner.temp }}/.wrangle/buildx-cache
+          key: image-builds-${{ runner.os }}-${{ hashFiles(format('{0}/go.sum', inputs.go-tools-dir)) }}-${{ github.run_id }}
+          restore-keys: |
+            image-builds-${{ runner.os }}-${{ hashFiles(format('{0}/go.sum', inputs.go-tools-dir)) }}-
+            image-builds-${{ runner.os }}-
+
+      - name: Point image builds at the buildx cache
+        if: ${{ inputs.cache-image-builds == 'enabled' && inputs.go-tools-dir != '' }}
+        shell: bash
+        env:
+          BUILDX_CACHE_DIR: ${{ runner.temp }}/.wrangle/buildx-cache
+        run: printf 'WRANGLE_BUILDX_CACHE=%s\n' "$BUILDX_CACHE_DIR" >> "$GITHUB_ENV"
 
       - name: Run shell build
         # TODO: replace with $/build/actions/shell when GitHub ships $/ syntax (#136)

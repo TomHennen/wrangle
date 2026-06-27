@@ -19,8 +19,8 @@ setup_file() {
     command -v docker >/dev/null 2>&1 && docker info >/dev/null 2>&1 || return 0
     local root
     root="$(cd "$(dirname "$BATS_TEST_FILENAME")/../.." && pwd)"
-    docker build -q -f "$root/tools/zizmor/Dockerfile" \
-        -t wrangle-zizmor:test "$root" >/dev/null
+    wrangle_image_build zizmor -f "$root/tools/zizmor/Dockerfile" \
+        -t wrangle-zizmor:test "$root"
 }
 
 setup() {
