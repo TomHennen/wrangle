@@ -164,9 +164,11 @@ jobs:
       # Persist the buildx layer cache across runs. Keyed on the tool manifest's
       # go.sum (the dominant from-source build layer); a unique run_id suffix +
       # restore-keys keeps every run warm from the latest without the immutable-
-      # key staleness. Test/scan only — the cache attests nothing, and BuildKit
-      # rebuilds any layer whose inputs changed, so a restored cache can't taint
-      # an image (docs/SLSA_L3_AUDIT.md).
+      # key staleness. Input-addressed keys give coverage, not safety: a changed
+      # Dockerfile/source busts the key and rebuilds, so the test exercises the
+      # current image (a cache HIT still serves the stored blob unverified). A
+      # poisoned cache can't reach a release because this path attests nothing
+      # and GHA caches are ref-scoped.
       - name: Cache tool-image build layers
         if: ${{ inputs.cache-image-builds == 'enabled' && inputs.go-tools-dir != '' }}
         uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
