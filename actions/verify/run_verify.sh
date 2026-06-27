@@ -253,12 +253,13 @@ wrangle_run() {
 # (goreleaser built but published nothing). Enumerate via a temp file, not a
 # process substitution, so a find that dies mid-traversal fails closed.
 wrangle_attach_release() {
-    local ref="$GITHUB_REF_NAME"
-    # No release for the tag: create an empty published release to fill with only
-    # attested assets. Fail closed if creation fails — never fall through to upload.
+    local ref="$GITHUB_REF_NAME" create_err
+    # Create the tag's release if absent. A peer build-type job sharing it can win
+    # the create race, so re-check existence and fail closed only if still absent.
     if ! gh release view "$ref" >/dev/null 2>&1; then
-        if ! gh release create "$ref" --generate-notes --title "$ref"; then
-            printf 'wrangle: failed to create GitHub release for %s\n' "$ref" >&2
+        if ! create_err="$(gh release create "$ref" --generate-notes --title "$ref" 2>&1)" \
+            && ! gh release view "$ref" >/dev/null 2>&1; then
+            printf 'wrangle: failed to create GitHub release for %s: %s\n' "$ref" "$create_err" >&2
             return 1
         fi
     fi
