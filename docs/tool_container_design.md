@@ -304,12 +304,15 @@ not a meaningful per-delivery signal.)
   *"tool X produced this,"* never *"this is correct"* — important for adopter-supplied tools.
 - **Adoption enforcement (the residual prerequisite).** Installing via the canonical package manager
   keeps the dependency manifest in-repo, so CVE *detection* keeps working. What remains is ensuring a
-  published fix is actually *adopted*: the catalog's image digest must be freshness/ancestry/cooldown-
-  checked so a stale pin cannot pass CI green (the #539/#544 class). This means teaching the pin
-  toolchain (WL005 cooldown, `check_pin_ancestry`, `check_pin_freshness`, `bump_action_pins`,
-  `self_ref_pin_paths`) to understand OCI `@sha256:` digests, adding a `docker` Dependabot ecosystem, and
-  a DEP_MGMT.md integrity rung for images. Because the digest lives in one curated place (§3.6), this is a
-  narrow, wrangle-internal task, required only before *production consumption*, not before prototyping.
+  published fix is actually *adopted*: the catalog's image digest must be freshness-checked so a stale
+  pin cannot pass CI green (the #539/#544 class). The OCI axis is served by a *parallel* set of
+  catalog-aware checks — `tools/check_catalog.sh` (static digest/namespace hygiene, per-PR),
+  `tools/check_catalog_freshness.sh` (adoption-lag vs `:latest`, a release gate), `tools/bump_catalog_digest.sh`
+  (the fix) — plus the DEP_MGMT.md image integrity rung; the git-pin tools (`check_pin_ancestry`,
+  `check_pin_freshness`, `bump_action_pins`, WL005) are left untouched, since digests and git SHAs are
+  different axes. Because the digest lives in one curated place (§3.6), this stays a narrow,
+  wrangle-internal task, required only before *production consumption*, not before prototyping. Still open:
+  provenance-based source-freshness, a digest cooldown, and the advisory→blocking promotion (#623).
 - **Adopter-supplied images** are adopter-trusted, not wrangle-trusted: they run under the strictest
   contract by default (no network, no secrets), any relaxation is explicit, and wrangle's signature
   covers provenance of the run, not correctness of the tool.
@@ -379,8 +382,8 @@ model. Still open:
 2. **Freeze the contract in SPEC.md** — the `scan` and `sbom` kinds, the invocation, the isolation
    mapping, and the output-handling rule (§3.1–3.3).
 3. **Stand up the per-image test harness** (§8) — so subsequent migrations are validated fast.
-4. **Make the pin toolchain digest-aware** (§6) — required before any image is consumed in a production
-   wrangle workflow.
+4. **Make the catalog digest-aware** (§6) — the parallel `check_catalog*` / `bump_catalog_digest` checks;
+   required before any image is consumed in a production wrangle workflow.
 5. **Go all-in for the `scan` kind.** Rather than a long mixed-mode tail, migrate the scan adapter tools
    together once the prototype proves out; the catalog's `delivery:` field covers the brief cutover (and
    any tool that stays adapter/action-pattern). osv, then zizmor, behind the curated catalog.
@@ -405,9 +408,10 @@ release does not rebuild or re-tag tool images.**
   entry to that digest under the WL005 cooldown, exactly like a Dependabot bump. One source PR + one bot
   bump PR — not a manual double-bump. A catalog-only digest change touches no Dockerfile, so it triggers
   no rebuild (no loop).
-- **Release tag** — precondition: the catalog is fresh (every digest is the image built from the current
-  tool source — the §6 freshness/ancestry check, extended to OCI digests). Then tag. No image is built
-  or re-tagged at release time.
+- **Release tag** — precondition: the catalog is fresh. `check_catalog_freshness.sh` proves the shipped
+  half — no digest is behind its published `:latest` (adoption lag); the stronger "every digest is the
+  image built from the current tool source" guarantee is the deferred provenance check (#623). Then tag.
+  No image is built or re-tagged at release time.
 
 Consequences:
 - The catalog at a release commit references images built from *ancestor* commits. That is correct as

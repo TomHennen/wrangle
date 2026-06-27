@@ -105,6 +105,18 @@ All three must hold before you ask the owner to cut. Do not shortcut.
    `showcase` concurrency group; cancel a hung job (releases persist) to free the queue.
 2. **Explicit owner sign-off on release contents.** Present exactly what's in the release
    (the milestone, the diff highlights) and get an explicit yes — separate from "cut it".
+   Also confirm the curated tool-image catalog is fresh — no entry is behind its
+   published `:latest` (the §11 release precondition):
+
+   ```bash
+   ./tools/check_catalog_freshness.sh   # exit 0 in-sync; 1 drift (bump per its remediation); 2 registry unreachable
+   ```
+
+   On drift (exit 1), run the printed `tools/bump_catalog_digest.sh <tool> <digest>`,
+   land it as a normal PR under the cooldown, then re-check. (Adoption-lag only —
+   it does not prove the digest was built from current source.) **Exit 2
+   (registry unreachable) means the precondition is UNVERIFIED — do not proceed.**
+   Retry until the result is 0 or 1; a visible exit-2 is not a satisfied gate.
 3. **Empirically-verified download + verify commands.** Re-run the consumer
    download-and-verify recipe in
    [docs/verifying_artifacts.md](../../../docs/verifying_artifacts.md) against a **real**
