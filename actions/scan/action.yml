@@ -59,8 +59,10 @@ inputs:
   github-token:
     description: >
       Token forwarded to tools that perform online audits (e.g. zizmor's
-      GitHub-API checks). Defaults to the workflow token; pass empty to keep
-      those tools offline.
+      GitHub-API checks), and used by the pull-time VSA gate to verify each
+      curated tool image's attestation. Defaults to the workflow token; passing
+      empty keeps audit tools offline but fails the curated-image VSA gate closed
+      (set WRANGLE_VERIFY_TOOL_IMAGES=0 to bypass the gate for offline runs).
     required: false
     default: ${{ github.token }}
 
@@ -118,9 +120,8 @@ runs:
         WRANGLE_TOOLS: ${{ inputs.tools }}
         WRANGLE_ROOT: ${{ github.action_path }}/../..
         WRANGLE_EXTRA_GITHUB_TOKEN: ${{ inputs.github-token }}
-        # run.sh's curated-image VSA gate runs `gh attestation verify` in its own
-        # process (not an adapter), so it needs gh's own token; adapters stay
-        # isolated (env -i) and read only WRANGLE_EXTRA_GITHUB_TOKEN.
+        # run.sh's curated-image VSA gate runs `gh` in its own process, not an
+        # adapter, so it needs gh's own token (adapters stay isolated under env -i).
         GH_TOKEN: ${{ inputs.github-token }}
         WRANGLE_INSTALL_TIMEOUT: "900"
       run: |

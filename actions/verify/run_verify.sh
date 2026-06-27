@@ -118,24 +118,24 @@ wrangle_toolbox_network() {
 }
 
 # Run ampel: the in-job binary by default, or — when WRANGLE_VERIFY_AMPEL_TOOLBOX
-# is set — the curated attest-toolbox image via `docker run`. The image, its egress
-# grant, and the no-token capability come from the catalog (a reviewable,
+# is 1/true — the curated attest-toolbox image via `docker run`. The image, its
+# egress grant, and the no-token capability come from the catalog (a reviewable,
 # default-closed grant), not the call site. Before the container runs, the image's
-# own wrangle provenance/VSA is verified host-side (verify_image_vsa, gh) so a
-# substituted image can't produce a forged verdict — the bootstrap invariant: the
-# verifier is the host, never the container. Constraints: no token enters the
-# container (ampel verify never signs); policy/bundle mount read-only, only the
-# results dir is writable; it fails closed (exit 2) on an oci: collector, whose
-# in-container registry auth is deferred (the container build type, #619).
+# own wrangle provenance/VSA is verified host-side (verify_image_vsa, gh): the
+# bootstrap invariant — the verifier is the host, never the container. No token
+# enters the container (ampel verify never signs); policy/bundle mount read-only,
+# only the results dir is writable; it refuses (exit 2) an oci: collector, whose
+# in-container registry auth is deferred (#619).
 wrangle_ampel() {
-    if [[ -z "${WRANGLE_VERIFY_AMPEL_TOOLBOX:-}" ]]; then
-        ampel "$@"
-        return
-    fi
+    case "${WRANGLE_VERIFY_AMPEL_TOOLBOX:-}" in
+        1|true) ;;
+        *) ampel "$@"; return ;;
+    esac
     # An oci: collector (the container build type) needs in-container registry
-    # auth, which is deferred — fail closed rather than silently mis-verify.
+    # auth, which is deferred — refuse rather than silently mis-verify. The
+    # container build type must leave WRANGLE_VERIFY_AMPEL_TOOLBOX unset.
     if [[ -n "${COLLECTOR:-}" ]]; then
-        printf 'wrangle: in-container ampel verify does not support an oci collector (%s); the container build type stays on the in-job binary (#619)\n' "$COLLECTOR" >&2
+        printf 'wrangle: in-container ampel verify does not support an oci collector (%s); leave WRANGLE_VERIFY_AMPEL_TOOLBOX unset for the container build type (#619)\n' "$COLLECTOR" >&2
         return 2
     fi
     local image

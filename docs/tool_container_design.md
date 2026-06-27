@@ -158,12 +158,17 @@ thing for the pin tooling to track and for adopters to read.
   offer rails (a `docker` Dependabot entry, a lint warning on a stale override) but cannot vouch for an
   image it does not control.
 
-The shipped catalog (`tools/catalog.json`) is keyed by the short name the `tools:` selection uses, parsed
-with `jq` (`lib/read_catalog.sh`). Capabilities default closed: an absent `network`/`secret` means none,
-and a tool not listed — or one with `delivery: adapter` — runs the in-process adapter path. The `kind`
-field is recorded but unused today; the `command:`/`args:`/`WRANGLE_KIND` passthrough and kind-based
-(scan vs sbom) dispatch land when a command-shared or sbom tool does. `osv` carries `network: egress`
-because it refreshes its advisory DB from osv.dev.
+The shipped catalog (`tools/catalog.json`) is parsed with `jq` (`lib/read_catalog.sh`) and has **two
+consumers**: the scan orchestrator dispatches entries the `tools:` selection names that carry
+`delivery: image` (the docker-run path; a tool not listed — or one with `delivery: adapter`/no `delivery`
+— takes the in-process adapter path), and the verify action resolves one **fixed key**
+(`attest-toolbox`) for its in-container `ampel verify`. An entry may therefore omit `delivery` to opt out
+of scan dispatch while still being a reviewable grant the verify path resolves; `check_catalog` pin- and
+namespace-lints any entry naming an `image`, regardless of `delivery`. Capabilities default closed: an
+absent `network`/`secret` means none. The `kind` field is recorded but unused today; the
+`command:`/`args:`/`WRANGLE_KIND` passthrough and kind-based (scan vs sbom) dispatch land when a
+command-shared or sbom tool does. `osv` carries `network: egress` because it refreshes its advisory DB
+from osv.dev.
 
 ### 3.7 Capability declaration
 

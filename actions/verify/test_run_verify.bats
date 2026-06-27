@@ -974,12 +974,23 @@ EOF
     [ ! -f "$TEST_DIR/docker.args" ]
 }
 
+@test "wrangle_ampel: WRANGLE_VERIFY_AMPEL_TOOLBOX=0 stays on the in-job binary (no footgun)" {
+    cat > "$TEST_DIR/ampel" <<EOF
+#!/bin/bash
+printf '%s\n' "\$@" > "$TEST_DIR/ampel.args"
+EOF
+    chmod +x "$TEST_DIR/ampel"
+    PATH="$TEST_DIR:$PATH" WRANGLE_VERIFY_AMPEL_TOOLBOX=0 run wrangle_ampel verify --policy=p
+    [ "$status" -eq 0 ]
+    grep -q -- '--policy=p' "$TEST_DIR/ampel.args"
+    [ ! -f "$TEST_DIR/docker.args" ]
+}
+
 @test "wrangle_ampel: toggle on resolves the catalog image, verifies it, runs it on the egress bridge" {
     _install_toolbox_shims
     _stub_toolbox_catalog
     export WRANGLE_AMPEL_RESULTS="$TEST_DIR/results/vsa.json"
     mkdir -p "$TEST_DIR/results" "$BUNDLE_OUT"
-    export POLICY="policies/release.json"  # parent gets mounted ro
     PATH="$TEST_DIR:$PATH" WRANGLE_VERIFY_AMPEL_TOOLBOX=1 run wrangle_ampel verify --policy=p
     [ "$status" -eq 0 ]
     grep -q "toolbox-image VSA verified PASSED" <<< "$output"
