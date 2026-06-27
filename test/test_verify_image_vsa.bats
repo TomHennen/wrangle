@@ -126,65 +126,72 @@ GH
     [[ "$output" == *"jq not found"* ]]
 }
 
-# --- verify_image_vsa: verdict outcomes
+# --- verify_image_vsa: verdict outcomes (the verdict check is never retried)
 
-@test "verify: attested PASSED L3, resourceUri matches -> rc 0" {
+@test "verify: attested PASSED L3, resourceUri matches -> rc 0, one gh call" {
     _install_gh_shim
-    run env PATH="$BIN" GH_COUNT="$COUNT" GH_SEQ="passed" bash -c "source '$LIB'; verify_image_vsa '$_image'"
+    run env PATH="$BIN" GH_COUNT="$COUNT" GH_SEQ="passed" WRANGLE_RETRY_DELAY=0 \
+        bash -c "source '$LIB'; verify_image_vsa '$_image'"
     [ "$status" -eq 0 ]
+    [ "$(wc -l < "$COUNT")" -eq 1 ]
 }
 
-@test "verify: PASSED L3 but resourceUri is a DIFFERENT image -> rc 1, fail closed" {
+@test "verify: PASSED L3 but resourceUri is a DIFFERENT image -> rc 1, not retried" {
     _install_gh_shim
-    run env PATH="$BIN" GH_COUNT="$COUNT" GH_SEQ="passed" GH_RESOURCE_URI="ghcr.io/tomhennen/wrangle/other@sha256:dead" \
+    run env PATH="$BIN" GH_COUNT="$COUNT" GH_SEQ="passed" WRANGLE_RETRY_DELAY=0 \
+        GH_RESOURCE_URI="ghcr.io/tomhennen/wrangle/other@sha256:dead" \
         bash -c "source '$LIB'; verify_image_vsa '$_image'"
     [ "$status" -eq 1 ]
+    # gh succeeded (rc 0), so the deterministic verdict failure is not retried.
+    [ "$(wc -l < "$COUNT")" -eq 1 ]
 }
 
-@test "verify: gh rc 0 but FAILED verdict -> rc 1, no wasted retries" {
+@test "verify: gh rc 0 but FAILED verdict -> rc 1, not retried" {
     _install_gh_shim
-    run env PATH="$BIN" GH_COUNT="$COUNT" GH_SEQ="failed" bash -c "source '$LIB'; verify_image_vsa '$_image'"
+    run env PATH="$BIN" GH_COUNT="$COUNT" GH_SEQ="failed" WRANGLE_RETRY_DELAY=0 \
+        bash -c "source '$LIB'; verify_image_vsa '$_image'"
     [ "$status" -eq 1 ]
     [ "$(wc -l < "$COUNT")" -eq 1 ]
 }
 
-@test "verify: malformed gh JSON -> rc 1, fail closed" {
+@test "verify: malformed gh JSON -> rc 1, fail closed, not retried" {
     _install_gh_shim
-    run env PATH="$BIN" GH_COUNT="$COUNT" GH_SEQ="malformed" bash -c "source '$LIB'; verify_image_vsa '$_image'"
+    run env PATH="$BIN" GH_COUNT="$COUNT" GH_SEQ="malformed" WRANGLE_RETRY_DELAY=0 \
+        bash -c "source '$LIB'; verify_image_vsa '$_image'"
     [ "$status" -eq 1 ]
-}
-
-# --- verify_image_vsa: retry control flow
-
-@test "verify: definitive no-attestation failure -> rc 1 with NO retries" {
-    _install_gh_shim
-    run env PATH="$BIN" GH_COUNT="$COUNT" GH_SEQ="noattest" bash -c "source '$LIB'; verify_image_vsa '$_image'"
-    [ "$status" -eq 1 ]
-    # A definitive verdict must not burn the retry budget.
     [ "$(wc -l < "$COUNT")" -eq 1 ]
 }
 
-@test "verify: transient then success -> retries, then rc 0" {
+# --- verify_image_vsa: retry control flow (a failed gh call is retried once)
+
+@test "verify: no-attestation failure -> rc 1, retried once" {
     _install_gh_shim
-    run env PATH="$BIN" GH_COUNT="$COUNT" GH_SEQ="transient passed" WRANGLE_VERIFY_RETRIES=3 \
+    run env PATH="$BIN" GH_COUNT="$COUNT" GH_SEQ="noattest" WRANGLE_RETRY_DELAY=0 \
+        bash -c "source '$LIB'; verify_image_vsa '$_image'"
+    [ "$status" -eq 1 ]
+    [ "$(wc -l < "$COUNT")" -eq 2 ]
+}
+
+@test "verify: transient gh failure then success -> rc 0, two gh calls" {
+    _install_gh_shim
+    run env PATH="$BIN" GH_COUNT="$COUNT" GH_SEQ="transient passed" WRANGLE_RETRY_DELAY=0 \
         bash -c "source '$LIB'; verify_image_vsa '$_image'"
     [ "$status" -eq 0 ]
     [ "$(wc -l < "$COUNT")" -eq 2 ]
-    [[ "$output" == *"transient"* ]]
 }
 
-@test "verify: persistent transient failure -> retries exhausted, rc 1" {
+@test "verify: persistent gh failure -> rc 1, retried once then fails closed" {
     _install_gh_shim
-    run env PATH="$BIN" GH_COUNT="$COUNT" GH_SEQ="transient" WRANGLE_VERIFY_RETRIES=3 \
+    run env PATH="$BIN" GH_COUNT="$COUNT" GH_SEQ="transient" WRANGLE_RETRY_DELAY=0 \
         bash -c "source '$LIB'; verify_image_vsa '$_image'"
     [ "$status" -eq 1 ]
-    [ "$(wc -l < "$COUNT")" -eq 3 ]
+    [ "$(wc -l < "$COUNT")" -eq 2 ]
 }
 
-@test "verify: timeout (124) is treated as transient -> retried" {
+@test "verify: gh timeout then success -> rc 0 (timeout exit is retried)" {
     _install_gh_shim
-    run env PATH="$BIN" GH_COUNT="$COUNT" GH_SEQ="timeout timeout passed" WRANGLE_VERIFY_RETRIES=3 \
+    run env PATH="$BIN" GH_COUNT="$COUNT" GH_SEQ="timeout passed" WRANGLE_RETRY_DELAY=0 \
         bash -c "source '$LIB'; verify_image_vsa '$_image'"
     [ "$status" -eq 0 ]
-    [ "$(wc -l < "$COUNT")" -eq 3 ]
+    [ "$(wc -l < "$COUNT")" -eq 2 ]
 }
