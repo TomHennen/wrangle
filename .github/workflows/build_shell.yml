@@ -77,7 +77,7 @@ jobs:
     permissions: {}    # guard reads env only — no workspace, no API, no secrets
     steps:
       # TODO: replace with $/actions/prep when GitHub ships $/ syntax (#136)
-      - uses: TomHennen/wrangle/actions/prep@3ba1e4fba153b332ebada17450bf0c6d91bccb00 # deps/bump-checkout-v7-uniform 2026-06-27
+      - uses: TomHennen/wrangle/actions/prep@c887feb4fa5b76c2534a5fb2c5a42b20ebaf2bcc # fix/dispatch-test-flakiness 2026-06-27
 
   # Source scan. A load-bearing (:fail) finding fails the run alongside
   # the shell build/test (there is no artifact to gate publishing of).
@@ -90,7 +90,7 @@ jobs:
       security-events: write
     steps:
       # TODO: replace with $/actions/scan when GitHub ships $/ syntax (#136)
-      - uses: TomHennen/wrangle/actions/scan@3ba1e4fba153b332ebada17450bf0c6d91bccb00 # deps/bump-checkout-v7-uniform 2026-06-27
+      - uses: TomHennen/wrangle/actions/scan@c887feb4fa5b76c2534a5fb2c5a42b20ebaf2bcc # fix/dispatch-test-flakiness 2026-06-27
         if: ${{ inputs.scan-tools != '' }}
         with:
           checkout: "true"
@@ -134,7 +134,7 @@ jobs:
         # setup-script input and multi-path bats — the main-pinned version
         # would ignore setup-script and fail the dogfooded integration bats.
         # Bump to main post-merge via tools/bump_action_pins.sh.
-        uses: TomHennen/wrangle/build/actions/shell@3ba1e4fba153b332ebada17450bf0c6d91bccb00 # deps/bump-checkout-v7-uniform 2026-06-27
+        uses: TomHennen/wrangle/build/actions/shell@c887feb4fa5b76c2534a5fb2c5a42b20ebaf2bcc # fix/dispatch-test-flakiness 2026-06-27
         with:
           scan-path: ${{ inputs.scan-path }}
           bats-path: ${{ inputs.bats-path }}
