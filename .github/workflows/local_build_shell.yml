@@ -38,7 +38,7 @@ jobs:
     # (test/image/test_verify_tool_image_real_gh.bats); gh needs a token to
     # read the public attestation. The job's own read-only token suffices.
     secrets:
-      gh-token: ${{ secrets.GITHUB_TOKEN }}
+      gh_token: ${{ secrets.GITHUB_TOKEN }}
 
   # Wrangle-internal (self-ref pins are not an adopter concern, so this
   # lives in the dogfood caller, not the reusable build_shell.yml). Fails

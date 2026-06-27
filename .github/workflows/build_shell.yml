@@ -68,7 +68,7 @@ on:
         type: string
         default: ""
     secrets:
-      gh-token:
+      gh_token:
         description: >
           Token exposed to the bats step as GH_TOKEN, for integration tests
           that call gh (e.g. the pull-time VSA gate's `gh attestation verify`).
@@ -112,9 +112,9 @@ jobs:
       contents: read
     # Reaches the auto-detected integration bats (run_bats in the composite
     # below) so a test that calls gh can authenticate. Empty when the caller
-    # passes no gh-token secret, leaving bats tokenless.
+    # passes no gh_token secret, leaving bats tokenless.
     env:
-      GH_TOKEN: ${{ secrets.gh-token }}
+      GH_TOKEN: ${{ secrets.gh_token }}
     steps:
       - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
         with:
