@@ -58,11 +58,9 @@ inputs:
     default: ""
   github-token:
     description: >
-      Token forwarded to tools that perform online audits (e.g. zizmor's
-      GitHub-API checks), and used by the pull-time VSA gate to verify each
-      curated tool image's attestation. Defaults to the workflow token; passing
-      empty keeps audit tools offline but fails the curated-image VSA gate closed
-      (set WRANGLE_VERIFY_TOOL_IMAGES=0 to bypass the gate for offline runs).
+      Token for online-audit tools (zizmor) and the pull-time VSA gate that
+      verifies curated tool images. Defaults to the workflow token; empty fails
+      the curated-image gate closed (bypass: WRANGLE_VERIFY_TOOL_IMAGES=0).
     required: false
     default: ${{ github.token }}
 
