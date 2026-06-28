@@ -2,50 +2,31 @@
 set -euo pipefail
 set -f  # disable globbing — handles external tool names
 
-# tools/check_catalog_provenance_freshness.sh — provenance-based
-# "built-from-current-source" freshness for the curated image entries in
-# tools/catalog.json. The true docs/tool_container_design.md §11 guarantee, and
-# the one check_catalog_freshness.sh's adoption-lag compare deliberately leaves
-# open: it proves the catalog tracks the published :latest, NOT that the pinned
-# digest was built from the tool's CURRENT source.
+# tools/check_catalog_provenance_freshness.sh — checks that each curated tool
+# image in tools/catalog.json was built from the current tool source. The §11
+# guarantee check_catalog_freshness.sh does not give: it only proves the catalog
+# tracks :latest, not that the pinned digest was built from current source.
 #
-# For each curated `delivery: image` entry it reads the pinned image's SLSA build
-# provenance via `gh attestation verify`, pinned to wrangle's container
-# build+publish signer identity (the same trust anchor lib/verify_image_vsa.sh
-# uses — single-sourced here), takes the source commit the image was built from,
-# and asserts that commit is an ancestor of HEAD whose tool source is unchanged
-# up to HEAD. The diff set is the publish trigger's own inputs — all of tools/
-# and lib/ (.github/workflows/local_publish_images.yml rebuilds the whole image
-# matrix on any tools/** or lib/** change) — minus the catalog file itself. The
-# whole-tools/ set is deliberate: an image may compile a first-party binary from
-# a SIBLING package (attest-toolbox builds tools/wrangle-attest), so a per-tool
-# dir would miss a sibling change and report a stale SIGNING image as fresh — a
-# false-fresh in the exact case the gate exists for. False-stale (a tools/ change
-# outside the image) is acceptable and matches the trigger; false-fresh is not.
-# tools/catalog.json is excluded because a digest bump is itself a tools/ change
-# that must not flag its own freshly-built image stale (the §11 no-loop rule).
+# Per curated `delivery: image` entry it reads the image's signed SLSA provenance
+# with `gh attestation verify` (signer identity single-sourced from
+# lib/verify_image_vsa.sh), takes the build commit, and fails unless that commit
+# is an ancestor of HEAD with nothing changed since under tools/ or lib/ (the
+# publish trigger's paths), excluding tools/catalog.json. Diffing all of tools/,
+# not one tool's dir, is deliberate: an image may compile a binary from a sibling
+# package, and missing that would call a stale signing image fresh. catalog.json
+# is excluded so a digest bump can't flag the image it points at as stale.
 #
-# This is THE gate for the containerized signing path: a stale toolbox image is
-# still validly attested, so the pull-time VSA gate (verify_image_vsa) passes it;
-# only source-freshness catches a stale image about to run with the signing token.
-#
-# Network + full git history — a release gate, never the per-PR path; run with
-# fetch-depth: 0 so the build commit is present.
-#
+# A release gate, never per-PR: needs the network and full history (fetch-depth: 0).
 # Catalog path: $WRANGLE_CATALOG, else the catalog beside this script.
 #
-# Exit: 0 every curated image is built from current source,
-#       1 a tool's source changed since its pinned image was built (republish +
-#         bump needed), or the provenance does not bind a wrangle source commit,
-#       2 the registry/attestation backend was unreachable (an image carrying NO
-#         provenance lands here too — gh exits non-zero, fail-closed), or gh/jq/
-#         git missing.
+# Exit: 0 all built from current source; 1 a source changed since build, or the
+#       provenance binds no wrangle commit; 2 backend unreachable (an image with
+#       no provenance lands here, fail-closed), or gh/jq/git missing.
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 # shellcheck source=../lib/read_catalog.sh
 source "$SCRIPT_DIR/../lib/read_catalog.sh"
-# Single-source the signer identity + retry from the pull-time VSA gate so the
-# provenance read trusts exactly the identities that gate does.
+# The signer identity + retry come from the pull-time VSA gate (same trust anchor).
 # shellcheck source=../lib/verify_image_vsa.sh
 source "$SCRIPT_DIR/../lib/verify_image_vsa.sh"
 

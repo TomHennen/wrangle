@@ -314,10 +314,9 @@ not a meaningful per-delivery signal.)
   pin cannot pass CI green (the #539/#544 class). The OCI axis is served by a *parallel* set of
   catalog-aware checks — `tools/check_catalog.sh` (static digest/namespace hygiene, per-PR),
   `tools/check_catalog_freshness.sh` (adoption-lag vs `:latest`, a release gate),
-  `tools/check_catalog_provenance_freshness.sh` (built-from-current-source: each pinned digest's signed
-  SLSA provenance → build commit → diff `tools/` + `lib/` (the publish trigger's own paths, so a binary
-  built from a sibling package is covered) against HEAD, excluding the catalog file itself; an
-  ancestor-bound release gate that is the OCI analog of `check_pin_ancestry`/`check_pin_freshness`),
+  `tools/check_catalog_provenance_freshness.sh` (checks each pinned image was built from current source:
+  it reads the image's signed provenance for the commit it was built from, and fails if anything under
+  `tools/` or `lib/` changed since — a release gate, the OCI analog of `check_pin_ancestry`/`check_pin_freshness`),
   `tools/bump_catalog_digest.sh` (the fix) — plus the DEP_MGMT.md image integrity rung; the git-pin tools
   (`check_pin_ancestry`, `check_pin_freshness`, `bump_action_pins`, WL005) are left untouched, since
   digests and git SHAs are different axes. Because the digest lives in one curated place (§3.6), this

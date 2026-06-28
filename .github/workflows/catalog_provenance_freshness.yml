@@ -1,14 +1,11 @@
 name: Catalog Provenance Freshness
 
-# Advisory source-freshness check (#633): weekly, reads each curated tool-image
-# digest's signed SLSA build provenance and fails if the image was not built
-# from the current tool source (the tool dir, lib/, tools/go.mod + go.sum at the
-# build commit differ from HEAD). This is the §11 guarantee the adoption-lag
-# check (catalog_freshness.yml) cannot prove: a stale image is still validly
-# attested, so only this catches it. Kept off the per-PR path (network +
-# attestation reads); the same check is a blocking release precondition (see the
-# cut-release runbook), where exit 2 fails closed. Advisory here because it
-# depends on a live registry + Sigstore — a failed run notifies.
+# Checks weekly that each published tool image was built from current source —
+# that nothing under tools/ or lib/ changed since the commit the image was built
+# from. The adoption-lag check (catalog_freshness.yml) only proves the catalog
+# tracks :latest; a stale image is still validly attested, so this is what
+# catches it. Advisory here (a registry/Sigstore blip only warns); the same check
+# is a blocking release gate in the cut-release runbook, where exit 2 fails closed.
 
 on:
   schedule:
