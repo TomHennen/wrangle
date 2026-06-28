@@ -19,6 +19,11 @@
       "delivery": "image",
       "image": "ghcr.io/tomhennen/wrangle/wrangle-lint@sha256:d04bc484426550135d7e2d597da3b6637cfba9225c8f6477b1f60bea9efc7f3d",
       "network": "none"
+    },
+    "attest-toolbox": {
+      "kind": "attest",
+      "image": "ghcr.io/tomhennen/wrangle/attest-toolbox@sha256:638972885a6ebb3966aaa47954bad5d10ab4bf009288818a3abd4bdb641b270b",
+      "network": "egress"
     }
   }
 }

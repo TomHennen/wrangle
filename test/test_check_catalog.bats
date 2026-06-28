@@ -81,6 +81,26 @@ write_catalog() { printf '%s\n' "$1" > "$CATALOG"; }
     [ "$status" -eq 1 ]
 }
 
+@test "check_catalog: a no-delivery entry with a curated digest-pinned image passes (the toolbox grant)" {
+    write_catalog '{"tools":{"attest-toolbox":{"kind":"attest","image":"ghcr.io/tomhennen/wrangle/attest-toolbox@sha256:'"$(printf 'a%.0s' {1..64})"'","network":"egress"}}}'
+    run "$SCRIPT"
+    [ "$status" -eq 0 ]
+}
+
+@test "check_catalog: a no-delivery entry with a mutable image is rejected (pin enforced without delivery)" {
+    write_catalog '{"tools":{"attest-toolbox":{"kind":"attest","image":"ghcr.io/tomhennen/wrangle/attest-toolbox:latest"}}}'
+    run "$SCRIPT"
+    [ "$status" -eq 1 ]
+    [[ "$output" == *"not digest-pinned"* ]]
+}
+
+@test "check_catalog: a no-delivery entry with an off-namespace image is rejected" {
+    write_catalog '{"tools":{"attest-toolbox":{"kind":"attest","image":"ghcr.io/someoneelse/attest-toolbox@sha256:'"$(printf 'a%.0s' {1..64})"'"}}}'
+    run "$SCRIPT"
+    [ "$status" -eq 1 ]
+    [[ "$output" == *"curated namespace"* ]]
+}
+
 @test "check_catalog: extra argument is a usage error (exit 2)" {
     write_catalog '{"tools":{}}'
     run "$SCRIPT" unexpected

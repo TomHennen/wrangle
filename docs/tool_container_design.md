@@ -158,12 +158,17 @@ thing for the pin tooling to track and for adopters to read.
   offer rails (a `docker` Dependabot entry, a lint warning on a stale override) but cannot vouch for an
   image it does not control.
 
-The shipped catalog (`tools/catalog.json`) is keyed by the short name the `tools:` selection uses, parsed
-with `jq` (`lib/read_catalog.sh`). Capabilities default closed: an absent `network`/`secret` means none,
-and a tool not listed — or one with `delivery: adapter` — runs the in-process adapter path. The `kind`
-field is recorded but unused today; the `command:`/`args:`/`WRANGLE_KIND` passthrough and kind-based
-(scan vs sbom) dispatch land when a command-shared or sbom tool does. `osv` carries `network: egress`
-because it refreshes its advisory DB from osv.dev.
+The shipped catalog (`tools/catalog.json`) is parsed with `jq` (`lib/read_catalog.sh`) and has **two
+consumers**: the scan orchestrator dispatches entries the `tools:` selection names that carry
+`delivery: image` (the docker-run path; a tool not listed — or one with `delivery: adapter`/no `delivery`
+— takes the in-process adapter path), and the verify action resolves one **fixed key**
+(`attest-toolbox`) for its in-container `ampel verify`. An entry may therefore omit `delivery` to opt out
+of scan dispatch while still being a reviewable grant the verify path resolves; `check_catalog` pin- and
+namespace-lints any entry naming an `image`, regardless of `delivery`. Capabilities default closed: an
+absent `network`/`secret` means none. The `kind` field is recorded but unused today; the
+`command:`/`args:`/`WRANGLE_KIND` passthrough and kind-based (scan vs sbom) dispatch land when a
+command-shared or sbom tool does. `osv` carries `network: egress` because it refreshes its advisory DB
+from osv.dev.
 
 ### 3.7 Capability declaration
 
@@ -358,10 +363,13 @@ not a meaningful per-delivery signal.)
   having to verify its own verifier.
   **Status (#596 Track 2):** the toolbox image (`tools/attest-toolbox/`, all four binaries from
   `tools/go.mod`) is built and published like the scan images, and `actions/verify` has an opt-in
-  `WRANGLE_VERIFY_AMPEL_IMAGE` that runs *ampel verify only* (no signing token, network egress only) via
-  that image — off by default, byte-identical when unset, and not on the L3 release path. Containerizing
-  the signing steps (bnd/cosign, which need the OIDC token) and the OCI-collector verify path remain
-  deferred.
+  `WRANGLE_VERIFY_AMPEL_TOOLBOX` toggle that runs *ampel verify only* (no signing token) via that image —
+  resolved from the curated catalog's `attest-toolbox` grant (digest-pinned, `network: egress`, no token)
+  and provenance-verified host-side (`verify_image_vsa`) before it runs. Off by default, byte-identical
+  when unset, and not on the L3 release path; supported for the go/python/npm build types only (the
+  container build type's `oci:` collector needs in-container registry auth, fail-closed and deferred).
+  Containerizing the signing steps (bnd/cosign, which need the OIDC token) and the OCI-collector verify
+  path remain deferred.
 - **Separate feature:** emitting an attested container of an adopter's own Go app (the "free container"
   value-add via goreleaser/ko). It reuses some machinery but serves adopter UX, not the goals here.
 - **Left as-is:** tools with official GitHub Actions that gain nothing from containerization stay

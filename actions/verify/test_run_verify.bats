@@ -928,43 +928,138 @@ SHIM
     [[ "$(wc -l < "$shim.calls")" -eq 2 ]]
 }
 
-@test "wrangle_ampel: default (no image) runs the in-job ampel binary unchanged" {
+# A digest-pinned curated toolbox image (wrangle namespace) for the gate tests.
+_toolbox_image="ghcr.io/tomhennen/wrangle/attest-toolbox@sha256:0000000000000000000000000000000000000000000000000000000000000000"
+
+# Write a stub catalog with the attest-toolbox grant ($1 = image; default the
+# pinned curated image) and export WRANGLE_CATALOG at it.
+_stub_toolbox_catalog() {
+    local image="${1:-$_toolbox_image}"
+    cat > "$TEST_DIR/catalog.json" <<JSON
+{"tools":{"attest-toolbox":{"kind":"attest","image":"$image","network":"egress"}}}
+JSON
+    export WRANGLE_CATALOG="$TEST_DIR/catalog.json"
+}
+
+# Install a docker shim that records its argv, and a gh shim whose attestation
+# verdict is PASSED (the real --format json shape) or, with GH_FAIL=1, FAILED.
+_install_toolbox_shims() {
+    cat > "$TEST_DIR/docker" <<EOF
+#!/bin/bash
+printf '%s\n' "\$*" > "$TEST_DIR/docker.args"
+EOF
+    chmod +x "$TEST_DIR/docker"
+    cat > "$TEST_DIR/gh" <<EOF
+#!/bin/bash
+verdict=PASSED
+[[ -n "\${GH_FAIL:-}" ]] && verdict=FAILED
+cat <<JSON
+[{"verificationResult":{"statement":{"predicate":{"verificationResult":"\$verdict","resourceUri":"$_toolbox_image","verifiedLevels":["SLSA_BUILD_LEVEL_3"]}}}}]
+JSON
+EOF
+    chmod +x "$TEST_DIR/gh"
+}
+
+@test "wrangle_ampel: toggle off runs the in-job ampel binary unchanged" {
     # Shim ampel to record it was the binary invoked, with the args passed through.
     cat > "$TEST_DIR/ampel" <<EOF
 #!/bin/bash
 printf '%s\n' "\$@" > "$TEST_DIR/ampel.args"
 EOF
     chmod +x "$TEST_DIR/ampel"
-    PATH="$TEST_DIR:$PATH" WRANGLE_VERIFY_AMPEL_IMAGE="" run wrangle_ampel verify --policy=p
+    PATH="$TEST_DIR:$PATH" run wrangle_ampel verify --policy=p
     [ "$status" -eq 0 ]
     grep -q -- '--policy=p' "$TEST_DIR/ampel.args"
     # No docker on the default path.
-    [ ! -f "$TEST_DIR/docker.called" ]
+    [ ! -f "$TEST_DIR/docker.args" ]
 }
 
-@test "wrangle_ampel: a non-digest-pinned image is rejected (fail-closed, no docker)" {
-    cat > "$TEST_DIR/docker" <<EOF
+@test "wrangle_ampel: WRANGLE_VERIFY_AMPEL_TOOLBOX=0 stays on the in-job binary (no footgun)" {
+    cat > "$TEST_DIR/ampel" <<EOF
 #!/bin/bash
-touch "$TEST_DIR/docker.called"
+printf '%s\n' "\$@" > "$TEST_DIR/ampel.args"
 EOF
-    chmod +x "$TEST_DIR/docker"
-    PATH="$TEST_DIR:$PATH" WRANGLE_VERIFY_AMPEL_IMAGE="img:test" \
-        run wrangle_ampel verify
+    chmod +x "$TEST_DIR/ampel"
+    PATH="$TEST_DIR:$PATH" WRANGLE_VERIFY_AMPEL_TOOLBOX=0 run wrangle_ampel verify --policy=p
+    [ "$status" -eq 0 ]
+    grep -q -- '--policy=p' "$TEST_DIR/ampel.args"
+    [ ! -f "$TEST_DIR/docker.args" ]
+}
+
+@test "wrangle_ampel: toggle on resolves the catalog image, verifies it, runs it on the egress bridge" {
+    _install_toolbox_shims
+    _stub_toolbox_catalog
+    export WRANGLE_AMPEL_RESULTS="$TEST_DIR/results/vsa.json"
+    mkdir -p "$TEST_DIR/results" "$BUNDLE_OUT"
+    PATH="$TEST_DIR:$PATH" WRANGLE_VERIFY_AMPEL_TOOLBOX=1 run wrangle_ampel verify --policy=p
+    [ "$status" -eq 0 ]
+    grep -q "toolbox-image VSA verified PASSED" <<< "$output"
+    # The catalog image ran, on the bridge (egress) network — not host.
+    grep -q -- "--network bridge" "$TEST_DIR/docker.args"
+    grep -q -- "$_toolbox_image ampel verify" "$TEST_DIR/docker.args"
+}
+
+@test "wrangle_ampel: toggle on but a non-PASSED VSA fails closed (no docker)" {
+    _install_toolbox_shims
+    _stub_toolbox_catalog
+    export WRANGLE_AMPEL_RESULTS="$TEST_DIR/results/vsa.json"
+    mkdir -p "$TEST_DIR/results"
+    PATH="$TEST_DIR:$PATH" WRANGLE_VERIFY_AMPEL_TOOLBOX=1 GH_FAIL=1 run wrangle_ampel verify
     [ "$status" -eq 2 ]
-    [ ! -f "$TEST_DIR/docker.called" ]
+    grep -q "verification failed" <<< "$output"
+    [ ! -f "$TEST_DIR/docker.args" ]
+}
+
+@test "wrangle_ampel: toggle on but no catalog toolbox entry fails closed (no docker)" {
+    _install_toolbox_shims
+    echo '{"tools":{}}' > "$TEST_DIR/catalog.json"
+    export WRANGLE_CATALOG="$TEST_DIR/catalog.json"
+    PATH="$TEST_DIR:$PATH" WRANGLE_VERIFY_AMPEL_TOOLBOX=1 run wrangle_ampel verify
+    [ "$status" -eq 2 ]
+    grep -q "no attest-toolbox image" <<< "$output"
+    [ ! -f "$TEST_DIR/docker.args" ]
+}
+
+@test "wrangle_ampel: toggle on but a non-digest-pinned catalog image is rejected (no docker)" {
+    _install_toolbox_shims
+    _stub_toolbox_catalog "ghcr.io/tomhennen/wrangle/attest-toolbox:latest"
+    PATH="$TEST_DIR:$PATH" WRANGLE_VERIFY_AMPEL_TOOLBOX=1 run wrangle_ampel verify
+    [ "$status" -eq 2 ]
+    grep -q "digest-pinned" <<< "$output"
+    [ ! -f "$TEST_DIR/docker.args" ]
 }
 
 @test "wrangle_ampel: container path refuses an OCI collector (fail-closed, no docker)" {
-    cat > "$TEST_DIR/docker" <<EOF
-#!/bin/bash
-touch "$TEST_DIR/docker.called"
-EOF
-    chmod +x "$TEST_DIR/docker"
-    local digest_img="img@sha256:0000000000000000000000000000000000000000000000000000000000000000"
-    PATH="$TEST_DIR:$PATH" WRANGLE_VERIFY_AMPEL_IMAGE="$digest_img" COLLECTOR="oci:ghcr.io/x@sha256:abc" \
+    _install_toolbox_shims
+    _stub_toolbox_catalog
+    PATH="$TEST_DIR:$PATH" WRANGLE_VERIFY_AMPEL_TOOLBOX=1 COLLECTOR="oci:ghcr.io/x@sha256:abc" \
         run wrangle_ampel verify
     [ "$status" -eq 2 ]
-    [ ! -f "$TEST_DIR/docker.called" ]
+    grep -q "oci collector" <<< "$output"
+    [ ! -f "$TEST_DIR/docker.args" ]
+}
+
+@test "wrangle_ampel: WRANGLE_VERIFY_TOOL_IMAGES=0 break-glass skips verify and still runs" {
+    # The sole path that dispatches without verifying — gh must never be consulted.
+    cat > "$TEST_DIR/gh" <<EOF
+#!/bin/bash
+touch "$TEST_DIR/gh.called"
+EOF
+    chmod +x "$TEST_DIR/gh"
+    cat > "$TEST_DIR/docker" <<EOF
+#!/bin/bash
+printf '%s\n' "\$*" > "$TEST_DIR/docker.args"
+EOF
+    chmod +x "$TEST_DIR/docker"
+    _stub_toolbox_catalog
+    export WRANGLE_AMPEL_RESULTS="$TEST_DIR/results/vsa.json"
+    mkdir -p "$TEST_DIR/results" "$BUNDLE_OUT"
+    PATH="$TEST_DIR:$PATH" WRANGLE_VERIFY_AMPEL_TOOLBOX=1 WRANGLE_VERIFY_TOOL_IMAGES=0 \
+        run wrangle_ampel verify --policy=p
+    [ "$status" -eq 0 ]
+    grep -q "verification disabled by configuration" <<< "$output"
+    [ ! -f "$TEST_DIR/gh.called" ]
+    grep -q -- "$_toolbox_image ampel verify" "$TEST_DIR/docker.args"
 }
 
 @test "retry: ampel and bnd invocations both route through wrangle_retry_once" {

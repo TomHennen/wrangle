@@ -58,9 +58,9 @@ inputs:
     default: ""
   github-token:
     description: >
-      Token forwarded to tools that perform online audits (e.g. zizmor's
-      GitHub-API checks). Defaults to the workflow token; pass empty to keep
-      those tools offline.
+      Token for online-audit tools (zizmor) and the pull-time VSA gate that
+      verifies curated tool images. Defaults to the workflow token; empty fails
+      the curated-image gate closed (bypass: WRANGLE_VERIFY_TOOL_IMAGES=0).
     required: false
     default: ${{ github.token }}
 
@@ -118,6 +118,7 @@ runs:
         WRANGLE_TOOLS: ${{ inputs.tools }}
         WRANGLE_ROOT: ${{ github.action_path }}/../..
         WRANGLE_EXTRA_GITHUB_TOKEN: ${{ inputs.github-token }}
+        GH_TOKEN: ${{ inputs.github-token }}
         WRANGLE_INSTALL_TIMEOUT: "900"
       run: |
         # shellcheck source=../../lib/env.sh
@@ -141,7 +142,7 @@ runs:
     # TODO: replace with $/tools/scorecard when $/ syntax ships (#136, #137)
     - name: Scorecard
       if: always() && contains(inputs.tools, 'scorecard') && github.event_name != 'pull_request'
-      uses: TomHennen/wrangle/tools/scorecard@da0d201ed70d321919ed883e4052dae68b9aa350 # fix/dispatch-test-flakiness 2026-06-27
+      uses: TomHennen/wrangle/tools/scorecard@d6bcaf511af9b83e24a5cd268139836de7ab42e7 # main 2026-06-28
 
     # Dependency Review is PR-only — the upstream action requires
     # github.event.pull_request.base.sha / head.sha to compute the diff.
@@ -153,7 +154,7 @@ runs:
     # The wrapper's inline defaults (fail-on-severity: high) still apply.
     - name: Dependency Review
       if: always() && contains(inputs.tools, 'dependency-review') && github.event_name == 'pull_request'
-      uses: TomHennen/wrangle/tools/dependency-review@da0d201ed70d321919ed883e4052dae68b9aa350 # fix/dispatch-test-flakiness 2026-06-27
+      uses: TomHennen/wrangle/tools/dependency-review@d6bcaf511af9b83e24a5cd268139836de7ab42e7 # main 2026-06-28
 
     - name: Generate step summary
       if: always()
