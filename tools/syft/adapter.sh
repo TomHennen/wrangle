@@ -26,8 +26,7 @@ if [[ ! -d "$OUTPUT_DIR" ]]; then
     exit 2
 fi
 
-# Allowlist the format before it reaches syft's -o argument and the output
-# filename. Default to spdx-json for a standalone `docker run` (no env set).
+# Allowlist before it reaches syft's -o arg and the filename; default for a bare docker run.
 FORMAT="${WRANGLE_SBOM_FORMAT:-spdx-json}"
 case "$FORMAT" in
     spdx-json|cyclonedx-json) ;;
@@ -36,11 +35,10 @@ case "$FORMAT" in
         exit 2 ;;
 esac
 
-# spdx-json -> sbom.spdx.json, cyclonedx-json -> sbom.cyclonedx.json
+# spdx-json -> sbom.spdx.json
 OUT_FILE="${OUTPUT_DIR}/sbom.${FORMAT%-json}.json"
 
-# Capture syft's stderr so a real failure surfaces (its progress logs go to
-# stderr, the SBOM to stdout).
+# syft writes the SBOM to stdout, logs to stderr; keep stderr to surface a real failure.
 ERR_FILE="$(mktemp "${TMPDIR:-/tmp}/wrangle-syft-err-XXXXXX")"
 trap 'rm -f "$ERR_FILE"' EXIT
 
@@ -52,8 +50,7 @@ if [[ "$syft_exit" -ne 0 ]]; then
     exit 2
 fi
 
-# A malformed (non-JSON) SBOM must fail, not silently pass (§3.3, the contract's
-# jq-validate rule).
+# A malformed (non-JSON) SBOM must fail, not silently pass (§3.3).
 if ! jq empty "$OUT_FILE" 2>/dev/null; then
     printf 'wrangle/syft: produced invalid JSON in %s\n' "$OUT_FILE" >&2
     exit 2

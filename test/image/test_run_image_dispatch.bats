@@ -273,8 +273,7 @@ JSON
     [ "$status" -eq 0 ]
     [ -f "$OUT/mocktool/sbom.spdx.json" ]
     [ "$(jq -r '.spdxVersion' "$OUT/mocktool/sbom.spdx.json")" = "SPDX-2.3" ]
-    # The sbom path writes the attest manifest with the SPDX predicate and the
-    # SBOM filename — never an output.md.
+    # sbom writes the attest manifest, never an output.md.
     [ -f "$OUT/mocktool/wrangle_attestation_metadata.json" ]
     [ "$(jq -r '."predicate-type"' "$OUT/mocktool/wrangle_attestation_metadata.json")" = "https://spdx.dev/Document" ]
     [ "$(jq -r '."result-file"' "$OUT/mocktool/wrangle_attestation_metadata.json")" = "sbom.spdx.json" ]

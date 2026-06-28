@@ -214,8 +214,7 @@ run_one_tool() {
     local tool_output_dir="${output_dir}/${tool}"
     mkdir -p "$tool_output_dir"
 
-    # Tool kind (§3.3) drives exit-code mapping and output handling. Absent
-    # (an adapter-path tool with no catalog entry) means the default scan kind.
+    # Catalog kind drives exit-code mapping and output handling; absent -> scan.
     local kind
     kind="$(read_catalog_field "$CATALOG" "$tool" kind)"
 
@@ -344,8 +343,7 @@ run_one_tool() {
 
     case "$kind" in
         sbom)
-            # sbom has no findings state (§3.3): 0 ok / 2 error, and any other
-            # code — including 1 — is a tool error.
+            # No findings state: 0 ok / 2 error (1 is an error too).
             case "$adapter_exit" in
                 0)
                     tool_status="pass"
@@ -363,7 +361,7 @@ run_one_tool() {
             esac
             ;;
         *)
-            # scan (default): 0 clean / 1 findings / 2 error.
+            # scan: 0 clean / 1 findings / 2 error.
             case "$adapter_exit" in
                 0)
                     tool_status="pass"
@@ -390,9 +388,8 @@ run_one_tool() {
     esac
 
     if [[ "$kind" == "sbom" ]]; then
-        # sbom output is the declared SBOM file; no output.md (§3.3). On a clean
-        # run, write the attest manifest so the verify job signs the SBOM —
-        # mapping the declared format to its filename and in-toto predicate.
+        # No output.md; on success write the attest manifest, mapping the
+        # declared format to the SBOM filename and its in-toto predicate.
         if [[ "$tool_status" != "error" ]]; then
             local format sbom_file="" predicate=""
             format="$(read_catalog_field "$CATALOG" "$tool" format)"
@@ -400,7 +397,7 @@ run_one_tool() {
                 spdx-json)
                     sbom_file="sbom.spdx.json"; predicate="https://spdx.dev/Document" ;;
                 cyclonedx-json)
-                    # Wired for a future cyclonedx runtime; only spdx-json ships today.
+                    # Wired but unexercised; only spdx-json ships today.
                     sbom_file="sbom.cyclonedx.json"; predicate="https://cyclonedx.org/bom" ;;
                 *)
                     printf 'wrangle: %s: unknown sbom format: %s\n' "$tool" "$format" >&2 ;;
