@@ -171,12 +171,17 @@ thing for the pin tooling to track and for adopters to read.
   offer rails (a `docker` Dependabot entry, a lint warning on a stale override) but cannot vouch for an
   image it does not control.
 
-The shipped catalog (`tools/catalog.json`) is keyed by the short name the `tools:` selection uses, parsed
-with `jq` (`lib/read_catalog.sh`). Capabilities default closed: an absent `network`/`secret` means none,
-and a tool not listed — or one with `delivery: adapter` — runs the in-process adapter path. The `kind`
-field is recorded but unused today; the `command:`/`args:`/`WRANGLE_KIND` passthrough and kind-based
-(scan vs sbom) dispatch land when a command-shared or sbom tool does. `osv` carries `network: egress`
-because it refreshes its advisory DB from osv.dev.
+The shipped catalog (`tools/catalog.json`) is parsed with `jq` (`lib/read_catalog.sh`) and has **two
+consumers**: the scan orchestrator dispatches entries the `tools:` selection names that carry
+`delivery: image` (the docker-run path; a tool not listed — or one with `delivery: adapter`/no `delivery`
+— takes the in-process adapter path), and the verify action resolves one **fixed key**
+(`attest-toolbox`) for its in-container `ampel verify`. An entry may therefore omit `delivery` to opt out
+of scan dispatch while still being a reviewable grant the verify path resolves; `check_catalog` pin- and
+namespace-lints any entry naming an `image`, regardless of `delivery`. Capabilities default closed: an
+absent `network`/`secret` means none. The `kind` field is recorded but unused today; the
+`command:`/`args:`/`WRANGLE_KIND` passthrough and kind-based (scan vs sbom) dispatch land when a
+command-shared or sbom tool does. `osv` carries `network: egress` because it refreshes its advisory DB
+from osv.dev.
 
 ### 3.7 Capability declaration
 
@@ -329,12 +334,18 @@ not a meaningful per-delivery signal.)
   published fix is actually *adopted*: the catalog's image digest must be freshness-checked so a stale
   pin cannot pass CI green (the #539/#544 class). The OCI axis is served by a *parallel* set of
   catalog-aware checks — `tools/check_catalog.sh` (static digest/namespace hygiene, per-PR),
-  `tools/check_catalog_freshness.sh` (adoption-lag vs `:latest`, a release gate), `tools/bump_catalog_digest.sh`
-  (the fix) — plus the DEP_MGMT.md image integrity rung; the git-pin tools (`check_pin_ancestry`,
-  `check_pin_freshness`, `bump_action_pins`, WL005) are left untouched, since digests and git SHAs are
-  different axes. Because the digest lives in one curated place (§3.6), this stays a narrow,
-  wrangle-internal task, required only before *production consumption*, not before prototyping. Still open:
-  provenance-based source-freshness, a digest cooldown, and the advisory→blocking promotion (#623).
+  `tools/check_catalog_freshness.sh` (adoption-lag vs `:latest`, a release gate),
+  `tools/check_catalog_provenance_freshness.sh` (checks each pinned image was built from current source:
+  it reads the image's signed provenance for the commit it was built from, and fails if anything under
+  `tools/` or `lib/` changed since — a release gate, the OCI analog of `check_pin_ancestry`/`check_pin_freshness`),
+  `tools/bump_catalog_digest.sh` (the fix) — plus the DEP_MGMT.md image integrity rung; the git-pin tools
+  (`check_pin_ancestry`, `check_pin_freshness`, `bump_action_pins`, WL005) are left untouched, since
+  digests and git SHAs are different axes. Because the digest lives in one curated place (§3.6), this
+  stays a narrow, wrangle-internal task, required only before *production consumption*, not before
+  prototyping. Provenance source-freshness is what gates the containerized signing path (#619): a stale
+  image is still validly attested, so the pull-time VSA gate passes it — only source-freshness catches a
+  stale image about to run with the signing token. Still open (#623): a digest cooldown and the
+  adoption-lag check's advisory→blocking promotion.
 - **Pull-time consumer VSA gate.** Before a curated image runs, the orchestrator verifies it carries a
   PASSED, SLSA-Build-L3 wrangle verification-summary attestation signed by the container build+publish
   workflow, fail-closed (`run.sh` `verify_tool_image`, `lib/verify_image_vsa.sh`). The signer identity is
@@ -368,10 +379,13 @@ not a meaningful per-delivery signal.)
   having to verify its own verifier.
   **Status (#596 Track 2):** the toolbox image (`tools/attest-toolbox/`, all four binaries from
   `tools/go.mod`) is built and published like the scan images, and `actions/verify` has an opt-in
-  `WRANGLE_VERIFY_AMPEL_IMAGE` that runs *ampel verify only* (no signing token, network egress only) via
-  that image — off by default, byte-identical when unset, and not on the L3 release path. Containerizing
-  the signing steps (bnd/cosign, which need the OIDC token) and the OCI-collector verify path remain
-  deferred.
+  `WRANGLE_VERIFY_AMPEL_TOOLBOX` toggle that runs *ampel verify only* (no signing token) via that image —
+  resolved from the curated catalog's `attest-toolbox` grant (digest-pinned, `network: egress`, no token)
+  and provenance-verified host-side (`verify_image_vsa`) before it runs. Off by default, byte-identical
+  when unset, and not on the L3 release path; supported for the go/python/npm build types only (the
+  container build type's `oci:` collector needs in-container registry auth, fail-closed and deferred).
+  Containerizing the signing steps (bnd/cosign, which need the OIDC token) and the OCI-collector verify
+  path remain deferred.
 - **Separate feature:** emitting an attested container of an adopter's own Go app (the "free container"
   value-add via goreleaser/ko). It reuses some machinery but serves adopter UX, not the goals here.
 - **Left as-is:** tools with official GitHub Actions that gain nothing from containerization stay
@@ -441,9 +455,10 @@ release does not rebuild or re-tag tool images.**
   bump PR — not a manual double-bump. A catalog-only digest change touches no Dockerfile, so it triggers
   no rebuild (no loop).
 - **Release tag** — precondition: the catalog is fresh. `check_catalog_freshness.sh` proves the shipped
-  half — no digest is behind its published `:latest` (adoption lag); the stronger "every digest is the
-  image built from the current tool source" guarantee is the deferred provenance check (#623). Then tag.
-  No image is built or re-tagged at release time.
+  half — no digest is behind its published `:latest` (adoption lag); `check_catalog_provenance_freshness.sh`
+  proves the stronger half — every digest is the image built from the current tool source, read from each
+  image's signed provenance. Both are blocking release gates that fail closed on a backend error (exit 2 =
+  precondition unverified). Then tag. No image is built or re-tagged at release time.
 
 Consequences:
 - The catalog at a release commit references images built from *ancestor* commits. That is correct as

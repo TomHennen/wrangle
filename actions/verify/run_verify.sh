@@ -44,6 +44,14 @@ wrangle_resolve_policy() {
 # shellcheck source=../../lib/sign_metadata.sh
 source "$LIB_DIR/sign_metadata.sh"
 
+# shellcheck source=../../lib/read_catalog.sh
+source "$LIB_DIR/read_catalog.sh"
+# shellcheck source=../../lib/verify_image_vsa.sh
+source "$LIB_DIR/verify_image_vsa.sh"
+
+WRANGLE_CATALOG="${WRANGLE_CATALOG:-$REPO_ROOT/tools/catalog.json}"
+WRANGLE_VERIFY_TOOLBOX_TOOL="attest-toolbox"
+
 # Emit the ampel subject flag for one subject, one arg per line. A digest-form
 # subject (algo:hex, e.g. a container) passes through; a file subject is hashed
 # to sha256 ourselves and passed as --subject-hash so the VSA subject carries a
@@ -93,30 +101,47 @@ wrangle_bnd_sign_args() {
     printf '%s\n' statement "$1"
 }
 
-# Run ampel: the in-job binary by default, or — when WRANGLE_VERIFY_AMPEL_IMAGE
-# names a toolbox image — that image via `docker run`. The container path is an
-# experimental prototype seam (#596); the catalog-driven capability grant plus
-# digest/provenance gating that must precede wiring it into any workflow are #619.
-# Constraints of the container path: no token enters the container (ampel verify
-# never signs); policy/bundle mount read-only, only the results dir is writable;
-# it fails closed (exit 2) on an oci: collector, whose registry auth isn't plumbed.
+# "egress" -> docker's default bridge; anything else -> no network.
+wrangle_toolbox_network() {
+    case "$(read_catalog_field "$WRANGLE_CATALOG" "$WRANGLE_VERIFY_TOOLBOX_TOOL" network)" in
+        egress) printf 'bridge\n' ;;
+        *)      printf 'none\n' ;;
+    esac
+}
+
+# Dispatch ampel: the in-job binary, or — when WRANGLE_VERIFY_AMPEL_TOOLBOX is
+# 1/true — the catalog's attest-toolbox image, verified host-side before it runs
+# (the host is the verifier, never the container). No token enters the container.
 wrangle_ampel() {
-    local image="${WRANGLE_VERIFY_AMPEL_IMAGE:-}"
-    if [[ -z "$image" ]]; then
-        ampel "$@"
-        return
-    fi
-    # Partial guard for #619: refuse a floating ref so the prototype only ever
-    # runs a digest-pinned image (the catalog/provenance gating is still #619).
-    if [[ ! "$image" =~ @sha256:[0-9a-f]{64}$ ]]; then
-        printf 'wrangle: WRANGLE_VERIFY_AMPEL_IMAGE must be @sha256:-digest-pinned (got %s)\n' "$image" >&2
-        return 2
-    fi
+    case "${WRANGLE_VERIFY_AMPEL_TOOLBOX:-}" in
+        1|true) ;;
+        *) ampel "$@"; return ;;
+    esac
+    # An oci: collector needs in-container registry auth, which is deferred.
     if [[ -n "${COLLECTOR:-}" ]]; then
-        printf 'wrangle: WRANGLE_VERIFY_AMPEL_IMAGE does not yet support an OCI collector (%s)\n' "$COLLECTOR" >&2
+        printf 'wrangle: in-container ampel verify does not support an oci collector (%s); leave WRANGLE_VERIFY_AMPEL_TOOLBOX unset for the container build type\n' "$COLLECTOR" >&2
         return 2
     fi
-    local results_dir policy policy_mount
+    local image
+    image="$(read_catalog_field "$WRANGLE_CATALOG" "$WRANGLE_VERIFY_TOOLBOX_TOOL" image)"
+    if [[ -z "$image" ]]; then
+        printf 'wrangle: WRANGLE_VERIFY_AMPEL_TOOLBOX set but catalog %s has no %s image\n' "$WRANGLE_CATALOG" "$WRANGLE_VERIFY_TOOLBOX_TOOL" >&2
+        return 2
+    fi
+    if [[ ! "$image" =~ @sha256:[0-9a-f]{64}$ ]]; then
+        printf 'wrangle: toolbox image must be @sha256:-digest-pinned (got %s)\n' "$image" >&2
+        return 2
+    fi
+    # WRANGLE_VERIFY_TOOL_IMAGES=0 is the break-glass for a sustained Sigstore outage.
+    if [[ "${WRANGLE_VERIFY_TOOL_IMAGES:-1}" == "0" ]]; then
+        printf 'wrangle: toolbox-image VSA verification disabled by configuration\n' >&2
+    elif verify_image_vsa "$image"; then
+        printf 'wrangle: toolbox-image VSA verified PASSED\n' >&2
+    else
+        printf 'wrangle: toolbox-image VSA verification failed (image not provably PASSED)\n' >&2
+        return 2
+    fi
+    local results_dir policy policy_mount net
     results_dir="$(cd "$(dirname "${WRANGLE_AMPEL_RESULTS:?wrangle_ampel needs WRANGLE_AMPEL_RESULTS set}")" && pwd)"
     # Mount the resolved policy's actual parent, not a hardcoded policies/: a
     # relative policy resolves to $REPO_ROOT/<policy>, which may sit elsewhere. A
@@ -126,11 +151,10 @@ wrangle_ampel() {
         *://*) policy_mount=() ;;
         *)     policy_mount=(-v "$(dirname "$policy")":"$(dirname "$policy")":ro) ;;
     esac
-    # No -e for any token; --network host gives ampel the runner's egress to reach
-    # Sigstore/Rekor; non-root as the caller so the unsigned VSA it writes is
-    # consumable by the in-job signing step. The dist file is intentionally NOT
-    # mounted — file subjects are pre-hashed in-job, so the container never reads them.
-    docker run --rm --network host -u "$(id -u):$(id -g)" \
+    net="$(wrangle_toolbox_network)"
+    # No token env; non-root so the in-job step can read the VSA; no dist mount
+    # (subjects are pre-hashed in-job).
+    docker run --rm --network "$net" -u "$(id -u):$(id -g)" \
         -v "$BUNDLE_OUT":"$BUNDLE_OUT":ro \
         "${policy_mount[@]}" \
         -v "$results_dir":"$results_dir" \

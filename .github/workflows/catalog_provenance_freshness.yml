@@ -1,0 +1,37 @@
+name: Catalog Provenance Freshness
+
+# Weekly advisory that each published tool image was built from current source.
+# The cut-release runbook runs the same check as a blocking gate.
+
+on:
+  schedule:
+    - cron: "37 9 * * 1"
+  workflow_dispatch:
+
+permissions: {}
+
+jobs:
+  provenance-freshness:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          persist-credentials: false
+          fetch-depth: 0   # the diff needs each image's build commit in history
+
+      # Advisory: a registry/Sigstore blip (exit 2) warns but does not fail.
+      - name: Check catalog image provenance freshness
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set +e
+          ./tools/check_catalog_provenance_freshness.sh
+          rc=$?
+          if [[ "$rc" -eq 2 ]]; then
+            printf '::warning::registry/attestation unreachable; provenance freshness undetermined this run\n'
+            exit 0
+          fi
+          exit "$rc"

@@ -10,11 +10,11 @@ set -f  # disable globbing — handles external tool/field names
 # For every tool it asserts: the file is valid JSON, a `kind` is declared, the
 # `delivery` (if set) is one run.sh recognizes, a declared `network`/`secret`
 # is from the allowed, default-closed set, and an `sbom` tool declares a
-# supported `format` (absent on any other kind). For every `delivery: image` entry it
-# additionally asserts the image is digest-pinned (@sha256: + 64 hex, never a bare
-# tag / :latest / @latest) on the curated namespace ghcr.io/tomhennen/wrangle/<tool>
-# — adopter overrides never live in this in-repo catalog (§3.6), so a different
-# host or namespace is a violation.
+# supported `format` (absent on any other kind). A `delivery: image` entry must also name
+# an image. Any entry naming an `image` (image-delivery or not) must be digest-pinned
+# (@sha256: + 64 hex, never a bare tag / :latest / @latest) on the curated namespace
+# ghcr.io/tomhennen/wrangle/<tool> — adopter overrides never live in this in-repo
+# catalog (§3.6), so a different host or namespace is a violation.
 #
 # Catalog path: $WRANGLE_CATALOG, else the catalog beside this script.
 #
@@ -100,7 +100,13 @@ validate_catalog() {
             if [[ -z "$image" ]]; then
                 printf 'check_catalog: %s: delivery: image but no image\n' "$tool" >&2
                 rc=1
-            elif [[ "$image" =~ $IMAGE_STRICT_RE ]]; then
+            fi
+        fi
+
+        # Any entry naming an image, with or without delivery: image.
+        image="$(read_catalog_field "$file" "$tool" image)"
+        if [[ -n "$image" ]]; then
+            if [[ "$image" =~ $IMAGE_STRICT_RE ]]; then
                 : # curated, digest-pinned — ok
             elif [[ "$image" == "$CURATED_PREFIX"* ]]; then
                 printf 'check_catalog: %s: image not digest-pinned (needs ghcr.io/tomhennen/wrangle/<tool>@sha256:<64hex>): %s\n' "$tool" "$image" >&2

@@ -26,6 +26,11 @@
       "image": "ghcr.io/tomhennen/wrangle/syft@sha256:0000000000000000000000000000000000000000000000000000000000000000",
       "format": "spdx-json",
       "network": "none"
+    },
+    "attest-toolbox": {
+      "kind": "attest",
+      "image": "ghcr.io/tomhennen/wrangle/attest-toolbox@sha256:638972885a6ebb3966aaa47954bad5d10ab4bf009288818a3abd4bdb641b270b",
+      "network": "egress"
     }
   }
 }
