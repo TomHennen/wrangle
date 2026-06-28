@@ -85,9 +85,7 @@ validate_catalog() {
             fi
         fi
 
-        # Any entry that names an image — image-delivery or not (e.g. the
-        # attest-toolbox grant the verify path resolves) — must be curated and
-        # digest-pinned, so a mutable or off-namespace ref can't pass CI green.
+        # Any entry naming an image, with or without delivery: image.
         image="$(read_catalog_field "$file" "$tool" image)"
         if [[ -n "$image" ]]; then
             if [[ "$image" =~ $IMAGE_STRICT_RE ]]; then

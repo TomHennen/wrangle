@@ -44,18 +44,12 @@ wrangle_resolve_policy() {
 # shellcheck source=../../lib/sign_metadata.sh
 source "$LIB_DIR/sign_metadata.sh"
 
-# Catalog reader + pull-time VSA gate: the in-container ampel-verify path resolves
-# the toolbox image from the curated catalog and verifies its provenance host-side
-# before running it (the bootstrap invariant — the verifier is host gh, never the
-# container vouching for itself).
 # shellcheck source=../../lib/read_catalog.sh
 source "$LIB_DIR/read_catalog.sh"
 # shellcheck source=../../lib/verify_image_vsa.sh
 source "$LIB_DIR/verify_image_vsa.sh"
 
-# Curated catalog the toolbox grant lives in; WRANGLE_CATALOG-overridable for tests.
 WRANGLE_CATALOG="${WRANGLE_CATALOG:-$REPO_ROOT/tools/catalog.json}"
-# The catalog key for the attest/verify toolbox image.
 WRANGLE_VERIFY_TOOLBOX_TOOL="attest-toolbox"
 
 # Emit the ampel subject flag for one subject, one arg per line. A digest-form
@@ -107,9 +101,7 @@ wrangle_bnd_sign_args() {
     printf '%s\n' statement "$1"
 }
 
-# Resolve the toolbox image's catalog network grant to a docker --network value.
-# Default closed (none); "egress" maps to the default bridge — the egress ampel
-# verify needs to reach Sigstore/Rekor, the access the in-job binary has today.
+# "egress" -> docker's default bridge; anything else -> no network.
 wrangle_toolbox_network() {
     case "$(read_catalog_field "$WRANGLE_CATALOG" "$WRANGLE_VERIFY_TOOLBOX_TOOL" network)" in
         egress) printf 'bridge\n' ;;
@@ -117,31 +109,21 @@ wrangle_toolbox_network() {
     esac
 }
 
-# Run ampel: the in-job binary by default, or — when WRANGLE_VERIFY_AMPEL_TOOLBOX
-# is 1/true — the curated attest-toolbox image via `docker run`. The image, its
-# egress grant, and the no-token capability come from the catalog (a reviewable,
-# default-closed grant), not the call site. Before the container runs, the image's
-# own wrangle provenance/VSA is verified host-side (verify_image_vsa, gh): the
-# bootstrap invariant — the verifier is the host, never the container. No token
-# enters the container (ampel verify never signs); policy/bundle mount read-only,
-# only the results dir is writable; it refuses (exit 2) an oci: collector, whose
-# in-container registry auth is deferred (#619).
+# Dispatch ampel: the in-job binary, or — when WRANGLE_VERIFY_AMPEL_TOOLBOX is
+# 1/true — the catalog's attest-toolbox image, verified host-side before it runs
+# (the host is the verifier, never the container). No token enters the container.
 wrangle_ampel() {
     case "${WRANGLE_VERIFY_AMPEL_TOOLBOX:-}" in
         1|true) ;;
         *) ampel "$@"; return ;;
     esac
-    # An oci: collector (the container build type) needs in-container registry
-    # auth, which is deferred — refuse rather than silently mis-verify. The
-    # container build type must leave WRANGLE_VERIFY_AMPEL_TOOLBOX unset.
+    # An oci: collector needs in-container registry auth, which is deferred.
     if [[ -n "${COLLECTOR:-}" ]]; then
-        printf 'wrangle: in-container ampel verify does not support an oci collector (%s); leave WRANGLE_VERIFY_AMPEL_TOOLBOX unset for the container build type (#619)\n' "$COLLECTOR" >&2
+        printf 'wrangle: in-container ampel verify does not support an oci collector (%s); leave WRANGLE_VERIFY_AMPEL_TOOLBOX unset for the container build type\n' "$COLLECTOR" >&2
         return 2
     fi
     local image
     image="$(read_catalog_field "$WRANGLE_CATALOG" "$WRANGLE_VERIFY_TOOLBOX_TOOL" image)"
-    # Fail closed: the grant is enabled but the catalog has no toolbox image — a
-    # wiring error, never a silent fall-back to the in-job binary.
     if [[ -z "$image" ]]; then
         printf 'wrangle: WRANGLE_VERIFY_AMPEL_TOOLBOX set but catalog %s has no %s image\n' "$WRANGLE_CATALOG" "$WRANGLE_VERIFY_TOOLBOX_TOOL" >&2
         return 2
@@ -150,9 +132,7 @@ wrangle_ampel() {
         printf 'wrangle: toolbox image must be @sha256:-digest-pinned (got %s)\n' "$image" >&2
         return 2
     fi
-    # Verify the image's own provenance host-side before it runs. Fail closed on a
-    # non-PASSED VSA; WRANGLE_VERIFY_TOOL_IMAGES=0 is the single break-glass for a
-    # sustained Sigstore-TUF outage, matching the scan path.
+    # WRANGLE_VERIFY_TOOL_IMAGES=0 is the break-glass for a sustained Sigstore outage.
     if [[ "${WRANGLE_VERIFY_TOOL_IMAGES:-1}" == "0" ]]; then
         printf 'wrangle: toolbox-image VSA verification disabled by configuration\n' >&2
     elif verify_image_vsa "$image"; then
@@ -172,10 +152,8 @@ wrangle_ampel() {
         *)     policy_mount=(-v "$(dirname "$policy")":"$(dirname "$policy")":ro) ;;
     esac
     net="$(wrangle_toolbox_network)"
-    # No -e for any token; the catalog egress grant (bridge) gives ampel the egress
-    # to reach Sigstore/Rekor; non-root as the caller so the unsigned VSA it writes
-    # is consumable by the in-job signing step. The dist file is intentionally NOT
-    # mounted — file subjects are pre-hashed in-job, so the container never reads them.
+    # No token env; non-root so the in-job step can read the VSA; no dist mount
+    # (subjects are pre-hashed in-job).
     docker run --rm --network "$net" -u "$(id -u):$(id -g)" \
         -v "$BUNDLE_OUT":"$BUNDLE_OUT":ro \
         "${policy_mount[@]}" \
