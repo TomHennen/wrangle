@@ -2,54 +2,39 @@
 set -euo pipefail
 set -f  # disable globbing — handles external tool names
 
-# tools/check_catalog_provenance_freshness.sh — checks that each curated tool
-# image in tools/catalog.json was built from the current tool source. The §11
-# guarantee check_catalog_freshness.sh does not give: it only proves the catalog
-# tracks :latest, not that the pinned digest was built from current source.
+# tools/check_catalog_provenance_freshness.sh — checks each curated tool image in
+# tools/catalog.json was built from the current tool source, by reading the
+# image's signed SLSA provenance for its build commit and diffing that commit
+# against HEAD. A release gate: needs the network and full history (fetch-depth: 0).
 #
-# Per curated `delivery: image` entry it reads the image's signed SLSA provenance
-# with `gh attestation verify` (signer identity single-sourced from
-# lib/verify_image_vsa.sh), takes the build commit, and fails unless that commit
-# is an ancestor of HEAD with nothing changed since under tools/ or lib/ (the
-# publish trigger's paths), excluding tools/catalog.json. Diffing all of tools/,
-# not one tool's dir, is deliberate: an image may compile a binary from a sibling
-# package, and missing that would call a stale signing image fresh. catalog.json
-# is excluded so a digest bump can't flag the image it points at as stale.
-#
-# A release gate, never per-PR: needs the network and full history (fetch-depth: 0).
 # Catalog path: $WRANGLE_CATALOG, else the catalog beside this script.
 #
 # Exit: 0 all built from current source; 1 a source changed since build, or the
-#       provenance binds no wrangle commit; 2 backend unreachable (an image with
-#       no provenance lands here, fail-closed), or gh/jq/git missing.
+#       provenance binds no wrangle commit; 2 backend unreachable (no provenance
+#       lands here, fail-closed) or gh/jq/git missing.
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 # shellcheck source=../lib/read_catalog.sh
 source "$SCRIPT_DIR/../lib/read_catalog.sh"
-# The signer identity + retry come from the pull-time VSA gate (same trust anchor).
 # shellcheck source=../lib/verify_image_vsa.sh
 source "$SCRIPT_DIR/../lib/verify_image_vsa.sh"
 
 PROVENANCE_PREDICATE_TYPE='https://slsa.dev/provenance/v1'
 CURATED_PREFIX_RE='^ghcr\.io/tomhennen/wrangle/[a-z][a-z0-9_-]*$'
 COMMIT_RE='^[0-9a-f]{40}$'
-# The source repo the provenance must name (case-insensitive); a build commit is
-# only trusted from a resolvedDependency on wrangle's own repo.
+# A build commit is trusted only from a resolvedDependency on wrangle's own repo.
 WRANGLE_SOURCE_URI_PREFIX='git+https://github.com/tomhennen/wrangle@'
-# Image build inputs = the publish trigger's paths, minus the catalog file (a
-# digest bump must not flag its own image stale). Whole tools/ covers sibling
-# first-party packages; go.mod/go.sum live under it.
+# Whole tools/ so a binary built from a sibling package counts; minus the catalog
+# file, so a digest bump can't flag its own image stale.
 PROVENANCE_DIFF_PATHS=(tools lib ':(exclude)tools/catalog.json')
 
-# provenance_build_commit <image> — print the single wrangle source commit the
-# image's signed build provenance names. Non-zero on a backend failure (gh) or
-# when no single, unambiguous wrangle commit is bound.
+# provenance_build_commit <image> — print the single wrangle build commit from
+# <image>'s signed provenance. Returns 2 on a read failure, 1 if no single
+# unambiguous commit is bound.
 provenance_build_commit() {
     local image="$1" json rc=0 commits
     local timeout_s="${WRANGLE_VERIFY_TIMEOUT:-120}"
     json="$(mktemp)"
-    # `timeout` bounds the local release-gate path (the runbook is not job-bounded
-    # like the weekly workflow), matching lib/verify_image_vsa.sh.
     wrangle_retry_once "$json" timeout "$timeout_s" gh attestation verify "oci://${image}" \
         --repo TomHennen/wrangle \
         --bundle-from-oci \
@@ -59,12 +44,10 @@ provenance_build_commit() {
         --format json || rc=$?
     if [[ "$rc" -ne 0 ]]; then
         rm -f "$json"
-        return 2  # backend/attestation read failed
+        return 2
     fi
 
-    # gh bound the signature + identity; the source-repo binding and the build
-    # commit are ours to read. Collect the DISTINCT gitCommit of every resolved
-    # dependency on wrangle's repo — exactly one unambiguous commit is required.
+    # gh verified the signature + identity; the build commit is ours to read.
     commits="$(jq -r --arg p "$WRANGLE_SOURCE_URI_PREFIX" '
         [ .[].verificationResult.statement.predicate.buildDefinition.resolvedDependencies[]?
           | select((.uri // "" | ascii_downcase) | startswith($p))
@@ -73,7 +56,7 @@ provenance_build_commit() {
     rm -f "$json"
 
     if [[ "$(printf '%s' "$commits" | grep -c .)" -ne 1 ]]; then
-        return 1  # no, or ambiguous, wrangle source commit
+        return 1
     fi
     [[ "$commits" =~ $COMMIT_RE ]] || return 1
     printf '%s' "$commits"
@@ -109,8 +92,7 @@ check_provenance_freshness() {
         image="$(read_catalog_field "$file" "$tool" image)"
         imagename="${image%@sha256:*}"
 
-        # Adopter-override entries never live in this catalog; their provenance
-        # signer is not wrangle's, so skip them like the adoption-lag check.
+        # Skip adopter-override entries — not wrangle-signed.
         [[ "$imagename" =~ $CURATED_PREFIX_RE ]] || continue
         checked=$((checked + 1))
 
@@ -138,14 +120,11 @@ check_provenance_freshness() {
             continue
         fi
 
-        # Stale iff any image build input changed between the build commit and
-        # HEAD. The diff set is the publish trigger's paths (not the catalog key's
-        # dir), so a binary built from a sibling package is covered. --quiet exits
-        # 1 on differences, 0 on none, >1 on error.
+        # git diff --quiet: 0 no change, 1 changed, >1 error.
         local diff_rc=0
         git -C "$repo_root" diff --quiet "$commit" HEAD -- "${PROVENANCE_DIFF_PATHS[@]}" 2>/dev/null || diff_rc=$?
         case "$diff_rc" in
-            0) ;;  # built from current source
+            0) ;;
             1)
                 printf 'check_catalog_provenance_freshness: %s: source changed since the pinned image was built at %s — republish, then bump\n' "$tool" "${commit:0:12}" >&2
                 stale=1 ;;
@@ -155,8 +134,7 @@ check_provenance_freshness() {
         esac
     done < <(jq -r '.tools // {} | keys[]' "$file")
 
-    # A confirmed stale image (1) is actionable regardless of another tool's
-    # reachability and must not be masked by a transient backend error (2).
+    # A confirmed stale (1) must not be masked by another tool's backend error (2).
     if [[ "$stale" -eq 1 ]]; then
         rc=1
     elif [[ "$backend_err" -eq 1 ]]; then

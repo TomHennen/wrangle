@@ -1,12 +1,8 @@
 #!/usr/bin/env bats
 
-# Unit tests for tools/check_catalog_provenance_freshness.sh — the provenance
-# "built-from-current-source" gate. The build commit comes from a signed SLSA
-# provenance read via `gh attestation verify`; a fake `gh` on PATH returns a
-# fixture provenance whose resolvedDependency names a caller-chosen commit, so
-# the real jq extraction + git ancestry/diff logic runs against a real throwaway
-# git repo without any live attestation API. The repo's HEAD and history stand
-# in for the release checkout (fetch-depth: 0).
+# Unit tests for tools/check_catalog_provenance_freshness.sh. A fake `gh` on PATH
+# returns a fixture provenance naming a chosen commit, so the real jq + git
+# ancestry/diff logic runs against a throwaway git repo with no live API.
 
 DIGEST="sha256:$(printf 'a%.0s' {1..64})"
 CURATED="ghcr.io/tomhennen/wrangle/osv@$DIGEST"
@@ -17,11 +13,9 @@ setup() {
 
     REPO="$BATS_TEST_TMPDIR/repo"
     BIN_DIR="$BATS_TEST_TMPDIR/bin"
-    # Catalog lives OUTSIDE the repo so the fixture's `git add -A` can't stage it
-    # and drop it on a branch switch.
+    # Catalog outside the repo so the fixture's `git add -A` can't stage it.
     CATALOG="$BATS_TEST_TMPDIR/catalog.json"
     mkdir -p "$BIN_DIR"
-    # A retry must not stall the suite; the fixture is deterministic.
     export PATH="$BIN_DIR:$PATH" WRANGLE_RETRY_DELAY=0
 
     _init_repo
@@ -29,8 +23,7 @@ setup() {
     export WRANGLE_CATALOG="$CATALOG"
 }
 
-# _init_repo — a throwaway repo carrying the image's build inputs (the tool dir,
-# lib/, tools/go.mod + go.sum). C1 is exported as the initial build commit.
+# C1 is exported as the initial build commit.
 _init_repo() {
     mkdir -p "$REPO/tools/osv" "$REPO/lib"
     git -C "$REPO" init -q
@@ -60,9 +53,8 @@ _catalog() {
 JSON
 }
 
-# install_gh — a fake `gh` returning a signed-provenance shape. SHIM_COMMIT is
-# the build commit; SHIM_URI overrides the source repo; SHIM_COMMIT2 adds a
-# second distinct commit (ambiguity); SHIM_GH_FAIL makes the read fail.
+# Fake `gh`: SHIM_COMMIT is the build commit; SHIM_URI overrides the source repo;
+# SHIM_COMMIT2 adds a second distinct commit; SHIM_GH_FAIL makes the read fail.
 install_gh() {
     cat >"$BIN_DIR/gh" <<'SHIM'
 #!/usr/bin/env bash
@@ -102,8 +94,6 @@ RUN true'
     [[ "$output" == *"source changed"* ]]
 }
 
-# The load-bearing gap the adoption-lag check cannot see: a go.mod-only tool
-# version bump that never re-published the image.
 @test "provenance freshness: a tools/go.mod bump with no republish is stale (exit 1)" {
     install_gh
     _commit tools/go.mod 'module wrangle/tools
@@ -123,17 +113,13 @@ require x v1.2.3'
     [[ "$output" == *"built from current source"* ]]
 }
 
-# Regression: an image that compiles a first-party binary from a SIBLING package
-# (e.g. attest-toolbox builds tools/wrangle-attest) must be flagged when the
-# sibling changes — a per-tool-dir diff would miss it and call the stale signing
-# image fresh.
 @test "provenance freshness: a change to a sibling source package the image compiles is stale (exit 1)" {
     install_gh
     mkdir -p "$REPO/tools/sibpkg"
     printf 'package main\n' > "$REPO/tools/sibpkg/sign.go"
     git -C "$REPO" add -A && git -C "$REPO" commit -qm sibpkg
     local base; base="$(git -C "$REPO" rev-parse HEAD)"
-    # The catalog image is sibtool; its source lives in the sibling dir, not osv/.
+    # sibtool's source lives in the sibling dir, not osv/.
     _catalog "ghcr.io/tomhennen/wrangle/sibtool@$DIGEST"
     _commit tools/sibpkg/sign.go 'package main
 // changed'
@@ -143,8 +129,6 @@ require x v1.2.3'
     [[ "$output" == *"source changed"* ]]
 }
 
-# Regression: a catalog-only digest bump is itself a tools/ change; it must NOT
-# flag the freshly-built image it points at as stale (the §11 no-loop rule).
 @test "provenance freshness: a catalog-only digest bump does not flag its own image stale (exit 0)" {
     install_gh
     printf '{}\n' > "$REPO/tools/catalog.json"
@@ -215,10 +199,8 @@ RUN true'
     [[ "$output" == *"all 0 curated"* ]]
 }
 
-# Stale (1) must not be masked by another tool's backend error (2).
 @test "provenance freshness: a stale image wins over a second tool's backend error (exit 1)" {
-    # toolb's image dir does not exist; only its provenance read fails. toola is
-    # stale. The fake gh fails only for toolb's image ref.
+    # The fake gh fails only for toolb; toola is made stale.
     mkdir -p "$REPO/tools/toola" "$REPO/tools/toolb"
     printf 'FROM scratch\n' > "$REPO/tools/toola/Dockerfile"
     printf 'FROM scratch\n' > "$REPO/tools/toolb/Dockerfile"
@@ -247,8 +229,7 @@ SHIM
 }
 
 @test "provenance freshness: missing gh is an env error (exit 2)" {
-    # A clean PATH with the coreutils the script needs to reach its tool guard,
-    # but no gh — proving the guard, not a host gh leak, decides.
+    # Clean PATH with the coreutils the script needs, but no gh.
     local clean="$BATS_TEST_TMPDIR/clean"
     mkdir -p "$clean"
     for t in jq git bash dirname cat mktemp grep; do

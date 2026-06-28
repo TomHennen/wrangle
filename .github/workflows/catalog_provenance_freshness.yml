@@ -1,11 +1,7 @@
 name: Catalog Provenance Freshness
 
-# Checks weekly that each published tool image was built from current source —
-# that nothing under tools/ or lib/ changed since the commit the image was built
-# from. The adoption-lag check (catalog_freshness.yml) only proves the catalog
-# tracks :latest; a stale image is still validly attested, so this is what
-# catches it. Advisory here (a registry/Sigstore blip only warns); the same check
-# is a blocking release gate in the cut-release runbook, where exit 2 fails closed.
+# Weekly advisory that each published tool image was built from current source.
+# The cut-release runbook runs the same check as a blocking gate.
 
 on:
   schedule:
@@ -24,14 +20,9 @@ jobs:
       - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
         with:
           persist-credentials: false
-          # The check resolves each image's build commit and diffs it against
-          # HEAD, so it needs full history.
-          fetch-depth: 0
+          fetch-depth: 0   # the diff needs each image's build commit in history
 
-      # Source drift (exit 1) fails the run as the actionable signal; a transient
-      # registry/Sigstore-unreachable (exit 2) warns but does not, so a backend
-      # blip can't page on a false negative. The blocking release gate inverts
-      # this — exit 2 there means the precondition is UNVERIFIED.
+      # Advisory: a registry/Sigstore blip (exit 2) warns but does not fail.
       - name: Check catalog image provenance freshness
         env:
           GH_TOKEN: ${{ github.token }}

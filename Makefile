@@ -95,10 +95,9 @@ check-catalog:
 check-catalog-freshness:
 	@./tools/check_catalog_freshness.sh
 
-# Provenance source-freshness: reads each pinned image's signed SLSA provenance
-# and fails if its build commit's tool source differs from HEAD (network + full
-# git history). A release precondition, not a per-PR gate. See
-# tools/check_catalog_provenance_freshness.sh.
+# Provenance source-freshness: fails if a pinned image's build commit differs
+# from HEAD's tool source (network + full git history). A release precondition,
+# not a per-PR gate. See tools/check_catalog_provenance_freshness.sh.
 check-catalog-provenance-freshness:
 	@./tools/check_catalog_provenance_freshness.sh
 
