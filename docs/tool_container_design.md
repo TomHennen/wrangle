@@ -85,24 +85,28 @@ SPEC's Adapter Script Interface (environment/security sections) is updated in th
 
 ### 3.3 Tool kinds
 
-The contract is parameterized over tool kind:
+A tool's `kind` captures its **input/stage**, not its output handling:
 
-| Kind | Input | Primary output | Exit | Adopter-substitutable |
-|------|-------|----------------|------|-----------------------|
-| `scan` | `src_dir` (ro) | `output.sarif` (SARIF 2.1.0) | 0 clean / 1 findings / 2 error | yes |
-| `sbom` | `src_dir` or built artifact | `sbom.<format>.json` (SPDX or CycloneDX, declared) | 0 ok / 2 error | yes |
+| Kind | Input / stage | Primary output | Exit | Adopter-substitutable |
+|------|---------------|----------------|------|-----------------------|
+| `scan` | source tree | `output.sarif` (SARIF 2.1.0) | 0 clean / 1 findings / 2 error | yes |
+| `sbom` | source tree or built artifact | `sbom.<format>.json` (SPDX or CycloneDX) | 0 ok / 2 error (never 1) | yes |
 | `attest`/`verify` | metadata + targets | signed attestations / verdict | tool-specific | no |
 
-`sbom` declares its format rather than assuming SPDX; its exit codes have no "findings" state; and its
-input may be a built artifact, not source.
+`scan` runs on the source tree, `sbom` produces an SBOM at its own pipeline point, a future binary-scan
+would run on built outputs. The kind does not change output or exit handling: every tool runs under the
+uniform `0`/`1`/`2` contract, and the orchestrator collects `/output` and attests each recognized file by
+name. `sbom` is just an instance — a tool that emits `sbom.*.json` (syft defaults to `sbom.spdx.json`)
+and, having no findings state, never returns `1`.
 
-**Output handling.** A tool's *primary* output (above) drives gating. Beyond it, wrangle gives specific
-filenames special handling — `output.sarif` feeds the result/Security-tab upload, `output.md` feeds the
-GHA step summary — and **carries anything else the tool writes to `/output`** into the published
-metadata. Not everything in that metadata is signed: for a scan tool the SARIF is the attested artifact;
+**Output handling.** wrangle gives specific filenames special handling — `output.sarif` feeds the
+result/Security-tab upload, `output.md` feeds the GHA step summary — and **carries anything else the tool
+writes to `/output`** into the published metadata. Attestation is by filename: `output.sarif` is wrapped
+as the scan/v1 result, an `sbom.<format>.json` is mapped to its in-toto predicate
+(`sbom.spdx.json` → `https://spdx.dev/Document`, `sbom.cyclonedx.json` → `https://cyclonedx.org/bom`).
 `output.md` and any extra files are propagated as metadata without promising a signature over each. So
-the contract is "write your primary output (the gated/attested one); write `output.md` for a
-human-readable summary; anything else under `/output` is carried along," not a fixed file list.
+the contract is "write your output file; write `output.md` for a human-readable summary; anything else
+under `/output` is carried along," not a fixed file list.
 
 ### 3.4 Packaging
 
@@ -220,8 +224,7 @@ Schema below is the proposed shape; exact field names and file locations are bik
     },
     "syft": {
       "kind": "sbom",
-      "image": "ghcr.io/tomhennen/wrangle/syft@sha256:0b72…",
-      "format": "spdx-json"      // network omitted → none; no secret
+      "image": "ghcr.io/tomhennen/wrangle/syft@sha256:0b72…"   // network omitted → none; no secret
     },
     // owned Go tools can share ONE image — the unified `wrangle` binary — selected by command
     "wrangle-lint": {
@@ -269,9 +272,8 @@ jobs:
       "image": "ghcr.io/myorg/osv@sha256:7c1d…"    // adopter now owns this pin's freshness
     },
     "my-sbom": {                                   // BYO a tool wrangle doesn't ship — full definition
-      "kind": "sbom",
-      "image": "ghcr.io/myorg/my-sbom-generator@sha256:e88f…",
-      "format": "cyclonedx-json"                   // no network / no secret → strictest contract by default
+      "kind": "sbom",                              // emits its own sbom.<format>.json
+      "image": "ghcr.io/myorg/my-sbom-generator@sha256:e88f…"  // no network / no secret → strictest contract by default
     }
   }
 }

@@ -36,17 +36,11 @@ case "$mode" in
         printf '{"version":"2.1.0","runs":[{"tool":{"driver":{"name":"mock"}},"results":[]}]}\n' > "$out/output.sarif"
         exit 0 ;;
     sbom)
-        # sbom kind: record the kind/format wrangle passed, then write
-        # sbom.<format>.json (spdx-json -> sbom.spdx.json) and exit 0.
+        # sbom kind: record the kind wrangle passed, then write sbom.spdx.json
+        # and exit 0.
         printf '%s' "${WRANGLE_KIND:-}" > "$out/kind_seen"
-        printf '%s' "${WRANGLE_SBOM_FORMAT:-}" > "$out/format_seen"
-        fmt="${WRANGLE_SBOM_FORMAT:-spdx-json}"
-        printf '{"spdxVersion":"SPDX-2.3","name":"mock"}\n' > "$out/sbom.${fmt%-json}.json"
+        printf '{"spdxVersion":"SPDX-2.3","name":"mock"}\n' > "$out/sbom.spdx.json"
         exit 0 ;;
-    sbom-findings)
-        # sbom has no findings state; exit 1 must map to a wrangle error.
-        printf '{"spdxVersion":"SPDX-2.3"}\n' > "$out/sbom.spdx.json"
-        exit 1 ;;
     sbom-error)
         printf 'mock: simulated sbom tool error\n' >&2
         exit 2 ;;

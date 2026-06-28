@@ -54,31 +54,10 @@ write_catalog() { printf '%s\n' "$1" > "$CATALOG"; }
     [[ "$output" == *"invalid secret"* ]]
 }
 
-@test "check_catalog: valid sbom entry with a supported format passes" {
-    write_catalog '{"tools":{"syft":{"kind":"sbom","delivery":"image","image":"ghcr.io/tomhennen/wrangle/syft@sha256:'"$(printf 'a%.0s' {1..64})"'","format":"spdx-json"}}}'
+@test "check_catalog: valid sbom entry passes" {
+    write_catalog '{"tools":{"syft":{"kind":"sbom","delivery":"image","image":"ghcr.io/tomhennen/wrangle/syft@sha256:'"$(printf 'a%.0s' {1..64})"'","network":"none"}}}'
     run "$SCRIPT"
     [ "$status" -eq 0 ]
-}
-
-@test "check_catalog: sbom entry missing format fails" {
-    write_catalog '{"tools":{"syft":{"kind":"sbom","delivery":"image","image":"ghcr.io/tomhennen/wrangle/syft@sha256:'"$(printf 'a%.0s' {1..64})"'"}}}'
-    run "$SCRIPT"
-    [ "$status" -eq 1 ]
-    [[ "$output" == *"sbom requires format"* ]]
-}
-
-@test "check_catalog: sbom entry with an unsupported format fails" {
-    write_catalog '{"tools":{"syft":{"kind":"sbom","delivery":"image","image":"ghcr.io/tomhennen/wrangle/syft@sha256:'"$(printf 'a%.0s' {1..64})"'","format":"syft-table"}}}'
-    run "$SCRIPT"
-    [ "$status" -eq 1 ]
-    [[ "$output" == *"sbom requires format"* ]]
-}
-
-@test "check_catalog: format on a non-sbom kind fails" {
-    write_catalog '{"tools":{"osv":{"kind":"scan","delivery":"image","image":"ghcr.io/tomhennen/wrangle/osv@sha256:'"$(printf 'a%.0s' {1..64})"'","format":"spdx-json"}}}'
-    run "$SCRIPT"
-    [ "$status" -eq 1 ]
-    [[ "$output" == *"only valid for kind: sbom"* ]]
 }
 
 @test "check_catalog: malformed JSON fails with exit 1" {

@@ -200,8 +200,8 @@ verify_tool_image() {
 
 # run_one_tool <tool> — run a single tool through its delivery path (image via
 # docker, otherwise the in-process adapter), map its exit to the 0/1/2 contract,
-# generate human-readable output and the scan manifest, and record the result.
-# Updates overall_status and the summary arrays.
+# attest its recognized output files by name, and record the result. Updates
+# overall_status and the summary arrays.
 run_one_tool() {
     local tool="$1"
     printf '::group::wrangle/%s\n' "$tool"
@@ -214,15 +214,11 @@ run_one_tool() {
     local tool_output_dir="${output_dir}/${tool}"
     mkdir -p "$tool_output_dir"
 
-    # Catalog kind drives exit-code mapping and output handling; absent -> scan.
-    local kind
-    kind="$(read_catalog_field "$CATALOG" "$tool" kind)"
-
     if [[ -n "${is_image[$tool]:-}" ]]; then
         # Image-delivery: run the tool's pinned image under the contract
         # sandbox (read-only /src, writable /output owned by the runner UID).
         # The image's entrypoint IS the adapter, so it maps the same 0/1/2
-        # exit contract and writes output.sarif (+ output.md) into /output.
+        # exit contract and writes its recognized output files into /output.
         printf 'wrangle: running %s (image)...\n' "$tool"
 
         local image
@@ -341,91 +337,47 @@ run_one_tool() {
         rm -f "$pre_snapshot" "$post_snapshot"
     fi
 
-    case "$kind" in
-        sbom)
-            # No findings state: 0 ok / 2 error (1 is an error too).
-            case "$adapter_exit" in
-                0)
-                    tool_status="pass"
-                    ;;
-                124)
-                    printf 'wrangle: %s adapter timed out after %ds\n' "$tool" "$ADAPTER_TIMEOUT" >&2
-                    tool_status="error"
-                    overall_status=2
-                    ;;
-                *)
-                    printf 'wrangle: %s adapter failed (exit %d)\n' "$tool" "$adapter_exit" >&2
-                    tool_status="error"
-                    overall_status=2
-                    ;;
-            esac
+    # Uniform 0/1/2 exit contract across kinds. A tool's kind selects its
+    # input/stage, not this mapping; an sbom tool simply never returns 1.
+    case "$adapter_exit" in
+        0)
+            tool_status="pass"
+            ;;
+        1)
+            tool_status="findings"
+            if [[ "$overall_status" -lt 1 ]]; then
+                overall_status=1
+            fi
+            ;;
+        124)
+            # timeout(1) returns 124 when the command times out
+            printf 'wrangle: %s adapter timed out after %ds\n' "$tool" "$ADAPTER_TIMEOUT" >&2
+            tool_status="error"
+            overall_status=2
             ;;
         *)
-            # scan: 0 clean / 1 findings / 2 error.
-            case "$adapter_exit" in
-                0)
-                    tool_status="pass"
-                    ;;
-                1)
-                    tool_status="findings"
-                    if [[ "$overall_status" -lt 1 ]]; then
-                        overall_status=1
-                    fi
-                    ;;
-                124)
-                    # timeout(1) returns 124 when the command times out
-                    printf 'wrangle: %s adapter timed out after %ds\n' "$tool" "$ADAPTER_TIMEOUT" >&2
-                    tool_status="error"
-                    overall_status=2
-                    ;;
-                *)
-                    printf 'wrangle: %s adapter failed (exit %d)\n' "$tool" "$adapter_exit" >&2
-                    tool_status="error"
-                    overall_status=2
-                    ;;
-            esac
+            printf 'wrangle: %s adapter failed (exit %d)\n' "$tool" "$adapter_exit" >&2
+            tool_status="error"
+            overall_status=2
             ;;
     esac
 
-    if [[ "$kind" == "sbom" ]]; then
-        # No output.md; on success write the attest manifest, mapping the
-        # declared format to the SBOM filename and its in-toto predicate.
-        if [[ "$tool_status" != "error" ]]; then
-            local format sbom_file="" predicate=""
-            format="$(read_catalog_field "$CATALOG" "$tool" format)"
-            case "$format" in
-                spdx-json)
-                    sbom_file="sbom.spdx.json"; predicate="https://spdx.dev/Document" ;;
-                cyclonedx-json)
-                    # Wired but unexercised; only spdx-json ships today.
-                    sbom_file="sbom.cyclonedx.json"; predicate="https://cyclonedx.org/bom" ;;
-                *)
-                    printf 'wrangle: %s: unknown sbom format: %s\n' "$tool" "$format" >&2 ;;
-            esac
-            if [[ -n "$sbom_file" ]] && [[ -f "${tool_output_dir}/${sbom_file}" ]]; then
-                "$SCRIPT_DIR/lib/write_attest_manifest.sh" \
-                    "$tool_output_dir" "$predicate" "$sbom_file" \
-                    || printf 'wrangle: failed to write %s sbom manifest\n' "$tool" >&2
+    # Filename-driven output handling: recognized files the tool drops in
+    # /output get their attest manifest by name. output.sarif keeps the scan/v1
+    # thin envelope (tool name + result) and feeds output.md + the Security-tab
+    # upload; an sbom.<format>.json maps to its in-toto predicate. Skip on error
+    # — an attestation must claim a real result, and a "No findings" summary
+    # over a missing/incomplete SARIF would mislead.
+    if [[ "$tool_status" != "error" ]]; then
+        if [[ -f "${tool_output_dir}/output.sarif" ]]; then
+            # Generate a human-readable summary if the adapter didn't.
+            if [[ ! -s "${tool_output_dir}/output.md" ]] \
+                && [[ ! -s "${tool_output_dir}/output.txt" ]]; then
+                "$SCRIPT_DIR/lib/sarif_to_md.sh" "${tool_output_dir}/output.sarif" \
+                    > "${tool_output_dir}/output.md" 2>/dev/null || true
             fi
-        fi
-    else
-        # Generate human-readable output if the adapter didn't produce one.
-        # Only on successful runs — on error the SARIF may be missing or
-        # incomplete, and showing "No findings" would be misleading.
-        if [[ "$tool_status" != "error" ]] \
-            && [[ -f "${tool_output_dir}/output.sarif" ]] \
-            && [[ ! -s "${tool_output_dir}/output.md" ]] \
-            && [[ ! -s "${tool_output_dir}/output.txt" ]]; then
-            "$SCRIPT_DIR/lib/sarif_to_md.sh" "${tool_output_dir}/output.sarif" \
-                > "${tool_output_dir}/output.md" 2>/dev/null || true
-        fi
-
-        # Write the scan/v1 attestation manifest next to output.sarif so the
-        # trusted verify job's wrangle-attest engine wraps + signs it. Skip on
-        # error (an attestation must claim a real scan result); write_scan_manifest
-        # itself no-ops on a missing SARIF. The scanner name can differ from the
-        # orchestrator token (osv -> osv-scanner); keyed per tool, one line each.
-        if [[ "$tool_status" != "error" ]]; then
+            # Scan/v1 manifest, keyed per tool — the scanner name can differ from
+            # the orchestrator token (osv -> osv-scanner).
             local scanner_name=""
             case "$tool" in
                 osv) scanner_name="osv-scanner" ;;
@@ -437,6 +389,19 @@ run_one_tool() {
                     "${tool_output_dir}/output.sarif" \
                     || printf 'wrangle: failed to write %s scan manifest\n' "$tool" >&2
             fi
+        else
+            local sbom_file predicate
+            for sbom_file in sbom.spdx.json sbom.cyclonedx.json; do
+                [[ -f "${tool_output_dir}/${sbom_file}" ]] || continue
+                case "$sbom_file" in
+                    sbom.spdx.json)      predicate="https://spdx.dev/Document" ;;
+                    sbom.cyclonedx.json) predicate="https://cyclonedx.org/bom" ;;
+                esac
+                "$SCRIPT_DIR/lib/write_attest_manifest.sh" \
+                    "$tool_output_dir" "$predicate" "$sbom_file" \
+                    || printf 'wrangle: failed to write %s sbom manifest\n' "$tool" >&2
+                break
+            done
         fi
     fi
 

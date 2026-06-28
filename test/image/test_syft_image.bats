@@ -2,8 +2,7 @@
 
 # Exercises the locally-built syft tool image against the wrangle sbom-kind
 # contract (docs/tool_container_design.md §3.3): a source tree -> exit 0 + a
-# schema-valid sbom.spdx.json, an unsupported format -> exit 2 (sbom has no
-# findings state), and nothing written outside /output. Needs docker, so it
+# schema-valid sbom.spdx.json, and nothing written outside /output. Needs docker, so it
 # lives under test/image/ (outside the Makefile's unit `bats` glob) and runs in
 # the dogfooded shell build, which auto-detects every .bats on a docker-capable
 # runner. The published image is digest-pinned in the catalog; this builds the
@@ -37,13 +36,10 @@ teardown() {
     [[ -n "${TMP_DIR:-}" ]] && rm -rf "$TMP_DIR"
 }
 
-# _run_syft [format] — run the image under the contract sandbox (read-only src,
-# non-root, network off), optionally setting WRANGLE_SBOM_FORMAT.
+# _run_syft — run the image under the contract sandbox (read-only src, non-root,
+# network off).
 _run_syft() {
-    local -a env_args=()
-    [[ -n "${1:-}" ]] && env_args=(-e "WRANGLE_SBOM_FORMAT=$1")
     docker run --rm --network none -u "$(id -u):$(id -g)" \
-        "${env_args[@]}" \
         -v "$SRC":/src:ro -v "$OUT":/output wrangle-syft:test /src /output
 }
 
@@ -56,12 +52,6 @@ _run_syft() {
     [ "$status" -eq 0 ]
     [[ "$(jq -r '.spdxVersion' "$OUT/sbom.spdx.json")" == SPDX-* ]]
     [ -n "$(jq -r '.SPDXID' "$OUT/sbom.spdx.json")" ]
-}
-
-@test "syft image: unsupported format -> exit 2" {
-    printf 'module example.com/x\n\ngo 1.21\n' > "$SRC/go.mod"
-    run _run_syft bogus-format
-    [ "$status" -eq 2 ]
 }
 
 @test "syft image: writes nothing outside /output (src is read-only)" {

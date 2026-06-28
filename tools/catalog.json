@@ -24,7 +24,6 @@
       "kind": "sbom",
       "delivery": "image",
       "image": "ghcr.io/tomhennen/wrangle/syft@sha256:0000000000000000000000000000000000000000000000000000000000000000",
-      "format": "spdx-json",
       "network": "none"
     },
     "attest-toolbox": {

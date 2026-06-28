@@ -259,10 +259,10 @@ JSON
 }
 
 # A catalog declaring mocktool as an sbom-kind image tool. The mock writes
-# sbom.<format>.json and records the WRANGLE_KIND/WRANGLE_SBOM_FORMAT it saw.
+# sbom.spdx.json and records the WRANGLE_KIND it saw.
 _sbom_catalog() {
     cat > "$TOOLS/catalog.json" <<JSON
-{"tools":{"mocktool":{"kind":"sbom","delivery":"image","image":"$MOCK_IMAGE","format":"spdx-json"}}}
+{"tools":{"mocktool":{"kind":"sbom","delivery":"image","image":"$MOCK_IMAGE"}}}
 JSON
 }
 
@@ -280,23 +280,12 @@ JSON
     [ ! -f "$OUT/mocktool/output.md" ]
 }
 
-@test "run.sh sbom dispatch: WRANGLE_KIND + WRANGLE_SBOM_FORMAT reach the container" {
+@test "run.sh sbom dispatch: WRANGLE_KIND reaches the container" {
     _sbom_catalog
     printf 'sbom' > "$SRC/MODE"
     _run_orch mocktool
     [ "$status" -eq 0 ]
     [ "$(cat "$OUT/mocktool/kind_seen")" = "sbom" ]
-    [ "$(cat "$OUT/mocktool/format_seen")" = "spdx-json" ]
-}
-
-@test "run.sh sbom dispatch: exit 1 has no findings state -> error (exit 2)" {
-    _sbom_catalog
-    printf 'sbom-findings' > "$SRC/MODE"
-    _run_orch mocktool
-    # sbom has no findings state: a tool exit 1 is an error, not findings.
-    [ "$status" -eq 2 ]
-    # An errored sbom run writes no attest manifest.
-    [ ! -f "$OUT/mocktool/wrangle_attestation_metadata.json" ]
 }
 
 @test "run.sh sbom dispatch: tool error -> exit 2" {

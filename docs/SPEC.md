@@ -356,38 +356,30 @@ ARGUMENTS:
   output_dir  Path to write results (writable, already exists)
 
 TOOL KIND:
-  The contract is parameterized by the tool's `kind` (the catalog `kind:`
-  field; default `scan`). The kind sets the primary output file and the
-  exit-code semantics below. An image-delivery tool is told its kind via
-  WRANGLE_KIND; an sbom tool also receives WRANGLE_SBOM_FORMAT.
+  The tool's `kind` (the catalog `kind:` field; default `scan`) captures its
+  input/stage — `scan` runs on the source tree, `sbom` produces an SBOM at its
+  own point in the pipeline. It does NOT change the output or exit handling
+  below, which are uniform across kinds. An image-delivery tool is told its
+  kind via WRANGLE_KIND.
 
 OUTPUT FILES (written to output_dir):
-  scan kind:
-    output.sarif   REQUIRED  SARIF 2.1.0 JSON
-    output.md      OPTIONAL  Human-readable markdown summary
-    output.txt     OPTIONAL  Human-readable plain text (fallback if no .md)
+  A tool writes whatever its kind produces; the orchestrator collects /output
+  and attests each recognized file by name:
+    output.sarif        a SARIF 2.1.0 scan result
+    sbom.spdx.json      an SPDX SBOM
+    sbom.cyclonedx.json a CycloneDX SBOM
+  Plus optional human-readable companions for a SARIF result:
+    output.md   Human-readable markdown summary
+    output.txt  Human-readable plain text (fallback if no .md)
+  When output.sarif is present and neither output.md nor output.txt is, the
+  orchestrator generates output.md from output.sarif via lib/sarif_to_md.sh;
+  an adapter that produces richer output should write its own output.md.
 
-    If the adapter does not produce output.md or output.txt, the
-    orchestrator generates output.md from output.sarif via
-    lib/sarif_to_md.sh. Adapters that produce richer tool-specific
-    output should write their own output.md to prevent this fallback.
-
-  sbom kind:
-    sbom.<format>.json  REQUIRED  the SBOM in the declared format
-                                  (spdx-json -> sbom.spdx.json,
-                                   cyclonedx-json -> sbom.cyclonedx.json)
-    No output.sarif and no output.md: the SBOM is the primary (attested)
-    output, and the orchestrator writes its attest manifest mapping the
-    declared format to its filename + in-toto predicate.
-
-EXIT CODES:
-  scan kind:
-    0  Scan completed, no findings
-    1  Scan completed, findings detected
-    2  Scan failed (tool error)
-  sbom kind (no findings state):
-    0  SBOM written
-    2  Tool error — any non-zero exit, including 1, is an error
+EXIT CODES (uniform across kinds):
+  0  Completed, no findings
+  1  Completed, findings detected
+  2  Tool error
+  An sbom tool has no findings state, so it simply never returns 1.
 
 PRECONDITIONS:
   Tool binary is on $PATH (handled by install script)
@@ -584,13 +576,14 @@ BEHAVIOR:
     5. (adapter path) Run tools/<tool>/install.sh if present — go.mod tools
        were all installed upfront (timeout: 5 minutes)
     6. Create <output_dir>/<tool>/
-    7. Run the adapter or image with <src_dir> and <output_dir>/<tool>/. A
-       scan tool writes output.sarif under the 0/1/2 exit contract; an sbom
-       tool (catalog `kind: sbom`) writes sbom.<format>.json under the 0-ok /
-       2-error contract (no findings state — any non-zero, including 1, is an
-       error) and gets WRANGLE_KIND + WRANGLE_SBOM_FORMAT (timeout: 10 minutes)
-    8. Record pass/fail status; for an sbom tool write the attest manifest
-       mapping the declared format to its filename + in-toto predicate
+    7. Run the adapter or image with <src_dir> and <output_dir>/<tool>/ under
+       the uniform 0/1/2 exit contract (an image gets WRANGLE_KIND for its
+       input/stage). A scan tool writes output.sarif; an sbom tool writes
+       sbom.<format>.json (timeout: 10 minutes)
+    8. Record pass/fail status; attest each recognized output file by name —
+       output.sarif via the scan/v1 manifest, an sbom.<format>.json via its
+       in-toto predicate (sbom.spdx.json -> https://spdx.dev/Document,
+       sbom.cyclonedx.json -> https://cyclonedx.org/bom)
 
   After all tools:
     9. Print summary table to stdout

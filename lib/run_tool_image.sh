@@ -9,19 +9,16 @@ set -f
 # Returns the container's exit code under the 0/1/2 adapter contract.
 run_tool_image() {
     local tool="$1" image="$2" tool_out="$3" src_dir="$4" catalog="$5" timeout_s="$6"
-    local net kind format secret secret_var extra_var src_abs out_abs
+    local net kind secret secret_var extra_var src_abs out_abs
 
     # egress -> docker's default bridge network; absent -> none (closed).
     net="none"
     [[ "$(read_catalog_field "$catalog" "$tool" network)" == "egress" ]] && net="bridge"
 
+    # WRANGLE_KIND carries the tool's input/stage to its entrypoint.
     local -a docker_env=()
     kind="$(read_catalog_field "$catalog" "$tool" kind)"
     [[ -n "$kind" ]] && docker_env+=(-e "WRANGLE_KIND=$kind")
-    if [[ "$kind" == "sbom" ]]; then
-        format="$(read_catalog_field "$catalog" "$tool" format)"
-        [[ -n "$format" ]] && docker_env+=(-e "WRANGLE_SBOM_FORMAT=$format")
-    fi
 
     secret="$(read_catalog_field "$catalog" "$tool" secret)"
     if [[ -n "$secret" ]]; then
