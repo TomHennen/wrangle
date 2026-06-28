@@ -337,8 +337,8 @@ run_one_tool() {
         rm -f "$pre_snapshot" "$post_snapshot"
     fi
 
-    # Uniform 0/1/2 exit contract across kinds. A tool's kind selects its
-    # input/stage, not this mapping; an sbom tool simply never returns 1.
+    # Uniform 0/1/2 exit contract across kinds; a tool's kind selects its
+    # input/stage, not this mapping.
     case "$adapter_exit" in
         0)
             tool_status="pass"
@@ -362,12 +362,9 @@ run_one_tool() {
             ;;
     esac
 
-    # Filename-driven output handling: recognized files the tool drops in
-    # /output get their attest manifest by name. output.sarif keeps the scan/v1
-    # thin envelope (tool name + result) and feeds output.md + the Security-tab
-    # upload; an sbom.<format>.json maps to its in-toto predicate. Skip on error
-    # — an attestation must claim a real result, and a "No findings" summary
-    # over a missing/incomplete SARIF would mislead.
+    # Filename-driven attestation of the tool's primary output. Skip on error —
+    # an attestation must claim a real result. A clean run that emits no
+    # recognized file is a no-op (green, no artifact, no manifest).
     if [[ "$tool_status" != "error" ]]; then
         if [[ -f "${tool_output_dir}/output.sarif" ]]; then
             # Generate a human-readable summary if the adapter didn't.
@@ -389,19 +386,12 @@ run_one_tool() {
                     "${tool_output_dir}/output.sarif" \
                     || printf 'wrangle: failed to write %s scan manifest\n' "$tool" >&2
             fi
-        else
-            local sbom_file predicate
-            for sbom_file in sbom.spdx.json sbom.cyclonedx.json; do
-                [[ -f "${tool_output_dir}/${sbom_file}" ]] || continue
-                case "$sbom_file" in
-                    sbom.spdx.json)      predicate="https://spdx.dev/Document" ;;
-                    sbom.cyclonedx.json) predicate="https://cyclonedx.org/bom" ;;
-                esac
-                "$SCRIPT_DIR/lib/write_attest_manifest.sh" \
-                    "$tool_output_dir" "$predicate" "$sbom_file" \
-                    || printf 'wrangle: failed to write %s sbom manifest\n' "$tool" >&2
-                break
-            done
+        elif [[ -f "${tool_output_dir}/sbom.spdx.json" ]]; then
+            # CycloneDX is future work: re-add it to this map alongside the
+            # wrangle-attest engine allowlist + a test when a tool emits it.
+            "$SCRIPT_DIR/lib/write_attest_manifest.sh" \
+                "$tool_output_dir" "https://spdx.dev/Document" "sbom.spdx.json" \
+                || printf 'wrangle: failed to write %s sbom manifest\n' "$tool" >&2
         fi
     fi
 

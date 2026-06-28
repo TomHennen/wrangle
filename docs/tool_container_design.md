@@ -90,23 +90,25 @@ A tool's `kind` captures its **input/stage**, not its output handling:
 | Kind | Input / stage | Primary output | Exit | Adopter-substitutable |
 |------|---------------|----------------|------|-----------------------|
 | `scan` | source tree | `output.sarif` (SARIF 2.1.0) | 0 clean / 1 findings / 2 error | yes |
-| `sbom` | source tree or built artifact | `sbom.<format>.json` (SPDX or CycloneDX) | 0 ok / 2 error (never 1) | yes |
+| `sbom` | source tree or built artifact | `sbom.spdx.json` (SPDX) | 0 ok / 2 error (never 1) | yes |
 | `attest`/`verify` | metadata + targets | signed attestations / verdict | tool-specific | no |
 
 `scan` runs on the source tree, `sbom` produces an SBOM at its own pipeline point, a future binary-scan
 would run on built outputs. The kind does not change output or exit handling: every tool runs under the
-uniform `0`/`1`/`2` contract, and the orchestrator collects `/output` and attests each recognized file by
-name. `sbom` is just an instance — a tool that emits `sbom.*.json` (syft defaults to `sbom.spdx.json`)
-and, having no findings state, never returns `1`.
+uniform `0`/`1`/`2` contract, and the orchestrator collects `/output` and attests its primary output file
+by name. `sbom` is just an instance — a tool that emits an SBOM (syft emits `sbom.spdx.json`) and, having
+no findings state, never returns `1`. (CycloneDX is future work: `sbom.cyclonedx.json` ships when a tool
+emits it, alongside the wrangle-attest engine allowlist entry.)
 
 **Output handling.** wrangle gives specific filenames special handling — `output.sarif` feeds the
 result/Security-tab upload, `output.md` feeds the GHA step summary — and **carries anything else the tool
 writes to `/output`** into the published metadata. Attestation is by filename: `output.sarif` is wrapped
-as the scan/v1 result, an `sbom.<format>.json` is mapped to its in-toto predicate
-(`sbom.spdx.json` → `https://spdx.dev/Document`, `sbom.cyclonedx.json` → `https://cyclonedx.org/bom`).
+as the scan/v1 result, `sbom.spdx.json` is mapped to its in-toto predicate `https://spdx.dev/Document`.
 `output.md` and any extra files are propagated as metadata without promising a signature over each. So
 the contract is "write your output file; write `output.md` for a human-readable summary; anything else
-under `/output` is carried along," not a fixed file list.
+under `/output` is carried along," not a fixed file list. A run that exits 0 but writes no recognized
+output file is a clean no-op (green, no artifact, no attestation) — the tool owns emitting its artifact
+or exiting non-zero.
 
 ### 3.4 Packaging
 

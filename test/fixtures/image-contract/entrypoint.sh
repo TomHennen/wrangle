@@ -36,8 +36,7 @@ case "$mode" in
         printf '{"version":"2.1.0","runs":[{"tool":{"driver":{"name":"mock"}},"results":[]}]}\n' > "$out/output.sarif"
         exit 0 ;;
     sbom)
-        # sbom kind: record the kind wrangle passed, then write sbom.spdx.json
-        # and exit 0.
+        # Record WRANGLE_KIND so a test can assert the stage signal arrived.
         printf '%s' "${WRANGLE_KIND:-}" > "$out/kind_seen"
         printf '{"spdxVersion":"SPDX-2.3","name":"mock"}\n' > "$out/sbom.spdx.json"
         exit 0 ;;

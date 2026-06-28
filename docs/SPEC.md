@@ -364,16 +364,20 @@ TOOL KIND:
 
 OUTPUT FILES (written to output_dir):
   A tool writes whatever its kind produces; the orchestrator collects /output
-  and attests each recognized file by name:
-    output.sarif        a SARIF 2.1.0 scan result
-    sbom.spdx.json      an SPDX SBOM
-    sbom.cyclonedx.json a CycloneDX SBOM
+  and attests its primary output file by name:
+    output.sarif    a SARIF 2.1.0 scan result
+    sbom.spdx.json  an SPDX SBOM
+  (CycloneDX is future work; sbom.cyclonedx.json is not yet recognized.)
   Plus optional human-readable companions for a SARIF result:
     output.md   Human-readable markdown summary
     output.txt  Human-readable plain text (fallback if no .md)
   When output.sarif is present and neither output.md nor output.txt is, the
   orchestrator generates output.md from output.sarif via lib/sarif_to_md.sh;
   an adapter that produces richer output should write its own output.md.
+
+  A run that exits 0 but writes no recognized output file is a clean no-op
+  (green, no artifact, no attestation); the tool is responsible for emitting
+  its artifact or exiting non-zero.
 
 EXIT CODES (uniform across kinds):
   0  Completed, no findings
@@ -579,11 +583,10 @@ BEHAVIOR:
     7. Run the adapter or image with <src_dir> and <output_dir>/<tool>/ under
        the uniform 0/1/2 exit contract (an image gets WRANGLE_KIND for its
        input/stage). A scan tool writes output.sarif; an sbom tool writes
-       sbom.<format>.json (timeout: 10 minutes)
-    8. Record pass/fail status; attest each recognized output file by name —
-       output.sarif via the scan/v1 manifest, an sbom.<format>.json via its
-       in-toto predicate (sbom.spdx.json -> https://spdx.dev/Document,
-       sbom.cyclonedx.json -> https://cyclonedx.org/bom)
+       sbom.spdx.json (timeout: 10 minutes)
+    8. Record pass/fail status; attest the primary output file by name —
+       output.sarif via the scan/v1 manifest, sbom.spdx.json via its in-toto
+       predicate https://spdx.dev/Document
 
   After all tools:
     9. Print summary table to stdout
