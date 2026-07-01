@@ -43,6 +43,8 @@ jobs:
             imagename: ghcr.io/tomhennen/wrangle/wrangle-lint
           - path: tools/zizmor
             imagename: ghcr.io/tomhennen/wrangle/zizmor
+          - path: tools/syft
+            imagename: ghcr.io/tomhennen/wrangle/syft
     uses: ./.github/workflows/build_and_publish_container.yml
     with:
       path: ${{ matrix.path }}

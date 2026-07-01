@@ -35,7 +35,7 @@ becomes "publish an image that honors the contract."
 
 **Hard constraints:**
 
-- **C1 — dependency visibility preserved.** Pinning by opaque digest alone (no manifest, no SBOM) is out.
+- **C1 — dependency visibility preserved.** Pinning by opaque digest alone (no manifest, no SBOM) is out. (One curated tool — syft — takes an explicit, bounded exception to this; recorded in §3.4.)
 - **C2 — faster** than install-at-runtime.
 - **C3 — broadly applicable** to most tools (an occasional non-transitionable tool is acceptable).
 - **C4 — no harder to coordinate wrangle updates.**
@@ -85,24 +85,30 @@ SPEC's Adapter Script Interface (environment/security sections) is updated in th
 
 ### 3.3 Tool kinds
 
-The contract is parameterized over tool kind:
+A tool's `kind` captures its **input/stage**, not its output handling:
 
-| Kind | Input | Primary output | Exit | Adopter-substitutable |
-|------|-------|----------------|------|-----------------------|
-| `scan` | `src_dir` (ro) | `output.sarif` (SARIF 2.1.0) | 0 clean / 1 findings / 2 error | yes |
-| `sbom` | `src_dir` or built artifact | `sbom.<format>.json` (SPDX or CycloneDX, declared) | 0 ok / 2 error | yes |
+| Kind | Input / stage | Primary output | Exit | Adopter-substitutable |
+|------|---------------|----------------|------|-----------------------|
+| `scan` | source tree | `output.sarif` (SARIF 2.1.0) | 0 clean / 1 findings / 2 error | yes |
+| `sbom` | source tree or built artifact | `sbom.spdx.json` (SPDX) | 0 ok / 2 error (never 1) | yes |
 | `attest`/`verify` | metadata + targets | signed attestations / verdict | tool-specific | no |
 
-`sbom` declares its format rather than assuming SPDX; its exit codes have no "findings" state; and its
-input may be a built artifact, not source.
+`scan` runs on the source tree, `sbom` produces an SBOM at its own pipeline point, a future binary-scan
+would run on built outputs. The kind does not change output or exit handling: every tool runs under the
+uniform `0`/`1`/`2` contract, and the orchestrator collects `/output` and attests its primary output file
+by name. `sbom` is just an instance — a tool that emits an SBOM (syft emits `sbom.spdx.json`) and, having
+no findings state, never returns `1`. (CycloneDX is future work: `sbom.cyclonedx.json` ships when a tool
+emits it, alongside the wrangle-attest engine allowlist entry.)
 
-**Output handling.** A tool's *primary* output (above) drives gating. Beyond it, wrangle gives specific
-filenames special handling — `output.sarif` feeds the result/Security-tab upload, `output.md` feeds the
-GHA step summary — and **carries anything else the tool writes to `/output`** into the published
-metadata. Not everything in that metadata is signed: for a scan tool the SARIF is the attested artifact;
+**Output handling.** wrangle gives specific filenames special handling — `output.sarif` feeds the
+result/Security-tab upload, `output.md` feeds the GHA step summary — and **carries anything else the tool
+writes to `/output`** into the published metadata. Attestation is by filename: `output.sarif` is wrapped
+as the scan/v1 result, `sbom.spdx.json` is mapped to its in-toto predicate `https://spdx.dev/Document`.
 `output.md` and any extra files are propagated as metadata without promising a signature over each. So
-the contract is "write your primary output (the gated/attested one); write `output.md` for a
-human-readable summary; anything else under `/output` is carried along," not a fixed file list.
+the contract is "write your output file; write `output.md` for a human-readable summary; anything else
+under `/output` is carried along," not a fixed file list. A run that exits 0 but writes no recognized
+output file is a clean no-op (green, no artifact, no attestation) — the tool owns emitting its artifact
+or exiting non-zero.
 
 ### 3.4 Packaging
 
@@ -111,7 +117,7 @@ A tool's build path follows from **who owns it**:
 | Class | Examples | Build path |
 |---|---|---|
 | Owned Go, adapter in the binary | wrangle-lint, wrangle-attest, a unified `wrangle` | ko / goreleaser `kos:` (the binary is contract-native) |
-| Third-party tool wrapped | osv, syft, zizmor | Dockerfile via `build_and_publish_container` |
+| Third-party tool wrapped | osv, zizmor (package-manager install); syft (verified-binary, see exception) | Dockerfile via `build_and_publish_container` |
 | Adopter's own tool | a BYO SBOM generator | adopter's choice; wrangle ships only the contract |
 
 For wrapped third-party tools, the image is built by **installing the tool through its canonical package
@@ -123,6 +129,19 @@ Dependabot, osv, and govulncheck keep scanning the tool's transitive dependencie
 a dependency ahead of upstream. It also matches DEP_MGMT.md's integrity ladder. The install/compile
 moves from every run to image-publish time. (Building a single tool from the shared `tools/go.mod` and
 extracting one binary is validated — see §4.)
+
+**Exception — syft (an explicit, bounded C1 exception).** syft's image instead copies in the
+**cosign-verified syft binary** — the build stage runs the same Sigstore-keyless verify chain wrangle
+already runs on `main` (`tools/syft/install.sh`: verify `checksums.txt` against anchore/syft's release
+identity, then SHA-check the binary) and copies the result onto the runtime base. No canonical package
+manager ships syft's wrangle adapter, and Anchore's official image is unsigned/unverifiable, so the
+manifest-preserving path above isn't available without a git-clone-and-rebuild that bloats wrangle-core.
+This forfeits C1's in-repo dependency manifest for syft's own transitive deps — accepted as a deliberate
+exception because syft runs under the strictest sandbox (`--network none`, read-only `/src`, `--cap-drop
+ALL`, `--security-opt no-new-privileges`) and emits an **inert assertion** (a schema-validated SBOM
+wrangle signs as "syft produced this," never as correct), and because it **preserves rather than
+worsens** syft's posture: syft already ships to wrangle as a cosign-verified binary today, now baked into
+a sandboxed image rather than installed at run time.
 
 zizmor moves into this model too. It is action-pattern today only because Rust/pip install was awkward;
 its upstream action's one distinct function — uploading SARIF to the Security tab — is something wrangle
@@ -207,8 +226,7 @@ Schema below is the proposed shape; exact field names and file locations are bik
     },
     "syft": {
       "kind": "sbom",
-      "image": "ghcr.io/tomhennen/wrangle/syft@sha256:0b72…",
-      "format": "spdx-json"      // network omitted → none; no secret
+      "image": "ghcr.io/tomhennen/wrangle/syft@sha256:0b72…"   // network omitted → none; no secret
     },
     // owned Go tools can share ONE image — the unified `wrangle` binary — selected by command
     "wrangle-lint": {
@@ -256,9 +274,8 @@ jobs:
       "image": "ghcr.io/myorg/osv@sha256:7c1d…"    // adopter now owns this pin's freshness
     },
     "my-sbom": {                                   // BYO a tool wrangle doesn't ship — full definition
-      "kind": "sbom",
-      "image": "ghcr.io/myorg/my-sbom-generator@sha256:e88f…",
-      "format": "cyclonedx-json"                   // no network / no secret → strictest contract by default
+      "kind": "sbom",                              // emits its own sbom.<format>.json
+      "image": "ghcr.io/myorg/my-sbom-generator@sha256:e88f…"  // no network / no secret → strictest contract by default
     }
   }
 }
@@ -298,8 +315,11 @@ not a meaningful per-delivery signal.)
 
 - **Prebuilt binary (download + verify).** Fastest acquire, but a raw binary carries no dependency
   manifest (no transitive-CVE notices), sits below a package-manager install on the integrity ladder,
-  and gets no sandbox. Rejected as the delivery mechanism; useful only as the speed floor it establishes
-  above.
+  and — downloaded at run time — gets no sandbox. Rejected as the *general* delivery mechanism; useful as
+  the speed floor it establishes above. **One bounded exception:** syft's image bakes the cosign-verified
+  binary into the sandboxed container (option c, §3.4), keeping the container sandbox while accepting the
+  no-manifest cost, because no package manager ships syft's adapter and its strict sandbox + inert SBOM
+  output bound that cost.
 - **`FROM <upstream image>`.** Fastest of all (no install), but the tool's dependencies leave wrangle's
   manifest so the source scan goes blind, and a registry digest is a checksum served by the same source
   as the bytes — straining the "checksums not from the binary's source" rule. Permitted only for tools

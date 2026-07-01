@@ -355,20 +355,35 @@ ARGUMENTS:
   src_dir     Path to the source code to scan (read-only)
   output_dir  Path to write results (writable, already exists)
 
+TOOL KIND:
+  The tool's `kind` (the catalog `kind:` field; default `scan`) captures its
+  input/stage — `scan` runs on the source tree, `sbom` produces an SBOM at its
+  own point in the pipeline. It does NOT change the output or exit handling
+  below, which are uniform across kinds. An image-delivery tool is told its
+  kind via WRANGLE_KIND.
+
 OUTPUT FILES (written to output_dir):
-  output.sarif   REQUIRED  SARIF 2.1.0 JSON
-  output.md      OPTIONAL  Human-readable markdown summary
-  output.txt     OPTIONAL  Human-readable plain text (fallback if no .md)
+  A tool writes whatever its kind produces; the orchestrator collects /output
+  and attests its primary output file by name:
+    output.sarif    a SARIF 2.1.0 scan result
+    sbom.spdx.json  an SPDX SBOM
+  (CycloneDX is future work; sbom.cyclonedx.json is not yet recognized.)
+  Plus optional human-readable companions for a SARIF result:
+    output.md   Human-readable markdown summary
+    output.txt  Human-readable plain text (fallback if no .md)
+  When output.sarif is present and neither output.md nor output.txt is, the
+  orchestrator generates output.md from output.sarif via lib/sarif_to_md.sh;
+  an adapter that produces richer output should write its own output.md.
 
-  If the adapter does not produce output.md or output.txt, the
-  orchestrator generates output.md from output.sarif via
-  lib/sarif_to_md.sh. Adapters that produce richer tool-specific
-  output should write their own output.md to prevent this fallback.
+  A run that exits 0 but writes no recognized output file is a clean no-op
+  (green, no artifact, no attestation); the tool is responsible for emitting
+  its artifact or exiting non-zero.
 
-EXIT CODES:
-  0  Scan completed, no findings
-  1  Scan completed, findings detected
-  2  Scan failed (tool error)
+EXIT CODES (uniform across kinds):
+  0  Completed, no findings
+  1  Completed, findings detected
+  2  Tool error
+  An sbom tool has no findings state, so it simply never returns 1.
 
 PRECONDITIONS:
   Tool binary is on $PATH (handled by install script)
@@ -565,10 +580,13 @@ BEHAVIOR:
     5. (adapter path) Run tools/<tool>/install.sh if present — go.mod tools
        were all installed upfront (timeout: 5 minutes)
     6. Create <output_dir>/<tool>/
-    7. Run the adapter or image with <src_dir> and <output_dir>/<tool>/; both
-       write output.sarif there under the same 0/1/2 exit contract
-       (timeout: 10 minutes)
-    8. Record pass/fail status
+    7. Run the adapter or image with <src_dir> and <output_dir>/<tool>/ under
+       the uniform 0/1/2 exit contract (an image gets WRANGLE_KIND for its
+       input/stage). A scan tool writes output.sarif; an sbom tool writes
+       sbom.spdx.json (timeout: 10 minutes)
+    8. Record pass/fail status; attest the primary output file by name —
+       output.sarif via the scan/v1 manifest, sbom.spdx.json via its in-toto
+       predicate https://spdx.dev/Document
 
   After all tools:
     9. Print summary table to stdout

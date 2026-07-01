@@ -28,6 +28,11 @@ source "$SCRIPT_DIR/lib/read_catalog.sh"
 # shellcheck source=lib/verify_image_vsa.sh
 source "$SCRIPT_DIR/lib/verify_image_vsa.sh"
 
+# Image-delivery runner: run_tool_image dispatches a curated image under the
+# contract sandbox. Expects CATALOG, src_dir, and ADAPTER_TIMEOUT in scope.
+# shellcheck source=lib/run_tool_image.sh
+source "$SCRIPT_DIR/lib/run_tool_image.sh"
+
 TOOLS_DIR="${WRANGLE_TOOLS_DIR:-${SCRIPT_DIR}/tools}"
 # The catalog lives beside the tools it describes, so a WRANGLE_TOOLS_DIR
 # override (hermetic orchestrator tests) gets its own catalog — or none, in
@@ -164,55 +169,6 @@ fi
 declare -a summary_tools=()
 declare -a summary_statuses=()
 
-# run_tool_image <tool> <image> <output_dir> — run a digest-pinned image under
-# the contract sandbox (read-only /src, writable /output owned by the runner
-# UID, capabilities dropped, no new privileges). Network defaults closed; a
-# declared secret (already name-validated by the caller) is forwarded into the
-# container by name only. Returns the container's exit code under the 0/1/2
-# adapter contract.
-run_tool_image() {
-    local tool="$1" image="$2" tool_out="$3"
-    local net secret secret_var extra_var src_abs out_abs
-
-    # Network defaults closed; a tool grants egress only by declaring it.
-    # "egress" maps to docker's default bridge network (full egress, the
-    # access these tools already have today).
-    net="none"
-    [[ "$(read_catalog_field "$CATALOG" "$tool" network)" == "egress" ]] && net="bridge"
-
-    # docker inherits no host env; a secret-declaring tool gets its
-    # WRANGLE_EXTRA_<name> forwarded by name only, mirroring the adapter
-    # path's WRANGLE_EXTRA_* forwarding. Default: no secrets.
-    local -a docker_env=()
-    secret="$(read_catalog_field "$CATALOG" "$tool" secret)"
-    if [[ -n "$secret" ]]; then
-        # Map a catalog secret name (e.g. github-token) to its env var
-        # (WRANGLE_EXTRA_GITHUB_TOKEN). Export the value into run.sh's own
-        # env and pass docker the name only, so the value never lands on
-        # docker's argv (visible via ps/proc).
-        secret_var="$(printf '%s' "$secret" | tr 'a-z-' 'A-Z_')"
-        extra_var="WRANGLE_EXTRA_${secret_var}"
-        if [[ -n "${!extra_var:-}" ]]; then
-            export "${secret_var}=${!extra_var}"
-            docker_env+=(-e "${secret_var}")
-        fi
-    fi
-
-    # Absolute paths: docker -v needs them, and src_dir/output_dir may be
-    # relative to cwd.
-    src_abs="$(cd "$src_dir" && pwd)"
-    out_abs="$(cd "$tool_out" && pwd)"
-
-    local rc=0
-    timeout "$ADAPTER_TIMEOUT" docker run --rm --network "$net" \
-        --cap-drop ALL --security-opt no-new-privileges \
-        -u "$(id -u):$(id -g)" \
-        -v "$src_abs":/src:ro -v "$out_abs":/output \
-        "${docker_env[@]}" \
-        -- "$image" /src /output || rc=$?
-    return "$rc"
-}
-
 # verify_tool_image <tool> <image> — curated-image policy around the
 # verify_image_vsa primitive. Fail closed: a wrangle-published image must carry a
 # PASSED, SLSA-L3 wrangle VSA whose resourceUri is this image ref (matching
@@ -244,8 +200,8 @@ verify_tool_image() {
 
 # run_one_tool <tool> — run a single tool through its delivery path (image via
 # docker, otherwise the in-process adapter), map its exit to the 0/1/2 contract,
-# generate human-readable output and the scan manifest, and record the result.
-# Updates overall_status and the summary arrays.
+# attest its recognized output files by name, and record the result. Updates
+# overall_status and the summary arrays.
 run_one_tool() {
     local tool="$1"
     printf '::group::wrangle/%s\n' "$tool"
@@ -262,7 +218,7 @@ run_one_tool() {
         # Image-delivery: run the tool's pinned image under the contract
         # sandbox (read-only /src, writable /output owned by the runner UID).
         # The image's entrypoint IS the adapter, so it maps the same 0/1/2
-        # exit contract and writes output.sarif (+ output.md) into /output.
+        # exit contract and writes its recognized output files into /output.
         printf 'wrangle: running %s (image)...\n' "$tool"
 
         local image
@@ -312,7 +268,8 @@ run_one_tool() {
             return
         fi
 
-        run_tool_image "$tool" "$image" "$tool_output_dir" || adapter_exit=$?
+        run_tool_image "$tool" "$image" "$tool_output_dir" \
+            "$src_dir" "$CATALOG" "$ADAPTER_TIMEOUT" || adapter_exit=$?
     else
         # Adapter-pattern (in-process) path.
 
@@ -380,6 +337,8 @@ run_one_tool() {
         rm -f "$pre_snapshot" "$post_snapshot"
     fi
 
+    # Uniform 0/1/2 exit contract across kinds; a tool's kind selects its
+    # input/stage, not this mapping.
     case "$adapter_exit" in
         0)
             tool_status="pass"
@@ -403,33 +362,36 @@ run_one_tool() {
             ;;
     esac
 
-    # Generate human-readable output if the adapter didn't produce one.
-    # Only on successful runs — on error the SARIF may be missing or
-    # incomplete, and showing "No findings" would be misleading.
-    if [[ "$tool_status" != "error" ]] \
-        && [[ -f "${tool_output_dir}/output.sarif" ]] \
-        && [[ ! -s "${tool_output_dir}/output.md" ]] \
-        && [[ ! -s "${tool_output_dir}/output.txt" ]]; then
-        "$SCRIPT_DIR/lib/sarif_to_md.sh" "${tool_output_dir}/output.sarif" \
-            > "${tool_output_dir}/output.md" 2>/dev/null || true
-    fi
-
-    # Write the scan/v1 attestation manifest next to output.sarif so the
-    # trusted verify job's wrangle-attest engine wraps + signs it. Skip on
-    # error (an attestation must claim a real scan result); write_scan_manifest
-    # itself no-ops on a missing SARIF. The scanner name can differ from the
-    # orchestrator token (osv -> osv-scanner); keyed per tool, one line each.
+    # Filename-driven attestation of the tool's primary output. Skip on error —
+    # an attestation must claim a real result. A clean run that emits no
+    # recognized file is a no-op (green, no artifact, no manifest).
     if [[ "$tool_status" != "error" ]]; then
-        local scanner_name=""
-        case "$tool" in
-            osv) scanner_name="osv-scanner" ;;
-            wrangle-lint) scanner_name="wrangle-lint" ;;
-            zizmor) scanner_name="zizmor" ;;
-        esac
-        if [[ -n "$scanner_name" ]]; then
-            "$SCRIPT_DIR/lib/write_scan_manifest.sh" "$scanner_name" \
-                "${tool_output_dir}/output.sarif" \
-                || printf 'wrangle: failed to write %s scan manifest\n' "$tool" >&2
+        if [[ -f "${tool_output_dir}/output.sarif" ]]; then
+            # Generate a human-readable summary if the adapter didn't.
+            if [[ ! -s "${tool_output_dir}/output.md" ]] \
+                && [[ ! -s "${tool_output_dir}/output.txt" ]]; then
+                "$SCRIPT_DIR/lib/sarif_to_md.sh" "${tool_output_dir}/output.sarif" \
+                    > "${tool_output_dir}/output.md" 2>/dev/null || true
+            fi
+            # Scan/v1 manifest, keyed per tool — the scanner name can differ from
+            # the orchestrator token (osv -> osv-scanner).
+            local scanner_name=""
+            case "$tool" in
+                osv) scanner_name="osv-scanner" ;;
+                wrangle-lint) scanner_name="wrangle-lint" ;;
+                zizmor) scanner_name="zizmor" ;;
+            esac
+            if [[ -n "$scanner_name" ]]; then
+                "$SCRIPT_DIR/lib/write_scan_manifest.sh" "$scanner_name" \
+                    "${tool_output_dir}/output.sarif" \
+                    || printf 'wrangle: failed to write %s scan manifest\n' "$tool" >&2
+            fi
+        elif [[ -f "${tool_output_dir}/sbom.spdx.json" ]]; then
+            # CycloneDX is future work: re-add it to this map alongside the
+            # wrangle-attest engine allowlist + a test when a tool emits it.
+            "$SCRIPT_DIR/lib/write_attest_manifest.sh" \
+                "$tool_output_dir" "https://spdx.dev/Document" "sbom.spdx.json" \
+                || printf 'wrangle: failed to write %s sbom manifest\n' "$tool" >&2
         fi
     fi
 

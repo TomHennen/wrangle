@@ -257,3 +257,40 @@ JSON
     [ "$rc" -eq 1 ]
     grep -q "CVE-2021-3121" "$OUT/osv/output.md"
 }
+
+# A catalog declaring mocktool as an sbom-kind image tool. The mock writes
+# sbom.spdx.json and records the WRANGLE_KIND it saw.
+_sbom_catalog() {
+    cat > "$TOOLS/catalog.json" <<JSON
+{"tools":{"mocktool":{"kind":"sbom","delivery":"image","image":"$MOCK_IMAGE"}}}
+JSON
+}
+
+@test "run.sh sbom dispatch: clean -> exit 0, sbom.spdx.json + attest manifest" {
+    _sbom_catalog
+    printf 'sbom' > "$SRC/MODE"
+    _run_orch mocktool
+    [ "$status" -eq 0 ]
+    [ -f "$OUT/mocktool/sbom.spdx.json" ]
+    [ "$(jq -r '.spdxVersion' "$OUT/mocktool/sbom.spdx.json")" = "SPDX-2.3" ]
+    # sbom writes the attest manifest, never an output.md.
+    [ -f "$OUT/mocktool/wrangle_attestation_metadata.json" ]
+    [ "$(jq -r '."predicate-type"' "$OUT/mocktool/wrangle_attestation_metadata.json")" = "https://spdx.dev/Document" ]
+    [ "$(jq -r '."result-file"' "$OUT/mocktool/wrangle_attestation_metadata.json")" = "sbom.spdx.json" ]
+    [ ! -f "$OUT/mocktool/output.md" ]
+}
+
+@test "run.sh sbom dispatch: WRANGLE_KIND reaches the container" {
+    _sbom_catalog
+    printf 'sbom' > "$SRC/MODE"
+    _run_orch mocktool
+    [ "$status" -eq 0 ]
+    [ "$(cat "$OUT/mocktool/kind_seen")" = "sbom" ]
+}
+
+@test "run.sh sbom dispatch: tool error -> exit 2" {
+    _sbom_catalog
+    printf 'sbom-error' > "$SRC/MODE"
+    _run_orch mocktool
+    [ "$status" -eq 2 ]
+}

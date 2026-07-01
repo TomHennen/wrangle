@@ -35,6 +35,14 @@ case "$mode" in
         (ls /sys/class/net 2>/dev/null || printf '') > "$out/net_ifaces"
         printf '{"version":"2.1.0","runs":[{"tool":{"driver":{"name":"mock"}},"results":[]}]}\n' > "$out/output.sarif"
         exit 0 ;;
+    sbom)
+        # Record WRANGLE_KIND so a test can assert the stage signal arrived.
+        printf '%s' "${WRANGLE_KIND:-}" > "$out/kind_seen"
+        printf '{"spdxVersion":"SPDX-2.3","name":"mock"}\n' > "$out/sbom.spdx.json"
+        exit 0 ;;
+    sbom-error)
+        printf 'mock: simulated sbom tool error\n' >&2
+        exit 2 ;;
     *)
         printf '{"version":"2.1.0","runs":[{"tool":{"driver":{"name":"mock"}},"results":[]}]}\n' > "$out/output.sarif"
         exit 0 ;;

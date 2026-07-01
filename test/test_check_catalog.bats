@@ -54,6 +54,12 @@ write_catalog() { printf '%s\n' "$1" > "$CATALOG"; }
     [[ "$output" == *"invalid secret"* ]]
 }
 
+@test "check_catalog: valid sbom entry passes" {
+    write_catalog '{"tools":{"syft":{"kind":"sbom","delivery":"image","image":"ghcr.io/tomhennen/wrangle/syft@sha256:'"$(printf 'a%.0s' {1..64})"'","network":"none"}}}'
+    run "$SCRIPT"
+    [ "$status" -eq 0 ]
+}
+
 @test "check_catalog: malformed JSON fails with exit 1" {
     printf '{ not json\n' > "$CATALOG"
     run "$SCRIPT"
