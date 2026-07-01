@@ -23,7 +23,7 @@
     "syft": {
       "kind": "sbom",
       "delivery": "image",
-      "image": "ghcr.io/tomhennen/wrangle/syft@sha256:0000000000000000000000000000000000000000000000000000000000000000",
+      "image": "ghcr.io/tomhennen/wrangle/syft@sha256:a8c074e45182fb2b51935f5947e92d95e40154e22295144552297b72fd6eb386",
       "network": "none"
     },
     "attest-toolbox": {
