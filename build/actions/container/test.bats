@@ -238,7 +238,7 @@ teardown() {
     # The scan gates the attested build; its Go tool cache must build cold on
     # release so a poisoned cache cannot forge a passing scan.
     local wf="$REPO_ROOT/.github/workflows/build_and_publish_container.yml"
-    run bash -c "sed -n '/^  scan:/,/^  [a-z]/p' \"$wf\" | grep -E \"go-cache:.*should-release == 'true' && ''\""
+    run bash -c "sed -n '/^  scan:/,/^  [a-z]/p' \"$wf\" | grep -E \"go-cache:.*should-release != 'true' && inputs.go-cache\""
     [[ "$status" -eq 0 ]]
 }
 

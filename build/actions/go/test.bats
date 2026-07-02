@@ -693,7 +693,7 @@ func main() {}
     # The scan gates the attested release; its Go tool cache must build cold
     # on release so a poisoned cache cannot forge a passing scan.
     section="$(awk '/^  [a-z][a-z_-]*:$/ { in_section = ($0 == "  scan:") } in_section' "$WORKFLOW")"
-    grep -qE "go-cache:.*should-release == 'true' && ''" <<<"$section"
+    grep -qE "go-cache:.*should-release != 'true' && inputs.go-cache" <<<"$section"
 }
 
 @test "go: workflow release job needs scan (load-bearing finding blocks publish)" {
