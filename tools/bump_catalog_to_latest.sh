@@ -43,7 +43,6 @@ bump_catalog_to_latest() {
         imagename="${image%@sha256:*}"
         pinned="${image##*@}"
 
-        # Skip adopter-override entries: wrangle bumps only its own namespace.
         is_curated_image "$imagename" || continue
         checked=$((checked + 1))
 

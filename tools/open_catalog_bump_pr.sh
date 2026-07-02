@@ -28,8 +28,6 @@ pr_title() {
     printf 'chore(catalog): bump curated tool-image digests to :latest'
 }
 
-# pr_body — the PR description. States the first-party cooldown exemption and the
-# required repository setting; links the design and issues.
 pr_body() {
     cat <<'BODY'
 Automated by the post-publish auto-bump (docs/tool_container_design.md §11).
@@ -50,17 +48,22 @@ Refs #619, #596.
 BODY
 }
 
-# push_branch — force-push $BRANCH to $REMOTE. When GH_TOKEN is set and the
-# remote is https (the CI path, run with persist-credentials: false), it pushes
-# to a token-authenticated URL so no credential is persisted on disk; a local
-# remote (the test path) pushes as-is.
+# push_branch — force-with-lease $BRANCH to $REMOTE. The lease is an explicit
+# expected value from ls-remote (empty when the branch is new), so it works for
+# both the first push and a rolling update without a remote-tracking ref. When
+# GH_TOKEN is set on an https remote (the CI path, run with
+# persist-credentials: false), auth is an http.extraheader carried in the
+# environment, never in argv or on-disk config.
 push_branch() {
-    local target="$REMOTE" url
-    if [[ -n "${GH_TOKEN:-}" ]]; then
-        url="$(git remote get-url "$REMOTE")"
-        [[ "$url" == https://* ]] && target="https://x-access-token:${GH_TOKEN}@${url#https://}"
+    local -a auth=()
+    if [[ -n "${GH_TOKEN:-}" && "$(git remote get-url "$REMOTE")" == https://* ]]; then
+        local hdr
+        hdr="$(printf 'x-access-token:%s' "$GH_TOKEN" | base64 | tr -d '\n')"
+        auth=(env GIT_CONFIG_COUNT=1 GIT_CONFIG_KEY_0=http.extraheader "GIT_CONFIG_VALUE_0=Authorization: Basic ${hdr}")
     fi
-    git push --force "$target" "$BRANCH"
+    local expected
+    expected="$("${auth[@]}" git ls-remote "$REMOTE" "refs/heads/$BRANCH" | cut -f1)" || return 1
+    "${auth[@]}" git push --force-with-lease="refs/heads/$BRANCH:${expected}" "$REMOTE" "$BRANCH"
 }
 
 # open_or_update_pr — open a PR from $BRANCH, or leave the existing open one (the

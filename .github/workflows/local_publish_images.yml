@@ -14,8 +14,9 @@ on:
     paths:
       - tools/**
       - lib/**
-      # A catalog-only push is a digest bump, not a source change: it must not
-      # re-trigger a rebuild (which would loop the auto-bump below).
+      # A catalog-only push is a digest bump, not a source change: excluding it
+      # keeps the auto-bump below from looping. Must stay after `tools/**` —
+      # last matching pattern wins, so reordering silently reopens the loop.
       - "!tools/catalog.json"
 
 permissions: {}
@@ -64,11 +65,8 @@ jobs:
     secrets:
       gh_token: ${{ secrets.GITHUB_TOKEN }}
 
-  # After a publish, repoint the curated catalog to the freshly published
-  # `:latest` digests and OPEN (never auto-merge) a bump PR for review. First-
-  # party rebuilds are cooldown-exempt (docs/tool_container_design.md §11), so the
-  # maintainer merges it on review latency. Runs only on main, off the trusted
-  # push trigger (no pull_request_target, no untrusted-tree checkout).
+  # Open (never auto-merge) a catalog bump PR for the just-published digests.
+  # main-only, on the trusted push trigger (no pull_request_target).
   bump-catalog:
     needs: [publish]
     if: github.ref == 'refs/heads/main'
