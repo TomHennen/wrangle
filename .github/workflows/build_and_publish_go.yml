@@ -215,7 +215,7 @@ jobs:
       # TODO: replace with $/build/actions/go/checks when GitHub ships $/ syntax (#136)
       # Self-pinned to PR HEAD until merge — bump-self-refs follow-up
       # repoints to the squashed merge SHA after this lands.
-      - uses: TomHennen/wrangle/build/actions/go/checks@d6bcaf511af9b83e24a5cd268139836de7ab42e7 # main 2026-06-28
+      - uses: TomHennen/wrangle/build/actions/go/checks@e4d1099dd1561b30353a8006fd78ba797825426a # main 2026-06-28
         id: checks
         with:
           path: ${{ inputs.path }}
