@@ -346,10 +346,11 @@ not a meaningful per-delivery signal.)
   (`check_pin_ancestry`, `check_pin_freshness`, `bump_action_pins`, WL005) are left untouched, since
   digests and git SHAs are different axes. Because the digest lives in one curated place (§3.6), this
   stays a narrow, wrangle-internal task, required only before *production consumption*, not before
-  prototyping. Provenance source-freshness is what gates the containerized signing path (#619): a stale
-  image is still validly attested, so the pull-time VSA gate passes it — only source-freshness catches a
-  stale image about to run with the signing token. Still open (#623): a digest cooldown and the
-  adoption-lag check's advisory→blocking promotion.
+  prototyping. Source-freshness (`check_catalog_provenance_freshness.sh`) runs release-blocking and as a
+  weekly advisory — **not** per run: a stale-but-attested image passes the pull-time VSA gate and is
+  consumed like any pinned dependency (the consume-the-pin model, §7/§11), with a planned auto-bump PR
+  (§11) keeping the pinned digest current. Still open (#623): a digest cooldown and the adoption-lag check's
+  advisory→blocking promotion.
 - **Pull-time consumer VSA gate.** Before a curated image runs, the orchestrator verifies it carries a
   PASSED, SLSA-Build-L3 wrangle verification-summary attestation signed by the container build+publish
   workflow, fail-closed (`run.sh` `verify_tool_image`, `lib/verify_image_vsa.sh`). The signer identity is
@@ -368,28 +369,32 @@ not a meaningful per-delivery signal.)
 
 - **In scope:** wrapping third-party adapter tools as contract images, osv first, then all scan-kind
   tools.
-- **Held, tracked separately:** the attest/verify toolchain (cosign, ampel, bnd, wrangle-attest). It
-  shares a `go.mod` and runs together, so it would package as one image — but it *inverts* the sandbox
-  (it needs network and the OIDC signing token) and would interpose an image-supply-chain link in front
-  of the signing key. That is a different, higher-stakes problem than the scan path. It is **deferred,
-  not abandoned** for two reasons: (a) those tools are a large share of the remaining cold-compile time,
-  so the full speed win needs them eventually; and (b) containerizing the verify path (an `ampel` image)
-  is what would unlock **VSA-verified caching** of all tool images — verifying each image's provenance at
-  pull time, the clean L3-safe replacement for the build cache we currently disable. That is a bootstrap
-  (wrangle's own verify image verifying the others) we return to with this track, not in the scan MVP.
-  The bootstrap is escapable without the containerized verifier: an external anchor — `gh attestation
-  verify`, or `cosign verify-blob-attestation --new-bundle-format` plus a `jq` predicate-field check (the
-  no-AMPEL path in `docs/ampel_research.md`) — checks a tool image's attestation without wrangle first
-  having to verify its own verifier.
+- **Track 2 — signing in a container (#619), now proceeding.** cosign, ampel, bnd and wrangle-attest
+  share a `go.mod` and run together, so they package as one `attest-toolbox` image. It runs under the
+  **consume-the-pin** model: signing consumes the digest-pinned toolbox, VSA-verified before it runs
+  (`lib/verify_image_vsa.sh`, Phase 1) — a stale pinned toolbox is consumed like any pinned dependency,
+  **not** gated per run. This dissolves the self-signing concern: `attest-toolbox@NEW` is signed by the
+  pinned `attest-toolbox@OLD`, which is attested and passes verify-before-run — no circularity, no
+  self-build exemption. Source-freshness stays a release/weekly check (§6, §11), with a planned auto-bump
+  PR (§11) keeping the pinned digest current; there is **no per-signing-run freshness gate**. Containerizing the
+  verify path also unlocks **VSA-verified caching** of all tool images — the L3-safe replacement for the
+  build cache wrangle disables today.
+  **Token delivery.** The host mints an `aud=sigstore` `SIGSTORE_ID_TOKEN` and passes it plus the
+  job-scoped `GITHUB_TOKEN` into the container (Option A: sign+push in-container); the
+  `ACTIONS_ID_TOKEN_REQUEST_*` vars never enter it — a security improvement over today's in-job binary,
+  which can mint a token for any audience.
+  **Break-glass.** Once signing is containerized, `WRANGLE_VERIFY_AMPEL_TOOLBOX` unset falls back to
+  in-job, from-source signing — the outage escape hatch; no automatic staleness fallback. (Today the same
+  toggle gates only the verify step; see Status.)
   **Status (#596 Track 2):** the toolbox image (`tools/attest-toolbox/`, all four binaries from
-  `tools/go.mod`) is built and published like the scan images, and `actions/verify` has an opt-in
-  `WRANGLE_VERIFY_AMPEL_TOOLBOX` toggle that runs *ampel verify only* (no signing token) via that image —
-  resolved from the curated catalog's `attest-toolbox` grant (digest-pinned, `network: egress`, no token)
-  and provenance-verified host-side (`verify_image_vsa`) before it runs. Off by default, byte-identical
-  when unset, and not on the L3 release path; supported for the go/python/npm build types only (the
-  container build type's `oci:` collector needs in-container registry auth, fail-closed and deferred).
-  Containerizing the signing steps (bnd/cosign, which need the OIDC token) and the OCI-collector verify
-  path remain deferred.
+  `tools/go.mod`) is built and published like the scan images, and `actions/verify`'s opt-in
+  `WRANGLE_VERIFY_AMPEL_TOOLBOX` toggle runs *ampel verify only* (no signing token) via it — resolved from
+  the curated catalog's `attest-toolbox` grant (digest-pinned, `network: egress`, no token) and
+  provenance-verified host-side (`verify_image_vsa`) before it runs. Off by default, byte-identical when
+  unset, and not on the L3 release path; supported for the go/python/npm build types only (the container
+  build type's `oci:` collector needs in-container registry auth, fail-closed and deferred). Containerizing
+  the signing steps (bnd/cosign, which need the OIDC token), the OCI-collector verify path, and the
+  catalog auto-bump PR (§11) are the remaining Phase-3 work.
 - **Separate feature:** emitting an attested container of an adopter's own Go app (the "free container"
   value-add via goreleaser/ko). It reuses some machinery but serves adopter UX, not the goals here.
 - **Left as-is:** tools with official GitHub Actions that gain nothing from containerization stay
@@ -439,8 +444,8 @@ model. Still open:
    any tool that stays adapter/action-pattern). osv, then zizmor, behind the curated catalog.
 6. **Extend to `sbom`** — syft as the reference implementation and the first adopter-substitutable
    contract test.
-7. **Revisit the held items** — the attest/verify toolbox (with its speed + VSA-caching payoff, §7) and
-   the adopter container value-add, each on its own merits.
+7. **Track 2 — signing in a container** (consume-the-pin, §7/#619): the attest/verify toolbox (with its
+   speed + VSA-caching payoff) and the adopter container value-add, each on its own merits.
 
 ## 11. Release lifecycle
 
@@ -454,15 +459,21 @@ digest *is* its version — and a wrangle release references a consistent set of
 release does not rebuild or re-tag tool images.**
 
 - **Tool change** — a PR edits `tools/<tool>/Dockerfile` or its go.mod; on merge to main, CI builds and
-  publishes the image (with provenance) → a new digest; an automated follow-up PR bumps the catalog
-  entry to that digest under the WL005 cooldown, exactly like a Dependabot bump. One source PR + one bot
-  bump PR — not a manual double-bump. A catalog-only digest change touches no Dockerfile, so it triggers
-  no rebuild (no loop).
+  publishes the image (with provenance) → a new digest, and an **auto-bump PR** (to be built, #619;
+  today `tools/bump_catalog_digest.sh` does this by hand) updates the catalog entry to it. First-party
+  rebuilds (wrangle's own `ghcr.io/tomhennen/wrangle/*`) are **exempt from the 7-day community-vetting
+  cooldown** — that delay exists to let the community vet *third-party* updates for supply-chain attacks,
+  which a rebuild of wrangle's own reviewed source is not — so the bump merges on CI/review latency and
+  keeps the catalog current. One source PR + one bump PR — not a manual double-bump. A catalog-only digest
+  change touches no Dockerfile, so it triggers no rebuild (no loop).
 - **Release tag** — precondition: the catalog is fresh. `check_catalog_freshness.sh` proves the shipped
   half — no digest is behind its published `:latest` (adoption lag); `check_catalog_provenance_freshness.sh`
   proves the stronger half — every digest is the image built from the current tool source, read from each
-  image's signed provenance. Both are blocking release gates that fail closed on a backend error (exit 2 =
-  precondition unverified). Then tag. No image is built or re-tagged at release time.
+  image's signed provenance over a coarse `tools/`+`lib/` diff-set (it over-flags a harmless rebuild
+  rather than miss a stale image). Both are blocking release gates that fail closed on a backend error
+  (exit 2 = precondition unverified); source-freshness also runs as a **weekly advisory**, and is **not**
+  a per-signing-run blocker (that would false-block signing during the normal bump window). Then tag. No
+  image is built or re-tagged at release time.
 
 Consequences:
 - The catalog at a release commit references images built from *ancestor* commits. That is correct as
