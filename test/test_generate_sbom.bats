@@ -59,9 +59,14 @@ _run_gen() {
     [ "$(jq -r '."result-file"' "$META/wrangle_attestation_metadata.json")" = "sbom.spdx.json" ]
 }
 
-@test "generate_sbom: defaults the tool to syft" {
-    run grep -F 'TOOL="${3:-syft}"' "$ORIG_DIR/lib/generate_sbom.sh"
+@test "generate_sbom: defaults the tool to syft when none is given" {
+    # No catalog in the mock tools dir, so a stub syft/ dir dispatches via the
+    # adapter path — exercising the ${3:-syft} default without docker.
+    cp -r "$TOOLS/stubsbom" "$TOOLS/syft"
+    _run_gen "$SRC" "$META"
     [ "$status" -eq 0 ]
+    [ -f "$META/sbom.spdx.json" ]
+    [ ! -d "$META/syft" ]
 }
 
 @test "generate_sbom: fails closed when the dispatched tool errors" {

@@ -167,10 +167,10 @@ runs:
         INPUT_PATH: ${{ inputs.path }}
         METADATA_DIR: ${{ steps.metadata.outputs.metadata-dir }}
         GH_TOKEN: ${{ github.token }}
+        WRANGLE_ROOT: ${{ github.action_path }}/../../..
       run: |
         set -euo pipefail
-        "${{ github.action_path }}/../../../lib/generate_sbom.sh" \
-            "$INPUT_PATH" "$METADATA_DIR"
+        "$WRANGLE_ROOT/lib/generate_sbom.sh" "$INPUT_PATH" "$METADATA_DIR"
 
     - name: Generate summary
       if: always()

@@ -3,9 +3,7 @@ set -euo pipefail
 set -f  # processes external arguments — disable globbing per CLAUDE.md
 
 # lib/generate_sbom.sh — generate an SPDX SBOM for a build-type source tree by
-# dispatching the curated container SBOM tool through the orchestrator (run.sh),
-# which VSA-gates the image, runs it under the contract sandbox, and writes the
-# attest manifest. The tool name is the dispatch pivot (default: syft).
+# dispatching a curated SBOM tool (default: syft) through the orchestrator.
 #
 # Usage: generate_sbom.sh <src_dir> <metadata_dir> [<tool>]
 

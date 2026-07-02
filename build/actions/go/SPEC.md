@@ -147,7 +147,7 @@ Go projects that publish container images via [`ko`](https://ko.build/) (small d
 
 Across both binary releases and the validation-only sub-shape, wrangle adds the same set of properties an adopter would otherwise re-implement per repo:
 
-- **SBOM generation** with a verified-install syft, written to the unified `metadata/go/<shortname>/` layout.
+- **SBOM generation** with the container-dispatched syft, written to the unified `metadata/go/<shortname>/` layout.
 - **Test gating** — tests must pass before SLSA provenance is generated (binary mode) or before the workflow declares success (validate-only mode).
 - **Vulnscan** via the existing source-scan infrastructure (OSV-Scanner against `go.sum`).
 - **Lint** via `gofmt` + `golangci-lint`.
