@@ -12,7 +12,7 @@ Starting points for adopting wrangle. Copy to `.github/workflows/` in your repo 
 | `build_npm.yml` | `npm pack` / `pnpm pack`, test, SBOM, SLSA L3 provenance. Publishes via npm Trusted Publishing — publish job stays in the caller workflow ([npm constraint](https://github.com/npm/documentation/issues/1755)). | [`../build/actions/npm/README.md`](../build/actions/npm/README.md) |
 | `build_python.yml` | Wheel + sdist, pytest, SBOM, SLSA L3 provenance. Publishes via PyPI Trusted Publishing — publish job stays in the caller. | [`../build/actions/python/README.md`](../build/actions/python/README.md) |
 
-`dependabot.yml` is a starter Dependabot config — copy it to `.github/dependabot.yml` (not the workflows dir). Do NOT enable auto-merge: wrangle adopts upstream versions after a ~7-day cooldown so supply-chain attacks can surface first.
+`dependabot.yml` is a starter Dependabot config — copy it to `.github/dependabot.yml` (not the workflows dir). It groups updates `by dependency-name` so a pin duplicated across files (e.g. your `uses: TomHennen/wrangle/...` ref in several workflows) bumps in one PR instead of drifting. Do NOT enable auto-merge: wrangle adopts upstream versions after a ~7-day cooldown so supply-chain attacks can surface first.
 
 The npm and python READMEs each have a "Before first use" section covering Trusted Publishing setup — bootstrap publish (npm only), trusted-publisher registration, and disabling legacy token uploads. Read those before your first run.
 
