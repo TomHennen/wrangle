@@ -743,7 +743,7 @@ write_pkg_json() {
 @test "npm: scan job forces go-cache off on release" {
     # The scan gates the attested release; its Go tool cache must build cold
     # on release so a poisoned cache cannot forge a passing scan.
-    run bash -c "sed -n '/^  scan:/,/^  [a-z]/p' \"$WORKFLOW\" | grep -E \"go-cache:.*should-release == 'true' && ''\""
+    run bash -c "sed -n '/^  scan:/,/^  [a-z]/p' \"$WORKFLOW\" | grep -E \"go-cache:.*should-release != 'true' && inputs.go-cache\""
     [[ "$status" -eq 0 ]]
 }
 
