@@ -156,7 +156,7 @@ jobs:
           retention-days: 1
           # Cold on release: the scan gates an attested build, so a
           # poisoned tool cache must not be able to forge a passing scan.
-          go-cache: ${{ needs.prep.outputs.should-release == 'true' && '' || inputs.go-cache }}
+          go-cache: ${{ needs.prep.outputs.should-release != 'true' && inputs.go-cache || '' }}
 
   build:
     # needs `scan` so the untrusted scan job's output can be folded into the
