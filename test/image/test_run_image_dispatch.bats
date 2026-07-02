@@ -294,3 +294,17 @@ JSON
     _run_orch mocktool
     [ "$status" -eq 2 ]
 }
+
+@test "generate_sbom: image dispatch lands SBOM + manifest at the metadata root" {
+    # End-to-end: lib/generate_sbom.sh -> run.sh -> mock sbom image, then the
+    # relocation out of the <tool>/ subdir the attest engine wouldn't discover.
+    _sbom_catalog
+    printf 'sbom' > "$SRC/MODE"
+    local meta="$TMP_DIR/meta"
+    WRANGLE_TOOLS_DIR="$TOOLS" run "$ORIG_DIR/lib/generate_sbom.sh" "$SRC" "$meta" mocktool
+    [ "$status" -eq 0 ]
+    [ -f "$meta/sbom.spdx.json" ]
+    [ "$(jq -r '."predicate-type"' "$meta/wrangle_attestation_metadata.json")" = "https://spdx.dev/Document" ]
+    [ "$(jq -r '."result-file"' "$meta/wrangle_attestation_metadata.json")" = "sbom.spdx.json" ]
+    [ ! -d "$meta/mocktool" ]
+}

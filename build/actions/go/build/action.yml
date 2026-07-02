@@ -178,33 +178,16 @@ runs:
         set -euo pipefail
         "${{ github.action_path }}/compute_hashes.sh" "$INPUT_PATH/dist/checksums.txt"
 
-    - name: Install Cosign (for syft signature verification)
-      uses: sigstore/cosign-installer@6f9f17788090df1f26f669e9d70d6ae9567deba6 # v4.1.2
-      with:
-        # Must match the cosign built from tools/go.mod — the version the suite tests.
-        cosign-release: v3.0.6
-
-    - name: Install syft
-      shell: bash
-      env:
-        WRANGLE_ROOT: ${{ github.action_path }}/../../../..
-      run: |
-        set -euo pipefail
-        "$WRANGLE_ROOT/tools/syft/install.sh"
-
     - name: Generate SBOM
       shell: bash
       env:
         INPUT_PATH: ${{ inputs.path }}
         METADATA_DIR: ${{ steps.metadata.outputs.metadata-dir }}
-        WRANGLE_ROOT: ${{ github.action_path }}/../../../..
+        GH_TOKEN: ${{ github.token }}
       run: |
         set -euo pipefail
-        mkdir -p "$METADATA_DIR"
-        "$WRANGLE_ROOT/tools/syft/generate_sbom.sh" \
-            "$INPUT_PATH" "$METADATA_DIR/sbom.spdx.json"
-        "$WRANGLE_ROOT/lib/write_attest_manifest.sh" \
-            "$METADATA_DIR" "https://spdx.dev/Document" "sbom.spdx.json"
+        "${{ github.action_path }}/../../../../lib/generate_sbom.sh" \
+            "$INPUT_PATH" "$METADATA_DIR"
 
     - name: Generate summary
       if: always()

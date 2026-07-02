@@ -509,11 +509,6 @@ func main() {}
     [[ "$status" -eq 0 ]]
 }
 
-@test "tools/syft/generate_sbom.sh uses set -f" {
-    run grep '^set -f' "$REPO_ROOT/tools/syft/generate_sbom.sh"
-    [[ "$status" -eq 0 ]]
-}
-
 @test "go: compute_metadata.sh uses set -f" {
     run grep '^set -f' "$GO_ACTION_DIR/compute_metadata.sh"
     [[ "$status" -eq 0 ]]
@@ -524,26 +519,11 @@ func main() {}
     [[ "$status" -eq 0 ]]
 }
 
-@test "go.build: action installs syft via tools/syft (not curl | sh, no install-to-/usr/local/bin)" {
-    # No curl-pipe-shell anywhere.
-    run grep -E 'curl[^|]*\| *sh' "$BUILD_ACTION"
-    [[ "$status" -ne 0 ]]
-    # No INSTALL/COPY/MOVE writes to /usr/local/bin (per CLAUDE.md
-    # "install to $WRANGLE_BIN_DIR, never /usr/local/bin"). A
-    # `sudo ln -sf` symlink from $WRANGLE_BIN_DIR to /usr/local/bin
-    # is explicitly NOT a CLAUDE.md violation — the binary stays in
-    # $WRANGLE_BIN_DIR; the symlink is wiring for downstream PATH
-    # lookups (see the zig install step), and zig was already
-    # SHA-256 verified by tools/zig/install.sh.
-    run grep -E '(cp|install|mv|tar)[^|]*/usr/local/bin' "$BUILD_ACTION"
-    [[ "$status" -ne 0 ]]
-    run grep 'tools/syft/install.sh' "$BUILD_ACTION"
+@test "go.build: SBOM via container dispatch (lib/generate_sbom.sh, no inline syft/cosign)" {
+    run grep -F 'lib/generate_sbom.sh' "$BUILD_ACTION"
     [[ "$status" -eq 0 ]]
-}
-
-@test "go.build: action installs cosign before syft (signature verification)" {
-    run bash -c "awk '/sigstore\\/cosign-installer/{c=NR} /tools\\/syft\\/install.sh/{s=NR} END{exit !(c && s && c<s)}' \"$BUILD_ACTION\""
-    [[ "$status" -eq 0 ]]
+    run grep -E 'cosign-installer|tools/syft/install.sh|syft dir:|-o spdx-json' "$BUILD_ACTION"
+    [[ "$status" -ne 0 ]]
 }
 
 @test "go.checks: run_checks.sh runs under stop_commands_guard (test/govulncheck execute arbitrary code)" {

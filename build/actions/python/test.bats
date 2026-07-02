@@ -124,9 +124,13 @@ setup() {
     [[ "$status" -eq 0 ]]
 }
 
-@test "python: action.yml generates SBOM" {
-    run grep -E 'spdx-json|sbom' "$ACTION"
+@test "python: SBOM via container dispatch (lib/generate_sbom.sh, no inline syft/cosign)" {
+    run grep -F 'lib/generate_sbom.sh' "$ACTION"
     [[ "$status" -eq 0 ]]
+    run grep -E 'cosign-installer|tools/syft/install.sh|syft dir:|-o spdx-json' "$ACTION"
+    [[ "$status" -ne 0 ]]
+    run grep -E 'curl[^|]*\| *sh|/usr/local/bin' "$ACTION"
+    [[ "$status" -ne 0 ]]
 }
 
 @test "python: passes inputs through env not interpolation" {
@@ -561,18 +565,6 @@ write_pyproject() {
 @test "python: no standalone python-bundle-* artifact (folded into metadata)" {
     run grep 'python-bundle-' "$WORKFLOW"
     [[ "$status" -ne 0 ]]
-}
-
-@test "python: action installs syft via tools/syft (not curl | sh)" {
-    run grep -E 'curl[^|]*\| *sh|/usr/local/bin' "$ACTION"
-    [[ "$status" -ne 0 ]]
-    run grep 'tools/syft/install.sh' "$ACTION"
-    [[ "$status" -eq 0 ]]
-}
-
-@test "python: action installs cosign before syft (signature verification)" {
-    run bash -c "awk '/sigstore\\/cosign-installer/{c=NR} /tools\\/syft\\/install.sh/{s=NR} END{exit !(c && s && c<s)}' \"$ACTION\""
-    [[ "$status" -eq 0 ]]
 }
 
 @test "python: hashes step strips ./ prefix for slsa-verifier" {

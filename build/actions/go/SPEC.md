@@ -26,9 +26,9 @@ For repos with no binary at all, see "Validation-only sub-shape" below — wrang
 
 ### SBOM — `syft`
 
-**Pick:** [`syft`](https://github.com/anchore/syft), the same tool wrangle's python build type uses, with the same Cosign-keyless-verified install (`tools/syft/install.sh`).
+**Pick:** [`syft`](https://github.com/anchore/syft), the same tool wrangle's python and npm build types use, dispatched as the curated, VSA-gated container SBOM tool through `run.sh` (see [`docs/tool_container_design.md`](../../../docs/tool_container_design.md)).
 
-**Why:** Reuses an existing wrangle-verified install, produces SPDX natively (matching wrangle's cross-build-type SPDX choice — see the unified metadata layout in [`docs/SPEC.md`](../../../docs/SPEC.md)), and is the de-facto Go SBOM choice in the broader ecosystem. `cyclonedx-gomod` is an alternative with tighter Go-toolchain integration but produces CycloneDX; converting to SPDX is lossy. `goreleaser`'s `sboms:` block can also drive syft, but running syft directly (the way python does) keeps the SBOM step uniform across build types and survives a future move off goreleaser.
+**Why:** Reuses wrangle's curated tool-image path, produces SPDX natively (matching wrangle's cross-build-type SPDX choice — see the unified metadata layout in [`docs/SPEC.md`](../../../docs/SPEC.md)), and is the de-facto Go SBOM choice in the broader ecosystem. `cyclonedx-gomod` is an alternative with tighter Go-toolchain integration but produces CycloneDX; converting to SPDX is lossy. `goreleaser`'s `sboms:` block can also drive syft, but dispatching syft through the shared container path keeps the SBOM step uniform across build types and survives a future move off goreleaser.
 
 The stale `cyclonedx-gomod` reference in [`docs/docker_best_practices.md`](../../../docs/docker_best_practices.md) predates python's syft adoption and should be treated as informational, not a contract.
 

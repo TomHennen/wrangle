@@ -173,34 +173,16 @@ runs:
         HASHES="$(cd "$INPUT_PATH/dist" && sha256sum -- * | base64 -w0)"
         printf 'hashes=%s\n' "$HASHES" >> "$GITHUB_OUTPUT"
 
-    - name: Install Cosign (for syft signature verification)
-      uses: sigstore/cosign-installer@6f9f17788090df1f26f669e9d70d6ae9567deba6 # v4.1.2
-      with:
-        # Must match the cosign built from tools/go.mod — the version the suite tests.
-        cosign-release: v3.0.6
-
-    - name: Install syft
-      shell: bash
-      env:
-        WRANGLE_ROOT: ${{ github.action_path }}/../../..
-      run: |
-        set -euo pipefail
-        "$WRANGLE_ROOT/tools/syft/install.sh"
-
     - name: Generate SBOM
       shell: bash
       env:
         INPUT_PATH: ${{ inputs.path }}
         METADATA_DIR: ${{ steps.metadata.outputs.metadata-dir }}
-        WRANGLE_ROOT: ${{ github.action_path }}/../../..
+        GH_TOKEN: ${{ github.token }}
       run: |
         set -euo pipefail
-        SBOM_PATH="${METADATA_DIR}/sbom.spdx.json"
-        BIN_DIR="${WRANGLE_BIN_DIR:-${RUNNER_TEMP:-.}/.wrangle/bin}"
-        "$BIN_DIR/syft" dir:"$INPUT_PATH" -o spdx-json > "$SBOM_PATH"
-        "$WRANGLE_ROOT/lib/write_attest_manifest.sh" \
-            "$METADATA_DIR" "https://spdx.dev/Document" "sbom.spdx.json"
-        printf 'SBOM written to %s\n' "$SBOM_PATH"
+        "${{ github.action_path }}/../../../lib/generate_sbom.sh" \
+            "$INPUT_PATH" "$METADATA_DIR"
 
     - name: Generate summary
       if: always()
