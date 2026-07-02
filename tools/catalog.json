@@ -10,7 +10,7 @@
     "zizmor": {
       "kind": "scan",
       "delivery": "image",
-      "image": "ghcr.io/tomhennen/wrangle/zizmor@sha256:03653b75ef7026b4ca156efbea8c470da79c6943e43bb743cb5cc30279d5fcf4",
+      "image": "ghcr.io/tomhennen/wrangle/zizmor@sha256:5dec66fd1e455a65fbddc2cc2d50f3af5b3ed32af114cda4e3baa52d6cbd7a92",
       "network": "egress",
       "secret": "github-token"
     },
