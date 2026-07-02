@@ -14,8 +14,17 @@ on:
     paths:
       - tools/**
       - lib/**
+      # A catalog-only push is a digest bump, not a source change: it must not
+      # re-trigger a rebuild (which would loop the auto-bump below).
+      - "!tools/catalog.json"
 
 permissions: {}
+
+# Serialize publishes so two runs cannot race the shared `:latest` tag the
+# auto-bump resolves.
+concurrency:
+  group: publish-tool-images
+  cancel-in-progress: false
 
 jobs:
   publish:
@@ -54,3 +63,42 @@ jobs:
       release-events: main-and-tags
     secrets:
       gh_token: ${{ secrets.GITHUB_TOKEN }}
+
+  # After a publish, repoint the curated catalog to the freshly published
+  # `:latest` digests and OPEN (never auto-merge) a bump PR for review. First-
+  # party rebuilds are cooldown-exempt (docs/tool_container_design.md §11), so the
+  # maintainer merges it on review latency. Runs only on main, off the trusted
+  # push trigger (no pull_request_target, no untrusted-tree checkout).
+  bump-catalog:
+    needs: [publish]
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: write        # push the bump branch
+      pull-requests: write   # open the bump PR
+    steps:
+      # persist-credentials: false — the push authenticates with GH_TOKEN via an
+      # explicit push URL (open_catalog_bump_pr.sh), so no git credential is left
+      # on disk for a later step to exfiltrate.
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          persist-credentials: false
+
+      # Resolve each curated `:latest` and rewrite drifted catalog entries. A
+      # registry backend error (exit 2) is advisory — any resolvable entry is
+      # still bumped and the PR opened for it.
+      - name: Bump catalog to published :latest digests
+        run: |
+          set +e
+          ./tools/bump_catalog_to_latest.sh
+          rc=$?
+          if [[ "$rc" -eq 2 ]]; then
+            printf '::warning::a curated image could not be resolved; its digest was left as-is\n'
+          fi
+
+      - name: Open the catalog bump PR
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          WRANGLE_AUTOBUMP_GH_REPO: ${{ github.repository }}
+        run: ./tools/open_catalog_bump_pr.sh
