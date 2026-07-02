@@ -292,7 +292,7 @@ jobs:
 
       # oci-target pushes the VSA referrer; the dist download is skipped (the image is the artifact).
       # TODO: replace with $/actions/verify_release when GitHub ships $/ syntax (#136)
-      - uses: TomHennen/wrangle/actions/verify_release@d6bcaf511af9b83e24a5cd268139836de7ab42e7 # main 2026-06-28
+      - uses: TomHennen/wrangle/actions/verify_release@e4d1099dd1561b30353a8006fd78ba797825426a # main 2026-06-28
         with:
           build-type: container
           shortname: ${{ needs.prep.outputs.shortname }}
