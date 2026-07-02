@@ -110,8 +110,8 @@ whatever is already set.
   edits a composite `action.yml` leaves the self-ref pins that resolve that
   composite stale (`check_pin_freshness` red); before merging, run
   `make converge-action-pins` and land the PR as a **merge commit** (never a
-  squash, or the converged pins re-orphan), or merge as-is and roll the pins
-  forward on main with `make bump-action-pins`.
+  squash, or the converged pins re-orphan). If one lands un-converged, main goes
+  red and `make bump-action-pins <main-sha>` rolls the pins forward to recover.
 - **`make bump-action-pins`** rewrites wrangle's own self-references after a
   composite changes, across `.github/workflows/`, `actions/`, `build/`, and
   `tools/` (the shared `tools/self_ref_pin_paths.sh` set, which
