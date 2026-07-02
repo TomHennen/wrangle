@@ -383,11 +383,11 @@ not a meaningful per-delivery signal.)
   job-scoped `GITHUB_TOKEN` into the container (Option A: sign+push in-container); the
   `ACTIONS_ID_TOKEN_REQUEST_*` vars never enter it — a security improvement over today's in-job binary,
   which can mint a token for any audience.
-  **Break-glass.** `WRANGLE_VERIFY_AMPEL_IMAGE` unset = today's in-job, from-source signing — the
+  **Break-glass.** `WRANGLE_VERIFY_AMPEL_TOOLBOX` unset = today's in-job, from-source signing — the
   outage/fallback escape hatch; no automatic staleness fallback.
   **Status (#596 Track 2):** the toolbox image (`tools/attest-toolbox/`, all four binaries from
   `tools/go.mod`) is built and published like the scan images, and `actions/verify`'s opt-in
-  `WRANGLE_VERIFY_AMPEL_IMAGE` toggle runs *ampel verify only* (no signing token) via it — resolved from
+  `WRANGLE_VERIFY_AMPEL_TOOLBOX` toggle runs *ampel verify only* (no signing token) via it — resolved from
   the curated catalog's `attest-toolbox` grant (digest-pinned, `network: egress`, no token) and
   provenance-verified host-side (`verify_image_vsa`) before it runs. Off by default, byte-identical when
   unset, and not on the L3 release path; supported for the go/python/npm build types only (the container
