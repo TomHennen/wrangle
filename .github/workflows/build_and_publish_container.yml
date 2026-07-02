@@ -125,7 +125,7 @@ jobs:
       scan: ${{ steps.prep.outputs.scan }}
     steps:
       # TODO: replace with $/actions/prep when GitHub ships $/ syntax (#136)
-      - uses: TomHennen/wrangle/actions/prep@caed02478e25ee8e94f77ab95d38388c08051d3e # main 2026-07-02
+      - uses: TomHennen/wrangle/actions/prep@050889d0e856b50c3560bbe9abf6f4aa4a69c3e8 # main 2026-07-02
         id: prep
         with:
           build-type: container
@@ -144,7 +144,7 @@ jobs:
       security-events: write
     steps:
       # TODO: replace with $/actions/scan when GitHub ships $/ syntax (#136)
-      - uses: TomHennen/wrangle/actions/scan@caed02478e25ee8e94f77ab95d38388c08051d3e # main 2026-07-02
+      - uses: TomHennen/wrangle/actions/scan@050889d0e856b50c3560bbe9abf6f4aa4a69c3e8 # main 2026-07-02
         if: ${{ inputs.scan-tools != '' }}
         with:
           checkout: "true"
@@ -173,7 +173,7 @@ jobs:
     # TODO: replace with $/build/actions/container when GitHub ships $/ syntax (#136)
     - name: "build and publish"
       id: build
-      uses: TomHennen/wrangle/build/actions/container@caed02478e25ee8e94f77ab95d38388c08051d3e # main 2026-07-02
+      uses: TomHennen/wrangle/build/actions/container@050889d0e856b50c3560bbe9abf6f4aa4a69c3e8 # main 2026-07-02
       with:
         path: ${{ inputs.path }}
         dockerfile: ${{ inputs.dockerfile }}
@@ -251,7 +251,7 @@ jobs:
       # image's bundle the verify job appends the VSA to. cosign is built from
       # tools/go.mod here.
       # TODO: replace with $/actions/attest_metadata_oci when GitHub ships $/ syntax (#136)
-      - uses: TomHennen/wrangle/actions/attest_metadata_oci@caed02478e25ee8e94f77ab95d38388c08051d3e # main 2026-07-02
+      - uses: TomHennen/wrangle/actions/attest_metadata_oci@050889d0e856b50c3560bbe9abf6f4aa4a69c3e8 # main 2026-07-02
         with:
           shortname: ${{ needs.prep.outputs.shortname }}
           subject-digest: ${{ needs.build.outputs.digest }}
@@ -292,7 +292,7 @@ jobs:
 
       # oci-target pushes the VSA referrer; the dist download is skipped (the image is the artifact).
       # TODO: replace with $/actions/verify_release when GitHub ships $/ syntax (#136)
-      - uses: TomHennen/wrangle/actions/verify_release@caed02478e25ee8e94f77ab95d38388c08051d3e # main 2026-07-02
+      - uses: TomHennen/wrangle/actions/verify_release@050889d0e856b50c3560bbe9abf6f4aa4a69c3e8 # main 2026-07-02
         with:
           build-type: container
           shortname: ${{ needs.prep.outputs.shortname }}
