@@ -4,7 +4,7 @@
     "osv": {
       "kind": "scan",
       "delivery": "image",
-      "image": "ghcr.io/tomhennen/wrangle/osv@sha256:c8abda59e3a64520128c427d2fe9bd223c27e0a2056181ead1b9d3c6a5fb3b75",
+      "image": "ghcr.io/tomhennen/wrangle/osv@sha256:e70475f23604c327edd00432c960f4ef93d8a16ec5382223303ce69703898a2b",
       "network": "egress"
     },
     "zizmor": {
