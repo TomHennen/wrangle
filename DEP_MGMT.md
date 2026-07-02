@@ -104,6 +104,14 @@ whatever is already set.
 - **Dependabot** (`.github/dependabot.yml`) — configure it for each ecosystem in
   use, weekly, no auto-merge, with a cooldown that implements the 7-day "adopt
   after a delay" rule. This automatic patching is *why* branch 1 is the default.
+  Updates are grouped `group-by: dependency-name` so a pin duplicated across
+  directories (a shared action, a tool in two `requirements.txt`) moves in one
+  PR rather than a stale-leaving per-directory PR each. A grouped bump that
+  edits a composite `action.yml` leaves the self-ref pins that resolve that
+  composite stale (`check_pin_freshness` red); before merging, run
+  `make converge-action-pins` and land the PR as a **merge commit** (never a
+  squash, or the converged pins re-orphan). If one lands un-converged, main goes
+  red and `make bump-action-pins <main-sha>` rolls the pins forward to recover.
 - **`make bump-action-pins`** rewrites wrangle's own self-references after a
   composite changes, across `.github/workflows/`, `actions/`, `build/`, and
   `tools/` (the shared `tools/self_ref_pin_paths.sh` set, which
