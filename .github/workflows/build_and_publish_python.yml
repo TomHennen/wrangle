@@ -126,7 +126,7 @@ jobs:
       metadata-pre: ${{ steps.prep.outputs.metadata-pre }}
     steps:
       # TODO: replace with $/actions/prep when GitHub ships $/ syntax (#136)
-      - uses: TomHennen/wrangle/actions/prep@050889d0e856b50c3560bbe9abf6f4aa4a69c3e8 # main 2026-07-02
+      - uses: TomHennen/wrangle/actions/prep@22137c415ef6ea44fa0cfb201de487f5a921b6aa # main 2026-07-02
         id: prep
         with:
           build-type: python
@@ -145,7 +145,7 @@ jobs:
       security-events: write
     steps:
       # TODO: replace with $/actions/scan when GitHub ships $/ syntax (#136)
-      - uses: TomHennen/wrangle/actions/scan@050889d0e856b50c3560bbe9abf6f4aa4a69c3e8 # main 2026-07-02
+      - uses: TomHennen/wrangle/actions/scan@22137c415ef6ea44fa0cfb201de487f5a921b6aa # main 2026-07-02
         if: ${{ inputs.scan-tools != '' }}
         with:
           checkout: "true"
@@ -180,7 +180,7 @@ jobs:
           ref: ${{ inputs.ref || '' }}
 
       # TODO: replace with $/build/actions/python when GitHub ships $/ syntax (#136)
-      - uses: TomHennen/wrangle/build/actions/python@050889d0e856b50c3560bbe9abf6f4aa4a69c3e8 # main 2026-07-02
+      - uses: TomHennen/wrangle/build/actions/python@22137c415ef6ea44fa0cfb201de487f5a921b6aa # main 2026-07-02
         id: build
         with:
           path: ${{ inputs.path }}
@@ -270,7 +270,7 @@ jobs:
       bundles-artifact-name: ${{ steps.attest.outputs.bundles-artifact-name }}
     steps:
       # TODO: replace with $/actions/attest_provenance when GitHub ships $/ syntax (#136)
-      - uses: TomHennen/wrangle/actions/attest_provenance@050889d0e856b50c3560bbe9abf6f4aa4a69c3e8 # main 2026-07-02
+      - uses: TomHennen/wrangle/actions/attest_provenance@22137c415ef6ea44fa0cfb201de487f5a921b6aa # main 2026-07-02
         id: attest
         with:
           build-type: python
@@ -293,7 +293,7 @@ jobs:
       contents: write       # create the release if absent and attach the bundle on tag pushes
     steps:
       # TODO: replace with $/actions/verify_release when GitHub ships $/ syntax (#136)
-      - uses: TomHennen/wrangle/actions/verify_release@050889d0e856b50c3560bbe9abf6f4aa4a69c3e8 # main 2026-07-02
+      - uses: TomHennen/wrangle/actions/verify_release@22137c415ef6ea44fa0cfb201de487f5a921b6aa # main 2026-07-02
         with:
           build-type: python
           shortname: ${{ needs.prep.outputs.shortname }}
