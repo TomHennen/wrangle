@@ -62,10 +62,9 @@
         //
         // The SLSA provenance MUST be signed by wrangle's reusable go build
         // workflow's keyless identity (fail-closed); the regexp binds the
-        // workflow PATH and accepts any ref. The release-tag identity never
-        // gates admission (wrangle-builder already admits any ref); it exists so
-        // the wrangle-release-pinned tenet can see whether the verified SAN was
-        // pinned at a release tag.
+        // workflow PATH and accepts any ref. The release-tag identity is
+        // advisory-only input to the wrangle-release-pinned tenet, never an
+        // admission gate.
         identities: [
             {
                 id: "wrangle-builder"
@@ -80,7 +79,7 @@
                 sigstore: {
                     mode: "regexp"
                     issuer: "^https://token\\.actions\\.githubusercontent\\.com$"
-                    identity: "^https://github\\.com/TomHennen/wrangle/\\.github/workflows/build_and_publish_go\\.yml@refs/tags/v[0-9.]+$"
+                    identity: "^https://github\\.com/TomHennen/wrangle/\\.github/workflows/build_and_publish_go\\.yml@refs/tags/v[0-9]+\\.[0-9]+\\.[0-9]+$"
                 }
             }
         ]
@@ -211,10 +210,8 @@
             ]
         }
         {
-            // Advisory (enforce OFF): PASS adds WRANGLE_RELEASE_PINNED to the
-            // VSA verifiedLevels when the provenance signer's verified identity
-            // matched the release-tag identity; a branch/SHA build SOFTFAILs
-            // and the VSA is still emitted PASSED, just without the marker.
+            // Advisory: a branch/SHA build SOFTFAILs here and still emits a
+            // PASSED VSA, just without the marker.
             id: "wrangle-release-pinned"
             meta: {
                 description: "Provenance was signed by a wrangle build workflow pinned at a release tag"

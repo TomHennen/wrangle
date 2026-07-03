@@ -43,7 +43,7 @@ wrangle_ampel_verify_in_image() {
         --collector="jsonl:$results/bundle.jsonl" \
         --policy="$ROOT/policies/wrangle-vsa-consumer-nonstrict-v1.hjson" \
         --context "$VSA_CONTEXT" \
-        --exit-code=true --attest-results --attest-format=vsa \
+        --workers=32 --exit-code=true --attest-results --attest-format=vsa \
         --results-path="$results/vsa.json" --format=html
 }
 
@@ -58,7 +58,7 @@ wrangle_ampel_verify_in_image() {
 @test "attest-toolbox: ampel reports its version" {
     run docker run --rm "$IMG" ampel version
     [ "$status" -eq 0 ]
-    [[ "$output" == *v1.3.0* ]]
+    [[ "$output" == *v1.3.1* ]]
 }
 
 @test "attest-toolbox: cosign reports its version" {

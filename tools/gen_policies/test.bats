@@ -55,3 +55,21 @@ setup() {
         done
     done
 }
+
+# The provenance tier is hand-maintained outside the generator, so the
+# release-pinned policy and release-tag identity it copies from the template
+# need their own divergence check (eco-normalized byte equality across all 12).
+@test "gen_policies: release-pinned policy + identity blocks match across every PolicySet" {
+    local f block ref_block="" ident ref_ident=""
+    for f in "$POLICIES_DIR"/wrangle-{default,strict,provenance}-*-v1.hjson; do
+        block="$(sed -n '/\/\/ Advisory:/,/^        }$/p' "$f")"
+        ident="$(sed -n '/id: "wrangle-builder-release-tag"/,/^            }$/p' "$f" \
+                 | sed 's/build_and_publish_[a-z]*/build_and_publish_ECO/')"
+        [ -n "$block" ]
+        [ -n "$ident" ]
+        if [ -z "$ref_block" ]; then ref_block="$block"; ref_ident="$ident"; continue; fi
+        [ "$block" = "$ref_block" ]
+        [ "$ident" = "$ref_ident" ]
+    done
+    [ -n "$ref_block" ]
+}

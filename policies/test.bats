@@ -425,7 +425,9 @@ expect_fail_closed() {
 
 # The release-tag identity is advisory-only, so no fail-closed test can prove
 # its regexp: a typo would silently never match and the marker would never be
-# emitted. Pin the regexp's behavior directly against SAN shapes.
+# emitted. Pin the regexp's behavior directly against SAN shapes. (Negations
+# use `run` + status: a bare `! grep` is errexit-exempt in a bats body, so its
+# failure would not fail the test.)
 @test "ampel policy: release-tag identity regexp accepts v-tag SANs and rejects everything else" {
     local re
     re="$(awk '/id: "wrangle-builder-release-tag"/{f=1} f && /identity:/{
@@ -435,10 +437,32 @@ expect_fail_closed() {
     local base="https://github.com/TomHennen/wrangle/.github/workflows/build_and_publish_go.yml"
     grep -qE "$re" <<<"$base@refs/tags/v0.4.0"
     grep -qE "$re" <<<"$base@refs/tags/v10.22.33"
-    ! grep -qE "$re" <<<"$base@refs/heads/main"
-    ! grep -qE "$re" <<<"$base@refs/tags/v0.4.0-rc1"
-    ! grep -qE "$re" <<<"$base@refs/tags/x0.4.0"
-    ! grep -qE "$re" <<<"${base/wrangle/evil}@refs/tags/v0.4.0"
+    local san
+    for san in "$base@refs/heads/main" "$base@refs/tags/v0.4.0-rc1" \
+               "$base@refs/tags/x0.4.0" "$base@refs/tags/v1" \
+               "$base@refs/tags/v0.4.0." "${base/wrangle/evil}@refs/tags/v0.4.0"; do
+        run grep -qE "$re" <<<"$san"
+        [ "$status" -ne 0 ]
+    done
+}
+
+# Positive path for the marker, with a real signature: rewrite ONLY the
+# release-tag identity's ref constraint to the branch ref this bundle was
+# actually signed at, and the marker must be emitted. Proves the tenet's CEL
+# identity id and the declared identity are wired end to end — a typo in either
+# would leave every committed test green (they only assert the SOFTFAIL side).
+@test "ampel policy: release-pinned marker IS emitted when the release-tag identity matches (signed)" {
+    local tagmatch="$BATS_TEST_TMPDIR/default-python-tagmatch.hjson"
+    sed 's#@refs/tags/v\[0-9\]+\\\\.\[0-9\]+\\\\.\[0-9\]+\$#@refs/heads/main$#' \
+        "$DEFAULT_PYTHON" > "$tagmatch"
+    grep -q 'refs/heads/main\$' "$tagmatch"
+    local vsa="$BATS_TEST_TMPDIR/tagmatch-vsa.json"
+    run "$AMPEL" verify -p "$tagmatch" -s "$SIGNED_SUBJECT" \
+        -c "jsonl:$SIGNED_BUNDLE" -x "$SIGNED_CTX" \
+        --attest-results --attest-format=vsa --results-path="$vsa" -f tty
+    [ "$status" -eq 0 ]
+    run jq -r '.predicate.verifiedLevels | sort | join(",")' "$vsa"
+    [ "$output" = "SLSA_BUILD_LEVEL_3,WRANGLE_HAS_SBOM,WRANGLE_LINTED,WRANGLE_RELEASE_PINNED,WRANGLE_VULN_SCANNED,WRANGLE_WORKFLOWS_LINTED" ]
 }
 
 # The signer-identity admission is the security property: a bundle signed by a

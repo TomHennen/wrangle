@@ -82,7 +82,11 @@ wrangle_ampel_verify_args() {
     local args=(verify "$subject_arg"
         --collector="jsonl:$bundle")
     [[ -n "${COLLECTOR:-}" ]] && args+=(--collector="$COLLECTOR")
+    # The catalog attest-toolbox image still ships pre-#298-fix ampel (< v1.3.1),
+    # which drops identity matches on tenets beyond --workers; keep the flag
+    # until that image's digest is bumped to a v1.3.1 build (#563).
     args+=(--policy="$(wrangle_resolve_policy "$POLICY")"
+        --workers=32
         --exit-code="$FAIL"
         --attest-results
         --attest-format=vsa
