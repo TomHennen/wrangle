@@ -4,26 +4,26 @@
     "osv": {
       "kind": "scan",
       "delivery": "image",
-      "image": "ghcr.io/tomhennen/wrangle/osv@sha256:e70475f23604c327edd00432c960f4ef93d8a16ec5382223303ce69703898a2b",
+      "image": "ghcr.io/tomhennen/wrangle/osv@sha256:98b9b7125dbbfa5ca04550b1e98cc52635fbc78494219fddbe7db618459c2988",
       "network": "egress"
     },
     "zizmor": {
       "kind": "scan",
       "delivery": "image",
-      "image": "ghcr.io/tomhennen/wrangle/zizmor@sha256:5dec66fd1e455a65fbddc2cc2d50f3af5b3ed32af114cda4e3baa52d6cbd7a92",
+      "image": "ghcr.io/tomhennen/wrangle/zizmor@sha256:212ccd134ffcf8cbfacedddfe9251542200fc790dd39654b2d4a0f0a76fad7e6",
       "network": "egress",
       "secret": "github-token"
     },
     "wrangle-lint": {
       "kind": "scan",
       "delivery": "image",
-      "image": "ghcr.io/tomhennen/wrangle/wrangle-lint@sha256:6d7c6ff05f45411e5b1bc4c1d239e258f5885f913dca8a16222369ed2eacf9e3",
+      "image": "ghcr.io/tomhennen/wrangle/wrangle-lint@sha256:5a2554726a363e3b713127aed35834a52fba08cd8408760253235facb30a856e",
       "network": "none"
     },
     "syft": {
       "kind": "sbom",
       "delivery": "image",
-      "image": "ghcr.io/tomhennen/wrangle/syft@sha256:a8c074e45182fb2b51935f5947e92d95e40154e22295144552297b72fd6eb386",
+      "image": "ghcr.io/tomhennen/wrangle/syft@sha256:748cc475940b24cb598b42dab2788c30c0c6118c31f2574afe71896cfa78cc60",
       "network": "none"
     },
     "attest-toolbox": {
