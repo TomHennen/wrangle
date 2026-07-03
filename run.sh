@@ -53,7 +53,7 @@ CURATED_IMAGE_PREFIX="ghcr.io/tomhennen/wrangle/"
 # catalog. The path must resolve inside the workspace (no traversal or symlink
 # escape); the effective catalog is a temp file cleaned up on exit.
 if [[ -n "${WRANGLE_TOOL_OVERRIDES:-}" ]]; then
-    override_root="$(cd "${GITHUB_WORKSPACE:-.}" && pwd)"
+    override_root="$(cd "${GITHUB_WORKSPACE:-.}" && pwd -P)"
     if ! override_file="$(realpath -e -- "$WRANGLE_TOOL_OVERRIDES" 2>/dev/null)"; then
         printf 'wrangle: tool-overrides file not found: %s\n' "$WRANGLE_TOOL_OVERRIDES" >&2
         exit 2
