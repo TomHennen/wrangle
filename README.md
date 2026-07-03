@@ -126,7 +126,7 @@ Prefer your own SBOM generator over wrangle's default (syft)? On the go, python,
 
 Your image reads a read-only `/src` and writes `/output/sbom.spdx.json`, exiting 0 (ok) or 2 (tool error). It runs in the same sandbox as wrangle's tools (no network, dropped capabilities, non-root), but is trusted as yours: it carries no wrangle VSA, so you own its digest pin and freshness. Tools are add-only — a name matching a curated tool is an error, the image must be outside wrangle's namespace, and each declares its own capabilities (an unspecified `network`/`secret` defaults closed).
 
-**`.wrangle/tools.json` is trusted config.** A tool listed there can grant itself network egress and a secret, so don't run wrangle over untrusted PR content — e.g. a `pull_request_target` job that checks out the PR head — in a job that forwards secrets.
+**`.wrangle/tools.json` is trusted config.** wrangle only runs a tool your workflow *selects* (`tools:` / `sbom-tool:`), and those inputs come from your base workflow — so a fork's PR can define an entry but can't get it run. The residual footgun is only if you hand-roll a `pull_request_target` job that checks out the PR head and forwards secrets: a tool listed there can grant itself network egress and a secret, so don't run wrangle over untrusted PR content in a secret-bearing job.
 
 ## How Wrangle Works
 
