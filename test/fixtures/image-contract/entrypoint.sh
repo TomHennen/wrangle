@@ -40,6 +40,12 @@ case "$mode" in
         printf '%s' "${WRANGLE_KIND:-}" > "$out/kind_seen"
         printf '{"spdxVersion":"SPDX-2.3","name":"mock"}\n' > "$out/sbom.spdx.json"
         exit 0 ;;
+    sbom-real)
+        # A non-empty SPDX inventorying one real package, so a BYO-tool test can
+        # assert a valid, populated SBOM rather than the valid-but-empty trap.
+        printf '%s' "${WRANGLE_KIND:-}" > "$out/kind_seen"
+        printf '{"spdxVersion":"SPDX-2.3","SPDXID":"SPDXRef-DOCUMENT","name":"mock-byo","packages":[{"SPDXID":"SPDXRef-Package-example","name":"example-lib","versionInfo":"1.2.3"}]}\n' > "$out/sbom.spdx.json"
+        exit 0 ;;
     sbom-error)
         printf 'mock: simulated sbom tool error\n' >&2
         exit 2 ;;

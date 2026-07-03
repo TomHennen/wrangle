@@ -105,6 +105,16 @@ on:
         required: false
         type: string
         default: policies/wrangle-default-npm-v1.hjson
+      sbom-tool:
+        description: "SBOM tool to run (a curated tool, or one defined in tool-overrides). Default syft."
+        required: false
+        type: string
+        default: syft
+      tool-overrides:
+        description: "Optional workspace path to a .wrangle/tools.json merged over wrangle's catalog (see docs/SPEC.md)."
+        required: false
+        type: string
+        default: ""
     outputs:
       hashes:
         description: "Base64-encoded SHA-256 hashes of built artifacts (for SLSA provenance)"
@@ -212,6 +222,8 @@ jobs:
           node-version: ${{ inputs.node-version }}
           run-tests: ${{ inputs.run-tests }}
           ignore-scripts: ${{ inputs.ignore-scripts }}
+          sbom-tool: ${{ inputs.sbom-tool }}
+          tool-overrides: ${{ inputs.tool-overrides }}
 
       # The npm composite doesn't emit the package name; read it from
       # package.json for the VSA resourceUri purl. Scoped names (@scope/pkg) pass through.

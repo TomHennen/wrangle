@@ -37,6 +37,14 @@ inputs:
       user's build), it can be added as a separate input.
     required: false
     default: "false"
+  sbom-tool:
+    description: "SBOM tool to run (a curated tool, or one defined in tool-overrides). Default syft."
+    required: false
+    default: "syft"
+  tool-overrides:
+    description: "Optional workspace path to a .wrangle/tools.json merged over wrangle's catalog (see docs/SPEC.md)."
+    required: false
+    default: ""
 
 outputs:
   version:
@@ -168,9 +176,11 @@ runs:
         METADATA_DIR: ${{ steps.metadata.outputs.metadata-dir }}
         GH_TOKEN: ${{ github.token }}
         WRANGLE_ROOT: ${{ github.action_path }}/../../..
+        SBOM_TOOL: ${{ inputs.sbom-tool }}
+        WRANGLE_TOOL_OVERRIDES: ${{ inputs.tool-overrides }}
       run: |
         set -euo pipefail
-        "$WRANGLE_ROOT/lib/generate_sbom.sh" "$INPUT_PATH" "$METADATA_DIR"
+        "$WRANGLE_ROOT/lib/generate_sbom.sh" "$INPUT_PATH" "$METADATA_DIR" "$SBOM_TOOL"
 
     - name: Generate summary
       if: always()

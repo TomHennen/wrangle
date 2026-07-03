@@ -99,6 +99,34 @@ On a **tag push**, wrangle also attaches each dist `<artifact>` and its `<artifa
 
 To find them in the UI: click **Actions** → your wrangle workflow → the run → scroll to **Artifacts**. The URL looks like `https://github.com/<owner>/<repo>/actions/runs/<id>#artifacts`. For a live example, see a run in the [wrangle-test companion repo](https://github.com/TomHennen/wrangle-test/actions). Per-ecosystem details are in the [ecosystem READMEs](#ecosystems) above.
 
+## Bring your own SBOM tool
+
+Prefer your own SBOM generator over wrangle's default (syft)? Point the build at it in two steps.
+
+1. Add `.wrangle/tools.json` to your repo, describing your tool as a digest-pinned image:
+
+   ```json
+   {
+     "tools": {
+       "my-sbom": {
+         "kind": "sbom",
+         "delivery": "image",
+         "image": "ghcr.io/myorg/my-sbom-generator@sha256:<digest>"
+       }
+     }
+   }
+   ```
+
+2. Select it on the reusable workflow:
+
+   ```yaml
+       with:
+         sbom-tool: my-sbom
+         tool-overrides: .wrangle/tools.json
+   ```
+
+Your image reads a read-only `/src` and writes `/output/sbom.spdx.json` — the [Adapter Script Interface](docs/SPEC.md#adapter-script-interface) is the full contract. It runs in the same sandbox as wrangle's tools (no network, dropped capabilities, non-root), but is trusted as yours: it carries no wrangle VSA, so you own its digest pin and freshness. Overriding a curated tool re-declares its capabilities from scratch — an unspecified `network` or `secret` defaults closed.
+
 ## How Wrangle Works
 
 Behind that one workflow call, wrangle runs your code through a pipeline of well-known security

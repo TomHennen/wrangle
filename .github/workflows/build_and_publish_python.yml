@@ -85,6 +85,16 @@ on:
         required: false
         type: string
         default: policies/wrangle-default-python-v1.hjson
+      sbom-tool:
+        description: "SBOM tool to run (a curated tool, or one defined in tool-overrides). Default syft."
+        required: false
+        type: string
+        default: syft
+      tool-overrides:
+        description: "Optional workspace path to a .wrangle/tools.json merged over wrangle's catalog (see docs/SPEC.md)."
+        required: false
+        type: string
+        default: ""
     outputs:
       hashes:
         description: "Base64-encoded SHA-256 hashes of built artifacts (for SLSA provenance)"
@@ -193,6 +203,8 @@ jobs:
           # fast iteration; they produce no provenance, so cache poisoning
           # is not an L3 concern at that layer.
           cache: ${{ needs.prep.outputs.should-release == 'true' && 'disabled' || 'enabled' }}
+          sbom-tool: ${{ inputs.sbom-tool }}
+          tool-overrides: ${{ inputs.tool-overrides }}
 
       # Compose the VSA resourceUri purl. PyPI's purl type normalizes the
       # name per PEP 503 (lowercase; runs of . _ - collapse to -), so the

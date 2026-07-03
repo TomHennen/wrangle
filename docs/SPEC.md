@@ -568,7 +568,9 @@ BEHAVIOR:
     1. Strip :policy suffix if present (run.sh does not use the policy —
        that is handled by lib/check_results.sh in the scan action)
     2. Validate tool name matches ^[a-z][a-z0-9_-]*$ (reject otherwise)
-    3. Verify tools/<tool>/ directory exists (reject if not — unknown tool)
+    3. Verify tools/<tool>/ directory exists, OR the catalog gives the tool a
+       `delivery: image` entry (a catalog-only image tool needs no local
+       directory); reject otherwise as an unknown tool
     4. Skip if tools/<tool>/action.yml exists (action-pattern — handled by
        uses: steps in the scan action; any adapter.sh present is only the
        tool image's entrypoint). Otherwise resolve the tool's
@@ -625,6 +627,48 @@ NOTES:
   own location (using $0 / BASH_SOURCE), not the caller's working directory.
   This is critical for portability when called via github.action_path.
 ```
+
+---
+
+### Tool Overrides (adopter catalog)
+
+An adopter may extend or replace catalog entries with their own tool images through an override file
+(`.wrangle/tools.json` by convention), selected via a build composite's `tool-overrides:` input. The path
+MUST resolve inside the workspace; `run.sh` rejects a path that escapes it (traversal or symlink). The file
+shares the catalog's shape and is merged over the curated catalog into the effective catalog `run.sh` uses
+(`lib/merge_catalog.sh`).
+
+```jsonc
+{
+  "tools": {
+    "osv":     { "image": "ghcr.io/myorg/osv@sha256:<64hex>" },  // replace a curated tool's image
+    "my-sbom": {                                                 // bring a tool wrangle doesn't ship
+      "kind": "sbom",
+      "delivery": "image",
+      "image": "ghcr.io/myorg/my-sbom@sha256:<64hex>"
+    }
+  }
+}
+```
+
+**Per-entry validation** (any failure aborts the run):
+
+- tool name matches `^[a-z][a-z0-9_-]*$`; `kind` ∈ {`scan`, `sbom`, `attest`}; `network` ∈ {`none`, `egress`};
+  `secret` matches `^[a-z][a-z0-9-]*$`.
+- `image`, when present, MUST be digest-pinned (`name@sha256:<64hex>`); a net-new tool (no curated entry of
+  the same name) MUST declare a digest-pinned `image` and `delivery: image`.
+
+**Merge semantics (capability-safe).** An entry's non-capability fields deep-merge over the curated entry.
+The capability grants `network` and `secret` are the exception: they hold ONLY when the override entry
+restates them, otherwise they reset closed — an override NEVER inherits the replaced entry's `network` or
+`secret`. Overriding a curated tool therefore re-declares its capabilities from scratch (§3.7 "an
+unspecified capability defaults closed" in [tool_container_design.md](tool_container_design.md)).
+
+**Trust.** An override image outside wrangle's namespace carries no wrangle VSA, so `run.sh` skips the VSA
+gate and trusts it as the adopter's own — the adopter owns its digest pin and freshness. It still runs in
+the full contract sandbox (read-only `/src`, `--network none` unless granted, `--cap-drop ALL`,
+no-new-privileges, non-root). An override that points at a curated-namespace digest still passes the VSA
+gate, which fails closed on a digest the wrangle signer never attested.
 
 ---
 
