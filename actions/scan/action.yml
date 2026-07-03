@@ -142,7 +142,7 @@ runs:
     # TODO: replace with $/tools/scorecard when $/ syntax ships (#136, #137)
     - name: Scorecard
       if: always() && contains(inputs.tools, 'scorecard') && github.event_name != 'pull_request'
-      uses: TomHennen/wrangle/tools/scorecard@a85d942e618a38c1b7d00738ff20a07dc8805cad # worktree-issue424-ampel-bump 2026-07-03
+      uses: TomHennen/wrangle/tools/scorecard@f4a54a6fd44ce6fd5c51821ca569a63420143afa # worktree-issue424-ampel-bump 2026-07-03
 
     # Dependency Review is PR-only — the upstream action requires
     # github.event.pull_request.base.sha / head.sha to compute the diff.
@@ -154,7 +154,7 @@ runs:
     # The wrapper's inline defaults (fail-on-severity: high) still apply.
     - name: Dependency Review
       if: always() && contains(inputs.tools, 'dependency-review') && github.event_name == 'pull_request'
-      uses: TomHennen/wrangle/tools/dependency-review@a85d942e618a38c1b7d00738ff20a07dc8805cad # worktree-issue424-ampel-bump 2026-07-03
+      uses: TomHennen/wrangle/tools/dependency-review@f4a54a6fd44ce6fd5c51821ca569a63420143afa # worktree-issue424-ampel-bump 2026-07-03
 
     - name: Generate step summary
       if: always()

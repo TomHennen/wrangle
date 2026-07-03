@@ -126,7 +126,7 @@ jobs:
       metadata-pre: ${{ steps.prep.outputs.metadata-pre }}
     steps:
       # TODO: replace with $/actions/prep when GitHub ships $/ syntax (#136)
-      - uses: TomHennen/wrangle/actions/prep@a85d942e618a38c1b7d00738ff20a07dc8805cad # worktree-issue424-ampel-bump 2026-07-03
+      - uses: TomHennen/wrangle/actions/prep@f4a54a6fd44ce6fd5c51821ca569a63420143afa # worktree-issue424-ampel-bump 2026-07-03
         id: prep
         with:
           build-type: python
@@ -145,7 +145,7 @@ jobs:
       security-events: write
     steps:
       # TODO: replace with $/actions/scan when GitHub ships $/ syntax (#136)
-      - uses: TomHennen/wrangle/actions/scan@a85d942e618a38c1b7d00738ff20a07dc8805cad # worktree-issue424-ampel-bump 2026-07-03
+      - uses: TomHennen/wrangle/actions/scan@f4a54a6fd44ce6fd5c51821ca569a63420143afa # worktree-issue424-ampel-bump 2026-07-03
         if: ${{ inputs.scan-tools != '' }}
         with:
           checkout: "true"
@@ -180,7 +180,7 @@ jobs:
           ref: ${{ inputs.ref || '' }}
 
       # TODO: replace with $/build/actions/python when GitHub ships $/ syntax (#136)
-      - uses: TomHennen/wrangle/build/actions/python@a85d942e618a38c1b7d00738ff20a07dc8805cad # worktree-issue424-ampel-bump 2026-07-03
+      - uses: TomHennen/wrangle/build/actions/python@f4a54a6fd44ce6fd5c51821ca569a63420143afa # worktree-issue424-ampel-bump 2026-07-03
         id: build
         with:
           path: ${{ inputs.path }}
@@ -270,7 +270,7 @@ jobs:
       bundles-artifact-name: ${{ steps.attest.outputs.bundles-artifact-name }}
     steps:
       # TODO: replace with $/actions/attest_provenance when GitHub ships $/ syntax (#136)
-      - uses: TomHennen/wrangle/actions/attest_provenance@a85d942e618a38c1b7d00738ff20a07dc8805cad # worktree-issue424-ampel-bump 2026-07-03
+      - uses: TomHennen/wrangle/actions/attest_provenance@f4a54a6fd44ce6fd5c51821ca569a63420143afa # worktree-issue424-ampel-bump 2026-07-03
         id: attest
         with:
           build-type: python
@@ -293,7 +293,7 @@ jobs:
       contents: write       # create the release if absent and attach the bundle on tag pushes
     steps:
       # TODO: replace with $/actions/verify_release when GitHub ships $/ syntax (#136)
-      - uses: TomHennen/wrangle/actions/verify_release@a85d942e618a38c1b7d00738ff20a07dc8805cad # worktree-issue424-ampel-bump 2026-07-03
+      - uses: TomHennen/wrangle/actions/verify_release@f4a54a6fd44ce6fd5c51821ca569a63420143afa # worktree-issue424-ampel-bump 2026-07-03
         with:
           build-type: python
           shortname: ${{ needs.prep.outputs.shortname }}
