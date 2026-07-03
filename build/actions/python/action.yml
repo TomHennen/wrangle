@@ -45,7 +45,7 @@ inputs:
     required: false
     default: "enabled"
   sbom-tool:
-    description: "SBOM tool to run: the curated `sbom` slot, or a tool you added in .wrangle/tools.json. Default sbom."
+    description: "Wrangle's default SBOM tool, or one you define yourself in `.wrangle/tools.json`."
     required: false
     default: "sbom"
 

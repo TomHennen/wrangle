@@ -101,7 +101,7 @@ To find them in the UI: click **Actions** → your wrangle workflow → the run 
 
 ## Bring your own SBOM tool
 
-Prefer your own SBOM generator over wrangle's default (syft)? On the go, python, and npm builds, commit a `.wrangle/tools.json` and select your tool by name — wrangle discovers the file automatically, there's no workflow input to set.
+Prefer your own SBOM generator over wrangle's default (syft)? On the go, python, and npm builds, define your tool in a `.wrangle/tools.json` (wrangle discovers it automatically) and select it by name with `sbom-tool:`.
 
 1. Add `.wrangle/tools.json` at your repo root, describing your tool as a digest-pinned image:
 
