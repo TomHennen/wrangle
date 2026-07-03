@@ -390,6 +390,13 @@ PRECONDITIONS:
   jq is available
 
 ENVIRONMENT:
+  The orchestrator sets these WRANGLE_* variables for every tool image:
+    WRANGLE_KIND         the tool's kind (input/stage; see TOOL KIND above)
+    WRANGLE_SOURCE_NAME  basename of the scanned source dir (the /src mount
+                         hides its real path)
+    WRANGLE_EXTRA_<VAR>  the runner's WRANGLE_EXTRA_<VAR> reaches the tool as
+                         <VAR>, prefix stripped (see the WRANGLE_EXTRA_ rule below)
+
   Adapters run with a restricted environment. Only the following variables
   are passed through from the runner:
     PATH, HOME, TMPDIR, RUNNER_TEMP, GITHUB_WORKSPACE, GITHUB_STEP_SUMMARY

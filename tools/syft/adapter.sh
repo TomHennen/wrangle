@@ -31,8 +31,11 @@ OUT_FILE="${OUTPUT_DIR}/sbom.spdx.json"
 ERR_FILE="$(mktemp "${TMPDIR:-/tmp}/wrangle-syft-err-XXXXXX")"
 trap 'rm -f "$ERR_FILE"' EXIT
 
+declare -a name_args=()
+[[ -n "${WRANGLE_SOURCE_NAME:-}" ]] && name_args=(--source-name "$WRANGLE_SOURCE_NAME")
+
 syft_exit=0
-syft dir:"$SRC_DIR" -o spdx-json > "$OUT_FILE" 2> "$ERR_FILE" || syft_exit=$?
+syft dir:"$SRC_DIR" -o spdx-json "${name_args[@]}" > "$OUT_FILE" 2> "$ERR_FILE" || syft_exit=$?
 if [[ "$syft_exit" -ne 0 ]]; then
     printf 'wrangle/syft: syft exited with code %d\n' "$syft_exit" >&2
     cat "$ERR_FILE" >&2
