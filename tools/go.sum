@@ -270,8 +270,8 @@ github.com/bytecodealliance/wasmtime-go/v39 v39.0.1 h1:RibaT47yiyCRxMOj/l2cvL8cW
 github.com/bytecodealliance/wasmtime-go/v39 v39.0.1/go.mod h1:miR4NYIEBXeDNamZIzpskhJ0z/p8al+lwMWylQ/ZJb4=
 github.com/canonical/chisel-manifest v1.2.0 h1:kFB9fBP33CvH+RLbTYLuKtFFICpq2JmH4xtYvBqpj3I=
 github.com/canonical/chisel-manifest v1.2.0/go.mod h1:dWUCpU2uSJFbC+p3wEAjZ8uvQdjnHzenJQ1EszkKG4U=
-github.com/carabiner-dev/ampel v1.3.0 h1:xeG1IM3eA06qKuHK7DeuyFrTQrWKwasycgrAEbZZpVk=
-github.com/carabiner-dev/ampel v1.3.0/go.mod h1:o2rxk7lde69ZVDcJvDCgDOTaogGbVvH8liBL9SQ7sOs=
+github.com/carabiner-dev/ampel v1.3.1 h1:IO9Mef3sV4wnN8QQW4hJ2buOC9ne6Fm08bOPIyMq5M0=
+github.com/carabiner-dev/ampel v1.3.1/go.mod h1:VM1nKD+FsaxdyFhQzr+GrWboxUwpRHdCujGBaBZqS0Y=
 github.com/carabiner-dev/attestation v0.2.1 h1:VhjV5YlO9TsW50Sr/Zd54bdbZhhDAqgxC3kB9z1I+3Q=
 github.com/carabiner-dev/attestation v0.2.1/go.mod h1:O84vF84RZG3pJO/6BYrPs718bZviHF5DKajP1HsrDpw=
 github.com/carabiner-dev/bnd v0.4.3 h1:dTemZJYnx1T0Ww5XmYZgfYxZFggZTM9ykEvxTQEkHRE=
@@ -752,8 +752,8 @@ github.com/jackc/puddle/v2 v2.2.2 h1:PR8nw+E/1w0GLuRFSmiioY6UooMp6KJv0/61nB7icHo
 github.com/jackc/puddle/v2 v2.2.2/go.mod h1:vriiEXHvEE654aYKXXjOvZM39qJ0q+azkZFrfEOc3H4=
 github.com/jbenet/go-context v0.0.0-20150711004518-d14ea06fba99 h1:BQSFePA1RWJOlocH6Fxy8MmwDt+yVQYULKfN0RoTN8A=
 github.com/jbenet/go-context v0.0.0-20150711004518-d14ea06fba99/go.mod h1:1lJo3i6rXxKeerYnT8Nvf0QmHCRC1n8sfWVwXF2Frvo=
-github.com/jedib0t/go-pretty/v6 v6.8.0 h1:fQOTjATVQl5RhssBro6ZuHANFybCkmJ7FjYPo4b7sEY=
-github.com/jedib0t/go-pretty/v6 v6.8.0/go.mod h1:YwC5CE4fJ1HFUDeivSV1r//AmANFHyqczZk+U6BDALU=
+github.com/jedib0t/go-pretty/v6 v6.8.1 h1:0fkCNhjrX0zPpwkWaDYU5VMrygg41Tu197mWILIJoqQ=
+github.com/jedib0t/go-pretty/v6 v6.8.1/go.mod h1:YwC5CE4fJ1HFUDeivSV1r//AmANFHyqczZk+U6BDALU=
 github.com/jedisct1/go-minisign v0.0.0-20260527172527-a09352b57a22 h1:C68TAi+k12EKJCAmsdaERzQ22ZxVE6n+CuB3kOkhQ7c=
 github.com/jedisct1/go-minisign v0.0.0-20260527172527-a09352b57a22/go.mod h1:vYVVh81Lqe/TP0sPLjiNYcX9Hxy/YSfkUx96lYJeyKo=
 github.com/jellydator/ttlcache/v3 v3.4.0 h1:YS4P125qQS0tNhtL6aeYkheEaB/m8HCqdMMP4mnWdTY=
