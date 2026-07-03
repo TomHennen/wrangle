@@ -185,30 +185,15 @@ setup() {
     [[ "$status" -eq 0 ]]
 }
 
-@test "npm: action.yml generates SBOM via syft (SPDX)" {
-    # Switched from `npm sbom --sbom-format=spdx` to syft because npm
-    # sbom's SPDX/CycloneDX conformance was publicly criticized; syft is
-    # OWASP-known-conformant and already in wrangle's tool inventory.
-    run grep -E 'syft.*-o spdx-json' "$ACTION"
+@test "npm: SBOM via container dispatch (lib/generate_sbom.sh, no inline syft/cosign)" {
+    run grep -F 'lib/generate_sbom.sh' "$ACTION"
     [[ "$status" -eq 0 ]]
-    # Should NOT regress to npm sbom — that path was abandoned.
-    run grep -E 'npm sbom' "$ACTION"
+    # No regression to inline syft, an in-tree npm sbom, or the cosign-verified
+    # binary install the container path replaces.
+    run grep -E 'cosign-installer|tools/syft/install.sh|syft dir:|-o spdx-json|npm sbom' "$ACTION"
     [[ "$status" -ne 0 ]]
-}
-
-@test "npm: action installs cosign before syft (signature verification)" {
-    # syft install via tools/syft/install.sh uses Cosign keyless verify;
-    # cosign-installer must run before the syft install step so the
-    # cosign binary is on PATH when syft's install script runs.
-    run bash -c "awk '/sigstore\\/cosign-installer/{c=NR} /tools\\/syft\\/install.sh/{s=NR} END{exit !(c && s && c<s)}' \"$ACTION\""
-    [[ "$status" -eq 0 ]]
-}
-
-@test "npm: action installs syft via tools/syft (not curl | sh)" {
     run grep -E 'curl[^|]*\| *sh|/usr/local/bin' "$ACTION"
     [[ "$status" -ne 0 ]]
-    run grep 'tools/syft/install.sh' "$ACTION"
-    [[ "$status" -eq 0 ]]
 }
 
 @test "npm: action.yml exposes ignore-scripts input (default false)" {

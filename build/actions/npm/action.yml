@@ -161,43 +161,16 @@ runs:
         HASHES="$(cd "$INPUT_PATH/dist" && sha256sum -- * | base64 -w0)"
         printf 'hashes=%s\n' "$HASHES" >> "$GITHUB_OUTPUT"
 
-    - name: Install Cosign (for syft signature verification)
-      uses: sigstore/cosign-installer@6f9f17788090df1f26f669e9d70d6ae9567deba6 # v4.1.2
-      with:
-        # Must match the cosign built from tools/go.mod — the version the suite tests.
-        cosign-release: v3.0.6
-
-    - name: Install syft
-      shell: bash
-      env:
-        WRANGLE_ROOT: ${{ github.action_path }}/../../..
-      run: |
-        set -euo pipefail
-        "$WRANGLE_ROOT/tools/syft/install.sh"
-
     - name: Generate SBOM
       shell: bash
       env:
         INPUT_PATH: ${{ inputs.path }}
         METADATA_DIR: ${{ steps.metadata.outputs.metadata-dir }}
+        GH_TOKEN: ${{ github.token }}
         WRANGLE_ROOT: ${{ github.action_path }}/../../..
-      # syft over the project source. Same tool wrangle's python build
-      # type uses; OWASP-known-conformant for SPDX. (Earlier SPEC drafts
-      # picked the npm-CLI's in-tree SBOM command, but its conformance
-      # was publicly criticized; switching to syft removes the question.)
-      # Adopters consuming wrangle-attested packages with bundled native
-      # code SHOULD layer binary scanners (Trivy, Grype) against installed
-      # node_modules/ for full coverage — wrangle's source-tree SBOM does
-      # not see compiled C/C++ artifacts that prebuild-install fetches at
-      # consumer install time.
       run: |
         set -euo pipefail
-        SBOM_PATH="${METADATA_DIR}/sbom.spdx.json"
-        BIN_DIR="${WRANGLE_BIN_DIR:-${RUNNER_TEMP:-.}/.wrangle/bin}"
-        "$BIN_DIR/syft" dir:"$INPUT_PATH" -o spdx-json > "$SBOM_PATH"
-        "$WRANGLE_ROOT/lib/write_attest_manifest.sh" \
-            "$METADATA_DIR" "https://spdx.dev/Document" "sbom.spdx.json"
-        printf 'SBOM written to %s\n' "$SBOM_PATH"
+        "$WRANGLE_ROOT/lib/generate_sbom.sh" "$INPUT_PATH" "$METADATA_DIR"
 
     - name: Generate summary
       if: always()
