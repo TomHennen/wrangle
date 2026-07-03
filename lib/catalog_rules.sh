@@ -1,10 +1,13 @@
 #!/bin/bash
+# shellcheck disable=SC2034 # constants are consumed by the scripts that source this file
+set -euo pipefail
+set -f  # disable globbing — sourced constants, no external input
+
 # lib/catalog_rules.sh — shared validation constants for catalog entries, so the
 # curated-catalog linter (tools/check_catalog.sh) and the custom-tools validator
 # (lib/merge_catalog.sh) enforce one set of value rules. Namespace/trust rules
 # differ between them and stay in each caller.
 
-# shellcheck disable=SC2034 # constants are consumed by the scripts that source this file
 # Tool name: the shape run.sh admits — no leading dot/dash, no path traversal.
 CATALOG_TOOL_NAME_RE='^[a-z][a-z0-9_-]*$'
 CATALOG_KIND_RE='^(scan|sbom|attest)$'
