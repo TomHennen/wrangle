@@ -4,7 +4,10 @@
             //    policy computes the aggregate, so it is authored inline; -1.0
             //    forces FAIL when the score is absent (fail-closed).
             id: "wrangle-scorecard-min-score"
-            meta: { description: "OpenSSF Scorecard aggregate score is at least 7.0" }
+            meta: {
+                description: "OpenSSF Scorecard aggregate score is at least 7.0"
+                controls: [ { framework: "WRANGLE", id: "SCORECARD_PASSED" } ]
+            }
             identities: [ { ref: { id: "wrangle-builder" } } ]
             tenets: [
                 {

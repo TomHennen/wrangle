@@ -146,6 +146,18 @@ need to match the wrangle version the adopter builds with. The `-v1` in the
 policy filename is the contract version; any release tag carrying that file
 verifies any wrangle-signed VSA.
 
+## What `verifiedLevels` carries
+
+Beyond `SLSA_BUILD_LEVEL_3`, the VSA lists a
+[verifier-defined](https://slsa.dev/spec/v1.2/verification_summary#fields)
+`WRANGLE_*` marker per wrangle check that passed: `WRANGLE_HAS_SBOM`,
+`WRANGLE_VULN_SCANNED` (OSV), `WRANGLE_WORKFLOWS_LINTED` (zizmor),
+`WRANGLE_LINTED` (wrangle-lint), `WRANGLE_SCORECARD_PASSED` (strict tier
+only), and `WRANGLE_RELEASE_PINNED` when the release was built with wrangle
+pinned at a release tag. Which appear depends on the policy tier the release
+was verified against. Gate on any of them the same way as the SLSA level:
+`jq -e '.predicate.verifiedLevels | index("WRANGLE_HAS_SBOM")'`.
+
 ## Without ampel: cosign + jq
 
 cosign performs the same complete check, minus predicate-field reads — so a

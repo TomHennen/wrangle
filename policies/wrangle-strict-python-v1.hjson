@@ -62,7 +62,10 @@
         //
         // The SLSA provenance MUST be signed by wrangle's reusable python build
         // workflow's keyless identity (fail-closed); the regexp binds the
-        // workflow PATH and accepts any ref.
+        // workflow PATH and accepts any ref. The release-tag identity never
+        // gates admission (wrangle-builder already admits any ref); it exists so
+        // the wrangle-release-pinned tenet can see whether the verified SAN was
+        // pinned at a release tag.
         identities: [
             {
                 id: "wrangle-builder"
@@ -70,6 +73,14 @@
                     mode: "regexp"
                     issuer: "^https://token\\.actions\\.githubusercontent\\.com$"
                     identity: "^https://github\\.com/TomHennen/wrangle/\\.github/workflows/build_and_publish_python\\.yml@.+$"
+                }
+            }
+            {
+                id: "wrangle-builder-release-tag"
+                sigstore: {
+                    mode: "regexp"
+                    issuer: "^https://token\\.actions\\.githubusercontent\\.com$"
+                    identity: "^https://github\\.com/TomHennen/wrangle/\\.github/workflows/build_and_publish_python\\.yml@refs/tags/v[0-9.]+$"
                 }
             }
         ]
@@ -102,12 +113,16 @@
             // 4. An SBOM (SPDX or CycloneDX) is attested for the artifact.
             id: "sbom-exists"
             source: { location: { uri: "git+https://github.com/carabiner-dev/policies@85078db9e808479feb0d1aec08299b8a93c85f11#sbom/sbom-exists.json" } }
+            meta: { controls: [ { framework: "WRANGLE", id: "HAS_SBOM" } ] }
         }
         {
             // 5. OSV scan reports a clean result. Reads wrangle's scan/v1
             //    envelope; size > 0 fails closed when the scan is absent.
             id: "osv-scan-clean"
-            meta: { description: "OSV scan reports no findings (wrangle scan/v1)" }
+            meta: {
+                description: "OSV scan reports no findings (wrangle scan/v1)"
+                controls: [ { framework: "WRANGLE", id: "VULN_SCANNED" } ]
+            }
             identities: [ { ref: { id: "wrangle-builder" } } ]
             tenets: [
                 {
@@ -127,7 +142,10 @@
         {
             // 6. zizmor scan reports a clean result.
             id: "zizmor-scan-clean"
-            meta: { description: "zizmor scan reports no findings (wrangle scan/v1)" }
+            meta: {
+                description: "zizmor scan reports no findings (wrangle scan/v1)"
+                controls: [ { framework: "WRANGLE", id: "WORKFLOWS_LINTED" } ]
+            }
             identities: [ { ref: { id: "wrangle-builder" } } ]
             tenets: [
                 {
@@ -147,7 +165,10 @@
         {
             // 7. wrangle-lint scan reports a clean result.
             id: "wrangle-lint-scan-clean"
-            meta: { description: "wrangle-lint scan reports no findings (wrangle scan/v1)" }
+            meta: {
+                description: "wrangle-lint scan reports no findings (wrangle scan/v1)"
+                controls: [ { framework: "WRANGLE", id: "LINTED" } ]
+            }
             identities: [ { ref: { id: "wrangle-builder" } } ]
             tenets: [
                 {
@@ -169,7 +190,10 @@
             //    policy computes the aggregate, so it is authored inline; -1.0
             //    forces FAIL when the score is absent (fail-closed).
             id: "wrangle-scorecard-min-score"
-            meta: { description: "OpenSSF Scorecard aggregate score is at least 7.0" }
+            meta: {
+                description: "OpenSSF Scorecard aggregate score is at least 7.0"
+                controls: [ { framework: "WRANGLE", id: "SCORECARD_PASSED" } ]
+            }
             identities: [ { ref: { id: "wrangle-builder" } } ]
             tenets: [
                 {
@@ -182,6 +206,30 @@
                     error: {
                         message: "Scorecard aggregate score below 7.0 or no Scorecard attestation was found"
                         guidance: "Raise the OpenSSF Scorecard score to at least 7.0 before release"
+                    }
+                }
+            ]
+        }
+        {
+            // Advisory (enforce OFF): PASS adds WRANGLE_RELEASE_PINNED to the
+            // VSA verifiedLevels when the provenance signer's verified identity
+            // matched the release-tag identity; a branch/SHA build SOFTFAILs
+            // and the VSA is still emitted PASSED, just without the marker.
+            id: "wrangle-release-pinned"
+            meta: {
+                description: "Provenance was signed by a wrangle build workflow pinned at a release tag"
+                enforce: "OFF"
+                controls: [ { framework: "WRANGLE", id: "RELEASE_PINNED" } ]
+            }
+            identities: [ { ref: { id: "wrangle-builder" } }, { ref: { id: "wrangle-builder-release-tag" } } ]
+            tenets: [
+                {
+                    predicates: { types: ["https://slsa.dev/provenance/v1"] }
+                    code: "predicates[0].verification.identities.exists(i, i.id == 'wrangle-builder-release-tag')"
+                    assessment: { message: "Provenance signed by a release-tag-pinned wrangle workflow" }
+                    error: {
+                        message: "Provenance not signed by a release-tag-pinned wrangle workflow"
+                        guidance: "Pin the wrangle reusable workflow at a release tag (vX.Y.Z) to earn WRANGLE_RELEASE_PINNED"
                     }
                 }
             ]
