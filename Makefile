@@ -1,4 +1,4 @@
-.PHONY: all test lint shellcheck shellstyle workflowstyle gotest bats zizmor integration bump-action-pins converge-action-pins check-catalog check-catalog-freshness check-catalog-provenance-freshness bump-catalog-digest
+.PHONY: all test lint shellcheck shellstyle workflowstyle gotest bats zizmor integration bump-action-pins converge-action-pins check-catalog check-catalog-freshness check-catalog-provenance-freshness bump-catalog-digest bump-catalog-to-latest
 
 # bash, not the default sh: the integration recipe sources lib/env.sh,
 # whose `set -o pipefail` dash doesn't reliably support.
@@ -105,3 +105,8 @@ check-catalog-provenance-freshness:
 # Usage: make bump-catalog-digest TOOL=osv DIGEST=sha256:<64hex>
 bump-catalog-digest:
 	@./tools/bump_catalog_digest.sh $(TOOL) $(DIGEST)
+
+# Repoint every curated entry to its current registry :latest digest (the batch
+# driver the post-publish auto-bump runs). See tools/bump_catalog_to_latest.sh.
+bump-catalog-to-latest:
+	@./tools/bump_catalog_to_latest.sh
