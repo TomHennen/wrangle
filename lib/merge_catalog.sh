@@ -3,20 +3,15 @@ set -euo pipefail
 set -f  # disable globbing — handles external file contents
 
 # lib/merge_catalog.sh — build the effective tool catalog by ADDING an adopter's
-# custom tools to wrangle's curated catalog (both share the { "tools": { … } }
-# shape). The model is add-only: an adopter may add net-new tools, never override
-# a curated one. A custom tool whose name collides with a curated tool is a hard
-# error — no shadowing, no field merge, so a custom entry can never attach its
-# capabilities to a curated, VSA-signed image. Each custom entry is validated
-# standalone and declares its own capabilities; there is no inheritance.
+# custom tools (from a custom-tools file) to wrangle's curated catalog; both share
+# the { "tools": { … } } shape. Add-only: a name that collides with a curated tool
+# is a hard error, each custom entry is validated standalone (no field-merge, no
+# capability inheritance), and a custom image MUST be outside the wrangle namespace.
 #
 # Usage: merge_catalog.sh <curated_catalog> <custom_tools_file>
-# Prints the effective catalog on stdout. Exits non-zero (message on stderr) when
-# the custom file is not valid JSON, collides with a curated name, or any entry
-# fails validation.
+# Prints the effective catalog on stdout; exits non-zero (message on stderr) on
+# invalid JSON, a name collision, or any entry that fails validation.
 
-# A distinct name from the caller's SCRIPT_DIR — run.sh sources this file and
-# then sources more libs relative to its own SCRIPT_DIR.
 _MERGE_CATALOG_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 # shellcheck source=lib/read_catalog.sh
 source "$_MERGE_CATALOG_DIR/read_catalog.sh"
@@ -30,6 +25,10 @@ merge_catalog() {
 
     if ! jq -e '(.tools // {}) | type == "object"' "$custom" >/dev/null 2>&1; then
         printf 'wrangle: custom-tools: not a valid JSON catalog (needs an object "tools"): %s\n' "$custom" >&2
+        return 1
+    fi
+    if ! jq -e '(.tools // {}) | all(.[]; type == "object")' "$custom" >/dev/null 2>&1; then
+        printf 'wrangle: custom-tools: every tool entry must be an object: %s\n' "$custom" >&2
         return 1
     fi
 
@@ -79,6 +78,8 @@ merge_catalog() {
             rc=1
         fi
 
+        # The image must be digest-pinned and OUTSIDE the wrangle namespace: a
+        # custom tool is adopter-trusted and cannot borrow a wrangle VSA identity.
         image="$(read_catalog_field "$custom" "$tool" image)"
         if [[ -z "$image" ]]; then
             printf 'wrangle: custom-tools: %s: must declare a digest-pinned image\n' "$tool" >&2
@@ -86,13 +87,17 @@ merge_catalog() {
         elif [[ ! "$image" =~ $CATALOG_IMAGE_DIGEST_RE ]]; then
             printf 'wrangle: custom-tools: %s: image must be digest-pinned (name@sha256:<64hex>): %s\n' "$tool" "$image" >&2
             rc=1
+        elif [[ "$image" == "$CATALOG_CURATED_IMAGE_PREFIX"* ]]; then
+            printf 'wrangle: custom-tools: %s: image must not be in the wrangle namespace (%s): %s\n' \
+                "$tool" "$CATALOG_CURATED_IMAGE_PREFIX" "$image" >&2
+            rc=1
         fi
     done < <(jq -r '.tools // {} | keys[]' "$custom")
 
     [[ "$rc" -ne 0 ]] && return 1
 
     jq -n --argjson c "$curated_json" --slurpfile x "$custom" \
-        '{ tools: (($c.tools // {}) + ($x[0].tools // {})) }'
+        '$c + { tools: (($c.tools // {}) + ($x[0].tools // {})) }'
 }
 
 if [[ "${BASH_SOURCE[0]}" == "${0}" ]]; then

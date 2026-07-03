@@ -23,6 +23,10 @@ source "$SCRIPT_DIR/lib/env.sh"
 # shellcheck source=lib/read_catalog.sh
 source "$SCRIPT_DIR/lib/read_catalog.sh"
 
+# Shared catalog validation constants (tool-name, image-digest, namespace).
+# shellcheck source=lib/catalog_rules.sh
+source "$SCRIPT_DIR/lib/catalog_rules.sh"
+
 # Catalog merger: merge_catalog builds the effective catalog when an adopter
 # supplies a custom-tools file.
 # shellcheck source=lib/merge_catalog.sh
@@ -44,10 +48,10 @@ TOOLS_DIR="${WRANGLE_TOOLS_DIR:-${SCRIPT_DIR}/tools}"
 # which case every tool runs the adapter path.
 CATALOG="${WRANGLE_CATALOG:-${TOOLS_DIR}/catalog.json}"
 
-# Namespace prefix of wrangle-published tool images. Only these carry wrangle's
-# VSA identity, so only these get the wrangle-signer attestation gate; an
-# adopter custom-tool image (other namespace) is trusted under its own identity.
-CURATED_IMAGE_PREFIX="ghcr.io/tomhennen/wrangle/"
+# Only wrangle-namespace images carry wrangle's VSA identity, so only these get
+# the wrangle-signer attestation gate; an adopter custom-tool image (other
+# namespace) is trusted under its own identity.
+CURATED_IMAGE_PREFIX="$CATALOG_CURATED_IMAGE_PREFIX"
 
 # WRANGLE_CUSTOM_TOOLS points at an adopter tools.json whose net-new tools are
 # added to the curated catalog. The path must resolve inside the workspace (no
@@ -100,12 +104,11 @@ fi
 # (run via docker run). Action-pattern tools (have an action.yml) are invoked
 # via their uses: step, so run.sh skips them even when an adapter.sh is present
 # only as their image entrypoint. Unknown tools (no directory) are rejected.
-TOOL_NAME_RE='^[a-z][a-z0-9_-]*$'
 declare -a run_tools=()
 for spec in "$@"; do
     tool="${spec%%:*}"
-    if [[ ! "$tool" =~ $TOOL_NAME_RE ]]; then
-        printf 'wrangle: invalid tool name: %s (must match %s)\n' "$tool" "$TOOL_NAME_RE" >&2
+    if [[ ! "$tool" =~ $CATALOG_TOOL_NAME_RE ]]; then
+        printf 'wrangle: invalid tool name: %s (must match %s)\n' "$tool" "$CATALOG_TOOL_NAME_RE" >&2
         exit 2
     fi
     # Resolve delivery once. Empty -> adapter path; "image" -> docker path; any
@@ -261,9 +264,9 @@ run_one_tool() {
             printf '::endgroup::\n'
             return
         fi
-        # Require an @sha256 digest pin (a tag alone is mutable); the registry
-        # host may carry a :port (e.g. registry.internal:5000/osv@sha256:...).
-        if [[ ! "$image" =~ ^[a-z0-9._-]+(:[0-9]+)?(/[a-z0-9._-]+)*@sha256:[0-9a-f]{64}$ ]]; then
+        # Require an @sha256 digest pin (a tag alone is mutable); re-checked here
+        # even though merge_catalog validated custom entries, as defense in depth.
+        if [[ ! "$image" =~ $CATALOG_IMAGE_DIGEST_RE ]]; then
             printf 'wrangle: %s: image not digest-pinned: %s\n' "$tool" "$image" >&2
             tool_status="error"
             overall_status=2

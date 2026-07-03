@@ -27,7 +27,7 @@ source "$SCRIPT_DIR/../lib/catalog_rules.sh"
 
 # Tool segment matches run.sh's tool-name shape, so no leading dot/dash or `..`
 # can survive into a registry path.
-CURATED_PREFIX='ghcr.io/tomhennen/wrangle/'
+CURATED_PREFIX="$CATALOG_CURATED_IMAGE_PREFIX"
 IMAGE_STRICT_RE='^ghcr\.io/tomhennen/wrangle/[a-z][a-z0-9_-]*@sha256:[0-9a-f]{64}$'
 
 # validate_catalog <catalog_file> — print one line per violation to stderr.
@@ -52,6 +52,9 @@ validate_catalog() {
         kind="$(read_catalog_field "$file" "$tool" kind)"
         if [[ -z "$kind" ]]; then
             printf 'check_catalog: %s: missing kind\n' "$tool" >&2
+            rc=1
+        elif [[ ! "$kind" =~ $CATALOG_KIND_RE ]]; then
+            printf 'check_catalog: %s: invalid kind: %s\n' "$tool" "$kind" >&2
             rc=1
         fi
 

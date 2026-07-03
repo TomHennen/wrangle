@@ -4,7 +4,7 @@
 # effective catalog = curated tools ∪ adopter-added tools. A custom tool whose
 # name collides with a curated tool is a hard error (no override, no field
 # merge); each added tool declares its own capabilities with no inheritance from
-# curated (docs/tool_container_design.md §3.7).
+# curated, and its image must be outside the wrangle namespace.
 
 setup() {
     ORIG_DIR="$(cd "$(dirname "$BATS_TEST_FILENAME")/.." && pwd)"
@@ -134,13 +134,39 @@ JSON
     [[ "$output" == *"must declare delivery: image"* ]]
 }
 
-@test "merge: an off-namespace custom image is allowed (adopter-trusted, VSA gate handles trust)" {
+@test "merge: an off-namespace custom image is allowed (adopter-trusted)" {
     cat > "$CUSTOM" <<JSON
 {"tools":{"my-sbom":{"kind":"sbom","delivery":"image","image":"ghcr.io/myorg/my-sbom@$DIGEST"}}}
 JSON
     _merge
     [ "$status" -eq 0 ]
     [ "$(jq -r '.tools["my-sbom"].image' <<<"$output")" = "ghcr.io/myorg/my-sbom@$DIGEST" ]
+}
+
+@test "merge: rejects a custom image in the wrangle namespace (no borrowing a VSA identity)" {
+    cat > "$CUSTOM" <<JSON
+{"tools":{"my-osv":{"kind":"scan","delivery":"image","image":"ghcr.io/tomhennen/wrangle/osv@$DIGEST"}}}
+JSON
+    _merge
+    [ "$status" -ne 0 ]
+    [[ "$output" == *"must not be in the wrangle namespace"* ]]
+}
+
+@test "merge: rejects an array-valued tool entry (clean error, not a raw jq failure)" {
+    printf '{"tools":{"t":["x"]}}' > "$CUSTOM"
+    _merge
+    [ "$status" -ne 0 ]
+    [[ "$output" == *"every tool entry must be an object"* ]]
+}
+
+@test "merge: preserves curated top-level siblings such as _comment" {
+    printf '{"_comment":"keep me","tools":{"osv":{"kind":"scan","delivery":"image","image":"ghcr.io/tomhennen/wrangle/osv@%s"}}}' "$DIGEST" > "$CURATED"
+    cat > "$CUSTOM" <<JSON
+{"tools":{"my-sbom":{"kind":"sbom","delivery":"image","image":"ghcr.io/myorg/my-sbom@$DIGEST"}}}
+JSON
+    _merge
+    [ "$status" -eq 0 ]
+    [ "$(jq -r '._comment' <<<"$output")" = "keep me" ]
 }
 
 @test "merge: rejects a non-object tools envelope" {

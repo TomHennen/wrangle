@@ -206,10 +206,11 @@ only explicitly — consistent with wrangle's least-privilege and input-validati
 **Custom tools are add-only, so grants never inherit.** An adopter's file may only *add* net-new tools
 (disjoint names) and *deselect* curated ones — never partially override a curated entry. Each added tool
 declares its own capabilities standalone; there is no merge with, and no inheritance from, any curated
-entry. This is strictly safer than a field-merge: because a name that collides with a curated tool is a
-hard error, an adopter can never attach a `secret`/`network` grant to wrangle's curated, VSA-signed image.
-To change how a curated tool runs, an adopter deselects it and adds their own full definition under a new
-name.
+entry. Two enforced rules make this strictly safer than a field-merge: a name that collides with a curated
+tool is a hard error, and **a custom entry's image MUST be outside the wrangle namespace**
+(`ghcr.io/tomhennen/wrangle/*` is rejected). An adopter therefore cannot attach a `secret`/`network` grant
+to any wrangle-published, VSA-signed image. To change how a curated tool runs, an adopter deselects it and
+adds their own full definition, on their own image, under a new name.
 
 ### 3.8 Configuration, illustrated
 
