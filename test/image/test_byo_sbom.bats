@@ -12,8 +12,10 @@
 # it lives under test/image/ (outside the Makefile's unit bats glob) and runs in
 # the dogfooded shell build on a docker-capable runner.
 
+# A distinct host port from the other test/image registry sidecar
+# (test_run_image_dispatch.bats uses 5000); bats runs files in parallel.
 REGISTRY_IMAGE="registry:2@sha256:a3d8aaa63ed8681a604f1dea0aa03f100d5895b6a58ace528858a7b332415373"
-REGISTRY_PORT=5000
+REGISTRY_PORT=5001
 REGISTRY_HOST="localhost:${REGISTRY_PORT}"
 
 _push_for_digest() {

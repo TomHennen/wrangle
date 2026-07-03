@@ -657,6 +657,22 @@ JSON
     [[ "$output" == *"running byotool (image)"* ]]
 }
 
+@test "orchestrator: a workspace-relative tool-overrides path resolves (the composite seam)" {
+    # The composites pass a workspace-relative path (.wrangle/tools.json) with cwd
+    # = GITHUB_WORKSPACE; assert that resolves rather than being read as an escape.
+    digest="sha256:0000000000000000000000000000000000000000000000000000000000000000"
+    mkdir -p "$TEST_DIR/ws/.wrangle" "$TEST_DIR/src"
+    cat > "$TEST_DIR/ws/.wrangle/tools.json" <<JSON
+{"tools":{"byotool":{"kind":"sbom","delivery":"image","image":"registry.internal:5000/byo@$digest"}}}
+JSON
+    cd "$TEST_DIR/ws"
+    GITHUB_WORKSPACE="$TEST_DIR/ws" WRANGLE_TOOL_OVERRIDES=".wrangle/tools.json" \
+        run_orchestrator -s "$TEST_DIR/src" -o "$TEST_DIR/output" "byotool"
+    [[ "$output" != *"escapes the workspace"* ]]
+    [[ "$output" != *"not found"* ]]
+    [[ "$output" == *"running byotool (image)"* ]]
+}
+
 @test "orchestrator: an invalid tool-overrides entry aborts the run" {
     mkdir -p "$TEST_DIR/ws" "$TEST_DIR/src"
     cat > "$TEST_DIR/ws/tools.json" <<'JSON'
