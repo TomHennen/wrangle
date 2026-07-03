@@ -135,12 +135,6 @@ ampel verify --subject sha256:<digest> \
   --context sourceRepo:https://github.com/<your-org>/<your-repo>
 ```
 
-The `gh attestation verify --predicate-type` filter does **not** accept the VSA
-predicate URI (`https://slsa.dev/verification_summary/v1`) — GitHub returns HTTP
-422 from its filter allowlist — so use ampel (recommended) or an unfiltered `gh
-attestation verify`. The filter only blocks the query; storing and unfiltered
-fetch work.
-
 Pin the policy locator to any wrangle `v*` release tag — it does **not**
 need to match the wrangle version the adopter builds with. The `-v1` in the
 policy filename is the contract version; any release tag carrying that file
