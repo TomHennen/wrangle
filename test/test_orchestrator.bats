@@ -603,3 +603,67 @@ JSON
     # then fails at docker (image absent / docker may be unavailable here).
     [[ "$output" != *"not digest-pinned"* ]]
 }
+
+# --- catalog-only image tool: admitted with no local tools/<name>/ dir ---
+
+@test "orchestrator: a delivery: image tool with no directory is admitted (not unknown)" {
+    digest="sha256:0000000000000000000000000000000000000000000000000000000000000000"
+    mkdir -p "$TEST_DIR/src"
+    # No $MOCK_TOOLS/byotool directory; the catalog alone defines it.
+    cat > "$MOCK_TOOLS/catalog.json" <<JSON
+{"tools":{"byotool":{"kind":"sbom","delivery":"image","image":"registry.internal:5000/byo@$digest"}}}
+JSON
+    run_orchestrator -s "$TEST_DIR/src" -o "$TEST_DIR/output" "byotool"
+    # Reaches the image path rather than the "unknown tool" gate; docker then
+    # fails (image absent / docker may be unavailable), which is not our concern.
+    [[ "$output" != *"unknown tool"* ]]
+    [[ "$output" == *"running byotool (image)"* ]]
+}
+
+@test "orchestrator: a tool with no directory and no catalog image entry is unknown" {
+    run_orchestrator -s "$TEST_DIR/src" -o "$TEST_DIR/output" "nodir"
+    [ "$status" -eq 2 ]
+    [[ "$output" == *"unknown tool"* ]]
+}
+
+# --- tool-overrides: path validation ---
+
+@test "orchestrator: tool-overrides path escaping the workspace is rejected" {
+    mkdir -p "$TEST_DIR/ws"
+    printf '{"tools":{}}' > "$TEST_DIR/outside.json"
+    GITHUB_WORKSPACE="$TEST_DIR/ws" WRANGLE_TOOL_OVERRIDES="$TEST_DIR/outside.json" \
+        run_orchestrator -s "$TEST_DIR/src" -o "$TEST_DIR/output" "clean-tool"
+    [ "$status" -eq 2 ]
+    [[ "$output" == *"escapes the workspace"* ]]
+}
+
+@test "orchestrator: a missing tool-overrides file is rejected" {
+    mkdir -p "$TEST_DIR/ws"
+    GITHUB_WORKSPACE="$TEST_DIR/ws" WRANGLE_TOOL_OVERRIDES="$TEST_DIR/ws/nope.json" \
+        run_orchestrator -s "$TEST_DIR/src" -o "$TEST_DIR/output" "clean-tool"
+    [ "$status" -eq 2 ]
+    [[ "$output" == *"not found"* ]]
+}
+
+@test "orchestrator: an in-workspace tool-overrides file merges and admits a new tool" {
+    digest="sha256:0000000000000000000000000000000000000000000000000000000000000000"
+    mkdir -p "$TEST_DIR/ws" "$TEST_DIR/src"
+    cat > "$TEST_DIR/ws/tools.json" <<JSON
+{"tools":{"byotool":{"kind":"sbom","delivery":"image","image":"registry.internal:5000/byo@$digest"}}}
+JSON
+    GITHUB_WORKSPACE="$TEST_DIR/ws" WRANGLE_TOOL_OVERRIDES="$TEST_DIR/ws/tools.json" \
+        run_orchestrator -s "$TEST_DIR/src" -o "$TEST_DIR/output" "byotool"
+    [[ "$output" != *"unknown tool"* ]]
+    [[ "$output" == *"running byotool (image)"* ]]
+}
+
+@test "orchestrator: an invalid tool-overrides entry aborts the run" {
+    mkdir -p "$TEST_DIR/ws" "$TEST_DIR/src"
+    cat > "$TEST_DIR/ws/tools.json" <<'JSON'
+{"tools":{"byotool":{"kind":"sbom","delivery":"image","image":"ghcr.io/x:latest"}}}
+JSON
+    GITHUB_WORKSPACE="$TEST_DIR/ws" WRANGLE_TOOL_OVERRIDES="$TEST_DIR/ws/tools.json" \
+        run_orchestrator -s "$TEST_DIR/src" -o "$TEST_DIR/output" "byotool"
+    [ "$status" -eq 2 ]
+    [[ "$output" == *"digest-pinned"* ]]
+}

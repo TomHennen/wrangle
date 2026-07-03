@@ -23,6 +23,11 @@ source "$SCRIPT_DIR/lib/env.sh"
 # shellcheck source=lib/read_catalog.sh
 source "$SCRIPT_DIR/lib/read_catalog.sh"
 
+# Catalog merger: merge_catalog builds the effective catalog when an adopter
+# supplies a tool-overrides file.
+# shellcheck source=lib/merge_catalog.sh
+source "$SCRIPT_DIR/lib/merge_catalog.sh"
+
 # Pull-time VSA verification primitive: verify_image_vsa runs the fail-closed
 # attestation gate the curated-image policy below applies.
 # shellcheck source=lib/verify_image_vsa.sh
@@ -43,6 +48,27 @@ CATALOG="${WRANGLE_CATALOG:-${TOOLS_DIR}/catalog.json}"
 # VSA identity, so only these get the wrangle-signer attestation gate; an
 # adopter-override image (other namespace) is trusted under its own identity.
 CURATED_IMAGE_PREFIX="ghcr.io/tomhennen/wrangle/"
+
+# WRANGLE_TOOL_OVERRIDES points at an adopter tools.json merged over the curated
+# catalog. The path must resolve inside the workspace (no traversal or symlink
+# escape); the effective catalog is a temp file cleaned up on exit.
+if [[ -n "${WRANGLE_TOOL_OVERRIDES:-}" ]]; then
+    override_root="$(cd "${GITHUB_WORKSPACE:-.}" && pwd)"
+    if ! override_file="$(realpath -e -- "$WRANGLE_TOOL_OVERRIDES" 2>/dev/null)"; then
+        printf 'wrangle: tool-overrides file not found: %s\n' "$WRANGLE_TOOL_OVERRIDES" >&2
+        exit 2
+    fi
+    if [[ "$override_file" != "$override_root" && "$override_file" != "$override_root"/* ]]; then
+        printf 'wrangle: tool-overrides path escapes the workspace: %s\n' "$WRANGLE_TOOL_OVERRIDES" >&2
+        exit 2
+    fi
+    effective_catalog="$(mktemp "${TMPDIR:-/tmp}/wrangle-catalog-XXXXXX.json")"
+    trap 'rm -f "$effective_catalog"' EXIT
+    if ! merge_catalog "$CATALOG" "$override_file" > "$effective_catalog"; then
+        exit 2
+    fi
+    CATALOG="$effective_catalog"
+fi
 
 # is_image[$tool]=1 marks a catalog tool with delivery: image (the docker-run
 # path); absence means the adapter path. Resolved once per tool in the parse
@@ -82,15 +108,6 @@ for spec in "$@"; do
         printf 'wrangle: invalid tool name: %s (must match %s)\n' "$tool" "$TOOL_NAME_RE" >&2
         exit 2
     fi
-    if [[ ! -d "${TOOLS_DIR}/${tool}" ]]; then
-        printf 'wrangle: unknown tool: %s (no directory at %s/%s/)\n' "$tool" "$TOOLS_DIR" "$tool" >&2
-        exit 2
-    fi
-    # An action.yml means the tool runs via its uses: step; skip it here even if
-    # an adapter.sh exists (it is only the tool image's contract entrypoint).
-    if [[ -f "${TOOLS_DIR}/${tool}/action.yml" ]]; then
-        continue
-    fi
     # Resolve delivery once. Empty -> adapter path; "image" -> docker path; any
     # other non-empty value is a catalog typo, not a silent adapter fallthrough.
     delivery="$(read_catalog_field "$CATALOG" "$tool" delivery)"
@@ -101,6 +118,18 @@ for spec in "$@"; do
             printf 'wrangle: %s: unrecognized catalog delivery: %s\n' "$tool" "$delivery" >&2
             exit 2 ;;
     esac
+    if [[ -d "${TOOLS_DIR}/${tool}" ]]; then
+        # An action.yml means the tool runs via its uses: step; skip it here even
+        # if an adapter.sh exists (it is only the tool image's contract entrypoint).
+        if [[ -f "${TOOLS_DIR}/${tool}/action.yml" ]]; then
+            continue
+        fi
+    elif [[ -z "${is_image[$tool]:-}" ]]; then
+        # A catalog delivery: image tool is dispatched from its image, so it needs
+        # no local directory; anything else with no directory is unknown.
+        printf 'wrangle: unknown tool: %s (no directory at %s/%s/ and no catalog image entry)\n' "$tool" "$TOOLS_DIR" "$tool" >&2
+        exit 2
+    fi
     if [[ -n "${is_image[$tool]:-}" ]] || [[ -f "${TOOLS_DIR}/${tool}/adapter.sh" ]]; then
         run_tools+=("$tool")
     fi
