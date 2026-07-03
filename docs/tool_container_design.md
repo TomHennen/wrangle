@@ -362,8 +362,8 @@ not a meaningful per-delivery signal.)
   stays a narrow, wrangle-internal task, required only before *production consumption*, not before
   prototyping. Source-freshness (`check_catalog_provenance_freshness.sh`) runs release-blocking and as a
   weekly advisory — **not** per run: a stale-but-attested image passes the pull-time VSA gate and is
-  consumed like any pinned dependency (the consume-the-pin model, §7/§11), with a planned auto-bump PR
-  (§11) keeping the pinned digest current. Still open (#623): a digest cooldown and the adoption-lag check's
+  consumed like any pinned dependency (the consume-the-pin model, §7/§11), with the post-publish auto-bump
+  PR (§11) keeping the pinned digest current. Still open (#623): a digest cooldown and the adoption-lag check's
   advisory→blocking promotion.
 - **Pull-time consumer VSA gate.** Before a curated image runs, the orchestrator verifies it carries a
   PASSED, SLSA-Build-L3 wrangle verification-summary attestation signed by the container build+publish
@@ -389,8 +389,8 @@ not a meaningful per-delivery signal.)
   (`lib/verify_image_vsa.sh`, Phase 1) — a stale pinned toolbox is consumed like any pinned dependency,
   **not** gated per run. This dissolves the self-signing concern: `attest-toolbox@NEW` is signed by the
   pinned `attest-toolbox@OLD`, which is attested and passes verify-before-run — no circularity, no
-  self-build exemption. Source-freshness stays a release/weekly check (§6, §11), with a planned auto-bump
-  PR (§11) keeping the pinned digest current; there is **no per-signing-run freshness gate**. Containerizing the
+  self-build exemption. Source-freshness stays a release/weekly check (§6, §11), with the post-publish
+  auto-bump PR (§11) keeping the pinned digest current; there is **no per-signing-run freshness gate**. Containerizing the
   verify path also unlocks **VSA-verified caching** of all tool images — the L3-safe replacement for the
   build cache wrangle disables today.
   **Token delivery.** The host mints an `aud=sigstore` `SIGSTORE_ID_TOKEN` and passes it plus the
@@ -407,8 +407,8 @@ not a meaningful per-delivery signal.)
   provenance-verified host-side (`verify_image_vsa`) before it runs. Off by default, byte-identical when
   unset, and not on the L3 release path; supported for the go/python/npm build types only (the container
   build type's `oci:` collector needs in-container registry auth, fail-closed and deferred). Containerizing
-  the signing steps (bnd/cosign, which need the OIDC token), the OCI-collector verify path, and the
-  catalog auto-bump PR (§11) are the remaining Phase-3 work.
+  the signing steps (bnd/cosign, which need the OIDC token) and the OCI-collector verify path are the
+  remaining Phase-3 work. (The catalog auto-bump PR, §11, has shipped.)
 - **Separate feature:** emitting an attested container of an adopter's own Go app (the "free container"
   value-add via goreleaser/ko). It reuses some machinery but serves adopter UX, not the goals here.
 - **Left as-is:** tools with official GitHub Actions that gain nothing from containerization stay
@@ -473,13 +473,15 @@ digest *is* its version — and a wrangle release references a consistent set of
 release does not rebuild or re-tag tool images.**
 
 - **Tool change** — a PR edits `tools/<tool>/Dockerfile` or its go.mod; on merge to main, CI builds and
-  publishes the image (with provenance) → a new digest, and an **auto-bump PR** (to be built, #619;
-  today `tools/bump_catalog_digest.sh` does this by hand) updates the catalog entry to it. First-party
+  publishes the image (with provenance) → a new digest, and the **post-publish auto-bump PR**
+  (`local_publish_images.yml`'s `bump-catalog` job → `tools/bump_catalog_to_latest.sh` +
+  `tools/open_catalog_bump_pr.sh`) updates the catalog entry to it. First-party
   rebuilds (wrangle's own `ghcr.io/tomhennen/wrangle/*`) are **exempt from the 7-day community-vetting
   cooldown** — that delay exists to let the community vet *third-party* updates for supply-chain attacks,
   which a rebuild of wrangle's own reviewed source is not — so the bump merges on CI/review latency and
-  keeps the catalog current. One source PR + one bump PR — not a manual double-bump. A catalog-only digest
-  change touches no Dockerfile, so it triggers no rebuild (no loop).
+  keeps the catalog current. One source PR + one bump PR — not a manual double-bump. The publish trigger is
+  a path glob that matches `tools/catalog.json`, so a catalog-only digest change would re-trigger a rebuild;
+  the trigger excludes `tools/catalog.json`, which is what keeps the bump from looping.
 - **Release tag** — precondition: the catalog is fresh. `check_catalog_freshness.sh` proves the shipped
   half — no digest is behind its published `:latest` (adoption lag); `check_catalog_provenance_freshness.sh`
   proves the stronger half — every digest is the image built from the current tool source, read from each

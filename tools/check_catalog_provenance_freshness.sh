@@ -16,11 +16,12 @@ set -f  # disable globbing — handles external tool names
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 # shellcheck source=../lib/read_catalog.sh
 source "$SCRIPT_DIR/../lib/read_catalog.sh"
+# shellcheck source=../lib/registry.sh
+source "$SCRIPT_DIR/../lib/registry.sh"
 # shellcheck source=../lib/verify_image_vsa.sh
 source "$SCRIPT_DIR/../lib/verify_image_vsa.sh"
 
 PROVENANCE_PREDICATE_TYPE='https://slsa.dev/provenance/v1'
-CURATED_PREFIX_RE='^ghcr\.io/tomhennen/wrangle/[a-z][a-z0-9_-]*$'
 COMMIT_RE='^[0-9a-f]{40}$'
 # A build commit is trusted only from a resolvedDependency on wrangle's own repo.
 WRANGLE_SOURCE_URI_PREFIX='git+https://github.com/tomhennen/wrangle@'
@@ -93,7 +94,7 @@ check_provenance_freshness() {
         imagename="${image%@sha256:*}"
 
         # Skip adopter-override entries — not wrangle-signed.
-        [[ "$imagename" =~ $CURATED_PREFIX_RE ]] || continue
+        is_curated_image "$imagename" || continue
         checked=$((checked + 1))
 
         local prov_rc=0

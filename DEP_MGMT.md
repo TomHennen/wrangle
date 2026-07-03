@@ -128,7 +128,15 @@ whatever is already set.
   reads each pinned digest's signed SLSA provenance, takes the build commit, and
   fails if any image build input (`tools/` + `lib/`, the publish trigger's paths,
   excluding the catalog file) changed between that commit and HEAD (also a release
-  gate, needs full git history). A digest cooldown remains deferred (#623).
+  gate, needs full git history). After a publish, `local_publish_images.yml`
+  auto-**opens** (never auto-merges) a bump PR — `tools/bump_catalog_to_latest.sh`
+  repoints each drifted `ghcr.io/tomhennen/wrangle/*` entry to its new `:latest`,
+  `tools/open_catalog_bump_pr.sh` opens the PR (requires the repo setting *"Allow
+  GitHub Actions to create and approve pull requests"*). First-party curated-image
+  bumps are **cooldown-exempt** — a rebuild of wrangle's own reviewed source is not
+  a third-party update — so they merge on review latency; an adopter override is
+  not exempt. A digest cooldown remains deferred (#623); when it lands it keys on
+  the `ghcr.io/tomhennen/wrangle/*` namespace so only third-party overrides wait.
 - **Manual today:** the binary+provenance installs (branch 2) and the base-image
   digest. Automating that surface — ideally one mechanism that also covers
   wrangle's own self-references — is #264.

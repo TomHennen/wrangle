@@ -288,6 +288,21 @@ JSON
     [ "$(cat "$OUT/mocktool/kind_seen")" = "sbom" ]
 }
 
+@test "run.sh sbom dispatch: WRANGLE_SOURCE_NAME is the source dir basename" {
+    _sbom_catalog
+    printf 'sbom' > "$SRC/MODE"
+    _run_orch mocktool
+    [ "$status" -eq 0 ]
+    [ "$(cat "$OUT/mocktool/source_name_seen")" = "$(basename "$SRC")" ]
+}
+
+@test "run.sh scan dispatch: WRANGLE_SOURCE_NAME is the source dir basename" {
+    printf 'source-name' > "$SRC/MODE"
+    _run_orch mocktool
+    [ "$status" -eq 0 ]
+    [ "$(cat "$OUT/mocktool/source_name_seen")" = "$(basename "$SRC")" ]
+}
+
 @test "run.sh sbom dispatch: tool error -> exit 2" {
     _sbom_catalog
     printf 'sbom-error' > "$SRC/MODE"
