@@ -148,6 +148,34 @@ MOCK
     [ "$status" -eq 0 ]
 }
 
+# A syft shim records its argv and emits a valid empty SBOM: the real syft needs
+# network and a package ecosystem, but the adapter's flag wiring is what's tested.
+_syft_shim() {
+    cat > "$TEST_DIR/bin/syft" << MOCK
+#!/bin/bash
+printf '%s\n' "\$*" > "$TEST_DIR/syft_argv"
+printf '{}'
+MOCK
+    chmod +x "$TEST_DIR/bin/syft"
+}
+
+@test "syft adapter: passes --source-name when WRANGLE_SOURCE_NAME is set" {
+    _syft_shim
+    mkdir -p "$TEST_DIR/src" "$TEST_DIR/out"
+    PATH="$TEST_DIR/bin:$PATH" WRANGLE_SOURCE_NAME="my-project" \
+        run "$ORIG_DIR/tools/syft/adapter.sh" "$TEST_DIR/src" "$TEST_DIR/out"
+    [ "$status" -eq 0 ]
+    [[ "$(cat "$TEST_DIR/syft_argv")" == *"--source-name my-project"* ]]
+}
+
+@test "syft adapter: omits --source-name when WRANGLE_SOURCE_NAME is unset" {
+    _syft_shim
+    mkdir -p "$TEST_DIR/src" "$TEST_DIR/out"
+    PATH="$TEST_DIR/bin:$PATH" run "$ORIG_DIR/tools/syft/adapter.sh" "$TEST_DIR/src" "$TEST_DIR/out"
+    [ "$status" -eq 0 ]
+    [[ "$(cat "$TEST_DIR/syft_argv")" != *"--source-name"* ]]
+}
+
 @test "install: cosign verification retries once and surfaces cosign stderr on final failure" {
     # A cosign shim is required: real verify-blob needs network and the real
     # syft release blobs; the retry/diagnostic contract is what's under test.

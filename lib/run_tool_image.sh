@@ -35,6 +35,10 @@ run_tool_image() {
     src_abs="$(cd "$src_dir" && pwd)"
     out_abs="$(cd "$tool_out" && pwd)"
 
+    # sbom-only: name the SBOM after the source directory, since the scan runs
+    # against the fixed /src mount rather than the real path.
+    [[ "$kind" == "sbom" ]] && docker_env+=(-e "WRANGLE_SOURCE_NAME=$(basename "$src_abs")")
+
     local rc=0
     timeout "$timeout_s" docker run --rm --network "$net" \
         --cap-drop ALL --security-opt no-new-privileges \

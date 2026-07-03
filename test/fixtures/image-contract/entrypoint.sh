@@ -35,9 +35,15 @@ case "$mode" in
         (ls /sys/class/net 2>/dev/null || printf '') > "$out/net_ifaces"
         printf '{"version":"2.1.0","runs":[{"tool":{"driver":{"name":"mock"}},"results":[]}]}\n' > "$out/output.sarif"
         exit 0 ;;
+    source-name)
+        # Record WRANGLE_SOURCE_NAME so a scan-kind test can assert it is empty.
+        printf '%s' "${WRANGLE_SOURCE_NAME:-}" > "$out/source_name_seen"
+        printf '{"version":"2.1.0","runs":[{"tool":{"driver":{"name":"mock"}},"results":[]}]}\n' > "$out/output.sarif"
+        exit 0 ;;
     sbom)
-        # Record WRANGLE_KIND so a test can assert the stage signal arrived.
+        # Record WRANGLE_KIND and WRANGLE_SOURCE_NAME so a test can assert both signals arrived.
         printf '%s' "${WRANGLE_KIND:-}" > "$out/kind_seen"
+        printf '%s' "${WRANGLE_SOURCE_NAME:-}" > "$out/source_name_seen"
         printf '{"spdxVersion":"SPDX-2.3","name":"mock"}\n' > "$out/sbom.spdx.json"
         exit 0 ;;
     sbom-error)
