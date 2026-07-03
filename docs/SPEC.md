@@ -630,19 +630,18 @@ NOTES:
 
 ---
 
-### Tool Overrides (adopter catalog)
+### Custom Tools (adopter catalog, add-only)
 
-An adopter may extend or replace catalog entries with their own tool images through an override file
-(`.wrangle/tools.json` by convention), selected via a build composite's `tool-overrides:` input. The path
-MUST resolve inside the workspace; `run.sh` rejects a path that escapes it (traversal or symlink). The file
-shares the catalog's shape and is merged over the curated catalog into the effective catalog `run.sh` uses
+An adopter may **add** their own tool images through a custom-tools file (`.wrangle/tools.json` by
+convention), selected via a build composite's `custom-tools:` input. The path MUST resolve inside the
+workspace; `run.sh` rejects a path that escapes it (traversal or symlink). The file shares the catalog's
+shape; its tools are unioned with the curated catalog into the effective catalog `run.sh` uses
 (`lib/merge_catalog.sh`).
 
 ```jsonc
 {
   "tools": {
-    "osv":     { "image": "ghcr.io/myorg/osv@sha256:<64hex>" },  // replace a curated tool's image
-    "my-sbom": {                                                 // bring a tool wrangle doesn't ship
+    "my-sbom": {                                  // a tool wrangle doesn't ship — full definition
       "kind": "sbom",
       "delivery": "image",
       "image": "ghcr.io/myorg/my-sbom@sha256:<64hex>"
@@ -651,24 +650,23 @@ shares the catalog's shape and is merged over the curated catalog into the effec
 }
 ```
 
-**Per-entry validation** (any failure aborts the run):
+**Add-only — collision is an error.** A custom tool name that matches a curated tool is a hard error; the
+model never overrides or field-merges a curated entry. To change how a curated tool runs, add your own tool
+under a new name and deselect the curated one via `tools:` / `sbom-tool:`. Each added tool declares its own
+capabilities standalone; nothing inherits from any curated entry, so a custom entry can never attach a
+`secret`/`network` grant to wrangle's curated, VSA-signed image.
 
-- tool name matches `^[a-z][a-z0-9_-]*$`; `kind` ∈ {`scan`, `sbom`, `attest`}; `network` ∈ {`none`, `egress`};
-  `secret` matches `^[a-z][a-z0-9-]*$`.
-- `image`, when present, MUST be digest-pinned (`name@sha256:<64hex>`); a net-new tool (no curated entry of
-  the same name) MUST declare a digest-pinned `image` and `delivery: image`.
+**Per-entry validation** (any failure fails closed, aborting the run): tool name matches
+`^[a-z][a-z0-9_-]*$`; `kind` ∈ {`scan`, `sbom`, `attest`}; `delivery` is `image`; `image` is digest-pinned
+(`name@sha256:<64hex>`); a declared `network` ∈ {`none`, `egress`} and `secret` matches `^[a-z][a-z0-9-]*$`.
+These value rules are shared with the curated-catalog linter via `lib/catalog_rules.sh`.
 
-**Merge semantics (capability-safe).** An entry's non-capability fields deep-merge over the curated entry.
-The capability grants `network` and `secret` are the exception: they hold ONLY when the override entry
-restates them, otherwise they reset closed — an override NEVER inherits the replaced entry's `network` or
-`secret`. Overriding a curated tool therefore re-declares its capabilities from scratch (§3.7 "an
-unspecified capability defaults closed" in [tool_container_design.md](tool_container_design.md)).
-
-**Trust.** An override image outside wrangle's namespace carries no wrangle VSA, so `run.sh` skips the VSA
-gate and trusts it as the adopter's own — the adopter owns its digest pin and freshness. It still runs in
-the full contract sandbox (read-only `/src`, `--network none` unless granted, `--cap-drop ALL`,
-no-new-privileges, non-root). An override that points at a curated-namespace digest still passes the VSA
-gate, which fails closed on a digest the wrangle signer never attested.
+**Trust boundary.** The custom-tools file is trusted adopter configuration: an added tool may grant itself
+`egress` + a `secret`, so the file MUST come from the trusted repository, never from untrusted PR contents
+in a job that carries `WRANGLE_EXTRA_*` secrets. A custom image outside wrangle's namespace carries no
+wrangle VSA, so `run.sh` skips the VSA gate and trusts it as the adopter's own — the adopter owns its digest
+pin and freshness. It still runs in the full contract sandbox (read-only `/src`, `--network none` unless
+granted, `--cap-drop ALL`, no-new-privileges, non-root).
 
 ---
 

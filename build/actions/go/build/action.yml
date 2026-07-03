@@ -1,7 +1,7 @@
 name: Wrangle Go Build
 description: |
   Invoke goreleaser to build a Go project (always `--skip=publish`);
-  generate the SBOM via syft; compute artifact hashes for SLSA
+  generate the SBOM (syft by default); compute artifact hashes for SLSA
   provenance. Sister composite to `build/actions/go/checks` — the
   calling reusable workflow runs both with `contents: read`, since
   goreleaser publishes nothing. See build/actions/go/SPEC.md
@@ -51,11 +51,11 @@ inputs:
     required: false
     default: "false"
   sbom-tool:
-    description: "SBOM tool to run (a curated tool, or one defined in tool-overrides). Default syft."
+    description: "SBOM tool to run: the curated `sbom` slot, or a tool added via custom-tools. Default sbom."
     required: false
-    default: "syft"
-  tool-overrides:
-    description: "Optional workspace path to a .wrangle/tools.json merged over wrangle's catalog (see docs/SPEC.md)."
+    default: "sbom"
+  custom-tools:
+    description: "Optional workspace path to a .wrangle/tools.json adding your own tools to wrangle's catalog (see docs/SPEC.md)."
     required: false
     default: ""
 
@@ -194,7 +194,7 @@ runs:
         GH_TOKEN: ${{ github.token }}
         WRANGLE_ROOT: ${{ github.action_path }}/../../../..
         SBOM_TOOL: ${{ inputs.sbom-tool }}
-        WRANGLE_TOOL_OVERRIDES: ${{ inputs.tool-overrides }}
+        WRANGLE_CUSTOM_TOOLS: ${{ inputs.custom-tools }}
       run: |
         set -euo pipefail
         "$WRANGLE_ROOT/lib/generate_sbom.sh" "$INPUT_PATH" "$METADATA_DIR" "$SBOM_TOOL"

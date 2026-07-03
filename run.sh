@@ -24,7 +24,7 @@ source "$SCRIPT_DIR/lib/env.sh"
 source "$SCRIPT_DIR/lib/read_catalog.sh"
 
 # Catalog merger: merge_catalog builds the effective catalog when an adopter
-# supplies a tool-overrides file.
+# supplies a custom-tools file.
 # shellcheck source=lib/merge_catalog.sh
 source "$SCRIPT_DIR/lib/merge_catalog.sh"
 
@@ -46,25 +46,25 @@ CATALOG="${WRANGLE_CATALOG:-${TOOLS_DIR}/catalog.json}"
 
 # Namespace prefix of wrangle-published tool images. Only these carry wrangle's
 # VSA identity, so only these get the wrangle-signer attestation gate; an
-# adopter-override image (other namespace) is trusted under its own identity.
+# adopter custom-tool image (other namespace) is trusted under its own identity.
 CURATED_IMAGE_PREFIX="ghcr.io/tomhennen/wrangle/"
 
-# WRANGLE_TOOL_OVERRIDES points at an adopter tools.json merged over the curated
-# catalog. The path must resolve inside the workspace (no traversal or symlink
-# escape); the effective catalog is a temp file cleaned up on exit.
-if [[ -n "${WRANGLE_TOOL_OVERRIDES:-}" ]]; then
-    override_root="$(cd "${GITHUB_WORKSPACE:-.}" && pwd -P)"
-    if ! override_file="$(realpath -e -- "$WRANGLE_TOOL_OVERRIDES" 2>/dev/null)"; then
-        printf 'wrangle: tool-overrides file not found: %s\n' "$WRANGLE_TOOL_OVERRIDES" >&2
+# WRANGLE_CUSTOM_TOOLS points at an adopter tools.json whose net-new tools are
+# added to the curated catalog. The path must resolve inside the workspace (no
+# traversal or symlink escape); the effective catalog is a temp file removed on exit.
+if [[ -n "${WRANGLE_CUSTOM_TOOLS:-}" ]]; then
+    custom_root="$(cd "${GITHUB_WORKSPACE:-.}" && pwd -P)"
+    if ! custom_file="$(realpath -e -- "$WRANGLE_CUSTOM_TOOLS" 2>/dev/null)"; then
+        printf 'wrangle: custom-tools file not found: %s\n' "$WRANGLE_CUSTOM_TOOLS" >&2
         exit 2
     fi
-    if [[ "$override_file" != "$override_root" && "$override_file" != "$override_root"/* ]]; then
-        printf 'wrangle: tool-overrides path escapes the workspace: %s\n' "$WRANGLE_TOOL_OVERRIDES" >&2
+    if [[ "$custom_file" != "$custom_root" && "$custom_file" != "$custom_root"/* ]]; then
+        printf 'wrangle: custom-tools path escapes the workspace: %s\n' "$WRANGLE_CUSTOM_TOOLS" >&2
         exit 2
     fi
     effective_catalog="$(mktemp "${TMPDIR:-/tmp}/wrangle-catalog-XXXXXX.json")"
     trap 'rm -f "$effective_catalog"' EXIT
-    if ! merge_catalog "$CATALOG" "$override_file" > "$effective_catalog"; then
+    if ! merge_catalog "$CATALOG" "$custom_file" > "$effective_catalog"; then
         exit 2
     fi
     CATALOG="$effective_catalog"

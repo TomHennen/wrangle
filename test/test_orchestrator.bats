@@ -626,38 +626,38 @@ JSON
     [[ "$output" == *"unknown tool"* ]]
 }
 
-# --- tool-overrides: path validation ---
+# --- custom-tools: path validation ---
 
-@test "orchestrator: tool-overrides path escaping the workspace is rejected" {
+@test "orchestrator: custom-tools path escaping the workspace is rejected" {
     mkdir -p "$TEST_DIR/ws"
     printf '{"tools":{}}' > "$TEST_DIR/outside.json"
-    GITHUB_WORKSPACE="$TEST_DIR/ws" WRANGLE_TOOL_OVERRIDES="$TEST_DIR/outside.json" \
+    GITHUB_WORKSPACE="$TEST_DIR/ws" WRANGLE_CUSTOM_TOOLS="$TEST_DIR/outside.json" \
         run_orchestrator -s "$TEST_DIR/src" -o "$TEST_DIR/output" "clean-tool"
     [ "$status" -eq 2 ]
     [[ "$output" == *"escapes the workspace"* ]]
 }
 
-@test "orchestrator: a missing tool-overrides file is rejected" {
+@test "orchestrator: a missing custom-tools file is rejected" {
     mkdir -p "$TEST_DIR/ws"
-    GITHUB_WORKSPACE="$TEST_DIR/ws" WRANGLE_TOOL_OVERRIDES="$TEST_DIR/ws/nope.json" \
+    GITHUB_WORKSPACE="$TEST_DIR/ws" WRANGLE_CUSTOM_TOOLS="$TEST_DIR/ws/nope.json" \
         run_orchestrator -s "$TEST_DIR/src" -o "$TEST_DIR/output" "clean-tool"
     [ "$status" -eq 2 ]
     [[ "$output" == *"not found"* ]]
 }
 
-@test "orchestrator: an in-workspace tool-overrides file merges and admits a new tool" {
+@test "orchestrator: an in-workspace custom-tools file merges and admits a new tool" {
     digest="sha256:0000000000000000000000000000000000000000000000000000000000000000"
     mkdir -p "$TEST_DIR/ws" "$TEST_DIR/src"
     cat > "$TEST_DIR/ws/tools.json" <<JSON
 {"tools":{"byotool":{"kind":"sbom","delivery":"image","image":"registry.internal:5000/byo@$digest"}}}
 JSON
-    GITHUB_WORKSPACE="$TEST_DIR/ws" WRANGLE_TOOL_OVERRIDES="$TEST_DIR/ws/tools.json" \
+    GITHUB_WORKSPACE="$TEST_DIR/ws" WRANGLE_CUSTOM_TOOLS="$TEST_DIR/ws/tools.json" \
         run_orchestrator -s "$TEST_DIR/src" -o "$TEST_DIR/output" "byotool"
     [[ "$output" != *"unknown tool"* ]]
     [[ "$output" == *"running byotool (image)"* ]]
 }
 
-@test "orchestrator: a workspace-relative tool-overrides path resolves (the composite seam)" {
+@test "orchestrator: a workspace-relative custom-tools path resolves (the composite seam)" {
     # The composites pass a workspace-relative path (.wrangle/tools.json) with cwd
     # = GITHUB_WORKSPACE; assert that resolves rather than being read as an escape.
     digest="sha256:0000000000000000000000000000000000000000000000000000000000000000"
@@ -666,19 +666,19 @@ JSON
 {"tools":{"byotool":{"kind":"sbom","delivery":"image","image":"registry.internal:5000/byo@$digest"}}}
 JSON
     cd "$TEST_DIR/ws"
-    GITHUB_WORKSPACE="$TEST_DIR/ws" WRANGLE_TOOL_OVERRIDES=".wrangle/tools.json" \
+    GITHUB_WORKSPACE="$TEST_DIR/ws" WRANGLE_CUSTOM_TOOLS=".wrangle/tools.json" \
         run_orchestrator -s "$TEST_DIR/src" -o "$TEST_DIR/output" "byotool"
     [[ "$output" != *"escapes the workspace"* ]]
     [[ "$output" != *"not found"* ]]
     [[ "$output" == *"running byotool (image)"* ]]
 }
 
-@test "orchestrator: an invalid tool-overrides entry aborts the run" {
+@test "orchestrator: an invalid custom-tools entry aborts the run" {
     mkdir -p "$TEST_DIR/ws" "$TEST_DIR/src"
     cat > "$TEST_DIR/ws/tools.json" <<'JSON'
 {"tools":{"byotool":{"kind":"sbom","delivery":"image","image":"ghcr.io/x:latest"}}}
 JSON
-    GITHUB_WORKSPACE="$TEST_DIR/ws" WRANGLE_TOOL_OVERRIDES="$TEST_DIR/ws/tools.json" \
+    GITHUB_WORKSPACE="$TEST_DIR/ws" WRANGLE_CUSTOM_TOOLS="$TEST_DIR/ws/tools.json" \
         run_orchestrator -s "$TEST_DIR/src" -o "$TEST_DIR/output" "byotool"
     [ "$status" -eq 2 ]
     [[ "$output" == *"digest-pinned"* ]]

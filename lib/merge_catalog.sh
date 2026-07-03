@@ -2,76 +2,102 @@
 set -euo pipefail
 set -f  # disable globbing — handles external file contents
 
-# lib/merge_catalog.sh — build the effective tool catalog by merging an adopter
-# override file over wrangle's curated catalog (both share the
-# { "tools": { … } } shape). An override entry's non-capability fields deep-merge
-# over the curated entry; the capability grants network and secret hold ONLY when
-# the override entry restates them, otherwise they reset closed — an override
-# never inherits the replaced entry's network or secret.
+# lib/merge_catalog.sh — build the effective tool catalog by ADDING an adopter's
+# custom tools to wrangle's curated catalog (both share the { "tools": { … } }
+# shape). The model is add-only: an adopter may add net-new tools, never override
+# a curated one. A custom tool whose name collides with a curated tool is a hard
+# error — no shadowing, no field merge, so a custom entry can never attach its
+# capabilities to a curated, VSA-signed image. Each custom entry is validated
+# standalone and declares its own capabilities; there is no inheritance.
 #
-# Usage: merge_catalog.sh <curated_catalog> <override_file>
+# Usage: merge_catalog.sh <curated_catalog> <custom_tools_file>
 # Prints the effective catalog on stdout. Exits non-zero (message on stderr) when
-# the override is not valid JSON or any adopter entry fails validation.
+# the custom file is not valid JSON, collides with a curated name, or any entry
+# fails validation.
+
+# A distinct name from the caller's SCRIPT_DIR — run.sh sources this file and
+# then sources more libs relative to its own SCRIPT_DIR.
+_MERGE_CATALOG_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+# shellcheck source=lib/read_catalog.sh
+source "$_MERGE_CATALOG_DIR/read_catalog.sh"
+# shellcheck source=lib/catalog_rules.sh
+source "$_MERGE_CATALOG_DIR/catalog_rules.sh"
 
 merge_catalog() {
-    local curated="$1" override="$2"
+    local curated="$1" custom="$2"
     local curated_json='{"tools":{}}'
     [[ -f "$curated" ]] && curated_json="$(cat "$curated")"
 
-    if ! jq -e . "$override" >/dev/null 2>&1; then
-        printf 'wrangle: tool-overrides is not valid JSON: %s\n' "$override" >&2
+    if ! jq -e '(.tools // {}) | type == "object"' "$custom" >/dev/null 2>&1; then
+        printf 'wrangle: custom-tools: not a valid JSON catalog (needs an object "tools"): %s\n' "$custom" >&2
         return 1
     fi
 
-    jq -n \
-        --argjson curated "$curated_json" \
-        --slurpfile ov "$override" '
-        def digestpin: test("^[a-z0-9._-]+(:[0-9]+)?(/[a-z0-9._-]+)*@sha256:[0-9a-f]{64}$");
-        def check($cond; $msg): if $cond then . else error($msg) end;
+    # Add-only: a name shared with the curated catalog is rejected, never merged.
+    local collisions
+    collisions="$(jq -rn --argjson c "$curated_json" --slurpfile x "$custom" '
+        ($c.tools // {} | keys) as $ck
+        | ($x[0].tools // {} | keys)
+        | map(select(. as $k | $ck | index($k)))
+        | .[]')"
+    if [[ -n "$collisions" ]]; then
+        printf 'wrangle: custom-tools: name collides with a curated tool (add-only, no override): %s\n' \
+            "$(printf '%s' "$collisions" | tr '\n' ' ')" >&2
+        return 1
+    fi
 
-        ($ov[0]) as $o
-        | ($curated.tools // {}) as $ct
-        | check(($o | type) == "object"; "tool-overrides: top-level must be a JSON object")
-        | check(($o | has("tools")) and (($o.tools | type) == "object");
-                "tool-overrides: \"tools\" must be an object")
-        | reduce ($o.tools | to_entries[]) as $e (0;
-            ($e.key) as $t | ($e.value) as $v | ($ct | has($t)) as $known
-            | (null
-               | check(($t | test("^[a-z][a-z0-9_-]*$"));
-                       "tool-overrides: invalid tool name: \($t)")
-               | check(($v | type) == "object";
-                       "tool-overrides: \($t): entry must be an object")
-               | check(($v | has("kind") | not)
-                       or (($v.kind | type) == "string" and ($v.kind | IN("scan","sbom","attest")));
-                       "tool-overrides: \($t): kind must be one of scan, sbom, attest")
-               | check(($v | has("network") | not) or ($v.network | IN("none","egress"));
-                       "tool-overrides: \($t): network must be one of none, egress")
-               | check(($v | has("secret") | not)
-                       or (($v.secret | type) == "string" and ($v.secret | test("^[a-z][a-z0-9-]*$")));
-                       "tool-overrides: \($t): secret must match ^[a-z][a-z0-9-]*$")
-               | check(($v | has("image") | not) or ($v.image | digestpin);
-                       "tool-overrides: \($t): image must be digest-pinned (name@sha256:<64hex>)")
-               | check($known or ($v | has("image"));
-                       "tool-overrides: \($t): a new tool must declare a digest-pinned image")
-               | check($known or (($v.delivery // "") == "image");
-                       "tool-overrides: \($t): a new tool must declare delivery: image"))
-            | .)
-        | { tools: ($ct + ($o.tools
-                           | to_entries
-                           | map({ key: .key, value: (($ct[.key] // {}) + .value) })
-                           | from_entries)) }
-        | .tools |= with_entries(
-            (.key) as $t
-            | if ($o.tools | has($t)) then
-                .value |= ((if ($o.tools[$t] | has("network")) then . else del(.network) end)
-                           | (if ($o.tools[$t] | has("secret")) then . else del(.secret) end))
-              else . end)
-    '
+    local rc=0 tool kind delivery image network secret
+    while IFS= read -r tool; do
+        [[ -z "$tool" ]] && continue
+        if [[ ! "$tool" =~ $CATALOG_TOOL_NAME_RE ]]; then
+            printf 'wrangle: custom-tools: invalid tool name: %s\n' "$tool" >&2
+            rc=1; continue
+        fi
+
+        kind="$(read_catalog_field "$custom" "$tool" kind)"
+        if [[ ! "$kind" =~ $CATALOG_KIND_RE ]]; then
+            printf 'wrangle: custom-tools: %s: kind must be one of scan, sbom, attest\n' "$tool" >&2
+            rc=1
+        fi
+
+        network="$(read_catalog_field "$custom" "$tool" network)"
+        if [[ -n "$network" ]] && [[ ! "$network" =~ $CATALOG_NETWORK_RE ]]; then
+            printf 'wrangle: custom-tools: %s: network must be one of none, egress\n' "$tool" >&2
+            rc=1
+        fi
+
+        secret="$(read_catalog_field "$custom" "$tool" secret)"
+        if [[ -n "$secret" ]] && [[ ! "$secret" =~ $CATALOG_SECRET_NAME_RE ]]; then
+            printf 'wrangle: custom-tools: %s: invalid secret name: %s\n' "$tool" "$secret" >&2
+            rc=1
+        fi
+
+        # A custom tool is always net-new and image-delivered.
+        delivery="$(read_catalog_field "$custom" "$tool" delivery)"
+        if [[ "$delivery" != "image" ]]; then
+            printf 'wrangle: custom-tools: %s: must declare delivery: image\n' "$tool" >&2
+            rc=1
+        fi
+
+        image="$(read_catalog_field "$custom" "$tool" image)"
+        if [[ -z "$image" ]]; then
+            printf 'wrangle: custom-tools: %s: must declare a digest-pinned image\n' "$tool" >&2
+            rc=1
+        elif [[ ! "$image" =~ $CATALOG_IMAGE_DIGEST_RE ]]; then
+            printf 'wrangle: custom-tools: %s: image must be digest-pinned (name@sha256:<64hex>): %s\n' "$tool" "$image" >&2
+            rc=1
+        fi
+    done < <(jq -r '.tools // {} | keys[]' "$custom")
+
+    [[ "$rc" -ne 0 ]] && return 1
+
+    jq -n --argjson c "$curated_json" --slurpfile x "$custom" \
+        '{ tools: (($c.tools // {}) + ($x[0].tools // {})) }'
 }
 
 if [[ "${BASH_SOURCE[0]}" == "${0}" ]]; then
     if [[ "$#" -ne 2 ]]; then
-        printf 'Usage: %s <curated_catalog> <override_file>\n' "${0##*/}" >&2
+        printf 'Usage: %s <curated_catalog> <custom_tools_file>\n' "${0##*/}" >&2
         exit 2
     fi
     merge_catalog "$1" "$2"

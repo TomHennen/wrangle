@@ -101,7 +101,7 @@ To find them in the UI: click **Actions** → your wrangle workflow → the run 
 
 ## Bring your own SBOM tool
 
-Prefer your own SBOM generator over wrangle's default (syft)? Point the build at it in two steps.
+Prefer your own SBOM generator over wrangle's default (syft)? On the go, python, and npm builds, add it in two steps.
 
 1. Add `.wrangle/tools.json` to your repo, describing your tool as a digest-pinned image:
 
@@ -122,10 +122,10 @@ Prefer your own SBOM generator over wrangle's default (syft)? Point the build at
    ```yaml
        with:
          sbom-tool: my-sbom
-         tool-overrides: .wrangle/tools.json
+         custom-tools: .wrangle/tools.json
    ```
 
-Your image reads a read-only `/src` and writes `/output/sbom.spdx.json` — the [Adapter Script Interface](docs/SPEC.md#adapter-script-interface) is the full contract. It runs in the same sandbox as wrangle's tools (no network, dropped capabilities, non-root), but is trusted as yours: it carries no wrangle VSA, so you own its digest pin and freshness. Overriding a curated tool re-declares its capabilities from scratch — an unspecified `network` or `secret` defaults closed.
+Your image reads a read-only `/src` and writes `/output/sbom.spdx.json` — the [Adapter Script Interface](docs/SPEC.md#adapter-script-interface) is the full contract. It runs in the same sandbox as wrangle's tools (no network, dropped capabilities, non-root), but is trusted as yours: it carries no wrangle VSA, so you own its digest pin and freshness. Custom tools are add-only — you add net-new tools (a name matching a curated tool is an error) and select them; each declares its own capabilities, with an unspecified `network` or `secret` defaulting closed. Because a custom tool can grant itself network egress and a secret, keep `.wrangle/tools.json` as trusted in-repo config — don't source it from untrusted pull-request contents.
 
 ## How Wrangle Works
 

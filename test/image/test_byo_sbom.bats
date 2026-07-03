@@ -3,10 +3,10 @@
 # Proves the sbom kind is tool-agnostic: a NON-wrangle, off-namespace image that
 # honors the sbom contract (/src ro -> /output/sbom.spdx.json, exit 0/2) is
 # plugged in as an adopter's SBOM tool through the real BYO path — a
-# .wrangle/tools.json merged over the catalog (lib/merge_catalog.sh) and selected
-# via WRANGLE_TOOL_OVERRIDES. One run exercises the whole seam: the dir-gate
-# relaxation (no local tools/my-sbom/), the override merge, the VSA gate skipping
-# an off-namespace image, the contract sandbox, and a real (non-empty) SBOM.
+# .wrangle/tools.json added to the catalog (lib/merge_catalog.sh) and selected
+# via WRANGLE_CUSTOM_TOOLS. One run exercises the whole seam: the dir-gate
+# relaxation (no local tools/my-sbom/), the custom-tools union, the VSA gate
+# skipping an off-namespace image, the contract sandbox, and a real (non-empty) SBOM.
 #
 # Needs docker + a throwaway registry (run.sh requires a registry digest pin), so
 # it lives under test/image/ (outside the Makefile's unit bats glob) and runs in
@@ -59,7 +59,7 @@ setup() {
     RUN_SH="$ORIG_DIR/run.sh"
     TMP_DIR="$(mktemp -d "${BATS_TMPDIR:-/tmp}/wrangle-byo.XXXXXX")"
     # WS is the adopter workspace: it holds the source tree and the override file,
-    # and is the containment root run.sh validates the override path against.
+    # and is the containment root run.sh validates the custom-tools path against.
     WS="$TMP_DIR/ws"
     SRC="$WS/src"
     OUT="$TMP_DIR/out"
@@ -79,11 +79,11 @@ teardown() {
 
 _run_byo() {
     WRANGLE_TOOLS_DIR="$TOOLS" GITHUB_WORKSPACE="$WS" \
-        WRANGLE_TOOL_OVERRIDES="$WS/.wrangle/tools.json" \
+        WRANGLE_CUSTOM_TOOLS="$WS/.wrangle/tools.json" \
         run "$RUN_SH" -s "$SRC" -o "$OUT" my-sbom
 }
 
-@test "byo sbom: adopter image plugs in via overrides, no local tool dir" {
+@test "byo sbom: adopter image plugs in via custom-tools, no local tool dir" {
     _run_byo
     [ "$status" -eq 0 ]
     [ -f "$OUT/my-sbom/sbom.spdx.json" ]
@@ -123,7 +123,7 @@ _run_byo() {
 @test "byo sbom: end-to-end through generate_sbom lands the SBOM at the metadata root" {
     local meta="$TMP_DIR/meta"
     WRANGLE_TOOLS_DIR="$TOOLS" GITHUB_WORKSPACE="$WS" \
-        WRANGLE_TOOL_OVERRIDES="$WS/.wrangle/tools.json" \
+        WRANGLE_CUSTOM_TOOLS="$WS/.wrangle/tools.json" \
         run "$ORIG_DIR/lib/generate_sbom.sh" "$SRC" "$meta" my-sbom
     [ "$status" -eq 0 ]
     [ -f "$meta/sbom.spdx.json" ]

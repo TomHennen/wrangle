@@ -125,12 +125,12 @@ on:
         type: string
         default: policies/wrangle-default-go-v1.hjson
       sbom-tool:
-        description: "SBOM tool to run (a curated tool, or one defined in tool-overrides). Default syft."
+        description: "SBOM tool to run: the curated `sbom` slot, or a tool added via custom-tools. Default sbom."
         required: false
         type: string
-        default: syft
-      tool-overrides:
-        description: "Optional workspace path to a .wrangle/tools.json merged over wrangle's catalog (see docs/SPEC.md)."
+        default: sbom
+      custom-tools:
+        description: "Optional workspace path to a .wrangle/tools.json adding your own tools to wrangle's catalog (see docs/SPEC.md)."
         required: false
         type: string
         default: ""
@@ -296,7 +296,7 @@ jobs:
           cache: ${{ needs.prep.outputs.should-release == 'true' && 'disabled' || 'enabled' }}
           install-zig: ${{ inputs.install-zig }}
           sbom-tool: ${{ inputs.sbom-tool }}
-          tool-overrides: ${{ inputs.tool-overrides }}
+          custom-tools: ${{ inputs.custom-tools }}
 
       # The module path is the VSA resourceUri purl namespace; read it from the
       # toolchain. head -n1 keeps a go.work workspace (multiple modules) from

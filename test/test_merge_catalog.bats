@@ -1,9 +1,10 @@
 #!/usr/bin/env bats
 
-# Tests for lib/merge_catalog.sh — the adopter tool-overrides merge. The security
-# rule under test: an override entry's non-capability fields deep-merge over the
-# curated entry, but network and secret hold ONLY when the override restates
-# them, else they reset closed (docs/tool_container_design.md §3.7).
+# Tests for lib/merge_catalog.sh — the add-only custom-tools union. The model:
+# effective catalog = curated tools ∪ adopter-added tools. A custom tool whose
+# name collides with a curated tool is a hard error (no override, no field
+# merge); each added tool declares its own capabilities with no inheritance from
+# curated (docs/tool_container_design.md §3.7).
 
 setup() {
     ORIG_DIR="$(cd "$(dirname "$BATS_TEST_FILENAME")/.." && pwd)"
@@ -12,11 +13,11 @@ setup() {
     DIGEST="sha256:$(printf 'a%.0s' {1..64})"
     DIGEST2="sha256:$(printf 'b%.0s' {1..64})"
     CURATED="$TEST_DIR/curated.json"
-    OVERRIDE="$TEST_DIR/override.json"
+    CUSTOM="$TEST_DIR/custom.json"
     cat > "$CURATED" <<JSON
 {"tools":{
   "osv":{"kind":"scan","delivery":"image","image":"ghcr.io/tomhennen/wrangle/osv@$DIGEST","network":"egress","secret":"github-token"},
-  "syft":{"kind":"sbom","delivery":"image","image":"ghcr.io/tomhennen/wrangle/syft@$DIGEST","network":"none"}
+  "sbom":{"kind":"sbom","delivery":"image","image":"ghcr.io/tomhennen/wrangle/syft@$DIGEST","network":"none"}
 }}
 JSON
 }
@@ -25,53 +26,53 @@ teardown() {
     [[ -n "${TEST_DIR:-}" ]] && rm -rf "$TEST_DIR"
 }
 
-_merge() { run "$MERGE" "$CURATED" "$OVERRIDE"; }
+_merge() { run "$MERGE" "$CURATED" "$CUSTOM"; }
 
-@test "merge: override of a curated tool image only RESETS network and secret closed" {
-    cat > "$OVERRIDE" <<JSON
-{"tools":{"osv":{"image":"ghcr.io/myorg/osv@$DIGEST2"}}}
-JSON
-    _merge
-    [ "$status" -eq 0 ]
-    [ "$(jq -r '.tools.osv.image' <<<"$output")" = "ghcr.io/myorg/osv@$DIGEST2" ]
-    [ "$(jq -r '.tools.osv.kind' <<<"$output")" = "scan" ]
-    [ "$(jq '.tools.osv | has("network")' <<<"$output")" = "false" ]
-    [ "$(jq '.tools.osv | has("secret")' <<<"$output")" = "false" ]
-}
-
-@test "merge: override restating network keeps it; an unrestated secret still resets" {
-    cat > "$OVERRIDE" <<JSON
-{"tools":{"osv":{"image":"ghcr.io/myorg/osv@$DIGEST2","network":"egress"}}}
-JSON
-    _merge
-    [ "$status" -eq 0 ]
-    [ "$(jq -r '.tools.osv.network' <<<"$output")" = "egress" ]
-    [ "$(jq '.tools.osv | has("secret")' <<<"$output")" = "false" ]
-}
-
-@test "merge: a new BYO tool is added with its declared fields" {
-    cat > "$OVERRIDE" <<JSON
+@test "merge: a net-new custom tool is unioned in; curated tools survive" {
+    cat > "$CUSTOM" <<JSON
 {"tools":{"my-sbom":{"kind":"sbom","delivery":"image","image":"ghcr.io/myorg/my-sbom@$DIGEST"}}}
 JSON
     _merge
     [ "$status" -eq 0 ]
-    [ "$(jq -r '.tools["my-sbom"].kind' <<<"$output")" = "sbom" ]
     [ "$(jq -r '.tools["my-sbom"].image' <<<"$output")" = "ghcr.io/myorg/my-sbom@$DIGEST" ]
-    # Curated tools survive the merge.
-    [ "$(jq -r '.tools.syft.kind' <<<"$output")" = "sbom" ]
+    [ "$(jq -r '.tools.sbom.kind' <<<"$output")" = "sbom" ]
+    [ "$(jq -r '.tools.osv.kind' <<<"$output")" = "scan" ]
 }
 
-@test "merge: curated-namespace override image is allowed (VSA gate handles trust)" {
-    cat > "$OVERRIDE" <<JSON
-{"tools":{"osv":{"image":"ghcr.io/tomhennen/wrangle/osv@$DIGEST2"}}}
+@test "merge: a name colliding with a curated tool is REJECTED (add-only, no override)" {
+    cat > "$CUSTOM" <<JSON
+{"tools":{"osv":{"kind":"scan","delivery":"image","image":"ghcr.io/myorg/osv@$DIGEST2"}}}
+JSON
+    _merge
+    [ "$status" -ne 0 ]
+    [[ "$output" == *"collides with a curated tool"* ]]
+    [[ "$output" == *"osv"* ]]
+}
+
+@test "merge: an added tool gets exactly the grants it declares (no curated inheritance)" {
+    cat > "$CUSTOM" <<JSON
+{"tools":{"my-scan":{"kind":"scan","delivery":"image","image":"ghcr.io/myorg/s@$DIGEST","network":"egress","secret":"my-token"}}}
 JSON
     _merge
     [ "$status" -eq 0 ]
-    [ "$(jq -r '.tools.osv.image' <<<"$output")" = "ghcr.io/tomhennen/wrangle/osv@$DIGEST2" ]
+    [ "$(jq -r '.tools["my-scan"].network' <<<"$output")" = "egress" ]
+    [ "$(jq -r '.tools["my-scan"].secret' <<<"$output")" = "my-token" ]
+    # A curated tool the adopter did not touch is unchanged.
+    [ "$(jq -r '.tools.osv.secret' <<<"$output")" = "github-token" ]
+}
+
+@test "merge: an added tool with no network/secret declares neither" {
+    cat > "$CUSTOM" <<JSON
+{"tools":{"my-sbom":{"kind":"sbom","delivery":"image","image":"ghcr.io/myorg/my-sbom@$DIGEST"}}}
+JSON
+    _merge
+    [ "$status" -eq 0 ]
+    [ "$(jq '.tools["my-sbom"] | has("network")' <<<"$output")" = "false" ]
+    [ "$(jq '.tools["my-sbom"] | has("secret")' <<<"$output")" = "false" ]
 }
 
 @test "merge: rejects an invalid tool name" {
-    cat > "$OVERRIDE" <<JSON
+    cat > "$CUSTOM" <<JSON
 {"tools":{"BadName":{"kind":"sbom","delivery":"image","image":"ghcr.io/x@$DIGEST"}}}
 JSON
     _merge
@@ -80,7 +81,7 @@ JSON
 }
 
 @test "merge: rejects an out-of-allowlist kind" {
-    cat > "$OVERRIDE" <<JSON
+    cat > "$CUSTOM" <<JSON
 {"tools":{"my-sbom":{"kind":"exfiltrate","delivery":"image","image":"ghcr.io/x@$DIGEST"}}}
 JSON
     _merge
@@ -89,7 +90,7 @@ JSON
 }
 
 @test "merge: rejects an out-of-allowlist network" {
-    cat > "$OVERRIDE" <<JSON
+    cat > "$CUSTOM" <<JSON
 {"tools":{"my-sbom":{"kind":"sbom","delivery":"image","image":"ghcr.io/x@$DIGEST","network":"host"}}}
 JSON
     _merge
@@ -98,16 +99,16 @@ JSON
 }
 
 @test "merge: rejects an invalid secret name" {
-    cat > "$OVERRIDE" <<JSON
+    cat > "$CUSTOM" <<JSON
 {"tools":{"my-sbom":{"kind":"sbom","delivery":"image","image":"ghcr.io/x@$DIGEST","secret":"BAD_NAME"}}}
 JSON
     _merge
     [ "$status" -ne 0 ]
-    [[ "$output" == *"secret must match"* ]]
+    [[ "$output" == *"invalid secret name"* ]]
 }
 
 @test "merge: rejects a non-digest-pinned image" {
-    cat > "$OVERRIDE" <<JSON
+    cat > "$CUSTOM" <<JSON
 {"tools":{"my-sbom":{"kind":"sbom","delivery":"image","image":"ghcr.io/x:latest"}}}
 JSON
     _merge
@@ -115,43 +116,52 @@ JSON
     [[ "$output" == *"digest-pinned"* ]]
 }
 
-@test "merge: rejects a new tool with no image" {
-    cat > "$OVERRIDE" <<JSON
-{"tools":{"new-tool":{"kind":"sbom","delivery":"image"}}}
+@test "merge: rejects a tool with no image" {
+    cat > "$CUSTOM" <<JSON
+{"tools":{"my-sbom":{"kind":"sbom","delivery":"image"}}}
 JSON
     _merge
     [ "$status" -ne 0 ]
     [[ "$output" == *"must declare a digest-pinned image"* ]]
 }
 
-@test "merge: rejects a new tool that is not delivery: image" {
-    cat > "$OVERRIDE" <<JSON
-{"tools":{"new-tool":{"kind":"sbom","image":"ghcr.io/x@$DIGEST"}}}
+@test "merge: rejects a tool that is not delivery: image" {
+    cat > "$CUSTOM" <<JSON
+{"tools":{"my-sbom":{"kind":"sbom","image":"ghcr.io/x@$DIGEST"}}}
 JSON
     _merge
     [ "$status" -ne 0 ]
     [[ "$output" == *"must declare delivery: image"* ]]
 }
 
+@test "merge: an off-namespace custom image is allowed (adopter-trusted, VSA gate handles trust)" {
+    cat > "$CUSTOM" <<JSON
+{"tools":{"my-sbom":{"kind":"sbom","delivery":"image","image":"ghcr.io/myorg/my-sbom@$DIGEST"}}}
+JSON
+    _merge
+    [ "$status" -eq 0 ]
+    [ "$(jq -r '.tools["my-sbom"].image' <<<"$output")" = "ghcr.io/myorg/my-sbom@$DIGEST" ]
+}
+
 @test "merge: rejects a non-object tools envelope" {
-    printf '{"tools":[]}' > "$OVERRIDE"
+    printf '{"tools":[]}' > "$CUSTOM"
     _merge
     [ "$status" -ne 0 ]
-    [[ "$output" == *"\"tools\" must be an object"* ]]
+    [[ "$output" == *"not a valid JSON catalog"* ]]
 }
 
 @test "merge: rejects malformed JSON" {
-    printf 'not json{' > "$OVERRIDE"
+    printf 'not json{' > "$CUSTOM"
     _merge
     [ "$status" -ne 0 ]
-    [[ "$output" == *"not valid JSON"* ]]
+    [[ "$output" == *"not a valid JSON catalog"* ]]
 }
 
 @test "merge: tolerates a missing curated catalog (adopter-only tools)" {
-    cat > "$OVERRIDE" <<JSON
+    cat > "$CUSTOM" <<JSON
 {"tools":{"my-sbom":{"kind":"sbom","delivery":"image","image":"ghcr.io/myorg/my-sbom@$DIGEST"}}}
 JSON
-    run "$MERGE" "$TEST_DIR/does-not-exist.json" "$OVERRIDE"
+    run "$MERGE" "$TEST_DIR/does-not-exist.json" "$CUSTOM"
     [ "$status" -eq 0 ]
     [ "$(jq -r '.tools["my-sbom"].kind' <<<"$output")" = "sbom" ]
 }

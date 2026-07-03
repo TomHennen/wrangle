@@ -20,7 +20,7 @@
       "image": "ghcr.io/tomhennen/wrangle/wrangle-lint@sha256:6d7c6ff05f45411e5b1bc4c1d239e258f5885f913dca8a16222369ed2eacf9e3",
       "network": "none"
     },
-    "syft": {
+    "sbom": {
       "kind": "sbom",
       "delivery": "image",
       "image": "ghcr.io/tomhennen/wrangle/syft@sha256:a8c074e45182fb2b51935f5947e92d95e40154e22295144552297b72fd6eb386",
