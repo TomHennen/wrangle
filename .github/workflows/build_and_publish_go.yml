@@ -166,7 +166,7 @@ jobs:
       metadata-pre: ${{ steps.prep.outputs.metadata-pre }}
     steps:
       # TODO: replace with $/actions/prep when GitHub ships $/ syntax (#136)
-      - uses: TomHennen/wrangle/actions/prep@0d4b7ceb8e12d491893b2d363d7fb2fd3fbcffa3 # worktree-issue424-ampel-bump 2026-07-03
+      - uses: TomHennen/wrangle/actions/prep@b722f88b7856286407c63e964cc680fc1bb5f075 # worktree-issue424-ampel-bump 2026-07-03
         id: prep
         with:
           build-type: go
@@ -185,7 +185,7 @@ jobs:
       security-events: write
     steps:
       # TODO: replace with $/actions/scan when GitHub ships $/ syntax (#136)
-      - uses: TomHennen/wrangle/actions/scan@0d4b7ceb8e12d491893b2d363d7fb2fd3fbcffa3 # worktree-issue424-ampel-bump 2026-07-03
+      - uses: TomHennen/wrangle/actions/scan@b722f88b7856286407c63e964cc680fc1bb5f075 # worktree-issue424-ampel-bump 2026-07-03
         if: ${{ inputs.scan-tools != '' }}
         with:
           checkout: "true"
@@ -220,7 +220,7 @@ jobs:
       # TODO: replace with $/build/actions/go/checks when GitHub ships $/ syntax (#136)
       # Self-pinned to PR HEAD until merge — bump-self-refs follow-up
       # repoints to the squashed merge SHA after this lands.
-      - uses: TomHennen/wrangle/build/actions/go/checks@0d4b7ceb8e12d491893b2d363d7fb2fd3fbcffa3 # worktree-issue424-ampel-bump 2026-07-03
+      - uses: TomHennen/wrangle/build/actions/go/checks@b722f88b7856286407c63e964cc680fc1bb5f075 # worktree-issue424-ampel-bump 2026-07-03
         id: checks
         with:
           path: ${{ inputs.path }}
@@ -283,7 +283,7 @@ jobs:
 
       # TODO: replace with $/build/actions/go/build when GitHub ships $/ syntax (#136)
       # Self-pinned to PR HEAD until merge.
-      - uses: TomHennen/wrangle/build/actions/go/build@0d4b7ceb8e12d491893b2d363d7fb2fd3fbcffa3 # worktree-issue424-ampel-bump 2026-07-03
+      - uses: TomHennen/wrangle/build/actions/go/build@b722f88b7856286407c63e964cc680fc1bb5f075 # worktree-issue424-ampel-bump 2026-07-03
         id: release
         with:
           path: ${{ inputs.path }}
@@ -375,7 +375,7 @@ jobs:
       # writes non-artifact bookkeeping into dist/ that is not released. This is
       # the same canonical subject set the VSA binds to.
       # TODO: replace with $/actions/attest_provenance when GitHub ships $/ syntax (#136)
-      - uses: TomHennen/wrangle/actions/attest_provenance@0d4b7ceb8e12d491893b2d363d7fb2fd3fbcffa3 # worktree-issue424-ampel-bump 2026-07-03
+      - uses: TomHennen/wrangle/actions/attest_provenance@b722f88b7856286407c63e964cc680fc1bb5f075 # worktree-issue424-ampel-bump 2026-07-03
         id: attest
         with:
           build-type: go
@@ -401,7 +401,7 @@ jobs:
       contents: write       # create the release if absent and upload the attested archives + checksums + bundles
     steps:
       # TODO: replace with $/actions/verify_release when GitHub ships $/ syntax (#136)
-      - uses: TomHennen/wrangle/actions/verify_release@0d4b7ceb8e12d491893b2d363d7fb2fd3fbcffa3 # worktree-issue424-ampel-bump 2026-07-03
+      - uses: TomHennen/wrangle/actions/verify_release@b722f88b7856286407c63e964cc680fc1bb5f075 # worktree-issue424-ampel-bump 2026-07-03
         with:
           build-type: go
           shortname: ${{ needs.prep.outputs.shortname }}
