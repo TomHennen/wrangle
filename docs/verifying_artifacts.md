@@ -73,7 +73,7 @@ by design. Use the `nonstrict` policy, which accepts any ref:
 
 ```bash
 ampel verify --subject wrangle-test-fixture-go_20260621-fa5bd7f_linux_amd64.tar.gz \
-  --policy git+https://github.com/TomHennen/wrangle@v0.3.0#policies/wrangle-vsa-consumer-nonstrict-v1.hjson \
+  --policy git+https://github.com/TomHennen/wrangle@v0.3.1#policies/wrangle-vsa-consumer-nonstrict-v1.hjson \
   --collector jsonl:wrangle-test-fixture-go_20260621-fa5bd7f_linux_amd64.tar.gz.intoto.jsonl \
   --context expectedResourceUri:pkg:golang/github.com/tomhennen/wrangle-test/go@v20260621-fa5bd7f \
   --context sourceRepo:https://github.com/TomHennen/wrangle-test
@@ -99,7 +99,7 @@ bundle and self-selects the VSA matching `--subject`:
 
 ```bash
 ampel verify --subject <artifact> \
-  --policy git+https://github.com/TomHennen/wrangle@v0.3.0#policies/wrangle-vsa-consumer-v1.hjson \
+  --policy git+https://github.com/TomHennen/wrangle@v0.3.1#policies/wrangle-vsa-consumer-v1.hjson \
   --collector jsonl:<artifact>.intoto.jsonl \
   --context expectedResourceUri:<resourceUri from the table above> \
   --context sourceRepo:https://github.com/<your-org>/<your-repo>
@@ -110,7 +110,7 @@ download step:
 
 ```bash
 ampel verify --subject sha256:<digest> \
-  --policy git+https://github.com/TomHennen/wrangle@v0.3.0#policies/wrangle-vsa-consumer-v1.hjson \
+  --policy git+https://github.com/TomHennen/wrangle@v0.3.1#policies/wrangle-vsa-consumer-v1.hjson \
   --collector oci:<imagename>@sha256:<digest> \
   --context expectedResourceUri:<imagename>@sha256:<digest> \
   --context sourceRepo:https://github.com/<your-org>/<your-repo>
@@ -129,7 +129,7 @@ build type, including a container image by its OCI digest:
 
 ```bash
 ampel verify --subject sha256:<digest> \
-  --policy git+https://github.com/TomHennen/wrangle@v0.3.0#policies/wrangle-vsa-consumer-v1.hjson \
+  --policy git+https://github.com/TomHennen/wrangle@v0.3.1#policies/wrangle-vsa-consumer-v1.hjson \
   --collector github:<your-org>/<your-repo> \
   --context expectedResourceUri:<resourceUri from the table above> \
   --context sourceRepo:https://github.com/<your-org>/<your-repo>
