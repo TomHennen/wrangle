@@ -87,7 +87,7 @@ merge_catalog() {
         elif [[ ! "$image" =~ $CATALOG_IMAGE_DIGEST_RE ]]; then
             printf 'wrangle: custom-tools: %s: image must be digest-pinned (name@sha256:<64hex>): %s\n' "$tool" "$image" >&2
             rc=1
-        elif [[ "$image" == "$CATALOG_CURATED_IMAGE_PREFIX"* ]]; then
+        elif [[ "$image" =~ $CATALOG_CURATED_IMAGE_RE ]]; then
             printf 'wrangle: custom-tools: %s: image must not be in the wrangle namespace (%s): %s\n' \
                 "$tool" "$CATALOG_CURATED_IMAGE_PREFIX" "$image" >&2
             rc=1

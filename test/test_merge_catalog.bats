@@ -152,6 +152,15 @@ JSON
     [[ "$output" == *"must not be in the wrangle namespace"* ]]
 }
 
+@test "merge: rejects a wrangle-namespace image via the registry-port form" {
+    cat > "$CUSTOM" <<JSON
+{"tools":{"my-osv":{"kind":"scan","delivery":"image","image":"ghcr.io:443/tomhennen/wrangle/osv@$DIGEST"}}}
+JSON
+    _merge
+    [ "$status" -ne 0 ]
+    [[ "$output" == *"must not be in the wrangle namespace"* ]]
+}
+
 @test "merge: rejects an array-valued tool entry (clean error, not a raw jq failure)" {
     printf '{"tools":{"t":["x"]}}' > "$CUSTOM"
     _merge
