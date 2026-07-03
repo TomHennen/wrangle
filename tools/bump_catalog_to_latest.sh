@@ -16,15 +16,13 @@ set -f  # disable globbing — handles external tool names
 #         any resolvable entry is still bumped).
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-# shellcheck source=../lib/read_catalog.sh
-source "$SCRIPT_DIR/../lib/read_catalog.sh"
 # shellcheck source=../lib/registry.sh
 source "$SCRIPT_DIR/../lib/registry.sh"
 
 # bump_catalog_to_latest <catalog_file> — 0 done, 2 a backend error.
 bump_catalog_to_latest() {
     local file="$1" backend_err=0 bumped=0 checked=0
-    local tool delivery image imagename pinned resolved
+    local tool image imagename pinned resolved
 
     if [[ ! -f "$file" ]]; then
         printf 'bump_catalog_to_latest: catalog not found: %s\n' "$file" >&2
@@ -35,11 +33,8 @@ bump_catalog_to_latest() {
         return 2
     fi
 
-    while IFS= read -r tool; do
+    while IFS=$'\t' read -r tool image; do
         [[ -z "$tool" ]] && continue
-        delivery="$(read_catalog_field "$file" "$tool" delivery)"
-        [[ "$delivery" == "image" ]] || continue
-        image="$(read_catalog_field "$file" "$tool" image)"
         imagename="${image%@sha256:*}"
         pinned="${image##*@}"
 
@@ -59,7 +54,9 @@ bump_catalog_to_latest() {
             continue
         fi
         bumped=$((bumped + 1))
-    done < <(jq -r '.tools // {} | keys[]' "$file")
+    done < <(jq -r '.tools // {} | to_entries[]
+        | select(.value.delivery == "image")
+        | [.key, .value.image] | @tsv' "$file")
 
     printf 'bump_catalog_to_latest: bumped %d of %d curated image digest(s)\n' "$bumped" "$checked"
     [[ "$backend_err" -eq 1 ]] && return 2
