@@ -233,7 +233,7 @@ Schema below is the proposed shape; exact field names and file locations are bik
       "network": "egress",
       "secret": "github-token"   // delivered as WRANGLE_EXTRA_GITHUB_TOKEN
     },
-    "sbom": {                                                  // the SBOM slot; sbom-tool: sbom selects it
+    "sbom": {                                                  // wrangle's default SBOM tool; sbom-tool: sbom selects it
       "kind": "sbom",
       "image": "ghcr.io/tomhennen/wrangle/syft@sha256:0b72…"   // network omitted → none; no secret
     },
@@ -270,7 +270,7 @@ jobs:
     uses: TomHennen/wrangle/.github/workflows/scan.yml@<wrangle-version>  # pin a wrangle release
     with:
       tools: "my-osv zizmor:info"          # scan selection + policy; deselect osv, run my own
-      sbom-tool: my-sbom                    # pick the SBOM tool (default: the curated `sbom` slot)
+      sbom-tool: my-sbom                    # pick the SBOM tool (default: sbom, wrangle's syft)
 ```
 
 **Adopter — bringing their own tools (add-only).** An adopter commits a `.wrangle/tools.json` (same
