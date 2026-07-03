@@ -626,6 +626,17 @@ JSON
     [[ "$output" == *"unknown tool"* ]]
 }
 
+@test "orchestrator: the curated sbom key dispatches as a catalog-only image tool" {
+    # The default SBOM path (sbom-tool: sbom) has no tools/sbom/ dir, so it relies
+    # on the dir-gate resolving the real catalog's sbom entry to the image path.
+    [ ! -d "$ORIG_DIR/tools/sbom" ]
+    mkdir -p "$TEST_DIR/src"
+    WRANGLE_TOOLS_DIR="$ORIG_DIR/tools" WRANGLE_VERIFY_TOOL_IMAGES=0 \
+        run "$ORIG_DIR/run.sh" -s "$TEST_DIR/src" -o "$TEST_DIR/output" sbom
+    [[ "$output" != *"unknown tool"* ]]
+    [[ "$output" == *"running sbom (image)"* ]]
+}
+
 # --- custom-tools: path validation ---
 
 @test "orchestrator: custom-tools path escaping the workspace is rejected" {
