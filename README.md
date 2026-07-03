@@ -99,6 +99,35 @@ On a **tag push**, wrangle also attaches each dist `<artifact>` and its `<artifa
 
 To find them in the UI: click **Actions** → your wrangle workflow → the run → scroll to **Artifacts**. The URL looks like `https://github.com/<owner>/<repo>/actions/runs/<id>#artifacts`. For a live example, see a run in the [wrangle-test companion repo](https://github.com/TomHennen/wrangle-test/actions). Per-ecosystem details are in the [ecosystem READMEs](#ecosystems) above.
 
+## Bring your own SBOM tool
+
+Prefer your own SBOM generator over wrangle's default (syft)? On the go, python, and npm builds, define your tool in a `.wrangle/tools.json` (wrangle discovers it automatically) and select it by name with `sbom-tool:`.
+
+1. Add `.wrangle/tools.json` at your repo root, describing your tool as a digest-pinned image:
+
+   ```json
+   {
+     "tools": {
+       "my-sbom": {
+         "kind": "sbom",
+         "delivery": "image",
+         "image": "ghcr.io/myorg/my-sbom-generator@sha256:<digest>"
+       }
+     }
+   }
+   ```
+
+2. Select it the same way you pick any wrangle tool — `sbom-tool: my-sbom` for the SBOM (or add the name to `tools:` for an extra scanner):
+
+   ```yaml
+       with:
+         sbom-tool: my-sbom
+   ```
+
+Your image reads a read-only `/src` and writes `/output/sbom.spdx.json`, exiting 0 (ok) or 2 (tool error). It runs in the same sandbox as wrangle's tools (no network, dropped capabilities, non-root), but is trusted as yours: it carries no wrangle VSA, so you own its digest pin and freshness. Tools are add-only — a name matching a curated tool is an error, the image must be outside wrangle's namespace, and each declares its own capabilities (an unspecified `network`/`secret` defaults closed).
+
+**`.wrangle/tools.json` is trusted config.** wrangle only runs a tool your workflow *selects* (`tools:` / `sbom-tool:`), and those inputs come from your base workflow — so a fork's PR can define an entry but can't get it run. The residual footgun is only if you hand-roll a `pull_request_target` job that checks out the PR head and forwards secrets: a tool listed there can grant itself network egress and a secret, so don't run wrangle over untrusted PR content in a secret-bearing job.
+
 ## How Wrangle Works
 
 Behind that one workflow call, wrangle runs your code through a pipeline of well-known security

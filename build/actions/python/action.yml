@@ -44,6 +44,10 @@ inputs:
       caching by default; they are not claiming L3 provenance.
     required: false
     default: "enabled"
+  sbom-tool:
+    description: "Wrangle's default SBOM tool, or one you define yourself in `.wrangle/tools.json`."
+    required: false
+    default: "sbom"
 
 outputs:
   name:
@@ -180,9 +184,10 @@ runs:
         METADATA_DIR: ${{ steps.metadata.outputs.metadata-dir }}
         GH_TOKEN: ${{ github.token }}
         WRANGLE_ROOT: ${{ github.action_path }}/../../..
+        SBOM_TOOL: ${{ inputs.sbom-tool }}
       run: |
         set -euo pipefail
-        "$WRANGLE_ROOT/lib/generate_sbom.sh" "$INPUT_PATH" "$METADATA_DIR"
+        "$WRANGLE_ROOT/lib/generate_sbom.sh" "$INPUT_PATH" "$METADATA_DIR" "$SBOM_TOOL"
 
     - name: Generate summary
       if: always()

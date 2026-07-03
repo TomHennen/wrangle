@@ -22,12 +22,12 @@ set -f  # disable globbing — handles external tool/field names
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 # shellcheck source=../lib/read_catalog.sh
 source "$SCRIPT_DIR/../lib/read_catalog.sh"
+# shellcheck source=../lib/catalog_rules.sh
+source "$SCRIPT_DIR/../lib/catalog_rules.sh"
 
-NETWORK_ALLOWED_RE='^(none|egress)$'
-SECRET_NAME_RE='^[a-z][a-z0-9-]*$'
 # Tool segment matches run.sh's tool-name shape, so no leading dot/dash or `..`
 # can survive into a registry path.
-CURATED_PREFIX='ghcr.io/tomhennen/wrangle/'
+CURATED_PREFIX="$CATALOG_CURATED_IMAGE_PREFIX"
 IMAGE_STRICT_RE='^ghcr\.io/tomhennen/wrangle/[a-z][a-z0-9_-]*@sha256:[0-9a-f]{64}$'
 
 # validate_catalog <catalog_file> — print one line per violation to stderr.
@@ -53,16 +53,19 @@ validate_catalog() {
         if [[ -z "$kind" ]]; then
             printf 'check_catalog: %s: missing kind\n' "$tool" >&2
             rc=1
+        elif [[ ! "$kind" =~ $CATALOG_KIND_RE ]]; then
+            printf 'check_catalog: %s: invalid kind: %s\n' "$tool" "$kind" >&2
+            rc=1
         fi
 
         network="$(read_catalog_field "$file" "$tool" network)"
-        if [[ -n "$network" ]] && [[ ! "$network" =~ $NETWORK_ALLOWED_RE ]]; then
+        if [[ -n "$network" ]] && [[ ! "$network" =~ $CATALOG_NETWORK_RE ]]; then
             printf 'check_catalog: %s: invalid network value: %s\n' "$tool" "$network" >&2
             rc=1
         fi
 
         secret="$(read_catalog_field "$file" "$tool" secret)"
-        if [[ -n "$secret" ]] && [[ ! "$secret" =~ $SECRET_NAME_RE ]]; then
+        if [[ -n "$secret" ]] && [[ ! "$secret" =~ $CATALOG_SECRET_NAME_RE ]]; then
             printf 'check_catalog: %s: invalid secret name: %s\n' "$tool" "$secret" >&2
             rc=1
         fi
