@@ -19,7 +19,7 @@ jobs:
       attestations: write     # GitHub-issued SLSA provenance
       actions: read           # source scan
       security-events: write  # scan findings -> Security tab
-    uses: TomHennen/wrangle/.github/workflows/build_and_publish_go.yml@v0.3.0 # zizmor: ignore[unpinned-uses] - immutable
+    uses: TomHennen/wrangle/.github/workflows/build_and_publish_go.yml@v0.3.1 # zizmor: ignore[unpinned-uses] - immutable
     with:
       path: "."
 ```
@@ -76,7 +76,7 @@ Downstream users verify a release archive with one command. Download the archive
 
 ```bash
 ampel verify --subject <archive> \
-  --policy git+https://github.com/TomHennen/wrangle@v0.3.0#policies/wrangle-vsa-consumer-v1.hjson \
+  --policy git+https://github.com/TomHennen/wrangle@v0.3.1#policies/wrangle-vsa-consumer-v1.hjson \
   --collector jsonl:<archive>.intoto.jsonl \
   --context expectedResourceUri:pkg:golang/<module-path>@<version> \
   --context sourceRepo:https://github.com/<your-org>/<your-repo>

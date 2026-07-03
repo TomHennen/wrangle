@@ -577,7 +577,9 @@ BEHAVIOR:
     1. Strip :policy suffix if present (run.sh does not use the policy —
        that is handled by lib/check_results.sh in the scan action)
     2. Validate tool name matches ^[a-z][a-z0-9_-]*$ (reject otherwise)
-    3. Verify tools/<tool>/ directory exists (reject if not — unknown tool)
+    3. Verify tools/<tool>/ directory exists, OR the catalog gives the tool a
+       `delivery: image` entry (a catalog-only image tool needs no local
+       directory); reject otherwise as an unknown tool
     4. Skip if tools/<tool>/action.yml exists (action-pattern — handled by
        uses: steps in the scan action; any adapter.sh present is only the
        tool image's entrypoint). Otherwise resolve the tool's
@@ -634,6 +636,49 @@ NOTES:
   own location (using $0 / BASH_SOURCE), not the caller's working directory.
   This is critical for portability when called via github.action_path.
 ```
+
+---
+
+### Custom Tools (adopter catalog, add-only)
+
+`run.sh` auto-discovers a `.wrangle/tools.json` at the workspace root (`$GITHUB_WORKSPACE`, else the working
+directory) and unions the adopter tools it defines into the curated catalog (`lib/merge_catalog.sh`). The
+file is optional — its absence changes nothing. Its resolved path MUST stay inside the workspace, so a
+symlink escaping it is rejected. A custom tool is *defined* by this file but only *runs* when the selection
+names it (`tools:` for scan, `sbom-tool:` for the build SBOM); an unselected entry is never dispatched.
+Because those selection inputs come from the base workflow, a fork opening a `pull_request_target` cannot
+select an injected tool.
+
+```jsonc
+{
+  "tools": {
+    "my-sbom": {                                  // a tool wrangle doesn't ship — full definition
+      "kind": "sbom",
+      "delivery": "image",
+      "image": "ghcr.io/myorg/my-sbom@sha256:<64hex>"
+    }
+  }
+}
+```
+
+**Add-only — collision is an error.** A custom tool name that matches a curated tool is a hard error; the
+model never overrides or field-merges a curated entry. To change how a curated tool runs, add your own tool
+under a new name and deselect the curated one via `tools:` / `sbom-tool:`. Each added tool declares its own
+capabilities standalone; nothing inherits from any curated entry.
+
+**Per-entry validation** (any failure fails closed, aborting the run): tool name matches
+`^[a-z][a-z0-9_-]*$`; `kind` ∈ {`scan`, `sbom`, `attest`}; `delivery` is `image`; `image` is digest-pinned
+(`name@sha256:<64hex>`) **and outside the wrangle namespace** (`ghcr.io/tomhennen/wrangle/*` is rejected —
+a custom tool cannot borrow a wrangle VSA identity); a declared `network` ∈ {`none`, `egress`} and `secret`
+matches `^[a-z][a-z0-9-]*$`. The value rules are shared with the curated-catalog linter via
+`lib/catalog_rules.sh`.
+
+**Trust boundary.** The custom-tools file is trusted adopter configuration: an added tool may grant itself
+`egress` + a `secret`, so the file MUST come from the trusted repository, never from untrusted PR contents
+in a job that carries `WRANGLE_EXTRA_*` secrets. Because a custom image is always off the wrangle namespace
+it carries no wrangle VSA, so `run.sh` skips the VSA gate and trusts it as the adopter's own — the adopter
+owns its digest pin and freshness. It still runs in the full contract sandbox (read-only `/src`,
+`--network none` unless granted, `--cap-drop ALL`, no-new-privileges, non-root).
 
 ---
 
@@ -727,7 +772,7 @@ jobs:
       actions: read
       contents: read
       security-events: write
-    uses: TomHennen/wrangle/.github/workflows/check_source_change.yml@v0.3.0 # zizmor: ignore[unpinned-uses] - immutable
+    uses: TomHennen/wrangle/.github/workflows/check_source_change.yml@v0.3.1 # zizmor: ignore[unpinned-uses] - immutable
 ```
 
 This is the entire file an adopter needs. No secrets, no configuration, no dependencies to manage.

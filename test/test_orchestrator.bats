@@ -603,3 +603,91 @@ JSON
     # then fails at docker (image absent / docker may be unavailable here).
     [[ "$output" != *"not digest-pinned"* ]]
 }
+
+# --- catalog-only image tool: admitted with no local tools/<name>/ dir ---
+
+@test "orchestrator: a delivery: image tool with no directory is admitted (not unknown)" {
+    digest="sha256:0000000000000000000000000000000000000000000000000000000000000000"
+    mkdir -p "$TEST_DIR/src"
+    # No $MOCK_TOOLS/byotool directory; the catalog alone defines it.
+    cat > "$MOCK_TOOLS/catalog.json" <<JSON
+{"tools":{"byotool":{"kind":"sbom","delivery":"image","image":"registry.internal:5000/byo@$digest"}}}
+JSON
+    run_orchestrator -s "$TEST_DIR/src" -o "$TEST_DIR/output" "byotool"
+    # Reaches the image path rather than the "unknown tool" gate; docker then
+    # fails (image absent / docker may be unavailable), which is not our concern.
+    [[ "$output" != *"unknown tool"* ]]
+    [[ "$output" == *"running byotool (image)"* ]]
+}
+
+@test "orchestrator: a tool with no directory and no catalog image entry is unknown" {
+    run_orchestrator -s "$TEST_DIR/src" -o "$TEST_DIR/output" "nodir"
+    [ "$status" -eq 2 ]
+    [[ "$output" == *"unknown tool"* ]]
+}
+
+@test "orchestrator: the curated sbom key dispatches as a catalog-only image tool" {
+    # The default SBOM path (sbom-tool: sbom) has no tools/sbom/ dir, so it relies
+    # on the dir-gate resolving the real catalog's sbom entry to the image path.
+    [ ! -d "$ORIG_DIR/tools/sbom" ]
+    mkdir -p "$TEST_DIR/src"
+    WRANGLE_TOOLS_DIR="$ORIG_DIR/tools" WRANGLE_VERIFY_TOOL_IMAGES=0 \
+        run "$ORIG_DIR/run.sh" -s "$TEST_DIR/src" -o "$TEST_DIR/output" sbom
+    [[ "$output" != *"unknown tool"* ]]
+    [[ "$output" == *"running sbom (image)"* ]]
+}
+
+# --- custom tools: auto-discovered .wrangle/tools.json at the workspace root ---
+
+_byo_digest="sha256:0000000000000000000000000000000000000000000000000000000000000000"
+
+_write_custom_tools() {
+    mkdir -p "$TEST_DIR/ws/.wrangle" "$TEST_DIR/src"
+    printf '%s' "$1" > "$TEST_DIR/ws/.wrangle/tools.json"
+}
+
+@test "orchestrator: auto-discovers .wrangle/tools.json and admits a selected new tool" {
+    _write_custom_tools "{\"tools\":{\"byotool\":{\"kind\":\"sbom\",\"delivery\":\"image\",\"image\":\"registry.internal:5000/byo@$_byo_digest\"}}}"
+    GITHUB_WORKSPACE="$TEST_DIR/ws" \
+        run_orchestrator -s "$TEST_DIR/src" -o "$TEST_DIR/output" "byotool"
+    [[ "$output" != *"unknown tool"* ]]
+    [[ "$output" == *"running byotool (image)"* ]]
+}
+
+@test "orchestrator: no .wrangle/tools.json leaves the default catalog untouched" {
+    mkdir -p "$TEST_DIR/ws" "$TEST_DIR/src"
+    GITHUB_WORKSPACE="$TEST_DIR/ws" \
+        run_orchestrator -s "$TEST_DIR/src" -o "$TEST_DIR/output" "clean-tool"
+    [ "$status" -eq 0 ]
+    [ -f "$TEST_DIR/output/clean-tool/output.sarif" ]
+}
+
+@test "orchestrator: a .wrangle/tools.json symlink resolving outside the workspace is rejected" {
+    mkdir -p "$TEST_DIR/ws/.wrangle" "$TEST_DIR/src"
+    printf '{"tools":{}}' > "$TEST_DIR/outside.json"
+    ln -s "$TEST_DIR/outside.json" "$TEST_DIR/ws/.wrangle/tools.json"
+    GITHUB_WORKSPACE="$TEST_DIR/ws" \
+        run_orchestrator -s "$TEST_DIR/src" -o "$TEST_DIR/output" "clean-tool"
+    [ "$status" -eq 2 ]
+    [[ "$output" == *"resolves outside the workspace"* ]]
+}
+
+@test "orchestrator: an invalid .wrangle/tools.json entry aborts the run" {
+    _write_custom_tools '{"tools":{"byotool":{"kind":"sbom","delivery":"image","image":"ghcr.io/x:latest"}}}'
+    GITHUB_WORKSPACE="$TEST_DIR/ws" \
+        run_orchestrator -s "$TEST_DIR/src" -o "$TEST_DIR/output" "byotool"
+    [ "$status" -eq 2 ]
+    [[ "$output" == *"digest-pinned"* ]]
+}
+
+@test "orchestrator: a custom tool defined but NOT selected is never dispatched" {
+    # Selection gates execution: an injected .wrangle/tools.json entry that the
+    # selection does not name must stay defined-but-never-run (the property that
+    # makes auto-discovery safe under pull_request_target).
+    _write_custom_tools "{\"tools\":{\"injected\":{\"kind\":\"sbom\",\"delivery\":\"image\",\"image\":\"registry.internal:5000/evil@$_byo_digest\"}}}"
+    GITHUB_WORKSPACE="$TEST_DIR/ws" \
+        run_orchestrator -s "$TEST_DIR/src" -o "$TEST_DIR/output" "clean-tool"
+    [ "$status" -eq 0 ]
+    [[ "$output" != *"injected"* ]]
+    [ ! -d "$TEST_DIR/output/injected" ]
+}

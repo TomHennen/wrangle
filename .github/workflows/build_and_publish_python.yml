@@ -85,6 +85,11 @@ on:
         required: false
         type: string
         default: policies/wrangle-default-python-v1.hjson
+      sbom-tool:
+        description: "Wrangle's default SBOM tool, or one you define yourself in `.wrangle/tools.json`."
+        required: false
+        type: string
+        default: sbom
     outputs:
       hashes:
         description: "Base64-encoded SHA-256 hashes of built artifacts (for SLSA provenance)"
@@ -126,7 +131,7 @@ jobs:
       metadata-pre: ${{ steps.prep.outputs.metadata-pre }}
     steps:
       # TODO: replace with $/actions/prep when GitHub ships $/ syntax (#136)
-      - uses: TomHennen/wrangle/actions/prep@c69723eba9d6a34c73613e350c8659991f75fa76 # worktree-issue424-ampel-bump 2026-07-03
+      - uses: TomHennen/wrangle/actions/prep@9683d2f6cde8e1beefc3ab90cd20d7e1b491d015 # main 2026-07-03
         id: prep
         with:
           build-type: python
@@ -145,7 +150,7 @@ jobs:
       security-events: write
     steps:
       # TODO: replace with $/actions/scan when GitHub ships $/ syntax (#136)
-      - uses: TomHennen/wrangle/actions/scan@c69723eba9d6a34c73613e350c8659991f75fa76 # worktree-issue424-ampel-bump 2026-07-03
+      - uses: TomHennen/wrangle/actions/scan@9683d2f6cde8e1beefc3ab90cd20d7e1b491d015 # main 2026-07-03
         if: ${{ inputs.scan-tools != '' }}
         with:
           checkout: "true"
@@ -180,7 +185,7 @@ jobs:
           ref: ${{ inputs.ref || '' }}
 
       # TODO: replace with $/build/actions/python when GitHub ships $/ syntax (#136)
-      - uses: TomHennen/wrangle/build/actions/python@c69723eba9d6a34c73613e350c8659991f75fa76 # worktree-issue424-ampel-bump 2026-07-03
+      - uses: TomHennen/wrangle/build/actions/python@9683d2f6cde8e1beefc3ab90cd20d7e1b491d015 # main 2026-07-03
         id: build
         with:
           path: ${{ inputs.path }}
@@ -193,6 +198,7 @@ jobs:
           # fast iteration; they produce no provenance, so cache poisoning
           # is not an L3 concern at that layer.
           cache: ${{ needs.prep.outputs.should-release == 'true' && 'disabled' || 'enabled' }}
+          sbom-tool: ${{ inputs.sbom-tool }}
 
       # Compose the VSA resourceUri purl. PyPI's purl type normalizes the
       # name per PEP 503 (lowercase; runs of . _ - collapse to -), so the
@@ -270,7 +276,7 @@ jobs:
       bundles-artifact-name: ${{ steps.attest.outputs.bundles-artifact-name }}
     steps:
       # TODO: replace with $/actions/attest_provenance when GitHub ships $/ syntax (#136)
-      - uses: TomHennen/wrangle/actions/attest_provenance@c69723eba9d6a34c73613e350c8659991f75fa76 # worktree-issue424-ampel-bump 2026-07-03
+      - uses: TomHennen/wrangle/actions/attest_provenance@9683d2f6cde8e1beefc3ab90cd20d7e1b491d015 # main 2026-07-03
         id: attest
         with:
           build-type: python
@@ -293,7 +299,7 @@ jobs:
       contents: write       # create the release if absent and attach the bundle on tag pushes
     steps:
       # TODO: replace with $/actions/verify_release when GitHub ships $/ syntax (#136)
-      - uses: TomHennen/wrangle/actions/verify_release@c69723eba9d6a34c73613e350c8659991f75fa76 # worktree-issue424-ampel-bump 2026-07-03
+      - uses: TomHennen/wrangle/actions/verify_release@9683d2f6cde8e1beefc3ab90cd20d7e1b491d015 # main 2026-07-03
         with:
           build-type: python
           shortname: ${{ needs.prep.outputs.shortname }}

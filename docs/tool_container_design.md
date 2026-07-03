@@ -172,10 +172,10 @@ thing for the pin tooling to track and for adopters to read.
   tool version. Wrangle bumps a digest when it updates a tool.
 - **Selection stays short-name + policy** — the existing `tools: "osv zizmor:info …"` interface is
   unchanged; a name resolves through the catalog to an image.
-- **Overrides** are an adopter-supplied catalog fragment — a different digest for a built-in tool, or a
-  new tool under its own name. An override is a pin the adopter now owns the freshness of; wrangle can
-  offer rails (a `docker` Dependabot entry, a lint warning on a stale override) but cannot vouch for an
-  image it does not control.
+- **Custom tools** are an adopter-supplied catalog fragment that only *adds* net-new tools under their own
+  names (a name that collides with a built-in is a hard error — add-only, never override; §3.7). A custom
+  tool is a pin the adopter now owns the freshness of; wrangle can offer rails (a `docker` Dependabot entry,
+  a lint warning on a stale pin) but cannot vouch for an image it does not control.
 
 The shipped catalog (`tools/catalog.json`) is parsed with `jq` (`lib/read_catalog.sh`) and has **two
 consumers**: the scan orchestrator dispatches entries the `tools:` selection names that carry
@@ -203,6 +203,15 @@ orchestrator's decision; otherwise the sandboxed tool would define its own sandb
 recorded in-repo as reviewable catalog lines, default to `network=none, secret=none`, and are relaxed
 only explicitly — consistent with wrangle's least-privilege and input-validation rules.
 
+**Custom tools are add-only, so grants never inherit.** An adopter's file may only *add* net-new tools
+(disjoint names) and *deselect* curated ones — never partially override a curated entry. Each added tool
+declares its own capabilities standalone; there is no merge with, and no inheritance from, any curated
+entry. Two enforced rules make this strictly safer than a field-merge: a name that collides with a curated
+tool is a hard error, and **a custom entry's image MUST be outside the wrangle namespace**
+(`ghcr.io/tomhennen/wrangle/*` is rejected). An adopter therefore cannot attach a `secret`/`network` grant
+to any wrangle-published, VSA-signed image. To change how a curated tool runs, an adopter deselects it and
+adds their own full definition, on their own image, under a new name.
+
 ### 3.8 Configuration, illustrated
 
 Schema below is the proposed shape; exact field names and file locations are bikeshed-able (§9).
@@ -224,7 +233,7 @@ Schema below is the proposed shape; exact field names and file locations are bik
       "network": "egress",
       "secret": "github-token"   // delivered as WRANGLE_EXTRA_GITHUB_TOKEN
     },
-    "syft": {
+    "sbom": {                                                  // wrangle's default SBOM tool; sbom-tool: sbom selects it
       "kind": "sbom",
       "image": "ghcr.io/tomhennen/wrangle/syft@sha256:0b72…"   // network omitted → none; no secret
     },
@@ -252,7 +261,7 @@ selected by command rather than a separate image per tool — handy for the owne
 BYO image that exposes more than one tool. The capability rules (§3.7) and least-privilege defaults still
 apply per entry; the cost is a larger per-entry surface to validate (§8).
 
-**Adopter — selecting tools** (pin wrangle, choose which to run, optionally point at an override file):
+**Adopter — selecting tools** (pin wrangle, choose which to run):
 
 ```yaml
 # adopter .github/workflows/scan.yml
@@ -260,34 +269,25 @@ jobs:
   scan:
     uses: TomHennen/wrangle/.github/workflows/scan.yml@<wrangle-version>  # pin a wrangle release
     with:
-      tools: "osv zizmor:info my-sbom"     # selection + policy (unchanged from today)
-      tool-overrides: .wrangle/tools.json  # optional; overrides/extends the catalog
+      tools: "my-osv zizmor:info"          # scan selection + policy; deselect osv, run my own
+      sbom-tool: my-sbom                    # pick the SBOM tool (default: sbom, wrangle's syft)
 ```
 
-**Adopter — overriding an image and bringing their own tool**:
+**Adopter — bringing their own tools (add-only).** An adopter commits a `.wrangle/tools.json` (same
+`{ "tools": { … } }` shape) at the repo root; `run.sh` auto-discovers it — no workflow input — and unions
+its net-new tools into the catalog, then selection (`tools:` / `sbom-tool:`) decides which run. The model is
+add-only: a name colliding with a curated tool is a hard error, a custom image must be off the wrangle
+namespace, and each entry declares its own capabilities (nothing inherits from curated). The full schema,
+validation, and trust boundary are the **canonical contract in [SPEC.md](SPEC.md) → "Custom Tools"**.
 
-```jsonc
-// adopter .wrangle/tools.json  — merged over wrangle's catalog
-{
-  "tools": {
-    "osv": {                                       // override a curated default with a different digest
-      "image": "ghcr.io/myorg/osv@sha256:7c1d…"    // adopter now owns this pin's freshness
-    },
-    "my-sbom": {                                   // BYO a tool wrangle doesn't ship — full definition
-      "kind": "sbom",                              // emits its own sbom.<format>.json
-      "image": "ghcr.io/myorg/my-sbom-generator@sha256:e88f…"  // no network / no secret → strictest contract by default
-    }
-  }
-}
-```
-
-What the three pieces demonstrate:
-- **Inheritance** — an adopter who only sets `tools:` runs wrangle's curated, cooldown-vetted images and
-  pins nothing of their own.
-- **Override ownership** — overriding `osv` means pinning a digest the adopter now owns the freshness of;
-  wrangle's pin tooling covers its own catalog, not this entry.
-- **Trust direction** — `my-sbom`'s capabilities are declared by the *adopter*, in the adopter's file;
-  the image grants itself nothing, and an unspecified capability defaults closed.
+Three properties follow:
+- **Inheritance** — an adopter who commits no `.wrangle/tools.json` runs wrangle's curated, cooldown-vetted
+  images and pins nothing of their own.
+- **Add-only, no override** — to replace a curated tool the adopter adds their own (`my-osv`) and deselects
+  the curated one via `tools:`, owning the new pin's freshness (wrangle's pin tooling covers only its own
+  catalog).
+- **Trust direction** — every custom tool's capabilities are declared by the *adopter*; the image grants
+  itself nothing, and an unspecified capability defaults closed.
 
 ## 4. Evidence
 
@@ -415,7 +415,7 @@ a full wrangle CI/CD run**. Two pieces:
   `image:` is digest-pinned (no tag, no `@latest`); every entry declares a `kind`; capabilities are
   default-closed and any `network`/`secret` grant is explicit; curated images come from the allowed
   registry namespace; and every tool named in a default selection exists in the catalog. Plus the
-  adopter-override rail (warn on a stale/unpinned override, §3.6).
+  custom-tools rail (warn on a stale/unpinned adopter pin, §3.6).
 
 ## 9. Open questions
 
@@ -424,8 +424,8 @@ deferred); amd64 is the baseline (GitHub's hosted runners default to amd64; arm6
 publish amd64+arm64 but gate nothing on arm64); the catalog (not per-tool action inputs) is the reference
 model. Still open:
 
-- **Catalog schema details** — exact field names, the catalog file's location, and whether an adopter
-  override is a file path or inline.
+- **Catalog schema details** — exact field names and the catalog file's location. (Adopter custom tools are
+  settled: an auto-discovered `.wrangle/tools.json` at the workspace root; see SPEC.md "Custom Tools".)
 - **Registry namespace** — the ghcr path for curated images.
 - **SPEC.md** — fold the kind-parameterized contract into the Adapter Script Interface.
 

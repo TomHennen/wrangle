@@ -3,7 +3,8 @@ set -euo pipefail
 set -f  # processes external arguments — disable globbing per CLAUDE.md
 
 # lib/generate_sbom.sh — generate an SPDX SBOM for a build-type source tree by
-# dispatching a curated SBOM tool (default: syft) through the orchestrator.
+# dispatching an SBOM tool (default: the curated `sbom` slot, syft) through the
+# orchestrator.
 #
 # Usage: generate_sbom.sh <src_dir> <metadata_dir> [<tool>]
 
@@ -14,7 +15,7 @@ fi
 
 SRC_DIR="$1"
 METADATA_DIR="$2"
-TOOL="${3:-syft}"
+TOOL="${3:-sbom}"
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 WRANGLE_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
