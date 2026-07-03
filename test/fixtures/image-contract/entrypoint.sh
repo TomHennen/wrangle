@@ -36,7 +36,7 @@ case "$mode" in
         printf '{"version":"2.1.0","runs":[{"tool":{"driver":{"name":"mock"}},"results":[]}]}\n' > "$out/output.sarif"
         exit 0 ;;
     source-name)
-        # Record WRANGLE_SOURCE_NAME so a scan-kind test can assert it is empty.
+        # Record WRANGLE_SOURCE_NAME so a scan-kind test can assert it arrived.
         printf '%s' "${WRANGLE_SOURCE_NAME:-}" > "$out/source_name_seen"
         printf '{"version":"2.1.0","runs":[{"tool":{"driver":{"name":"mock"}},"results":[]}]}\n' > "$out/output.sarif"
         exit 0 ;;

@@ -15,10 +15,16 @@ run_tool_image() {
     net="none"
     [[ "$(read_catalog_field "$catalog" "$tool" network)" == "egress" ]] && net="bridge"
 
-    # WRANGLE_KIND carries the tool's input/stage to its entrypoint.
+    # docker -v needs absolute paths.
+    src_abs="$(cd "$src_dir" && pwd)"
+    out_abs="$(cd "$tool_out" && pwd)"
+
+    # WRANGLE_KIND carries the tool's input/stage; WRANGLE_SOURCE_NAME the source
+    # dir name, which the fixed /src mount otherwise hides.
     local -a docker_env=()
     kind="$(read_catalog_field "$catalog" "$tool" kind)"
     [[ -n "$kind" ]] && docker_env+=(-e "WRANGLE_KIND=$kind")
+    docker_env+=(-e "WRANGLE_SOURCE_NAME=$(basename "$src_abs")")
 
     secret="$(read_catalog_field "$catalog" "$tool" secret)"
     if [[ -n "$secret" ]]; then
@@ -30,13 +36,6 @@ run_tool_image() {
             docker_env+=(-e "${secret_var}")
         fi
     fi
-
-    # docker -v needs absolute paths.
-    src_abs="$(cd "$src_dir" && pwd)"
-    out_abs="$(cd "$tool_out" && pwd)"
-
-    # sbom names the document after the source dir, which the /src mount hides.
-    [[ "$kind" == "sbom" ]] && docker_env+=(-e "WRANGLE_SOURCE_NAME=$(basename "$src_abs")")
 
     local rc=0
     timeout "$timeout_s" docker run --rm --network "$net" \
