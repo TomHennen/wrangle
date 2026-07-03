@@ -401,7 +401,7 @@ jobs:
       contents: write       # create the release if absent and upload the attested archives + checksums + bundles
     steps:
       # TODO: replace with $/actions/verify_release when GitHub ships $/ syntax (#136)
-      - uses: TomHennen/wrangle/actions/verify_release@54c034bc61ffd4e19a03f6552d2af72e3bf350a0 # main 2026-07-03
+      - uses: TomHennen/wrangle/actions/verify_release@9a6f579122826b4bb089590f746c69236afda5fd # main 2026-07-03
         with:
           build-type: go
           shortname: ${{ needs.prep.outputs.shortname }}
