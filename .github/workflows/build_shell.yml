@@ -85,7 +85,7 @@ jobs:
     permissions: {}    # guard reads env only — no workspace, no API, no secrets
     steps:
       # TODO: replace with $/actions/prep when GitHub ships $/ syntax (#136)
-      - uses: TomHennen/wrangle/actions/prep@f4a54a6fd44ce6fd5c51821ca569a63420143afa # worktree-issue424-ampel-bump 2026-07-03
+      - uses: TomHennen/wrangle/actions/prep@c69723eba9d6a34c73613e350c8659991f75fa76 # worktree-issue424-ampel-bump 2026-07-03
 
   # Source scan. A load-bearing (:fail) finding fails the run alongside
   # the shell build/test (there is no artifact to gate publishing of).
@@ -98,7 +98,7 @@ jobs:
       security-events: write
     steps:
       # TODO: replace with $/actions/scan when GitHub ships $/ syntax (#136)
-      - uses: TomHennen/wrangle/actions/scan@f4a54a6fd44ce6fd5c51821ca569a63420143afa # worktree-issue424-ampel-bump 2026-07-03
+      - uses: TomHennen/wrangle/actions/scan@c69723eba9d6a34c73613e350c8659991f75fa76 # worktree-issue424-ampel-bump 2026-07-03
         if: ${{ inputs.scan-tools != '' }}
         with:
           checkout: "true"
@@ -147,7 +147,7 @@ jobs:
         # setup-script input and multi-path bats — the main-pinned version
         # would ignore setup-script and fail the dogfooded integration bats.
         # Bump to main post-merge via tools/bump_action_pins.sh.
-        uses: TomHennen/wrangle/build/actions/shell@f4a54a6fd44ce6fd5c51821ca569a63420143afa # worktree-issue424-ampel-bump 2026-07-03
+        uses: TomHennen/wrangle/build/actions/shell@c69723eba9d6a34c73613e350c8659991f75fa76 # worktree-issue424-ampel-bump 2026-07-03
         with:
           scan-path: ${{ inputs.scan-path }}
           bats-path: ${{ inputs.bats-path }}
