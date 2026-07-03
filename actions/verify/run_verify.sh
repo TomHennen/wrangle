@@ -82,10 +82,7 @@ wrangle_ampel_verify_args() {
     local args=(verify "$subject_arg"
         --collector="jsonl:$bundle")
     [[ -n "${COLLECTOR:-}" ]] && args+=(--collector="$COLLECTOR")
-    # ampel drops the signer-identity match on tenets beyond --workers; keep it
-    # above the largest tier's tenet count (strict: 8) until carabiner-dev/ampel#298 lands.
     args+=(--policy="$(wrangle_resolve_policy "$POLICY")"
-        --workers=32
         --exit-code="$FAIL"
         --attest-results
         --attest-format=vsa

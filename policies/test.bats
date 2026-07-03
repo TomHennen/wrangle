@@ -375,14 +375,13 @@ expect_fail_closed() {
 # The unsigned fixtures above can only run against the logic variant, so the
 # signer-identity admission is never exercised against a real signature. This
 # runs the FULL production python tier against a real SIGNED release bundle, the
-# same way actions/verify does (with --workers). The bundle is the complete
-# default tier (provenance + VSA + SBOM + clean osv/zizmor/wrangle-lint scans),
-# so it PASSES cleanly: every tenet PASS, ampel exit 0, signer identity
-# validated end to end.
+# same way actions/verify does. The bundle is the complete default tier
+# (provenance + VSA + SBOM + clean osv/zizmor/wrangle-lint scans), so it PASSES
+# cleanly: ampel exit 0, signer identity validated end to end.
 @test "ampel policy: default-python-v1 (production) PASSES a real signed default-tier bundle (clean overall)" {
     local rs="$BATS_TEST_TMPDIR/signed.json"
     run "$AMPEL" verify -p "$DEFAULT_PYTHON" -s "$SIGNED_SUBJECT" \
-        -c "jsonl:$SIGNED_BUNDLE" -x "$SIGNED_CTX" --workers=32 \
+        -c "jsonl:$SIGNED_BUNDLE" -x "$SIGNED_CTX" \
         --attest-results --attest-format=ampel --results-path="$rs" -f tty
     [ "$status" -eq 0 ]
     [ -s "$rs" ]
@@ -393,26 +392,17 @@ expect_fail_closed() {
     [ "$output" -eq 0 ]
 }
 
-# Guard for ampel #298: with --workers below the tenet count ampel spuriously
-# fails an overflow tenet on identity validation, so the same signed bundle that
-# PASSES at --workers=32 must go RED at --workers=4.
-@test "ampel policy: default-python-v1 (production) goes RED at --workers=4 (ampel #298 guard)" {
-    run "$AMPEL" verify -p "$DEFAULT_PYTHON" -s "$SIGNED_SUBJECT" \
-        -c "jsonl:$SIGNED_BUNDLE" -x "$SIGNED_CTX" --workers=4 -f tty
-    [ "$status" -ne 0 ]
-}
-
 # The signer-identity admission is the security property: a bundle signed by a
-# non-matching identity must FAIL even at --workers=32 (the clean-pass setting).
-# Derive a wrong-signer variant by swapping the bound build-workflow path in the
-# identity regexp for one this bundle was NOT signed by.
-@test "ampel policy: default-python-v1 FAILS a non-matching signer identity (even at --workers=32)" {
+# non-matching identity must FAIL. Derive a wrong-signer variant by swapping the
+# bound build-workflow path in the identity regexps for one this bundle was NOT
+# signed by.
+@test "ampel policy: default-python-v1 FAILS a non-matching signer identity" {
     local wrong="$BATS_TEST_TMPDIR/default-python-wrong-signer.hjson"
     sed '/mode: "regexp"/,/}/ s#build_and_publish_python#build_and_publish_attacker#' \
         "$DEFAULT_PYTHON" > "$wrong"
     local rs="$BATS_TEST_TMPDIR/wrong-signer.json"
     run "$AMPEL" verify -p "$wrong" -s "$SIGNED_SUBJECT" \
-        -c "jsonl:$SIGNED_BUNDLE" -x "$SIGNED_CTX" --workers=32 \
+        -c "jsonl:$SIGNED_BUNDLE" -x "$SIGNED_CTX" \
         --attest-results --attest-format=ampel --results-path="$rs" -f tty
     [ "$status" -ne 0 ]
     [ -s "$rs" ]
