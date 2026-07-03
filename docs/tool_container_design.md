@@ -172,10 +172,10 @@ thing for the pin tooling to track and for adopters to read.
   tool version. Wrangle bumps a digest when it updates a tool.
 - **Selection stays short-name + policy** — the existing `tools: "osv zizmor:info …"` interface is
   unchanged; a name resolves through the catalog to an image.
-- **Overrides** are an adopter-supplied catalog fragment — a different digest for a built-in tool, or a
-  new tool under its own name. An override is a pin the adopter now owns the freshness of; wrangle can
-  offer rails (a `docker` Dependabot entry, a lint warning on a stale override) but cannot vouch for an
-  image it does not control.
+- **Custom tools** are an adopter-supplied catalog fragment that only *adds* net-new tools under their own
+  names (a name that collides with a built-in is a hard error — add-only, never override; §3.7). A custom
+  tool is a pin the adopter now owns the freshness of; wrangle can offer rails (a `docker` Dependabot entry,
+  a lint warning on a stale pin) but cannot vouch for an image it does not control.
 
 The shipped catalog (`tools/catalog.json`) is parsed with `jq` (`lib/read_catalog.sh`) and has **two
 consumers**: the scan orchestrator dispatches entries the `tools:` selection names that carry
@@ -429,7 +429,7 @@ a full wrangle CI/CD run**. Two pieces:
   `image:` is digest-pinned (no tag, no `@latest`); every entry declares a `kind`; capabilities are
   default-closed and any `network`/`secret` grant is explicit; curated images come from the allowed
   registry namespace; and every tool named in a default selection exists in the catalog. Plus the
-  adopter-override rail (warn on a stale/unpinned override, §3.6).
+  custom-tools rail (warn on a stale/unpinned adopter pin, §3.6).
 
 ## 9. Open questions
 
@@ -438,8 +438,8 @@ deferred); amd64 is the baseline (GitHub's hosted runners default to amd64; arm6
 publish amd64+arm64 but gate nothing on arm64); the catalog (not per-tool action inputs) is the reference
 model. Still open:
 
-- **Catalog schema details** — exact field names, the catalog file's location, and whether an adopter
-  override is a file path or inline.
+- **Catalog schema details** — exact field names, the catalog file's location, and whether the adopter
+  custom-tools config is a file path or inline.
 - **Registry namespace** — the ghcr path for curated images.
 - **SPEC.md** — fold the kind-parameterized contract into the Adapter Script Interface.
 
