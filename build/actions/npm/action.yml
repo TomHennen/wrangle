@@ -38,13 +38,9 @@ inputs:
     required: false
     default: "false"
   sbom-tool:
-    description: "SBOM tool to run: the curated `sbom` slot, or a tool added via custom-tools. Default sbom."
+    description: "SBOM tool to run: the curated `sbom` slot, or a tool you added in .wrangle/tools.json. Default sbom."
     required: false
     default: "sbom"
-  custom-tools:
-    description: "Optional workspace path to a .wrangle/tools.json adding your own tools to wrangle's catalog (see docs/SPEC.md)."
-    required: false
-    default: ""
 
 outputs:
   version:
@@ -177,7 +173,6 @@ runs:
         GH_TOKEN: ${{ github.token }}
         WRANGLE_ROOT: ${{ github.action_path }}/../../..
         SBOM_TOOL: ${{ inputs.sbom-tool }}
-        WRANGLE_CUSTOM_TOOLS: ${{ inputs.custom-tools }}
       run: |
         set -euo pipefail
         "$WRANGLE_ROOT/lib/generate_sbom.sh" "$INPUT_PATH" "$METADATA_DIR" "$SBOM_TOOL"

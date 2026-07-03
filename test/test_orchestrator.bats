@@ -637,60 +637,57 @@ JSON
     [[ "$output" == *"running sbom (image)"* ]]
 }
 
-# --- custom-tools: path validation ---
+# --- custom tools: auto-discovered .wrangle/tools.json at the workspace root ---
 
-@test "orchestrator: custom-tools path escaping the workspace is rejected" {
-    mkdir -p "$TEST_DIR/ws"
-    printf '{"tools":{}}' > "$TEST_DIR/outside.json"
-    GITHUB_WORKSPACE="$TEST_DIR/ws" WRANGLE_CUSTOM_TOOLS="$TEST_DIR/outside.json" \
-        run_orchestrator -s "$TEST_DIR/src" -o "$TEST_DIR/output" "clean-tool"
-    [ "$status" -eq 2 ]
-    [[ "$output" == *"escapes the workspace"* ]]
+_byo_digest="sha256:0000000000000000000000000000000000000000000000000000000000000000"
+
+_write_custom_tools() {
+    mkdir -p "$TEST_DIR/ws/.wrangle" "$TEST_DIR/src"
+    printf '%s' "$1" > "$TEST_DIR/ws/.wrangle/tools.json"
 }
 
-@test "orchestrator: a missing custom-tools file is rejected" {
-    mkdir -p "$TEST_DIR/ws"
-    GITHUB_WORKSPACE="$TEST_DIR/ws" WRANGLE_CUSTOM_TOOLS="$TEST_DIR/ws/nope.json" \
-        run_orchestrator -s "$TEST_DIR/src" -o "$TEST_DIR/output" "clean-tool"
-    [ "$status" -eq 2 ]
-    [[ "$output" == *"not found"* ]]
-}
-
-@test "orchestrator: an in-workspace custom-tools file merges and admits a new tool" {
-    digest="sha256:0000000000000000000000000000000000000000000000000000000000000000"
-    mkdir -p "$TEST_DIR/ws" "$TEST_DIR/src"
-    cat > "$TEST_DIR/ws/tools.json" <<JSON
-{"tools":{"byotool":{"kind":"sbom","delivery":"image","image":"registry.internal:5000/byo@$digest"}}}
-JSON
-    GITHUB_WORKSPACE="$TEST_DIR/ws" WRANGLE_CUSTOM_TOOLS="$TEST_DIR/ws/tools.json" \
+@test "orchestrator: auto-discovers .wrangle/tools.json and admits a selected new tool" {
+    _write_custom_tools "{\"tools\":{\"byotool\":{\"kind\":\"sbom\",\"delivery\":\"image\",\"image\":\"registry.internal:5000/byo@$_byo_digest\"}}}"
+    GITHUB_WORKSPACE="$TEST_DIR/ws" \
         run_orchestrator -s "$TEST_DIR/src" -o "$TEST_DIR/output" "byotool"
     [[ "$output" != *"unknown tool"* ]]
     [[ "$output" == *"running byotool (image)"* ]]
 }
 
-@test "orchestrator: a workspace-relative custom-tools path resolves (the composite seam)" {
-    # The composites pass a workspace-relative path (.wrangle/tools.json) with cwd
-    # = GITHUB_WORKSPACE; assert that resolves rather than being read as an escape.
-    digest="sha256:0000000000000000000000000000000000000000000000000000000000000000"
-    mkdir -p "$TEST_DIR/ws/.wrangle" "$TEST_DIR/src"
-    cat > "$TEST_DIR/ws/.wrangle/tools.json" <<JSON
-{"tools":{"byotool":{"kind":"sbom","delivery":"image","image":"registry.internal:5000/byo@$digest"}}}
-JSON
-    cd "$TEST_DIR/ws"
-    GITHUB_WORKSPACE="$TEST_DIR/ws" WRANGLE_CUSTOM_TOOLS=".wrangle/tools.json" \
-        run_orchestrator -s "$TEST_DIR/src" -o "$TEST_DIR/output" "byotool"
-    [[ "$output" != *"escapes the workspace"* ]]
-    [[ "$output" != *"not found"* ]]
-    [[ "$output" == *"running byotool (image)"* ]]
+@test "orchestrator: no .wrangle/tools.json leaves the default catalog untouched" {
+    mkdir -p "$TEST_DIR/ws" "$TEST_DIR/src"
+    GITHUB_WORKSPACE="$TEST_DIR/ws" \
+        run_orchestrator -s "$TEST_DIR/src" -o "$TEST_DIR/output" "clean-tool"
+    [ "$status" -eq 0 ]
+    [ -f "$TEST_DIR/output/clean-tool/output.sarif" ]
 }
 
-@test "orchestrator: an invalid custom-tools entry aborts the run" {
-    mkdir -p "$TEST_DIR/ws" "$TEST_DIR/src"
-    cat > "$TEST_DIR/ws/tools.json" <<'JSON'
-{"tools":{"byotool":{"kind":"sbom","delivery":"image","image":"ghcr.io/x:latest"}}}
-JSON
-    GITHUB_WORKSPACE="$TEST_DIR/ws" WRANGLE_CUSTOM_TOOLS="$TEST_DIR/ws/tools.json" \
+@test "orchestrator: a .wrangle/tools.json symlink resolving outside the workspace is rejected" {
+    mkdir -p "$TEST_DIR/ws/.wrangle" "$TEST_DIR/src"
+    printf '{"tools":{}}' > "$TEST_DIR/outside.json"
+    ln -s "$TEST_DIR/outside.json" "$TEST_DIR/ws/.wrangle/tools.json"
+    GITHUB_WORKSPACE="$TEST_DIR/ws" \
+        run_orchestrator -s "$TEST_DIR/src" -o "$TEST_DIR/output" "clean-tool"
+    [ "$status" -eq 2 ]
+    [[ "$output" == *"resolves outside the workspace"* ]]
+}
+
+@test "orchestrator: an invalid .wrangle/tools.json entry aborts the run" {
+    _write_custom_tools '{"tools":{"byotool":{"kind":"sbom","delivery":"image","image":"ghcr.io/x:latest"}}}'
+    GITHUB_WORKSPACE="$TEST_DIR/ws" \
         run_orchestrator -s "$TEST_DIR/src" -o "$TEST_DIR/output" "byotool"
     [ "$status" -eq 2 ]
     [[ "$output" == *"digest-pinned"* ]]
+}
+
+@test "orchestrator: a custom tool defined but NOT selected is never dispatched" {
+    # Selection gates execution: an injected .wrangle/tools.json entry that the
+    # selection does not name must stay defined-but-never-run (the property that
+    # makes auto-discovery safe under pull_request_target).
+    _write_custom_tools "{\"tools\":{\"injected\":{\"kind\":\"sbom\",\"delivery\":\"image\",\"image\":\"registry.internal:5000/evil@$_byo_digest\"}}}"
+    GITHUB_WORKSPACE="$TEST_DIR/ws" \
+        run_orchestrator -s "$TEST_DIR/src" -o "$TEST_DIR/output" "clean-tool"
+    [ "$status" -eq 0 ]
+    [[ "$output" != *"injected"* ]]
+    [ ! -d "$TEST_DIR/output/injected" ]
 }

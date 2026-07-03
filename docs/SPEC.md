@@ -639,11 +639,13 @@ NOTES:
 
 ### Custom Tools (adopter catalog, add-only)
 
-An adopter may **add** their own tool images through a custom-tools file (`.wrangle/tools.json` by
-convention), selected via a build composite's `custom-tools:` input. The path MUST resolve inside the
-workspace; `run.sh` rejects a path that escapes it (traversal or symlink). The file shares the catalog's
-shape; its tools are unioned with the curated catalog into the effective catalog `run.sh` uses
-(`lib/merge_catalog.sh`).
+`run.sh` auto-discovers a `.wrangle/tools.json` at the workspace root (`$GITHUB_WORKSPACE`, else the working
+directory) and unions the adopter tools it defines into the curated catalog (`lib/merge_catalog.sh`). The
+file is optional — its absence changes nothing. Its resolved path MUST stay inside the workspace, so a
+symlink escaping it is rejected. A custom tool is *defined* by this file but only *runs* when the selection
+names it (`tools:` for scan, `sbom-tool:` for the build SBOM); an unselected entry is never dispatched.
+Because those selection inputs come from the base workflow, a fork opening a `pull_request_target` cannot
+select an injected tool.
 
 ```jsonc
 {

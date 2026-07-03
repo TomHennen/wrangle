@@ -3,8 +3,8 @@
 # Proves the sbom kind is tool-agnostic: a NON-wrangle, off-namespace image that
 # honors the sbom contract (/src ro -> /output/sbom.spdx.json, exit 0/2) is
 # plugged in as an adopter's SBOM tool through the real BYO path — a
-# .wrangle/tools.json added to the catalog (lib/merge_catalog.sh) and selected
-# via WRANGLE_CUSTOM_TOOLS. One run exercises the whole seam: the dir-gate
+# .wrangle/tools.json auto-discovered at the workspace root (lib/merge_catalog.sh)
+# and selected via sbom-tool. One run exercises the whole seam: the dir-gate
 # relaxation (no local tools/my-sbom/), the custom-tools union, the VSA gate
 # skipping an off-namespace image, the contract sandbox, and a real (non-empty) SBOM.
 #
@@ -59,7 +59,7 @@ setup() {
     RUN_SH="$ORIG_DIR/run.sh"
     TMP_DIR="$(mktemp -d "${BATS_TMPDIR:-/tmp}/wrangle-byo.XXXXXX")"
     # WS is the adopter workspace: it holds the source tree and the override file,
-    # and is the containment root run.sh validates the custom-tools path against.
+    # and is the workspace root run.sh auto-discovers .wrangle/tools.json under.
     WS="$TMP_DIR/ws"
     SRC="$WS/src"
     OUT="$TMP_DIR/out"
@@ -79,11 +79,10 @@ teardown() {
 
 _run_byo() {
     WRANGLE_TOOLS_DIR="$TOOLS" GITHUB_WORKSPACE="$WS" \
-        WRANGLE_CUSTOM_TOOLS="$WS/.wrangle/tools.json" \
         run "$RUN_SH" -s "$SRC" -o "$OUT" my-sbom
 }
 
-@test "byo sbom: adopter image plugs in via custom-tools, no local tool dir" {
+@test "byo sbom: adopter image plugs in via auto-discovered .wrangle/tools.json, no local tool dir" {
     _run_byo
     [ "$status" -eq 0 ]
     [ -f "$OUT/my-sbom/sbom.spdx.json" ]
@@ -123,7 +122,6 @@ _run_byo() {
 @test "byo sbom: end-to-end through generate_sbom lands the SBOM at the metadata root" {
     local meta="$TMP_DIR/meta"
     WRANGLE_TOOLS_DIR="$TOOLS" GITHUB_WORKSPACE="$WS" \
-        WRANGLE_CUSTOM_TOOLS="$WS/.wrangle/tools.json" \
         run "$ORIG_DIR/lib/generate_sbom.sh" "$SRC" "$meta" my-sbom
     [ "$status" -eq 0 ]
     [ -f "$meta/sbom.spdx.json" ]

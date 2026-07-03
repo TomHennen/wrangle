@@ -261,7 +261,7 @@ selected by command rather than a separate image per tool — handy for the owne
 BYO image that exposes more than one tool. The capability rules (§3.7) and least-privilege defaults still
 apply per entry; the cost is a larger per-entry surface to validate (§8).
 
-**Adopter — selecting tools** (pin wrangle, choose which to run, optionally add your own):
+**Adopter — selecting tools** (pin wrangle, choose which to run):
 
 ```yaml
 # adopter .github/workflows/scan.yml
@@ -271,38 +271,23 @@ jobs:
     with:
       tools: "my-osv zizmor:info"          # scan selection + policy; deselect osv, run my own
       sbom-tool: my-sbom                    # pick the SBOM tool (default: the curated `sbom` slot)
-      custom-tools: .wrangle/tools.json     # optional; adds your own tools to the catalog
 ```
 
-**Adopter — bringing their own tools (add-only)**:
+**Adopter — bringing their own tools (add-only).** An adopter commits a `.wrangle/tools.json` (same
+`{ "tools": { … } }` shape) at the repo root; `run.sh` auto-discovers it — no workflow input — and unions
+its net-new tools into the catalog, then selection (`tools:` / `sbom-tool:`) decides which run. The model is
+add-only: a name colliding with a curated tool is a hard error, a custom image must be off the wrangle
+namespace, and each entry declares its own capabilities (nothing inherits from curated). The full schema,
+validation, and trust boundary are the **canonical contract in [SPEC.md](SPEC.md) → "Custom Tools"**.
 
-```jsonc
-// adopter .wrangle/tools.json  — net-new tools added to wrangle's catalog
-{
-  "tools": {
-    "my-osv": {                                    // add your own scanner, then select it instead of osv
-      "kind": "scan",
-      "delivery": "image",
-      "image": "ghcr.io/myorg/osv@sha256:7c1d…",   // adopter owns this pin's freshness
-      "network": "egress"                          // declared here; nothing inherits from curated osv
-    },
-    "my-sbom": {                                   // a tool wrangle doesn't ship — full definition
-      "kind": "sbom",                              // emits its own sbom.<format>.json
-      "delivery": "image",
-      "image": "ghcr.io/myorg/my-sbom-generator@sha256:e88f…"  // no network / no secret → strictest contract by default
-    }
-  }
-}
-```
-
-What the pieces demonstrate:
-- **Inheritance** — an adopter who only sets `tools:` runs wrangle's curated, cooldown-vetted images and
-  pins nothing of their own.
-- **Add-only, no override** — a custom name that collides with a curated tool is a hard error; to replace a
-  curated tool the adopter adds their own (`my-osv`) and deselects the curated one via `tools:`, owning the
-  new pin's freshness (wrangle's pin tooling covers only its own catalog).
-- **Trust direction** — every custom tool's capabilities are declared by the *adopter*, in the adopter's
-  file; the image grants itself nothing, and an unspecified capability defaults closed.
+Three properties follow:
+- **Inheritance** — an adopter who commits no `.wrangle/tools.json` runs wrangle's curated, cooldown-vetted
+  images and pins nothing of their own.
+- **Add-only, no override** — to replace a curated tool the adopter adds their own (`my-osv`) and deselects
+  the curated one via `tools:`, owning the new pin's freshness (wrangle's pin tooling covers only its own
+  catalog).
+- **Trust direction** — every custom tool's capabilities are declared by the *adopter*; the image grants
+  itself nothing, and an unspecified capability defaults closed.
 
 ## 4. Evidence
 
@@ -439,8 +424,8 @@ deferred); amd64 is the baseline (GitHub's hosted runners default to amd64; arm6
 publish amd64+arm64 but gate nothing on arm64); the catalog (not per-tool action inputs) is the reference
 model. Still open:
 
-- **Catalog schema details** — exact field names, the catalog file's location, and whether the adopter
-  custom-tools config is a file path or inline.
+- **Catalog schema details** — exact field names and the catalog file's location. (Adopter custom tools are
+  settled: an auto-discovered `.wrangle/tools.json` at the workspace root; see SPEC.md "Custom Tools".)
 - **Registry namespace** — the ghcr path for curated images.
 - **SPEC.md** — fold the kind-parameterized contract into the Adapter Script Interface.
 

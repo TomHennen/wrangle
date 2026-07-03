@@ -53,17 +53,19 @@ CATALOG="${WRANGLE_CATALOG:-${TOOLS_DIR}/catalog.json}"
 # namespace) is trusted under its own identity.
 CURATED_IMAGE_PREFIX="$CATALOG_CURATED_IMAGE_PREFIX"
 
-# WRANGLE_CUSTOM_TOOLS points at an adopter tools.json whose net-new tools are
-# added to the curated catalog. The path must resolve inside the workspace (no
-# traversal or symlink escape); the effective catalog is a temp file removed on exit.
-if [[ -n "${WRANGLE_CUSTOM_TOOLS:-}" ]]; then
-    custom_root="$(cd "${GITHUB_WORKSPACE:-.}" && pwd -P)"
-    if ! custom_file="$(realpath -e -- "$WRANGLE_CUSTOM_TOOLS" 2>/dev/null)"; then
-        printf 'wrangle: custom-tools file not found: %s\n' "$WRANGLE_CUSTOM_TOOLS" >&2
+# Auto-discover a conventional .wrangle/tools.json at the workspace root and add
+# its net-new tools to the catalog. Absent -> the curated catalog, unchanged. The
+# resolved file must stay inside the workspace, so a symlink escaping it is
+# rejected; the effective catalog is a temp file removed on exit.
+custom_root="$(cd "${GITHUB_WORKSPACE:-$PWD}" 2>/dev/null && pwd -P)" || custom_root=""
+custom_tools="${custom_root:+${custom_root}/.wrangle/tools.json}"
+if [[ -n "$custom_tools" ]] && [[ -e "$custom_tools" ]]; then
+    if ! custom_file="$(realpath -e -- "$custom_tools" 2>/dev/null)"; then
+        printf 'wrangle: .wrangle/tools.json is unreadable: %s\n' "$custom_tools" >&2
         exit 2
     fi
-    if [[ "$custom_file" != "$custom_root" && "$custom_file" != "$custom_root"/* ]]; then
-        printf 'wrangle: custom-tools path escapes the workspace: %s\n' "$WRANGLE_CUSTOM_TOOLS" >&2
+    if [[ "$custom_file" != "$custom_root"/* ]]; then
+        printf 'wrangle: .wrangle/tools.json resolves outside the workspace: %s\n' "$custom_file" >&2
         exit 2
     fi
     effective_catalog="$(mktemp "${TMPDIR:-/tmp}/wrangle-catalog-XXXXXX.json")"
