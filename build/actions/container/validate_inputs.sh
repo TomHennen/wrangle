@@ -56,7 +56,9 @@ if [[ ! "$INPUT_REGISTRY" =~ ^[a-z0-9.-]+$ ]]; then
     printf 'Error: invalid registry: %s\n' "$INPUT_REGISTRY" >&2
     exit 1
 fi
-if [[ ! "$INPUT_IMAGENAME" =~ ^[a-z0-9./:_-]+$ ]]; then
+# Uppercase is accepted and lowercased below: `github.repository` preserves
+# owner case, so an owner like `TomHennen` must normalize, not be rejected.
+if [[ ! "$INPUT_IMAGENAME" =~ ^[a-zA-Z0-9./:_-]+$ ]]; then
     printf 'Error: invalid image name: %s\n' "$INPUT_IMAGENAME" >&2
     exit 1
 fi

@@ -63,6 +63,14 @@ teardown() {
     grep -q '^shortname=pkg_foo$' "$GITHUB_OUTPUT"
 }
 
+@test "container: validate_inputs.sh accepts a mixed-case owner and lowercases it" {
+    # github.repository preserves owner case; the example passes
+    # ghcr.io/${{ github.repository }}/img, so TomHennen/... must be accepted.
+    run "$ACTION_DIR/validate_inputs.sh" "pkg/foo" "ghcr.io" "ghcr.io/TomHennen/Img" "enabled"
+    [[ "$status" -eq 0 ]]
+    grep -q '^imagename=ghcr.io/tomhennen/img$' "$GITHUB_OUTPUT"
+}
+
 @test "container: validate_inputs.sh at root '.' emits an empty shortname (clean names)" {
     run "$ACTION_DIR/validate_inputs.sh" "." "ghcr.io" "ghcr.io/owner/img" "enabled"
     [[ "$status" -eq 0 ]]
