@@ -71,8 +71,8 @@ validate_catalog() {
             rc=1
         fi
 
-        # The token grant lets the host mint an OIDC token into the container, so
-        # it is confined to the curated attest toolbox — never a scan/sbom tool.
+        # A token grant is confined to the curated attest toolbox (kind: attest) —
+        # never a scan/sbom tool.
         token="$(read_catalog_field "$file" "$tool" token)"
         if [[ -n "$token" ]]; then
             if [[ ! "$token" =~ $CATALOG_TOKEN_RE ]]; then
