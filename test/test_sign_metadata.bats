@@ -19,6 +19,9 @@ setup() {
     export WRANGLE_RETRY_DELAY=0
     # shellcheck source=../lib/sign_metadata.sh
     source "$LIB"
+    # Signing always containerizes; make the toolbox path transparent so the
+    # assemble/seed tests exercise their tool stubs. Recording-docker tests override.
+    wrangle_stub_toolbox_transparent
 }
 
 teardown() {
@@ -264,7 +267,7 @@ STUB
     [[ "$output" == *"no signed metadata"* ]]
 }
 
-# --- containerized signing (the attest-toolbox image under the grant + opt-in) ---
+# --- containerized signing (the attest-toolbox image under the token grant) ---
 
 _toolbox_image="ghcr.io/tomhennen/wrangle/attest-toolbox@sha256:0000000000000000000000000000000000000000000000000000000000000000"
 
@@ -291,7 +294,6 @@ EOF
 JSON
     export PATH="$TEST_DIR:$PATH"
     export WRANGLE_CATALOG="$TEST_DIR/catalog.json"
-    export WRANGLE_VERIFY_AMPEL_TOOLBOX=1
     export ACTIONS_ID_TOKEN_REQUEST_URL="https://oidc.example/token"
     export ACTIONS_ID_TOKEN_REQUEST_TOKEN="request-bearer-secret"
     export GITHUB_TOKEN="registry-token"
@@ -345,23 +347,24 @@ JSON
     ! grep -q -- "-e SIGSTORE_ID_TOKEN" "$TEST_DIR/docker.args"
 }
 
-@test "sign_metadata: break-glass (opt-in off) keeps metadata signing on the in-job binary" {
-    # No container stubs: the in-job wrangle-attest arg vector is unchanged.
-    cat > "$TEST_DIR/wrangle-attest" <<STUB
+@test "sign_metadata: a missing token: sigstore grant fails closed (no docker, no in-job sign)" {
+    _stub_toolbox_container
+    # Strip the grant: signing must fail closed, never fall back to an in-job sign.
+    printf '{"tools":{"attest-toolbox":{"kind":"attest","image":"%s","network":"egress"}}}\n' \
+        "$_toolbox_image" > "$TEST_DIR/catalog.json"
+    cat > "$TEST_DIR/wrangle-attest" <<EOF
 #!/bin/bash
-printf '%s\n' "\$@" > "$TEST_DIR/attest.args"
-for a in "\$@"; do case "\$a" in --out=*) printf '{}' > "\${a#--out=}";; esac; done
-STUB
+touch "$TEST_DIR/attest.called"
+EOF
     chmod +x "$TEST_DIR/wrangle-attest"
-    export PATH="$TEST_DIR:$PATH"
-    local meta="$TEST_DIR/meta"; mkdir -p "$meta"
-    printf '{}' > "$meta/wrangle_attestation_metadata.json"
+    local meta="$TEST_DIR/meta"; mkdir -p "$meta"; printf '{}' > "$meta/wrangle_attestation_metadata.json"
     export METADATA_ROOT="$meta" COMMIT="abc123"
     local sha; sha="$(printf '0%.0s' {1..64})"
-    wrangle_sign_metadata_statements "sha256:$sha" "$TEST_DIR/out.jsonl"
-    grep -qx -- "--subject=sha256:$sha" "$TEST_DIR/attest.args"
-    grep -qx -- "--sign" "$TEST_DIR/attest.args"
+    run wrangle_sign_metadata_statements "sha256:$sha" "$TEST_DIR/out.jsonl"
+    [ "$status" -ne 0 ]
+    grep -q "lacks the token: sigstore grant" <<< "$output"
     [ ! -f "$TEST_DIR/docker.args" ]
+    [ ! -f "$TEST_DIR/attest.called" ]
 }
 
 @test "sign_metadata: relative METADATA_ROOT never becomes an invalid relative -v (blocker guard)" {

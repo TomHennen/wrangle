@@ -43,10 +43,9 @@ jobs:
           - path: tools/osv
             imagename: ghcr.io/tomhennen/wrangle/osv
           # The attest/verify toolbox (ampel + bnd + cosign + wrangle-attest in
-          # one image). Built like the scan images, but it is not a sandboxed
-          # adapter — it is the SLSA-L3 signing path that needs network + the
-          # OIDC token at run time, consumed under the pinned catalog digest by
-          # the containerized signing above (verify-in-container).
+          # one image). Built like the scan images, but it is the SLSA-L3 signing
+          # path that needs network + the OIDC token at run time, consumed under
+          # the pinned catalog digest by the containerized signing.
           - path: tools/attest-toolbox
             imagename: ghcr.io/tomhennen/wrangle/attest-toolbox
           - path: tools/wrangle-lint
@@ -62,9 +61,6 @@ jobs:
       imagename: ${{ matrix.imagename }}
       registry: ghcr.io
       release-events: main-and-tags
-      # Dogfood containerized signing: sign each image's VSA inside the curated,
-      # VSA-verified attest-toolbox (consume-the-pin, #619). Break-glass: set false.
-      verify-in-container: true
     secrets:
       gh_token: ${{ secrets.GITHUB_TOKEN }}
 

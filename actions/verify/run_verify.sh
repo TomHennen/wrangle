@@ -105,17 +105,12 @@ wrangle_bnd_sign_args() {
     printf '%s\n' statement "$1"
 }
 
-# Dispatch ampel: the in-job binary, or — under the WRANGLE_VERIFY_AMPEL_TOOLBOX
-# opt-in — the catalog's attest-toolbox image, VSA-verified host-side before it
-# runs (the host is the verifier, never the container). Verify never signs, so no
-# signing token enters the container; an oci: collector additionally gets the
-# job's registry login and GITHUB_TOKEN to read attestations from ghcr.
+# Run ampel verify in the VSA-gated toolbox image. The bundle, results path, and
+# (relative) BUNDLE_OUT ride the workspace/temp mounts; only the policy dir needs
+# an extra mount — a disk policy resolves under the action checkout, outside the
+# workspace (a *://* locator is fetched, not read). An oci: collector reads
+# attestations from ghcr, so it also gets the job's registry login and token.
 wrangle_ampel() {
-    wrangle_toolbox_optin || { ampel "$@"; return; }
-    # The bundle, results path, and (relative) BUNDLE_OUT ride the workspace/temp
-    # mounts wrangle_toolbox_exec sets up. Only the policy dir needs an extra
-    # mount: a disk policy resolves under the action checkout, outside the
-    # workspace; a network locator (*://*) is fetched, not read from disk.
     local policy
     policy="$(wrangle_resolve_policy "$POLICY")"
     local -a extra=()
@@ -123,8 +118,6 @@ wrangle_ampel() {
         *://*) ;;
         *)     extra+=(--mount "$(dirname "$policy")") ;;
     esac
-    # An oci: collector reads attestations from ghcr; give it the job's registry
-    # login and GITHUB_TOKEN. No signing token — verify never signs.
     [[ -n "${COLLECTOR:-}" ]] && extra+=(--docker-config --env GITHUB_TOKEN)
     wrangle_toolbox_exec "${extra[@]}" -- ampel "$@"
 }
@@ -158,27 +151,19 @@ wrangle_verify_emit_vsa() {
     return "$rc"
 }
 
-# bnd-sign the unsigned VSA at $1 in place; the signed statement lands at $1.
-# Under the grant + opt-in the sign runs in the toolbox container (minting a
-# step-local SIGSTORE_ID_TOKEN, threaded by name); otherwise the in-job bnd signs
-# byte-for-byte (the break-glass revert).
+# bnd-sign the unsigned VSA at $1 in place (in the toolbox container, minting a
+# step-local SIGSTORE_ID_TOKEN threaded by name); the signed statement lands at $1.
 wrangle_sign_vsa() {
     local vsa="$1"
     local args
     mapfile -t args < <(wrangle_bnd_sign_args "$vsa.unsigned")
     mv "$vsa" "$vsa.unsigned"
     local rc=0
-    if wrangle_toolbox_signing_enabled; then
-        # The unsigned VSA rides the workspace/temp mounts; fail closed on a mint
-        # failure rather than leaking the request vars to an in-job fallback.
-        if wrangle_mint_sigstore_token; then
-            wrangle_retry_once "$vsa" wrangle_toolbox_exec \
-                --env SIGSTORE_ID_TOKEN -- bnd "${args[@]}" || rc=$?
-        else
-            rc=1
-        fi
+    if wrangle_mint_sigstore_token; then
+        wrangle_retry_once "$vsa" wrangle_toolbox_exec \
+            --env SIGSTORE_ID_TOKEN -- bnd "${args[@]}" || rc=$?
     else
-        wrangle_retry_once "$vsa" bnd "${args[@]}" || rc=$?
+        rc=1
     fi
     rm -f "$vsa.unsigned"
     return "$rc"

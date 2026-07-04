@@ -90,16 +90,6 @@ on:
         required: false
         type: string
         default: policies/wrangle-default-container-v1.hjson
-      verify-in-container:
-        description: |
-          Run the attest/verify signing (bnd/cosign/wrangle-attest/ampel) inside
-          the curated, VSA-verified attest-toolbox image instead of in-job
-          from-source binaries. Default false (in-job). Requires the catalog's
-          attest-toolbox token: sigstore grant; set WRANGLE_VERIFY_AMPEL_TOOLBOX=0
-          in the environment to force in-job as a break-glass.
-        required: false
-        type: boolean
-        default: false
     secrets:
       gh_token:
         description: "GitHub token with write access"
@@ -238,9 +228,6 @@ jobs:
       attestations: write   # write the attestations to GitHub's store
       packages: write       # push the provenance + metadata referrers to ghcr
       contents: read
-    env:
-      # Opt into containerized signing; the composite action's steps inherit this.
-      WRANGLE_VERIFY_AMPEL_TOOLBOX: ${{ inputs.verify-in-container }}
     steps:
       # push-to-registry / cosign attach authenticate to ghcr with the job's
       # GITHUB_TOKEN, like the build and verify jobs. Same pin as the verify
@@ -285,9 +272,6 @@ jobs:
       id-token: write       # bnd keyless-signs the VSA via this workflow's OIDC identity
       attestations: write   # post the VSA to the GitHub attestation store
       packages: write       # push the VSA referrer to ghcr
-    env:
-      # Opt into containerized signing; the composite action's steps inherit this.
-      WRANGLE_VERIFY_AMPEL_TOOLBOX: ${{ inputs.verify-in-container }}
     steps:
       # Pushing the VSA referrer to ghcr needs registry auth. Same pin as
       # the attest job's cosign-installer — bump in lockstep.

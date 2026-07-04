@@ -1,17 +1,13 @@
 #!/bin/bash
-# lib/toolbox_run.sh — shared primitives for running wrangle's signing/verify
-# toolbox (cosign, ampel, bnd, wrangle-attest) inside the curated attest-toolbox
-# image. Sourced by actions/verify/run_verify.sh and lib/sign_metadata.sh; each
-# signer helper containerizes only when the grant + opt-in are present, and runs
-# the in-job binary byte-for-byte otherwise (the break-glass revert).
+# lib/toolbox_run.sh — run wrangle's signing/verify toolbox (cosign, ampel, bnd,
+# wrangle-attest) inside the curated attest-toolbox image. Sourced by
+# actions/verify/run_verify.sh and lib/sign_metadata.sh.
 #
 # Provides:
-#   wrangle_toolbox_optin            — the WRANGLE_VERIFY_AMPEL_TOOLBOX toggle
-#   wrangle_toolbox_signing_enabled  — optin AND the catalog token: sigstore grant
-#   wrangle_toolbox_image            — resolve, digest-pin-check, VSA-gate (memoized)
-#   wrangle_toolbox_network          — the catalog network as a docker --network
-#   wrangle_mint_sigstore_token      — mint aud=sigstore SIGSTORE_ID_TOKEN, step-local
-#   wrangle_toolbox_exec             — one hardened docker run of the toolbox image
+#   wrangle_toolbox_image        — resolve, digest-pin-check, VSA-gate (memoized)
+#   wrangle_toolbox_network      — the catalog network as a docker --network
+#   wrangle_mint_sigstore_token  — mint aud=sigstore SIGSTORE_ID_TOKEN, step-local
+#   wrangle_toolbox_exec         — one hardened docker run of the toolbox image
 
 set -euo pipefail
 set -f
@@ -29,29 +25,10 @@ _wrangle_toolbox_catalog() {
     printf '%s\n' "${WRANGLE_CATALOG:-$_TOOLBOX_RUN_DIR/../tools/catalog.json}"
 }
 
-# True when the opt-in toggle selects the toolbox image over the in-job binary.
-wrangle_toolbox_optin() {
-    case "${WRANGLE_VERIFY_AMPEL_TOOLBOX:-}" in
-        1|true) return 0 ;;
-        *)      return 1 ;;
-    esac
-}
-
-# True when signing may run in-container: the opt-in AND the catalog's
-# attest-toolbox carrying the token: sigstore grant. Absent grant keeps signing
-# in-job even under the opt-in, so a container never signs without a declared
-# token grant.
-wrangle_toolbox_signing_enabled() {
-    wrangle_toolbox_optin || return 1
-    [[ "$(read_catalog_field "$(_wrangle_toolbox_catalog)" "$WRANGLE_TOOLBOX_TOOL" token)" == "sigstore" ]]
-}
-
 # Resolve the toolbox image, assert it is @sha256:-digest-pinned, and VSA-gate it
-# fail-closed before any container consumes it. Memoized: the digest is immutable
-# within a step, so the gate's network verify runs once and every later docker run
-# reuses the verdict. Echoes the image on success; returns 2 (no docker) on a
-# missing/unpinned image or a non-PASSED VSA. WRANGLE_VERIFY_TOOL_IMAGES=0 is the
-# sustained-Sigstore-outage break-glass that skips the gate.
+# before any container consumes it. Memoized so the network verify runs once per
+# step. Echoes the image; returns 2 (no docker) on a missing/unpinned image or a
+# non-PASSED VSA. WRANGLE_VERIFY_TOOL_IMAGES=0 skips the gate for a Sigstore outage.
 _WRANGLE_TOOLBOX_IMAGE_VERIFIED=""
 wrangle_toolbox_image() {
     if [[ -n "$_WRANGLE_TOOLBOX_IMAGE_VERIFIED" ]]; then
@@ -89,21 +66,23 @@ wrangle_toolbox_network() {
     esac
 }
 
-# Mint an aud=sigstore SIGSTORE_ID_TOKEN from the ambient GitHub OIDC request vars
-# into this process's env only — never GITHUB_ENV, so it stays step-local. The
-# in-container gitlab provider of carabiner-dev/signer redeems it verbatim; the
-# request-URL vars stay on the host, so the container cannot mint a token for any
-# other audience. Idempotent within a step. Returns 2 when the request vars are
-# absent (the job lacks id-token: write).
+# Mint an aud=sigstore SIGSTORE_ID_TOKEN into this process's env only (never
+# GITHUB_ENV, so it stays step-local); the in-container gitlab provider redeems it
+# verbatim while the request-URL vars stay on the host. Idempotent within a step.
+# Fails closed (2) if the catalog lacks the token: sigstore grant or the job lacks
+# id-token: write — there is no in-job fallback.
 wrangle_mint_sigstore_token() {
     [[ -n "${SIGSTORE_ID_TOKEN:-}" ]] && return 0
-    local url="${ACTIONS_ID_TOKEN_REQUEST_URL:-}" reqtok="${ACTIONS_ID_TOKEN_REQUEST_TOKEN:-}"
-    if [[ -z "$url" || -z "$reqtok" ]]; then
-        printf 'wrangle: cannot mint SIGSTORE_ID_TOKEN — ambient OIDC request vars absent (job needs id-token: write)\n' >&2
+    if [[ "$(read_catalog_field "$(_wrangle_toolbox_catalog)" "$WRANGLE_TOOLBOX_TOOL" token)" != "sigstore" ]]; then
+        printf 'wrangle: %s lacks the token: sigstore grant — cannot mint a signing token\n' "$WRANGLE_TOOLBOX_TOOL" >&2
         return 2
     fi
-    # Pass the bearer via stdin (-H @-), never on curl's argv, so it never lands
-    # on /proc/<pid>/cmdline — the in-job signer reads it from env, not argv.
+    local url="${ACTIONS_ID_TOKEN_REQUEST_URL:-}" reqtok="${ACTIONS_ID_TOKEN_REQUEST_TOKEN:-}"
+    if [[ -z "$url" || -z "$reqtok" ]]; then
+        printf 'wrangle: signing requires a Sigstore OIDC token but the job lacks id-token: write\n' >&2
+        return 2
+    fi
+    # Bearer on stdin (-H @-), never argv, so it never lands on /proc/<pid>/cmdline.
     local resp token
     if ! resp="$(printf 'Authorization: bearer %s\n' "$reqtok" \
         | curl -sSf --retry 2 -H @- "${url}&audience=sigstore")"; then
@@ -131,21 +110,14 @@ wrangle_toolbox_add_mount() {
 }
 
 # One hardened docker run of the VSA-gated toolbox image. The workspace ($PWD) and
-# RUNNER_TEMP are bind-mounted at their own paths and the container working dir is
-# set to $PWD, so the SAME relative METADATA_ROOT/SUBJECTS and relative command
-# args wrangle passes resolve exactly as the in-job binary's do — no argv
-# divergence, and docker's absolute-path requirement for -v is met by the process
-# cwd. Flags precede a `--` separator, then the in-container command:
-#   --mount <dir>      add an extra read-only bind (e.g. the policy dir, which
-#                      ships in the action checkout outside the workspace)
-#   --env <NAME>       thread the host env var NAME by name only, never by value
-#                      (its value never lands on docker's argv)
-#   --docker-config    mount the runner's registry credentials read-only so
-#                      cosign/ampel reach ghcr with the job's login
-#   --                 end of flags; the rest is the command run in the image
-# The token-minting request vars are never threaded; callers pass only
-# SIGSTORE_ID_TOKEN and/or GITHUB_TOKEN via --env. No retry/capture here — callers
-# wrap this in wrangle_retry_once exactly where they wrap the in-job binary.
+# RUNNER_TEMP are bind-mounted at their own paths and the working dir is set to
+# $PWD, so wrangle's relative METADATA_ROOT/SUBJECTS/command args resolve exactly
+# as in-job (docker -v needs absolute paths; wrangle passes relative). Flags
+# precede a `--`, then the in-container command:
+#   --mount <dir>      extra read-only bind (e.g. the policy dir, outside $PWD)
+#   --env <NAME>       thread host var NAME by name only, never its value on argv
+#   --docker-config    mount the runner's registry credentials read-only
+#   --                 end of flags
 wrangle_toolbox_exec() {
     local -a mounts=() env_flags=(-e HOME=/tmp)
     local workdir="$PWD"

@@ -56,15 +56,9 @@ wrangle_sign_metadata_statements() {
     fi
     local args
     mapfile -t args < <(wrangle_attest_args "$subject_arg" "$stmts")
-    if wrangle_toolbox_signing_enabled; then
-        # A mint failure fails closed under the grant+opt-in — never falls back to
-        # an in-job sign that would leak the request vars to the from-source binary.
-        wrangle_mint_sigstore_token || return 1
-        wrangle_retry_once /dev/null wrangle_toolbox_exec \
-            --env SIGSTORE_ID_TOKEN -- wrangle-attest "${args[@]}"
-    else
-        wrangle_retry_once /dev/null wrangle-attest "${args[@]}"
-    fi
+    wrangle_mint_sigstore_token || return 1
+    wrangle_retry_once /dev/null wrangle_toolbox_exec \
+        --env SIGSTORE_ID_TOKEN -- wrangle-attest "${args[@]}"
 }
 
 # Post the signed statement at $1 to the GitHub attestation store. Fails closed:
@@ -72,12 +66,8 @@ wrangle_sign_metadata_statements() {
 wrangle_push_store() {
     local args
     mapfile -t args < <(wrangle_bnd_push_args "$GITHUB_REPOSITORY" "$1")
-    if wrangle_toolbox_signing_enabled; then
-        wrangle_retry_once /dev/null wrangle_toolbox_exec \
-            --env GITHUB_TOKEN -- bnd "${args[@]}"
-    else
-        wrangle_retry_once /dev/null bnd "${args[@]}"
-    fi
+    wrangle_retry_once /dev/null wrangle_toolbox_exec \
+        --env GITHUB_TOKEN -- bnd "${args[@]}"
 }
 
 # Build the cosign arg vector that pushes a single signed statement as an OCI
@@ -97,12 +87,8 @@ wrangle_push_oci_referrer() {
     [[ -z "${OCI_TARGET:-}" ]] && return 0
     local args
     mapfile -t args < <(wrangle_cosign_attach_args "$1" "$OCI_TARGET")
-    if wrangle_toolbox_signing_enabled; then
-        wrangle_retry_once /dev/null wrangle_toolbox_exec \
-            --docker-config --env GITHUB_TOKEN -- cosign "${args[@]}"
-    else
-        wrangle_retry_once /dev/null cosign "${args[@]}"
-    fi
+    wrangle_retry_once /dev/null wrangle_toolbox_exec \
+        --docker-config --env GITHUB_TOKEN -- cosign "${args[@]}"
 }
 
 # Build the cosign arg vector that downloads an image's attestation referrers as
@@ -126,11 +112,7 @@ wrangle_seed_bundle() {
         # Keep only the SLSA provenance envelopes (download emits all referrers,
         # including prior VSAs); a jq decode failure must fail, not seed empty.
         downloaded="$(mktemp "${RUNNER_TEMP:-/tmp}/seed.XXXXXX")"
-        if wrangle_toolbox_signing_enabled; then
-            wrangle_toolbox_exec --docker-config --env GITHUB_TOKEN -- cosign "${args[@]}" > "$downloaded"
-        else
-            cosign "${args[@]}" > "$downloaded"
-        fi
+        wrangle_toolbox_exec --docker-config --env GITHUB_TOKEN -- cosign "${args[@]}" > "$downloaded"
         if ! jq -ce "select((.dsseEnvelope.payload | @base64d | fromjson | .predicateType) == \"$WRANGLE_PROVENANCE_PREDICATE\")" \
             "$downloaded" > "$seed"; then
             rm -f "$downloaded"
