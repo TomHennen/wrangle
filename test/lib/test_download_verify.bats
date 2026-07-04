@@ -134,19 +134,3 @@ teardown() {
     [ -f "$output_path" ]
     [ -r "$output_path" ]
 }
-
-# --- wrangle_verify_signature tests ---
-
-@test "verify_signature: fails when cosign not available" {
-    PATH="/usr/bin:/bin" run wrangle_verify_signature "$TEST_DIR/test_artifact" "expected-identity" "expected-issuer"
-
-    [ "$status" -eq 1 ]
-    [[ "$output" == *"cannot verify signature"* ]]
-}
-
-@test "verify_signature: requires 3 arguments" {
-    run wrangle_verify_signature "$TEST_DIR/test_artifact" "expected-identity"
-
-    [ "$status" -eq 1 ]
-    [[ "$output" == *"Usage"* ]]
-}

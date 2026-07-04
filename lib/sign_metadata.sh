@@ -106,7 +106,9 @@ wrangle_seed_bundle() {
         # Keep only the SLSA provenance envelopes (download emits all referrers,
         # including prior VSAs); a jq decode failure must fail, not seed empty.
         downloaded="$(mktemp "${RUNNER_TEMP:-/tmp}/seed.XXXXXX")"
-        cosign "${args[@]}" > "$downloaded"
+        # Retry once like every other registry call here: a transient blip on
+        # the seed download must not fail the whole attest job.
+        wrangle_retry_once "$downloaded" cosign "${args[@]}"
         if ! jq -ce "select((.dsseEnvelope.payload | @base64d | fromjson | .predicateType) == \"$WRANGLE_PROVENANCE_PREDICATE\")" \
             "$downloaded" > "$seed"; then
             rm -f "$downloaded"
