@@ -154,7 +154,7 @@ jobs:
       metadata-pre: ${{ steps.prep.outputs.metadata-pre }}
     steps:
       # TODO: replace with $/actions/prep when GitHub ships $/ syntax (#136)
-      - uses: TomHennen/wrangle/actions/prep@ef6df5b6bf93265c84f42424e5a28ac345e073d1 # fix/build-robustness-697 2026-07-04
+      - uses: TomHennen/wrangle/actions/prep@ce7f455ccd3b5fcf8999f89d5dbe54bdb951e620 # fix/depreview-md-best-effort 2026-07-04
         id: prep
         with:
           build-type: npm
@@ -173,7 +173,7 @@ jobs:
       security-events: write
     steps:
       # TODO: replace with $/actions/scan when GitHub ships $/ syntax (#136)
-      - uses: TomHennen/wrangle/actions/scan@ef6df5b6bf93265c84f42424e5a28ac345e073d1 # fix/build-robustness-697 2026-07-04
+      - uses: TomHennen/wrangle/actions/scan@ce7f455ccd3b5fcf8999f89d5dbe54bdb951e620 # fix/depreview-md-best-effort 2026-07-04
         if: ${{ inputs.scan-tools != '' }}
         with:
           checkout: "true"
@@ -210,7 +210,7 @@ jobs:
           ref: ${{ inputs.ref || '' }}
 
       # TODO: replace with $/build/actions/npm when GitHub ships $/ syntax (#136)
-      - uses: TomHennen/wrangle/build/actions/npm@ef6df5b6bf93265c84f42424e5a28ac345e073d1 # fix/build-robustness-697 2026-07-04
+      - uses: TomHennen/wrangle/build/actions/npm@ce7f455ccd3b5fcf8999f89d5dbe54bdb951e620 # fix/depreview-md-best-effort 2026-07-04
         id: build
         with:
           path: ${{ inputs.path }}
@@ -289,7 +289,7 @@ jobs:
       bundles-artifact-name: ${{ steps.attest.outputs.bundles-artifact-name }}
     steps:
       # TODO: replace with $/actions/attest_provenance when GitHub ships $/ syntax (#136)
-      - uses: TomHennen/wrangle/actions/attest_provenance@ef6df5b6bf93265c84f42424e5a28ac345e073d1 # fix/build-robustness-697 2026-07-04
+      - uses: TomHennen/wrangle/actions/attest_provenance@ce7f455ccd3b5fcf8999f89d5dbe54bdb951e620 # fix/depreview-md-best-effort 2026-07-04
         id: attest
         with:
           build-type: npm
@@ -312,7 +312,7 @@ jobs:
       contents: write       # create the release if absent and attach the bundle on tag pushes
     steps:
       # TODO: replace with $/actions/verify_release when GitHub ships $/ syntax (#136)
-      - uses: TomHennen/wrangle/actions/verify_release@ef6df5b6bf93265c84f42424e5a28ac345e073d1 # fix/build-robustness-697 2026-07-04
+      - uses: TomHennen/wrangle/actions/verify_release@ce7f455ccd3b5fcf8999f89d5dbe54bdb951e620 # fix/depreview-md-best-effort 2026-07-04
         with:
           build-type: npm
           shortname: ${{ needs.prep.outputs.shortname }}
