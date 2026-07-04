@@ -142,7 +142,7 @@ runs:
     # TODO: replace with $/tools/scorecard when $/ syntax ships (#136, #137)
     - name: Scorecard
       if: always() && contains(inputs.tools, 'scorecard') && github.event_name != 'pull_request'
-      uses: TomHennen/wrangle/tools/scorecard@ce7f455ccd3b5fcf8999f89d5dbe54bdb951e620 # fix/depreview-md-best-effort 2026-07-04
+      uses: TomHennen/wrangle/tools/scorecard@466bfa17dc07de6a78cbd5d4a047e8dcbf37b46f # fix/depreview-md-best-effort 2026-07-04
 
     # Dependency Review is PR-only — the upstream action requires
     # github.event.pull_request.base.sha / head.sha to compute the diff.
@@ -154,7 +154,7 @@ runs:
     # The wrapper's inline defaults (fail-on-severity: high) still apply.
     - name: Dependency Review
       if: always() && contains(inputs.tools, 'dependency-review') && github.event_name == 'pull_request'
-      uses: TomHennen/wrangle/tools/dependency-review@ce7f455ccd3b5fcf8999f89d5dbe54bdb951e620 # fix/depreview-md-best-effort 2026-07-04
+      uses: TomHennen/wrangle/tools/dependency-review@466bfa17dc07de6a78cbd5d4a047e8dcbf37b46f # fix/depreview-md-best-effort 2026-07-04
 
     - name: Generate step summary
       if: always()
