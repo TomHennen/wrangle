@@ -398,6 +398,24 @@ FAKE
     rm -rf "$fakebin" "$meta" "$out"
 }
 
+@test "container: extract_sbom.sh fails when the image carries no SBOM (null) and writes no manifest" {
+    # buildx's --format yields literal `null` for an SBOM-less image.
+    fakebin="$(mktemp -d)"
+    cat > "$fakebin/docker" << 'FAKE'
+#!/usr/bin/env bash
+printf 'null\n'
+FAKE
+    chmod +x "$fakebin/docker"
+    meta="$(mktemp -d)"
+    out="$(mktemp)"
+    PATH="$fakebin:$PATH" run "$ACTION_DIR/extract_sbom.sh" "img@sha256:abc" "$meta" "$out"
+    [[ "$status" -ne 0 ]]
+    [[ "$output" == *"no SPDX SBOM attached"* ]]
+    [[ ! -f "$meta/wrangle_attestation_metadata.json" ]]
+    [[ ! -s "$out" ]]
+    rm -rf "$fakebin" "$meta" "$out"
+}
+
 @test "container: extract_sbom.sh usage error on wrong arg count" {
     run "$ACTION_DIR/extract_sbom.sh" "img@sha256:abc"
     [[ "$status" -eq 2 ]]
