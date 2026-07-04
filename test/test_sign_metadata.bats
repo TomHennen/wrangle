@@ -332,7 +332,8 @@ JSON
 
 @test "sign_metadata: OCI referrer push runs in-container with the job's registry login" {
     _stub_toolbox_container
-    export OCI_TARGET="ghcr.io/o/r/img@sha256:$(printf '0%.0s' {1..64})"
+    local sha; sha="$(printf '0%.0s' {1..64})"
+    export OCI_TARGET="ghcr.io/o/r/img@sha256:$sha"
     export HOME="$TEST_DIR"; mkdir -p "$TEST_DIR/.docker"
     printf 'stmt\n' > "$TEST_DIR/line.json"
     wrangle_push_oci_referrer "$TEST_DIR/line.json"
