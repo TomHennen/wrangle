@@ -486,6 +486,23 @@ expect_fail_closed() {
     [ "$output" -ge 1 ]
 }
 
+# --- Consumer policy: the documented one-command adopter check -------------
+# Runs the nonstrict consumer PolicySet against the signed bundle's VSA the
+# same way docs/verifying_artifacts.md tells adopters to (the fixture's VSA is
+# branch-signed, which nonstrict accepts), and asserts the PASS assessment
+# echoes the VSA's verifiedLevels — the only place the ampel UX surfaces the
+# WRANGLE_* markers.
+@test "ampel policy: vsa-consumer-nonstrict PASSES the signed VSA and echoes verifiedLevels" {
+    local rs="$BATS_TEST_TMPDIR/consumer.json"
+    run "$AMPEL" verify -p "$POLICIES_DIR/wrangle-vsa-consumer-nonstrict-v1.hjson" \
+        -s "$SIGNED_SUBJECT" -c "jsonl:$SIGNED_BUNDLE" \
+        -x "expectedResourceUri:pkg:pypi/wrangle-test-fixture@0.0.1.dev27905469742,sourceRepo:https://github.com/TomHennen/wrangle-test" \
+        --attest-results --attest-format=ampel --results-path="$rs" -f tty
+    [ "$status" -eq 0 ]
+    run jq -r '.predicate.results[] | select(.policy.id == "vsa-passed") | .eval_results[0].assessment.message' "$rs"
+    [[ "$output" == *"verifiedLevels: SLSA_BUILD_LEVEL_3"* ]]
+}
+
 # --- Cross-file invariant --------------------------------------------------
 
 @test "ampel policy: every upstream locator is SHA-pinned to one identical commit (§8 risk 8)" {

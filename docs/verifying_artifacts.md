@@ -150,9 +150,17 @@ verifies any wrangle-signed VSA.
 
 Beyond `SLSA_BUILD_LEVEL_3`, the VSA lists a `WRANGLE_*` marker per wrangle
 check that passed — the full set and their meaning are in
-[SPEC.md §Release verification](SPEC.md#release-verification). Gate on any of
-them the same way as the SLSA level:
-`jq -e '.predicate.verifiedLevels | index("WRANGLE_HAS_SBOM")'`.
+[SPEC.md §Release verification](SPEC.md#release-verification). The
+`ampel verify` commands above echo them in the PASS details
+(`verifiedLevels: SLSA_BUILD_LEVEL_3, WRANGLE_HAS_SBOM, …`). To read them
+straight from a release bundle, or gate on one (append
+`| grep -qx WRANGLE_HAS_SBOM`):
+
+```bash
+jq -r 'select(.dsseEnvelope).dsseEnvelope.payload | @base64d | fromjson
+  | select(.predicateType == "https://slsa.dev/verification_summary/v1")
+  | .predicate.verifiedLevels[]' <artifact>.intoto.jsonl
+```
 
 ## Without ampel: cosign + jq
 
