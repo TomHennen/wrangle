@@ -140,6 +140,22 @@ need to match the wrangle version the adopter builds with. The `-v1` in the
 policy filename is the contract version; any release tag carrying that file
 verifies any wrangle-signed VSA.
 
+## What `verifiedLevels` carries
+
+Beyond `SLSA_BUILD_LEVEL_3`, the VSA lists a `WRANGLE_*` marker per wrangle
+check that passed — the full set and their meaning are in
+[SPEC.md §Release verification](SPEC.md#release-verification). The
+`ampel verify` commands above echo them in the PASS details
+(`verifiedLevels: SLSA_BUILD_LEVEL_3, WRANGLE_HAS_SBOM, …`). To read them
+straight from a release bundle, or gate on one (append
+`| grep -qx WRANGLE_HAS_SBOM`):
+
+```bash
+jq -r 'select(.dsseEnvelope).dsseEnvelope.payload | @base64d | fromjson
+  | select(.predicateType == "https://slsa.dev/verification_summary/v1")
+  | .predicate.verifiedLevels[]' <artifact>.intoto.jsonl
+```
+
 ## Without ampel: cosign + jq
 
 cosign performs the same complete check, minus predicate-field reads — so a

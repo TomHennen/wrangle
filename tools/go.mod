@@ -120,7 +120,7 @@ require (
 	github.com/buildkite/interpolate v0.1.5 // indirect
 	github.com/buildkite/roko v1.4.0 // indirect
 	github.com/canonical/chisel-manifest v1.2.0 // indirect
-	github.com/carabiner-dev/ampel v1.3.0 // indirect
+	github.com/carabiner-dev/ampel v1.3.1 // indirect
 	github.com/carabiner-dev/attestation v0.2.1 // indirect
 	github.com/carabiner-dev/bnd v0.4.3 // indirect
 	github.com/carabiner-dev/collector v0.3.7 // indirect
@@ -269,7 +269,7 @@ require (
 	github.com/in-toto/in-toto-golang v0.11.0 // indirect
 	github.com/inconshreveable/mousetrap v1.1.0 // indirect
 	github.com/jbenet/go-context v0.0.0-20150711004518-d14ea06fba99 // indirect
-	github.com/jedib0t/go-pretty/v6 v6.8.0 // indirect
+	github.com/jedib0t/go-pretty/v6 v6.8.1 // indirect
 	github.com/jedisct1/go-minisign v0.0.0-20260527172527-a09352b57a22 // indirect
 	github.com/jellydator/ttlcache/v3 v3.4.0 // indirect
 	github.com/json-iterator/go v1.1.12 // indirect

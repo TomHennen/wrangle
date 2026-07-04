@@ -79,7 +79,9 @@
         // workflow's keyless identity (fail-closed). attest-build-provenance run
         // inside the reusable workflow makes the cert SAN that workflow's
         // job_workflow_ref; the ref varies (a tag or SHA the adopter pinned), so
-        // the regexp binds the workflow PATH and accepts any ref.
+        // the regexp binds the workflow PATH and accepts any ref. The release-tag
+        // identity is advisory-only input to the wrangle-release-pinned tenet,
+        // never an admission gate.
         identities: [
             {
                 id: "wrangle-builder"
@@ -87,6 +89,14 @@
                     mode: "regexp"
                     issuer: "^https://token\\.actions\\.githubusercontent\\.com$"
                     identity: "^https://github\\.com/TomHennen/wrangle/\\.github/workflows/build_and_publish_npm\\.yml@.+$"
+                }
+            }
+            {
+                id: "wrangle-builder-release-tag"
+                sigstore: {
+                    mode: "regexp"
+                    issuer: "^https://token\\.actions\\.githubusercontent\\.com$"
+                    identity: "^https://github\\.com/TomHennen/wrangle/\\.github/workflows/build_and_publish_npm\\.yml@refs/tags/v[0-9]+\\.[0-9]+\\.[0-9]+$"
                 }
             }
         ]
@@ -114,6 +124,28 @@
             source: { location: { uri: "git+https://github.com/carabiner-dev/policies@85078db9e808479feb0d1aec08299b8a93c85f11#slsa/slsa-build-point.json" } }
             identities: [ { ref: { id: "wrangle-builder" } } ]
             meta: { controls: [ { framework: "SLSA", class: "BUILD", id: "LEVEL_3" } ] }
+        }
+        {
+            // Advisory: a branch/SHA build SOFTFAILs here and still emits a
+            // PASSED VSA, just without the marker.
+            id: "wrangle-release-pinned"
+            meta: {
+                description: "Provenance was signed by a wrangle build workflow pinned at a release tag"
+                enforce: "OFF"
+                controls: [ { framework: "WRANGLE", id: "RELEASE_PINNED" } ]
+            }
+            identities: [ { ref: { id: "wrangle-builder" } }, { ref: { id: "wrangle-builder-release-tag" } } ]
+            tenets: [
+                {
+                    predicates: { types: ["https://slsa.dev/provenance/v1"] }
+                    code: "predicates[0].verification.identities.exists(i, i.id == 'wrangle-builder-release-tag')"
+                    assessment: { message: "Provenance signed by a release-tag-pinned wrangle workflow" }
+                    error: {
+                        message: "Provenance not signed by a release-tag-pinned wrangle workflow"
+                        guidance: "Pin the wrangle reusable workflow at a release tag (vX.Y.Z) to earn WRANGLE_RELEASE_PINNED"
+                    }
+                }
+            ]
         }
     ]
 }

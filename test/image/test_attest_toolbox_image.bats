@@ -58,7 +58,7 @@ wrangle_ampel_verify_in_image() {
 @test "attest-toolbox: ampel reports its version" {
     run docker run --rm "$IMG" ampel version
     [ "$status" -eq 0 ]
-    [[ "$output" == *v1.3.0* ]]
+    [[ "$output" == *v1.3.1* ]]
 }
 
 @test "attest-toolbox: cosign reports its version" {

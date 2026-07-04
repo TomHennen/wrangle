@@ -53,7 +53,12 @@
                     runtime: cel@v0
                     predicates: { types: ["https://slsa.dev/verification_summary/v1"] }
                     code: "size(predicates) > 0 && predicates[0].data.verificationResult == 'PASSED' && predicates[0].data.resourceUri == context.expectedResourceUri && predicates[0].data.verifiedLevels.exists(l, l == 'SLSA_BUILD_LEVEL_3')"
-                    assessment: { message: "VSA PASSED for the expected resource at SLSA Build L3" }
+                    outputs: {
+                        // Guarded: outputs evaluate even when the tenet FAILs,
+                        // and a missing field would error the eval instead.
+                        levels: { code: "size(predicates) > 0 && has(predicates[0].data.verifiedLevels) ? predicates[0].data.verifiedLevels.join(', ') : ''" }
+                    }
+                    assessment: { message: "VSA PASSED for the expected resource at SLSA Build L3. verifiedLevels: {{ .Outputs.levels }}" }
                     error: { message: "VSA check failed (result / resourceUri / verified-level mismatch)" }
                 }
             ]

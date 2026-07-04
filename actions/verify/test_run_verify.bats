@@ -114,8 +114,7 @@ teardown() {
     # A relative policy path is resolved to an absolute path under the action's checkout.
     printf '%s\n' "${args[@]}" | grep -qE -- "^--policy=/.*/policies/release\.json$"
     printf '%s\n' "${args[@]}" | grep -qx -- "--exit-code=true"
-    # Workers must exceed the largest tier's tenet count (strict: 8) or ampel
-    # drops the signer-identity match on the overflow tenets.
+    # Required while the catalog attest-toolbox ships pre-#298-fix ampel (#563).
     printf '%s\n' "${args[@]}" | grep -qxE -- "--workers=(8|9|[1-9][0-9]+)"
     printf '%s\n' "${args[@]}" | grep -qx -- "--attest-results"
     printf '%s\n' "${args[@]}" | grep -qx -- "--attest-format=vsa"
