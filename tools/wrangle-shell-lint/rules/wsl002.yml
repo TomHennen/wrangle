@@ -37,6 +37,9 @@ rule:
     - kind: pipeline
     - kind: list
     - kind: negated_command
+    - kind: test_command
+    - kind: unset_command
+    - kind: c_style_for_statement
   inside:
     kind: program
   nthChild:
