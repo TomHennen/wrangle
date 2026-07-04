@@ -102,8 +102,11 @@ wrangle_mint_sigstore_token() {
         printf 'wrangle: cannot mint SIGSTORE_ID_TOKEN — ambient OIDC request vars absent (job needs id-token: write)\n' >&2
         return 2
     fi
+    # Pass the bearer via stdin (-H @-), never on curl's argv, so it never lands
+    # on /proc/<pid>/cmdline — the in-job signer reads it from env, not argv.
     local resp token
-    if ! resp="$(curl -sSf --retry 2 -H "Authorization: bearer $reqtok" "${url}&audience=sigstore")"; then
+    if ! resp="$(printf 'Authorization: bearer %s\n' "$reqtok" \
+        | curl -sSf --retry 2 -H @- "${url}&audience=sigstore")"; then
         printf 'wrangle: failed to mint SIGSTORE_ID_TOKEN from the OIDC request endpoint\n' >&2
         return 1
     fi
@@ -115,9 +118,8 @@ wrangle_mint_sigstore_token() {
     export SIGSTORE_ID_TOKEN="$token"
 }
 
-# Append a bind mount (host path == container path, so the in-container command
-# reads the same absolute paths the in-job binary would) to the caller's mount-
-# flags array, deduped by path. $1 = array name, $2 = path, $3 = ro|rw.
+# Append a bind mount (host path == container path) to the caller's mount-flags
+# array, deduped by path. $1 = array name, $2 = path, $3 = ro|rw.
 wrangle_toolbox_add_mount() {
     local -n _arr="$1"
     local path="$2" mode="$3" flag i
@@ -128,9 +130,14 @@ wrangle_toolbox_add_mount() {
     _arr+=(-v "$flag")
 }
 
-# One hardened docker run of the VSA-gated toolbox image. Flags precede a `--`
-# separator, then the in-container command:
-#   -v <spec>          add a bind mount (repeatable)
+# One hardened docker run of the VSA-gated toolbox image. The workspace ($PWD) and
+# RUNNER_TEMP are bind-mounted at their own paths and the container working dir is
+# set to $PWD, so the SAME relative METADATA_ROOT/SUBJECTS and relative command
+# args wrangle passes resolve exactly as the in-job binary's do — no argv
+# divergence, and docker's absolute-path requirement for -v is met by the process
+# cwd. Flags precede a `--` separator, then the in-container command:
+#   --mount <dir>      add an extra read-only bind (e.g. the policy dir, which
+#                      ships in the action checkout outside the workspace)
 #   --env <NAME>       thread the host env var NAME by name only, never by value
 #                      (its value never lands on docker's argv)
 #   --docker-config    mount the runner's registry credentials read-only so
@@ -141,9 +148,13 @@ wrangle_toolbox_add_mount() {
 # wrap this in wrangle_retry_once exactly where they wrap the in-job binary.
 wrangle_toolbox_exec() {
     local -a mounts=() env_flags=(-e HOME=/tmp)
+    local workdir="$PWD"
+    wrangle_toolbox_add_mount mounts "$workdir" rw
+    [[ -n "${RUNNER_TEMP:-}" && "$RUNNER_TEMP" != "$workdir" ]] &&
+        wrangle_toolbox_add_mount mounts "$RUNNER_TEMP" rw
     while [[ "$#" -gt 0 ]]; do
         case "$1" in
-            -v)             mounts+=(-v "$2"); shift 2 ;;
+            --mount)        wrangle_toolbox_add_mount mounts "$2" ro; shift 2 ;;
             --env)          env_flags+=(-e "$2"); shift 2 ;;
             --docker-config)
                 local cfg="${DOCKER_CONFIG:-$HOME/.docker}"
@@ -159,7 +170,7 @@ wrangle_toolbox_exec() {
     net="$(wrangle_toolbox_network)"
     docker run --rm --network "$net" \
         --cap-drop ALL --security-opt no-new-privileges \
-        -u "$(id -u):$(id -g)" \
+        -u "$(id -u):$(id -g)" -w "$workdir" \
         "${mounts[@]}" "${env_flags[@]}" \
-        "$image" "$@"
+        -- "$image" "$@"
 }

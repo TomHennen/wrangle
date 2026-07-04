@@ -57,14 +57,11 @@ wrangle_sign_metadata_statements() {
     local args
     mapfile -t args < <(wrangle_attest_args "$subject_arg" "$stmts")
     if wrangle_toolbox_signing_enabled; then
-        wrangle_mint_sigstore_token
-        local -a m=()
-        wrangle_toolbox_add_mount m "$METADATA_ROOT" ro
-        wrangle_toolbox_add_mount m "$(dirname "$stmts")" rw
-        [[ "$subject_arg" == --artifact=* ]] &&
-            wrangle_toolbox_add_mount m "$(dirname "$subject")" ro
+        # A mint failure fails closed under the grant+opt-in — never falls back to
+        # an in-job sign that would leak the request vars to the from-source binary.
+        wrangle_mint_sigstore_token || return 1
         wrangle_retry_once /dev/null wrangle_toolbox_exec \
-            "${m[@]}" --env SIGSTORE_ID_TOKEN -- wrangle-attest "${args[@]}"
+            --env SIGSTORE_ID_TOKEN -- wrangle-attest "${args[@]}"
     else
         wrangle_retry_once /dev/null wrangle-attest "${args[@]}"
     fi
@@ -76,10 +73,8 @@ wrangle_push_store() {
     local args
     mapfile -t args < <(wrangle_bnd_push_args "$GITHUB_REPOSITORY" "$1")
     if wrangle_toolbox_signing_enabled; then
-        local -a m=()
-        wrangle_toolbox_add_mount m "$(dirname "$1")" ro
         wrangle_retry_once /dev/null wrangle_toolbox_exec \
-            "${m[@]}" --env GITHUB_TOKEN -- bnd "${args[@]}"
+            --env GITHUB_TOKEN -- bnd "${args[@]}"
     else
         wrangle_retry_once /dev/null bnd "${args[@]}"
     fi
@@ -103,10 +98,8 @@ wrangle_push_oci_referrer() {
     local args
     mapfile -t args < <(wrangle_cosign_attach_args "$1" "$OCI_TARGET")
     if wrangle_toolbox_signing_enabled; then
-        local -a m=()
-        wrangle_toolbox_add_mount m "$(dirname "$1")" ro
         wrangle_retry_once /dev/null wrangle_toolbox_exec \
-            "${m[@]}" --docker-config --env GITHUB_TOKEN -- cosign "${args[@]}"
+            --docker-config --env GITHUB_TOKEN -- cosign "${args[@]}"
     else
         wrangle_retry_once /dev/null cosign "${args[@]}"
     fi

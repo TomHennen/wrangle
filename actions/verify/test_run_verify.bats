@@ -1149,3 +1149,21 @@ EOF
     [ "$status" -ne 0 ]
     [ ! -f "$TEST_DIR/docker.args" ]
 }
+
+@test "wrangle_sign_vsa: grant + opt-in but a failed token mint fails closed (no docker, no in-job bnd)" {
+    _install_toolbox_shims
+    _stub_toolbox_catalog "$_toolbox_image" sigstore
+    # No mint curl and no request vars -> the mint fails; must not fall back in-job.
+    unset ACTIONS_ID_TOKEN_REQUEST_URL ACTIONS_ID_TOKEN_REQUEST_TOKEN SIGSTORE_ID_TOKEN
+    cat > "$TEST_DIR/bnd" <<EOF
+#!/bin/bash
+touch "$TEST_DIR/bnd.called"
+EOF
+    chmod +x "$TEST_DIR/bnd"
+    printf 'unsigned-vsa\n' > "$VSA"
+    PATH="$TEST_DIR:$PATH" WRANGLE_VERIFY_AMPEL_TOOLBOX=1 GITHUB_TOKEN=registry-token \
+        run wrangle_sign_vsa "$VSA"
+    [ "$status" -ne 0 ]
+    [ ! -f "$TEST_DIR/docker.args" ]
+    [ ! -f "$TEST_DIR/bnd.called" ]
+}

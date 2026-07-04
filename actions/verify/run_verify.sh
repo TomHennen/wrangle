@@ -112,22 +112,21 @@ wrangle_bnd_sign_args() {
 # job's registry login and GITHUB_TOKEN to read attestations from ghcr.
 wrangle_ampel() {
     wrangle_toolbox_optin || { ampel "$@"; return; }
-    local results_dir policy
-    results_dir="$(cd "$(dirname "${WRANGLE_AMPEL_RESULTS:?wrangle_ampel needs WRANGLE_AMPEL_RESULTS set}")" && pwd)"
-    # Mount the resolved policy's actual parent, not a hardcoded policies/: a
-    # relative policy resolves to $REPO_ROOT/<policy>, which may sit elsewhere. A
-    # network locator (*://*) is fetched, not read from disk, so it needs no mount.
+    # The bundle, results path, and (relative) BUNDLE_OUT ride the workspace/temp
+    # mounts wrangle_toolbox_exec sets up. Only the policy dir needs an extra
+    # mount: a disk policy resolves under the action checkout, outside the
+    # workspace; a network locator (*://*) is fetched, not read from disk.
+    local policy
     policy="$(wrangle_resolve_policy "$POLICY")"
-    local -a m=()
-    wrangle_toolbox_add_mount m "$BUNDLE_OUT" ro
+    local -a extra=()
     case "$policy" in
         *://*) ;;
-        *)     wrangle_toolbox_add_mount m "$(dirname "$policy")" ro ;;
+        *)     extra+=(--mount "$(dirname "$policy")") ;;
     esac
-    wrangle_toolbox_add_mount m "$results_dir" rw
-    local -a extra=()
-    [[ -n "${COLLECTOR:-}" ]] && extra=(--docker-config --env GITHUB_TOKEN)
-    wrangle_toolbox_exec "${m[@]}" "${extra[@]}" -- ampel "$@"
+    # An oci: collector reads attestations from ghcr; give it the job's registry
+    # login and GITHUB_TOKEN. No signing token — verify never signs.
+    [[ -n "${COLLECTOR:-}" ]] && extra+=(--docker-config --env GITHUB_TOKEN)
+    wrangle_toolbox_exec "${extra[@]}" -- ampel "$@"
 }
 
 # ampel verify one subject -> unsigned VSA at $2, streaming the report to the
@@ -148,8 +147,6 @@ wrangle_verify_emit_vsa() {
     # the policy verdict, and piping straight into the truncating sanitizer could
     # SIGPIPE ampel and flip a PASS into a blocked release.
     report="$(mktemp)"
-    # The container ampel path (opt-in) mounts the dir holding the unsigned VSA.
-    local WRANGLE_AMPEL_RESULTS="$results_path"
     wrangle_retry_once "$report" wrangle_ampel "${args[@]}" || rc=$?
     wrangle_sanitize_output < "$report" >> "$GITHUB_STEP_SUMMARY"
     # The step summary is easy to miss, so echo a failed report to the job log.
@@ -172,11 +169,11 @@ wrangle_sign_vsa() {
     mv "$vsa" "$vsa.unsigned"
     local rc=0
     if wrangle_toolbox_signing_enabled; then
+        # The unsigned VSA rides the workspace/temp mounts; fail closed on a mint
+        # failure rather than leaking the request vars to an in-job fallback.
         if wrangle_mint_sigstore_token; then
-            local -a m=()
-            wrangle_toolbox_add_mount m "$(dirname "$vsa")" ro
             wrangle_retry_once "$vsa" wrangle_toolbox_exec \
-                "${m[@]}" --env SIGSTORE_ID_TOKEN -- bnd "${args[@]}" || rc=$?
+                --env SIGSTORE_ID_TOKEN -- bnd "${args[@]}" || rc=$?
         else
             rc=1
         fi
