@@ -53,15 +53,18 @@ MAX_RUN_LINES = 10
 
 # R2: an interpolation of a typed input or the webhook event payload. These are
 # attacker-influenced and must never be spliced into a shell command directly.
+# A full `${{ … }}` expression is matched to its `}}` terminator (not the first
+# `}`) and with DOTALL, so a root wrapped in `format('{0}', github.event.x)` or
+# split across physical lines can't slip the interior check.
+EXPR_RE = re.compile(r"\$\{\{(.*?)\}\}", re.DOTALL)
 # `inputs` / `github` are matched only as expression roots (the lookbehind
 # rejects a leading `.` or word char) so sibling contexts that merely end in
 # `inputs` — `${{ matrix.inputs }}`, `${{ steps.x.outputs.inputs }}` — are not
 # false-flagged. `inputs` must be followed by `.`/`[` (a typed-input access).
 # `github.head_ref` / `github.ref_name` are attacker-influenced refs (the
 # classic pull_request_target injection vector), so they are flagged too.
-INJECTION_RE = re.compile(
-    r"\$\{\{[^}]*?(?<![.\w])"
-    r"(?:inputs\s*[.\[]|github\.(?:event\b|head_ref\b|ref_name\b))"
+INJECTION_ROOT_RE = re.compile(
+    r"(?<![.\w])(?:inputs\s*[.\[]|github\.(?:event\b|head_ref\b|ref_name\b))"
 )
 
 # R4: steps whose purpose is verifying provenance / attestations / signatures /
@@ -189,13 +192,14 @@ def check_run_rules(path, run_node, raw_lines, findings):
             )
         )
 
-    # R2 — expression injection inside a run body. node.value holds the
-    # literal shell text for block scalars; search it line by line so the
-    # report points at the offending line, not the run: indicator.
+    # R2 — expression injection inside a run body. node.value holds the literal
+    # shell text for block scalars; scan whole `${{ … }}` expressions (which may
+    # span lines) and report the line where each offending expression opens.
     body = scalar_text(run_node)
     base = run_node.start_mark.line + (1 if run_node.style in ("|", ">") else 0)
-    for offset, text in enumerate(body.splitlines()):
-        if INJECTION_RE.search(text):
+    for m in EXPR_RE.finditer(body):
+        if INJECTION_ROOT_RE.search(m.group(1)):
+            offset = body[: m.start()].count("\n")
             findings.append(
                 Finding(
                     path,

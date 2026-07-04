@@ -677,6 +677,42 @@ SCRIPT
     [[ "$output" == *"WSL002"* ]]
 }
 
+@test "WSL001: test_command as first top-level node is flagged (regression)" {
+    tmp="$(mktemp /tmp/wsl-test-XXXXXX.sh)"
+    printf '#!/bin/bash\n[[ -n "${1:-}" ]] || exit 1\nset -euo pipefail\nset -f\nprintf hi\n' > "$tmp"
+    run "$LINTER" "$tmp"
+    rm -f "$tmp"
+    [ "$status" -eq 1 ]
+    [[ "$output" == *"WSL001"* ]]
+}
+
+@test "WSL001: unset_command as first top-level node is flagged (regression)" {
+    tmp="$(mktemp /tmp/wsl-test-XXXXXX.sh)"
+    printf '#!/bin/bash\nunset CDPATH\nset -euo pipefail\nset -f\nprintf hi\n' > "$tmp"
+    run "$LINTER" "$tmp"
+    rm -f "$tmp"
+    [ "$status" -eq 1 ]
+    [[ "$output" == *"WSL001"* ]]
+}
+
+@test "WSL001: c_style_for_statement as first top-level node is flagged (regression)" {
+    tmp="$(mktemp /tmp/wsl-test-XXXXXX.sh)"
+    printf '#!/bin/bash\nfor ((i=0;i<1;i++)); do :; done\nset -euo pipefail\nset -f\nprintf hi\n' > "$tmp"
+    run "$LINTER" "$tmp"
+    rm -f "$tmp"
+    [ "$status" -eq 1 ]
+    [[ "$output" == *"WSL001"* ]]
+}
+
+@test "WSL002: test_command at position 2 is flagged (regression)" {
+    tmp="$(mktemp /tmp/wsl-test-XXXXXX.sh)"
+    printf '#!/bin/bash\nset -euo pipefail\n[[ -n "${1:-}" ]] || exit 1\nset -f\nprintf hi\n' > "$tmp"
+    run "$LINTER" "$tmp"
+    rm -f "$tmp"
+    [ "$status" -eq 1 ]
+    [[ "$output" == *"WSL002"* ]]
+}
+
 # --- WSL003 regression pin: echo with literal-only args + redirect/pipe ------
 # `echo` with no variable expansion piped to another command must not be
 # flagged. A regression here would surface as a false positive that is
