@@ -48,40 +48,37 @@ digest (see below). Adopters can suppress the attach with the verify action's
 wrangle creates the Release for the tag automatically if none exists; pre-create
 one yourself only for custom notes or a draft — see the per-language build READMEs.
 
-### A real example (the showcase Go release)
+### A real example (the curated v0.3.1 Go release)
 
 The [`wrangle-test`](https://github.com/TomHennen/wrangle-test) showcase
-publishes a Go release you can verify yourself. Tag `v20260621-fa5bd7f`
-includes, for its Go build:
+publishes a curated Go release — built with wrangle pinned at the `v0.3.1`
+release tag — that you can verify yourself. Its `v0.3.1` tag includes, for the
+Go build:
 
-- `wrangle-test-fixture-go_20260621-fa5bd7f_linux_amd64.tar.gz` — the archive
-- `wrangle-test-fixture-go_20260621-fa5bd7f_linux_amd64.tar.gz.intoto.jsonl` — its bundle (provenance + VSA)
+- `wrangle-test-fixture-go_0.3.1_linux_amd64.tar.gz` — the archive
+- `wrangle-test-fixture-go_0.3.1_linux_amd64.tar.gz.intoto.jsonl` — its bundle (provenance + VSA)
 - `go-metadata-go.zip` — the [unified metadata](metadata_layout.md) (SBOM + scan results)
 - `checksums.txt` — goreleaser's archive checksums
 
 Download the archive and its bundle:
 
 ```bash
-base=https://github.com/TomHennen/wrangle-test/releases/download/v20260621-fa5bd7f
-curl -sSLO "$base/wrangle-test-fixture-go_20260621-fa5bd7f_linux_amd64.tar.gz"
-curl -sSLO "$base/wrangle-test-fixture-go_20260621-fa5bd7f_linux_amd64.tar.gz.intoto.jsonl"
+base=https://github.com/TomHennen/wrangle-test/releases/download/v0.3.1
+curl -sSLO "$base/wrangle-test-fixture-go_0.3.1_linux_amd64.tar.gz"
+curl -sSLO "$base/wrangle-test-fixture-go_0.3.1_linux_amd64.tar.gz.intoto.jsonl"
 ```
 
-The showcase builds from `main`, not a release tag, so its VSA carries a
-`@refs/heads/main` signer identity — the strict `v*` consumer policy rejects it
-by design. Use the `nonstrict` policy, which accepts any ref:
+Built at the `v0.3.1` tag, its VSA carries a `@refs/tags/v0.3.1` signer
+identity, so the strict `wrangle-vsa-consumer-v1` policy verifies it — the same
+command you run against your own tag-built releases:
 
 ```bash
-ampel verify --subject wrangle-test-fixture-go_20260621-fa5bd7f_linux_amd64.tar.gz \
-  --policy git+https://github.com/TomHennen/wrangle@v0.3.1#policies/wrangle-vsa-consumer-nonstrict-v1.hjson \
-  --collector jsonl:wrangle-test-fixture-go_20260621-fa5bd7f_linux_amd64.tar.gz.intoto.jsonl \
-  --context expectedResourceUri:pkg:golang/github.com/tomhennen/wrangle-test/go@v20260621-fa5bd7f \
+ampel verify --subject wrangle-test-fixture-go_0.3.1_linux_amd64.tar.gz \
+  --policy git+https://github.com/TomHennen/wrangle@v0.3.1#policies/wrangle-vsa-consumer-v1.hjson \
+  --collector jsonl:wrangle-test-fixture-go_0.3.1_linux_amd64.tar.gz.intoto.jsonl \
+  --context expectedResourceUri:pkg:golang/github.com/tomhennen/wrangle-test/go@v0.3.1 \
   --context sourceRepo:https://github.com/TomHennen/wrangle-test
 ```
-
-For your own releases — built by pinning wrangle's reusable workflows to a
-release tag — swap `wrangle-vsa-consumer-nonstrict-v1` for the strict
-`wrangle-vsa-consumer-v1`.
 
 ## Recommended: `ampel verify` (one command)
 
