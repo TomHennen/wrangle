@@ -197,11 +197,10 @@ Two distinct layers:
 - **Definition** (static, per tool): the catalog entry — `{image digest, kind, network, secret, token,
   output}`.
 
-`token: sigstore` grants the host permission to mint an `aud=sigstore` `SIGSTORE_ID_TOKEN` into the
-container — the OIDC-token analogue of `secret: github-token`. Default-closed and from the trusting party
-like every grant; `check_catalog` permits it only on the curated `attest-toolbox` (a `kind: attest`
-entry), never on a scan/sbom tool or a custom adopter entry. The field is validated today but not yet
-consumed; a later Phase 3 PR wires the minting.
+`token: sigstore` lets wrangle mint a short-lived Sigstore signing token (`SIGSTORE_ID_TOKEN`) into the
+tool's container — the signing-token counterpart of `secret: github-token`. It is off by default, and
+`check_catalog` allows it only on wrangle's own `attest-toolbox` image, never on a scan/sbom tool or an
+adopter's custom tool. The field is validated today, but nothing reads it yet.
 
 **A capability grant comes from the trusting party — wrangle, or the adopter for their own tool — never
 from the image itself.** An image may *request* a capability (e.g. an OCI label), but granting it is the
