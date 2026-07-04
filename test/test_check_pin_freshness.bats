@@ -94,6 +94,38 @@ run_fresh() { run bash -c "cd '$REPO' && '$SCRIPT'"; }
     [[ "$output" != *"STALE: actions/release"* ]]
 }
 
+@test "check_pin_freshness: FAILS when a composite retargets a nested pin to a different path" {
+    # release@old wires actions/verify; HEAD's release wires actions/other. The
+    # pin is reachable and each nested target is itself unchanged, but the parent
+    # resolves DIFFERENT wiring — a path retarget, not a sha bump, so it is STALE.
+    local v; v="$(write_verify 'echo hi')"
+    mkdir -p "$REPO/actions/other"
+    printf 'name: other\n' > "$REPO/actions/other/action.yml"
+    git -C "$REPO" add actions/other && git -C "$REPO" commit -q -m other
+    local o; o="$(git -C "$REPO" rev-parse HEAD)"
+
+    mkdir -p "$REPO/actions/release"
+    printf 'name: release\n' > "$REPO/actions/release/action.yml"
+    printf '      - uses: TomHennen/wrangle/actions/verify@%s # pin\n' "$v" \
+        >> "$REPO/actions/release/action.yml"
+    git -C "$REPO" add actions/release && git -C "$REPO" commit -q -m 'release wires verify'
+    local rel_old; rel_old="$(git -C "$REPO" rev-parse HEAD)"
+
+    printf 'name: release\n' > "$REPO/actions/release/action.yml"
+    printf '      - uses: TomHennen/wrangle/actions/other@%s # pin\n' "$o" \
+        >> "$REPO/actions/release/action.yml"
+    git -C "$REPO" add actions/release && git -C "$REPO" commit -q -m 'release retargets to other'
+
+    printf '      - uses: TomHennen/wrangle/actions/release@%s # pin\n' "$rel_old" \
+        > "$REPO/.github/workflows/x.yml"
+    # Ancestry holds; freshness must catch the retarget.
+    run bash -c "cd '$REPO' && '$(dirname "$SCRIPT")/check_pin_ancestry.sh'"
+    [ "$status" -eq 0 ]
+    run_fresh
+    [ "$status" -eq 1 ]
+    [[ "$output" == *"STALE: actions/release"* ]]
+}
+
 @test "check_pin_freshness: PASSES (no-op) on an older pin whose path never changed" {
     # A pin at an older sha is FRESH if its path is byte-identical to HEAD's —
     # don't false-positive just because the sha is old.
