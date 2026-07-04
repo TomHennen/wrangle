@@ -16,6 +16,7 @@ MAX_SUMMARY_LENGTH="${WRANGLE_MAX_SUMMARY:-65536}"
 # Strip HTML tags from input to prevent markdown/HTML injection.
 # Uses printf '%s' for untrusted content per CLAUDE.md.
 wrangle_sanitize_output() {
-    # Remove HTML tags, then truncate
-    sed 's/<[^>]*>//g' | head -c "$MAX_SUMMARY_LENGTH"
+    # Slurp the whole stream before stripping so a tag split across lines
+    # (<img src=x\nonerror=...>) can't survive a line-by-line pass, then truncate.
+    sed ':a;$!{N;ba};s/<[^>]*>//g' | head -c "$MAX_SUMMARY_LENGTH"
 }

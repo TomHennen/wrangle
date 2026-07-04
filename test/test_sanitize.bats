@@ -30,6 +30,16 @@ setup() {
     [[ "$result" == "bold" ]]
 }
 
+@test "sanitize: strips a tag split across lines" {
+    # A line-by-line strip leaves a newline-spanning tag intact; the whole
+    # stream must be considered.
+    result="$(printf '<img src=x\nonerror=alert(1)>hello' | wrangle_sanitize_output)"
+
+    [[ "$result" == "hello" ]]
+    [[ "$result" != *"onerror"* ]]
+    [[ "$result" != *"<img"* ]]
+}
+
 @test "sanitize: passes plain text through unchanged" {
     result="$(printf 'No HTML here, just text.' | wrangle_sanitize_output)"
 
