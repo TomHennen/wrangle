@@ -166,7 +166,7 @@ jobs:
       metadata-pre: ${{ steps.prep.outputs.metadata-pre }}
     steps:
       # TODO: replace with $/actions/prep when GitHub ships $/ syntax (#136)
-      - uses: TomHennen/wrangle/actions/prep@c7c0bd5441277d2f15de0ea25871c8d1661d5a8f # fix/scorecard-table-safety-697 2026-07-04
+      - uses: TomHennen/wrangle/actions/prep@164092de47bcea7375105b01ca361a260d30696d # fix/scorecard-table-safety-697 2026-07-04
         id: prep
         with:
           build-type: go
@@ -185,7 +185,7 @@ jobs:
       security-events: write
     steps:
       # TODO: replace with $/actions/scan when GitHub ships $/ syntax (#136)
-      - uses: TomHennen/wrangle/actions/scan@c7c0bd5441277d2f15de0ea25871c8d1661d5a8f # fix/scorecard-table-safety-697 2026-07-04
+      - uses: TomHennen/wrangle/actions/scan@164092de47bcea7375105b01ca361a260d30696d # fix/scorecard-table-safety-697 2026-07-04
         if: ${{ inputs.scan-tools != '' }}
         with:
           checkout: "true"
@@ -220,7 +220,7 @@ jobs:
       # TODO: replace with $/build/actions/go/checks when GitHub ships $/ syntax (#136)
       # Self-pinned to PR HEAD until merge — bump-self-refs follow-up
       # repoints to the squashed merge SHA after this lands.
-      - uses: TomHennen/wrangle/build/actions/go/checks@c7c0bd5441277d2f15de0ea25871c8d1661d5a8f # fix/scorecard-table-safety-697 2026-07-04
+      - uses: TomHennen/wrangle/build/actions/go/checks@164092de47bcea7375105b01ca361a260d30696d # fix/scorecard-table-safety-697 2026-07-04
         id: checks
         with:
           path: ${{ inputs.path }}
@@ -283,7 +283,7 @@ jobs:
 
       # TODO: replace with $/build/actions/go/build when GitHub ships $/ syntax (#136)
       # Self-pinned to PR HEAD until merge.
-      - uses: TomHennen/wrangle/build/actions/go/build@c7c0bd5441277d2f15de0ea25871c8d1661d5a8f # fix/scorecard-table-safety-697 2026-07-04
+      - uses: TomHennen/wrangle/build/actions/go/build@164092de47bcea7375105b01ca361a260d30696d # fix/scorecard-table-safety-697 2026-07-04
         id: release
         with:
           path: ${{ inputs.path }}
@@ -375,7 +375,7 @@ jobs:
       # writes non-artifact bookkeeping into dist/ that is not released. This is
       # the same canonical subject set the VSA binds to.
       # TODO: replace with $/actions/attest_provenance when GitHub ships $/ syntax (#136)
-      - uses: TomHennen/wrangle/actions/attest_provenance@c7c0bd5441277d2f15de0ea25871c8d1661d5a8f # fix/scorecard-table-safety-697 2026-07-04
+      - uses: TomHennen/wrangle/actions/attest_provenance@164092de47bcea7375105b01ca361a260d30696d # fix/scorecard-table-safety-697 2026-07-04
         id: attest
         with:
           build-type: go
@@ -401,7 +401,7 @@ jobs:
       contents: write       # create the release if absent and upload the attested archives + checksums + bundles
     steps:
       # TODO: replace with $/actions/verify_release when GitHub ships $/ syntax (#136)
-      - uses: TomHennen/wrangle/actions/verify_release@c7c0bd5441277d2f15de0ea25871c8d1661d5a8f # fix/scorecard-table-safety-697 2026-07-04
+      - uses: TomHennen/wrangle/actions/verify_release@164092de47bcea7375105b01ca361a260d30696d # fix/scorecard-table-safety-697 2026-07-04
         with:
           build-type: go
           shortname: ${{ needs.prep.outputs.shortname }}
