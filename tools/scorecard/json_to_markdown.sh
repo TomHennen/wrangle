@@ -35,11 +35,12 @@ printf 'Aggregate score: %s / 10\n\n' "$score"
 printf '%s\n' 'Check | Score | Reason'
 printf '%s\n' '----- | ----- | ------'
 
-# Per-check rows; strip HTML and collapse newlines so each check stays on one row.
-# Capture, then cap with a substring instead of piping into head: a pipe into
-# head closes at the byte cap, SIGPIPEs the producer, and pipefail turns a valid
-# truncation into a false error.
-if ! checks="$(jq -r '(.checks // [])[] | "\(.name) | \(.score) | \(.reason)"' "$JSON_FILE" 2>/dev/null | sed 's/<[^>]*>//g')"; then
+# Per-check rows; escape table-breaking pipes and collapse newlines per field so
+# each check stays on one row, then strip HTML. Capture, then cap with a substring
+# instead of piping into head: a pipe into head closes at the byte cap, SIGPIPEs
+# the producer, and pipefail turns a valid truncation into a false error.
+row_field='gsub("[|]";"\\|") | gsub("[\r\n]+";" ")'
+if ! checks="$(jq -r "(.checks // [])[] | \"\(.name | ${row_field}) | \(.score) | \(.reason | ${row_field})\"" "$JSON_FILE" 2>/dev/null | sed 's/<[^>]*>//g')"; then
     printf 'Error: failed to parse Scorecard checks\n' >&2
     exit 2
 fi

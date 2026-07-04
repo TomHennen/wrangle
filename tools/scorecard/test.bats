@@ -119,6 +119,18 @@ JSON
     [[ "$output" == *"see docs"* ]]
 }
 
+@test "json_to_markdown: pipes and newlines in a reason stay on one escaped row" {
+    cat > "$TMP_DIR/in.json" <<'JSON'
+{"score":1,"checks":[{"name":"R","score":0,"reason":"a | b\nc"}]}
+JSON
+    run "$SCRIPT" "$TMP_DIR/in.json"
+    [ "$status" -eq 0 ]
+    # One row, pipe escaped, newline collapsed to a space.
+    [[ "$output" == *"R | 0 | a \\| b c"* ]]
+    # The reason's newline did not create a second table line.
+    [[ "$(grep -c '^R ' <<<"$output")" -eq 1 ]]
+}
+
 @test "json_to_markdown: truncates checks at WRANGLE_MAX_SUMMARY bytes, exit 0" {
     # Many checks with long reasons so output far exceeds the cap and jq/sed
     # are still streaming when head closes the pipe — the case that SIGPIPEs a
