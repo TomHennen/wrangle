@@ -14,6 +14,8 @@ CATALOG_TOOL_NAME_RE='^[a-z][a-z0-9_-]*$'
 CATALOG_KIND_RE='^(scan|sbom|attest)$'
 CATALOG_NETWORK_RE='^(none|egress)$'
 CATALOG_SECRET_NAME_RE='^[a-z][a-z0-9-]*$'
+# OIDC-token grant: only sigstore, and only on the curated attest toolbox.
+CATALOG_TOKEN_RE='^(sigstore)$'
 # Digest-pinned image, host-agnostic (the registry may carry a :port).
 CATALOG_IMAGE_DIGEST_RE='^[a-z0-9._-]+(:[0-9]+)?(/[a-z0-9._-]+)*@sha256:[0-9a-f]{64}$'
 # Namespace of wrangle-published, VSA-signed tool images.

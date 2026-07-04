@@ -194,8 +194,13 @@ from osv.dev.
 Two distinct layers:
 
 - **Selection** (per run, adopter-facing): which tools to run and at what policy — the `tools:` string.
-- **Definition** (static, per tool): the catalog entry — `{image digest, kind, network, secret,
+- **Definition** (static, per tool): the catalog entry — `{image digest, kind, network, secret, token,
   output}`.
+
+`token: sigstore` lets wrangle mint a short-lived Sigstore signing token (`SIGSTORE_ID_TOKEN`) into the
+tool's container — the signing-token counterpart of `secret: github-token`. It is off by default, and
+`check_catalog` allows it only on wrangle's own `attest-toolbox` image, never on a scan/sbom tool or an
+adopter's custom tool. The field is validated today, but nothing reads it yet.
 
 **A capability grant comes from the trusting party — wrangle, or the adopter for their own tool — never
 from the image itself.** An image may *request* a capability (e.g. an OCI label), but granting it is the
