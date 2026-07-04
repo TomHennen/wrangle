@@ -129,6 +129,16 @@ on:
         required: false
         type: string
         default: sbom
+      verify-in-container:
+        description: |
+          Run the attest/verify signing (bnd/cosign/wrangle-attest/ampel) inside
+          the curated, VSA-verified attest-toolbox image instead of in-job
+          from-source binaries. Default false (in-job). Requires the catalog's
+          attest-toolbox token: sigstore grant; set WRANGLE_VERIFY_AMPEL_TOOLBOX=0
+          in the environment to force in-job as a break-glass.
+        required: false
+        type: boolean
+        default: false
     outputs:
       hashes:
         description: "Base64-encoded SHA-256 hashes of built artifacts (for SLSA provenance)"
@@ -368,6 +378,9 @@ jobs:
       id-token: write       # OIDC for Sigstore keyless signing
       attestations: write   # write the attestation to GitHub's store
       contents: read        # download-artifact reads the same-run dist
+    env:
+      # Opt into containerized signing; the composite action's steps inherit this.
+      WRANGLE_VERIFY_AMPEL_TOOLBOX: ${{ inputs.verify-in-container }}
     outputs:
       bundles-artifact-name: ${{ steps.attest.outputs.bundles-artifact-name }}
     steps:
@@ -399,6 +412,9 @@ jobs:
       id-token: write       # bnd keyless-signs each VSA via this workflow's OIDC identity
       attestations: write   # post each VSA to the GitHub attestation store
       contents: write       # create the release if absent and upload the attested archives + checksums + bundles
+    env:
+      # Opt into containerized signing; the composite action's steps inherit this.
+      WRANGLE_VERIFY_AMPEL_TOOLBOX: ${{ inputs.verify-in-container }}
     steps:
       # TODO: replace with $/actions/verify_release when GitHub ships $/ syntax (#136)
       - uses: TomHennen/wrangle/actions/verify_release@164092de47bcea7375105b01ca361a260d30696d # fix/scorecard-table-safety-697 2026-07-04

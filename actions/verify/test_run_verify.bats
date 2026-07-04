@@ -931,13 +931,26 @@ SHIM
 _toolbox_image="ghcr.io/tomhennen/wrangle/attest-toolbox@sha256:0000000000000000000000000000000000000000000000000000000000000000"
 
 # Write a stub catalog with the attest-toolbox grant ($1 = image; default the
-# pinned curated image) and export WRANGLE_CATALOG at it.
+# pinned curated image; $2 = token grant, e.g. sigstore, when set) and export
+# WRANGLE_CATALOG at it.
 _stub_toolbox_catalog() {
-    local image="${1:-$_toolbox_image}"
+    local image="${1:-$_toolbox_image}" token="${2:-}" token_field=""
+    [[ -n "$token" ]] && token_field=",\"token\":\"$token\""
     cat > "$TEST_DIR/catalog.json" <<JSON
-{"tools":{"attest-toolbox":{"kind":"attest","image":"$image","network":"egress"}}}
+{"tools":{"attest-toolbox":{"kind":"attest","image":"$image","network":"egress"$token_field}}}
 JSON
     export WRANGLE_CATALOG="$TEST_DIR/catalog.json"
+}
+
+# Shim curl so the sigstore-token mint returns a fixed JWT value without network.
+_stub_mint_curl() {
+    cat > "$TEST_DIR/curl" <<'EOF'
+#!/bin/bash
+printf '{"value":"MINTED-SIGSTORE-JWT"}\n'
+EOF
+    chmod +x "$TEST_DIR/curl"
+    export ACTIONS_ID_TOKEN_REQUEST_URL="https://oidc.example/token"
+    export ACTIONS_ID_TOKEN_REQUEST_TOKEN="request-bearer-secret"
 }
 
 # Install a docker shim that records its argv, and a gh shim whose attestation
@@ -1028,14 +1041,20 @@ EOF
     [ ! -f "$TEST_DIR/docker.args" ]
 }
 
-@test "wrangle_ampel: container path refuses an OCI collector (fail-closed, no docker)" {
+@test "wrangle_ampel: an OCI collector runs in-container with the job's registry auth" {
     _install_toolbox_shims
     _stub_toolbox_catalog
+    export WRANGLE_AMPEL_RESULTS="$TEST_DIR/results/vsa.json"
+    export GITHUB_TOKEN="registry-token" HOME="$TEST_DIR"
+    mkdir -p "$TEST_DIR/results" "$BUNDLE_OUT" "$TEST_DIR/.docker"
     PATH="$TEST_DIR:$PATH" WRANGLE_VERIFY_AMPEL_TOOLBOX=1 COLLECTOR="oci:ghcr.io/x@sha256:abc" \
-        run wrangle_ampel verify
-    [ "$status" -eq 2 ]
-    grep -q "oci collector" <<< "$output"
-    [ ! -f "$TEST_DIR/docker.args" ]
+        run wrangle_ampel verify --policy=p
+    [ "$status" -eq 0 ]
+    grep -q -- "$_toolbox_image ampel verify" "$TEST_DIR/docker.args"
+    # Registry read needs the job's ghcr login and token, no signing token.
+    grep -q -- "-e GITHUB_TOKEN" "$TEST_DIR/docker.args"
+    grep -q -- "-e DOCKER_CONFIG=/wrangle/docker-config" "$TEST_DIR/docker.args"
+    ! grep -q -- "-e SIGSTORE_ID_TOKEN" "$TEST_DIR/docker.args"
 }
 
 @test "wrangle_ampel: WRANGLE_VERIFY_TOOL_IMAGES=0 break-glass skips verify and still runs" {
@@ -1066,4 +1085,67 @@ EOF
     # toolbox image) — still through the retry helper.
     grep -q 'wrangle_retry_once "$report" wrangle_ampel' "$SCRIPT"
     grep -q 'wrangle_retry_once "$vsa" bnd' "$SCRIPT"
+}
+
+# ---- containerized VSA signing (bnd statement) ----
+
+# The in-job bnd arg vector today, preserved byte-for-byte on the break-glass path.
+@test "wrangle_sign_vsa: break-glass (opt-in off) signs with the in-job bnd, unchanged" {
+    cat > "$TEST_DIR/bnd" <<EOF
+#!/bin/bash
+printf '%s\n' "\$*" > "$TEST_DIR/bnd.args"
+EOF
+    chmod +x "$TEST_DIR/bnd"
+    printf 'unsigned-vsa\n' > "$VSA"
+    PATH="$TEST_DIR:$PATH" run wrangle_sign_vsa "$VSA"
+    [ "$status" -eq 0 ]
+    grep -qx -- "statement $VSA.unsigned" "$TEST_DIR/bnd.args"
+    [ ! -f "$TEST_DIR/docker.args" ]
+}
+
+# The token grant, not just the opt-in, is what moves signing into the container.
+@test "wrangle_sign_vsa: opt-in on but no token grant stays on the in-job bnd" {
+    _install_toolbox_shims
+    _stub_toolbox_catalog
+    cat > "$TEST_DIR/bnd" <<EOF
+#!/bin/bash
+printf '%s\n' "\$*" > "$TEST_DIR/bnd.args"
+EOF
+    chmod +x "$TEST_DIR/bnd"
+    printf 'unsigned-vsa\n' > "$VSA"
+    PATH="$TEST_DIR:$PATH" WRANGLE_VERIFY_AMPEL_TOOLBOX=1 run wrangle_sign_vsa "$VSA"
+    [ "$status" -eq 0 ]
+    grep -qx -- "statement $VSA.unsigned" "$TEST_DIR/bnd.args"
+    [ ! -f "$TEST_DIR/docker.args" ]
+}
+
+@test "wrangle_sign_vsa: grant + opt-in signs in-container with a minted, name-threaded token" {
+    _install_toolbox_shims
+    _stub_toolbox_catalog "$_toolbox_image" sigstore
+    _stub_mint_curl
+    printf 'unsigned-vsa\n' > "$VSA"
+    PATH="$TEST_DIR:$PATH" WRANGLE_VERIFY_AMPEL_TOOLBOX=1 GITHUB_TOKEN=registry-token \
+        run wrangle_sign_vsa "$VSA"
+    [ "$status" -eq 0 ]
+    # The VSA gate ran, then bnd statement inside the toolbox image.
+    grep -q "toolbox-image VSA verified PASSED" <<< "$output"
+    grep -q -- "$_toolbox_image bnd statement" "$TEST_DIR/docker.args"
+    # The sigstore token is threaded by NAME only; its value is never on argv.
+    grep -q -- "-e SIGSTORE_ID_TOKEN" "$TEST_DIR/docker.args"
+    ! grep -q "MINTED-SIGSTORE-JWT" "$TEST_DIR/docker.args"
+    # The mint-anything request vars NEVER enter the container.
+    ! grep -q "ACTIONS_ID_TOKEN_REQUEST" "$TEST_DIR/docker.args"
+    # Signing needs no registry login token.
+    ! grep -q -- "-e GITHUB_TOKEN" "$TEST_DIR/docker.args"
+}
+
+@test "wrangle_sign_vsa: grant + opt-in but a non-PASSED toolbox VSA fails closed (no docker)" {
+    _install_toolbox_shims
+    _stub_toolbox_catalog "$_toolbox_image" sigstore
+    _stub_mint_curl
+    printf 'unsigned-vsa\n' > "$VSA"
+    PATH="$TEST_DIR:$PATH" WRANGLE_VERIFY_AMPEL_TOOLBOX=1 GH_FAIL=1 GITHUB_TOKEN=registry-token \
+        run wrangle_sign_vsa "$VSA"
+    [ "$status" -ne 0 ]
+    [ ! -f "$TEST_DIR/docker.args" ]
 }

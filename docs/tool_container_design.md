@@ -388,18 +388,19 @@ not a meaningful per-delivery signal.)
   job-scoped `GITHUB_TOKEN` into the container (Option A: sign+push in-container); the
   `ACTIONS_ID_TOKEN_REQUEST_*` vars never enter it — a security improvement over today's in-job binary,
   which can mint a token for any audience.
-  **Break-glass.** Once signing is containerized, `WRANGLE_VERIFY_AMPEL_TOOLBOX` unset falls back to
-  in-job, from-source signing — the outage escape hatch; no automatic staleness fallback. (Today the same
-  toggle gates only the verify step; see Status.)
+  **Break-glass.** `WRANGLE_VERIFY_AMPEL_TOOLBOX` unset (or `0`) falls back to in-job, from-source
+  signing — the outage escape hatch; no automatic staleness fallback.
   **Status (#596 Track 2):** the toolbox image (`tools/attest-toolbox/`, all four binaries from
-  `tools/go.mod`) is built and published like the scan images, and `actions/verify`'s opt-in
-  `WRANGLE_VERIFY_AMPEL_TOOLBOX` toggle runs *ampel verify only* (no signing token) via it — resolved from
-  the curated catalog's `attest-toolbox` grant (digest-pinned, `network: egress`, no token) and
-  provenance-verified host-side (`verify_image_vsa`) before it runs. Off by default, byte-identical when
-  unset, and not on the L3 release path; supported for the go/python/npm build types only (the container
-  build type's `oci:` collector needs in-container registry auth, fail-closed and deferred). Containerizing
-  the signing steps (bnd/cosign, which need the OIDC token) and the OCI-collector verify path are the
-  remaining Phase-3 work. (The catalog auto-bump PR, §11, has shipped.)
+  `tools/go.mod`) is built and published like the scan images. Under the curated catalog's
+  `attest-toolbox` grant (`delivery: image`, digest-pinned, `network: egress`, `token: sigstore`) plus
+  the `WRANGLE_VERIFY_AMPEL_TOOLBOX` opt-in, all three sign sites run in it: the verify job's VSA sign
+  (`bnd statement`) and referrer pushes, `attest_provenance`'s `wrangle-attest --sign` + store push, and
+  `attest_metadata_oci`'s sign + `cosign` OCI push/download — plus the `oci:` collector verify path
+  (registry auth threaded in-container). The host mints the step-local `SIGSTORE_ID_TOKEN` and threads it
+  (signing) or `GITHUB_TOKEN` (registry) by name only; each token-bearing `docker run` is fronted by the
+  fail-closed `verify_image_vsa` gate (`lib/toolbox_run.sh`). Off by default and byte-identical when
+  unset; wrangle dogfoods it when publishing its own tool images (`local_publish_images.yml`,
+  `verify-in-container: true`). Reusable callers opt in via the `verify-in-container` input.
 - **Separate feature:** emitting an attested container of an adopter's own Go app (the "free container"
   value-add via goreleaser/ko). It reuses some machinery but serves adopter UX, not the goals here.
 - **Left as-is:** tools with official GitHub Actions that gain nothing from containerization stay

@@ -263,3 +263,100 @@ STUB
     [[ "$status" -ne 0 ]]
     [[ "$output" == *"no signed metadata"* ]]
 }
+
+# --- containerized signing (the attest-toolbox image under the grant + opt-in) ---
+
+_toolbox_image="ghcr.io/tomhennen/wrangle/attest-toolbox@sha256:0000000000000000000000000000000000000000000000000000000000000000"
+
+# docker records its argv; gh returns a PASSED L3 VSA for the toolbox image; curl
+# mints a fixed sigstore JWT; the catalog carries the token: sigstore grant.
+_stub_toolbox_container() {
+    cat > "$TEST_DIR/docker" <<EOF
+#!/bin/bash
+printf '%s\n' "\$*" > "$TEST_DIR/docker.args"
+EOF
+    cat > "$TEST_DIR/gh" <<EOF
+#!/bin/bash
+cat <<JSON
+[{"verificationResult":{"statement":{"predicate":{"verificationResult":"PASSED","resourceUri":"$_toolbox_image","verifiedLevels":["SLSA_BUILD_LEVEL_3"]}}}}]
+JSON
+EOF
+    cat > "$TEST_DIR/curl" <<'EOF'
+#!/bin/bash
+printf '{"value":"MINTED-SIGSTORE-JWT"}\n'
+EOF
+    chmod +x "$TEST_DIR/docker" "$TEST_DIR/gh" "$TEST_DIR/curl"
+    cat > "$TEST_DIR/catalog.json" <<JSON
+{"tools":{"attest-toolbox":{"kind":"attest","image":"$_toolbox_image","network":"egress","token":"sigstore"}}}
+JSON
+    export PATH="$TEST_DIR:$PATH"
+    export WRANGLE_CATALOG="$TEST_DIR/catalog.json"
+    export WRANGLE_VERIFY_AMPEL_TOOLBOX=1
+    export ACTIONS_ID_TOKEN_REQUEST_URL="https://oidc.example/token"
+    export ACTIONS_ID_TOKEN_REQUEST_TOKEN="request-bearer-secret"
+    export GITHUB_TOKEN="registry-token"
+}
+
+@test "sign_metadata: metadata signing runs in-container with a name-threaded sigstore token" {
+    _stub_toolbox_container
+    local meta="$TEST_DIR/meta"; mkdir -p "$meta"
+    printf '{}' > "$meta/wrangle_attestation_metadata.json"
+    export METADATA_ROOT="$meta" COMMIT="abc123"
+    local sha; sha="$(printf '0%.0s' {1..64})"
+    wrangle_sign_metadata_statements "sha256:$sha" "$TEST_DIR/out.jsonl"
+    # wrangle-attest --sign ran inside the VSA-gated toolbox image.
+    grep -q -- "$_toolbox_image wrangle-attest" "$TEST_DIR/docker.args"
+    grep -q -- "--sign" "$TEST_DIR/docker.args"
+    # Only the sigstore token is threaded, by name; never the request vars, never
+    # the minted value on argv, never the registry token.
+    grep -q -- "-e SIGSTORE_ID_TOKEN" "$TEST_DIR/docker.args"
+    ! grep -q "MINTED-SIGSTORE-JWT" "$TEST_DIR/docker.args"
+    ! grep -q "ACTIONS_ID_TOKEN_REQUEST" "$TEST_DIR/docker.args"
+    ! grep -q -- "-e GITHUB_TOKEN" "$TEST_DIR/docker.args"
+    # The metadata root is mounted read-only.
+    grep -q -- "-v $meta:$meta:ro" "$TEST_DIR/docker.args"
+}
+
+@test "sign_metadata: store push runs in-container with the registry token, no sigstore token" {
+    _stub_toolbox_container
+    export GITHUB_REPOSITORY="o/r"
+    printf 'stmt\n' > "$TEST_DIR/line.json"
+    wrangle_push_store "$TEST_DIR/line.json"
+    grep -q -- "$_toolbox_image bnd push github o/r" "$TEST_DIR/docker.args"
+    grep -q -- "-e GITHUB_TOKEN" "$TEST_DIR/docker.args"
+    # A store push is not a signing op — no sigstore token, and the GitHub API
+    # needs no registry-login mount.
+    ! grep -q -- "-e SIGSTORE_ID_TOKEN" "$TEST_DIR/docker.args"
+    ! grep -q -- "docker-config" "$TEST_DIR/docker.args"
+}
+
+@test "sign_metadata: OCI referrer push runs in-container with the job's registry login" {
+    _stub_toolbox_container
+    export OCI_TARGET="ghcr.io/o/r/img@sha256:$(printf '0%.0s' {1..64})"
+    export HOME="$TEST_DIR"; mkdir -p "$TEST_DIR/.docker"
+    printf 'stmt\n' > "$TEST_DIR/line.json"
+    wrangle_push_oci_referrer "$TEST_DIR/line.json"
+    grep -q -- "$_toolbox_image cosign attach attestation" "$TEST_DIR/docker.args"
+    grep -q -- "-e GITHUB_TOKEN" "$TEST_DIR/docker.args"
+    grep -q -- "-e DOCKER_CONFIG=/wrangle/docker-config" "$TEST_DIR/docker.args"
+    ! grep -q -- "-e SIGSTORE_ID_TOKEN" "$TEST_DIR/docker.args"
+}
+
+@test "sign_metadata: break-glass (opt-in off) keeps metadata signing on the in-job binary" {
+    # No container stubs: the in-job wrangle-attest arg vector is unchanged.
+    cat > "$TEST_DIR/wrangle-attest" <<STUB
+#!/bin/bash
+printf '%s\n' "\$@" > "$TEST_DIR/attest.args"
+for a in "\$@"; do case "\$a" in --out=*) printf '{}' > "\${a#--out=}";; esac; done
+STUB
+    chmod +x "$TEST_DIR/wrangle-attest"
+    export PATH="$TEST_DIR:$PATH"
+    local meta="$TEST_DIR/meta"; mkdir -p "$meta"
+    printf '{}' > "$meta/wrangle_attestation_metadata.json"
+    export METADATA_ROOT="$meta" COMMIT="abc123"
+    local sha; sha="$(printf '0%.0s' {1..64})"
+    wrangle_sign_metadata_statements "sha256:$sha" "$TEST_DIR/out.jsonl"
+    grep -qx -- "--subject=sha256:$sha" "$TEST_DIR/attest.args"
+    grep -qx -- "--sign" "$TEST_DIR/attest.args"
+    [ ! -f "$TEST_DIR/docker.args" ]
+}
