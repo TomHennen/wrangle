@@ -123,13 +123,11 @@ runs:
       run: |
         # shellcheck source=../../lib/env.sh
         source "$WRANGLE_ROOT/lib/env.sh"
-        # $WRANGLE_TOOLS is intentionally unquoted so it word-splits into
-        # multiple arguments. This is safe because the orchestrator validates
-        # each token against ^[a-z][a-z0-9_-]*$ and runs set -f.
-        "$WRANGLE_ROOT/run.sh" \
-          -s "$GITHUB_WORKSPACE" \
-          -o "$WRANGLE_METADATA_DIR" \
-          $WRANGLE_TOOLS
+        # run_scan.sh maps run.sh's exit: findings are policy-gated by the Check
+        # results step, so only a tool error fails here. $WRANGLE_TOOLS is
+        # unquoted to word-split into validated tokens (orchestrator re-checks).
+        "$WRANGLE_ROOT/actions/scan/run_scan.sh" \
+          "$GITHUB_WORKSPACE" "$WRANGLE_METADATA_DIR" $WRANGLE_TOOLS
 
     # Action-pattern tools: invoked via local path. Inside a reusable
     # workflow, ./ resolves to this repo at the called ref (the adopter's

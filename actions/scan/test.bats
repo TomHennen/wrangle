@@ -224,3 +224,50 @@ setup() {
     [[ "$output" != *"go.sum"* ]]
     [[ "$output" != *"go.mod"* ]]
 }
+
+# --- run_scan.sh: run.sh exit mapping (findings don't fail the step) ----------
+
+# Build a throwaway <root>/actions/scan/run_scan.sh + a stub <root>/run.sh that
+# exits with $STUB_RC, so the exit mapping is tested without the real orchestrator.
+_run_scan_with_stub() {
+    local stub_rc="$1"
+    local root="$BATS_TEST_TMPDIR/tree"
+    mkdir -p "$root/actions/scan"
+    cp "$ACTION_DIR/run_scan.sh" "$root/actions/scan/run_scan.sh"
+    cat > "$root/run.sh" <<STUB
+#!/bin/bash
+exit $stub_rc
+STUB
+    chmod +x "$root/run.sh" "$root/actions/scan/run_scan.sh"
+    run "$root/actions/scan/run_scan.sh" /src /out osv wrangle-lint:info
+}
+
+@test "run_scan: a clean orchestrator run (0) passes the step" {
+    _run_scan_with_stub 0
+    [ "$status" -eq 0 ]
+}
+
+@test "run_scan: findings (run.sh exit 1) do NOT fail the step (policy gated later)" {
+    _run_scan_with_stub 1
+    [ "$status" -eq 0 ]
+}
+
+@test "run_scan: a tool error (run.sh exit 2) fails the step (fail-closed)" {
+    _run_scan_with_stub 2
+    [ "$status" -eq 2 ]
+}
+
+@test "run_scan: a timeout (run.sh exit 124) fails the step" {
+    _run_scan_with_stub 124
+    [ "$status" -eq 124 ]
+}
+
+@test "run_scan: usage error on too few args" {
+    run "$ACTION_DIR/run_scan.sh" /src /out
+    [ "$status" -eq 2 ]
+}
+
+@test "scan: action.yml runs adapters via run_scan.sh (findings don't fail the step)" {
+    run grep 'run_scan.sh' "$ACTION_DIR/action.yml"
+    [ "$status" -eq 0 ]
+}
