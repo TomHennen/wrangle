@@ -8,8 +8,9 @@ set -f  # disable globbing — handles external tool/field names
 # off-namespace image reference can't pass CI green.
 #
 # For every tool it asserts: the file is valid JSON, a `kind` is declared, the
-# `delivery` (if set) is one run.sh recognizes, and a declared `network`/`secret`
-# is from the allowed, default-closed set. A `delivery: image` entry must also name
+# `delivery` (if set) is one run.sh recognizes, a declared `network`/`secret`
+# is from the allowed, default-closed set, and a `token` grant is `sigstore` and
+# only on a `kind: attest` entry. A `delivery: image` entry must also name
 # an image. Any entry naming an `image` (image-delivery or not) must be digest-pinned
 # (@sha256: + 64 hex, never a bare tag / :latest / @latest) on the curated namespace
 # ghcr.io/tomhennen/wrangle/<tool> — adopter overrides never live in this in-repo
@@ -45,7 +46,7 @@ validate_catalog() {
         return 1
     fi
 
-    local tool kind delivery image network secret
+    local tool kind delivery image network secret token
     while IFS= read -r tool; do
         [[ -z "$tool" ]] && continue
 
@@ -68,6 +69,20 @@ validate_catalog() {
         if [[ -n "$secret" ]] && [[ ! "$secret" =~ $CATALOG_SECRET_NAME_RE ]]; then
             printf 'check_catalog: %s: invalid secret name: %s\n' "$tool" "$secret" >&2
             rc=1
+        fi
+
+        # The token grant lets the host mint an OIDC token into the container, so
+        # it is confined to the curated attest toolbox — never a scan/sbom tool.
+        token="$(read_catalog_field "$file" "$tool" token)"
+        if [[ -n "$token" ]]; then
+            if [[ ! "$token" =~ $CATALOG_TOKEN_RE ]]; then
+                printf 'check_catalog: %s: invalid token value: %s\n' "$tool" "$token" >&2
+                rc=1
+            fi
+            if [[ "$kind" != "attest" ]]; then
+                printf 'check_catalog: %s: token grant forbidden on kind %s (attest only)\n' "$tool" "$kind" >&2
+                rc=1
+            fi
         fi
 
         # Same allowlist run.sh enforces: empty/adapter/image. A typo'd value must

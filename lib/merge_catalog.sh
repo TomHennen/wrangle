@@ -45,7 +45,7 @@ merge_catalog() {
         return 1
     fi
 
-    local rc=0 tool kind delivery image network secret
+    local rc=0 tool kind delivery image network secret token
     while IFS= read -r tool; do
         [[ -z "$tool" ]] && continue
         if [[ ! "$tool" =~ $CATALOG_TOOL_NAME_RE ]]; then
@@ -68,6 +68,14 @@ merge_catalog() {
         secret="$(read_catalog_field "$custom" "$tool" secret)"
         if [[ -n "$secret" ]] && [[ ! "$secret" =~ $CATALOG_SECRET_NAME_RE ]]; then
             printf 'wrangle: custom-tools: %s: invalid secret name: %s\n' "$tool" "$secret" >&2
+            rc=1
+        fi
+
+        # The token grant is confined to the curated attest toolbox; an adopter's
+        # image can never carry it.
+        token="$(read_catalog_field "$custom" "$tool" token)"
+        if [[ -n "$token" ]]; then
+            printf 'wrangle: custom-tools: %s: token grant is not allowed on custom tools\n' "$tool" >&2
             rc=1
         fi
 

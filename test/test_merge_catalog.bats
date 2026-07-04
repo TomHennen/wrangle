@@ -134,6 +134,15 @@ JSON
     [[ "$output" == *"must declare delivery: image"* ]]
 }
 
+@test "merge: rejects a custom tool carrying a token grant (curated toolbox only)" {
+    cat > "$CUSTOM" <<JSON
+{"tools":{"my-attest":{"kind":"attest","delivery":"image","image":"ghcr.io/myorg/my-attest@$DIGEST","token":"sigstore"}}}
+JSON
+    _merge
+    [ "$status" -ne 0 ]
+    [[ "$output" == *"token grant is not allowed on custom tools"* ]]
+}
+
 @test "merge: an off-namespace custom image is allowed (adopter-trusted)" {
     cat > "$CUSTOM" <<JSON
 {"tools":{"my-sbom":{"kind":"sbom","delivery":"image","image":"ghcr.io/myorg/my-sbom@$DIGEST"}}}

@@ -194,8 +194,13 @@ from osv.dev.
 Two distinct layers:
 
 - **Selection** (per run, adopter-facing): which tools to run and at what policy — the `tools:` string.
-- **Definition** (static, per tool): the catalog entry — `{image digest, kind, network, secret,
+- **Definition** (static, per tool): the catalog entry — `{image digest, kind, network, secret, token,
   output}`.
+
+`token: sigstore` grants the host permission to mint an `aud=sigstore` `SIGSTORE_ID_TOKEN` into the
+container — the OIDC-token analogue of `secret: github-token`. Default-closed and from the trusting party
+like every grant; `check_catalog` permits it only on the curated `attest-toolbox` (a `kind: attest`
+entry), never on a scan/sbom tool or a custom adopter entry.
 
 **A capability grant comes from the trusting party — wrangle, or the adopter for their own tool — never
 from the image itself.** An image may *request* a capability (e.g. an OCI label), but granting it is the
