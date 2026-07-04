@@ -52,4 +52,7 @@ fi
 mv "$SARIF_TMP" "$SARIF_DST"
 
 # Human-readable markdown for the step summary details section.
-"$SCRIPT_DIR/../../lib/sarif_to_md.sh" "$SARIF_DST" > "$MD_DST"
+# Best-effort (matching osv): a render failure loses the summary but must
+# not fail the scan — the SARIF the gating check consults is already written.
+"$SCRIPT_DIR/../../lib/sarif_to_md.sh" "$SARIF_DST" > "$MD_DST" 2>/dev/null || \
+    printf 'wrangle/dependency-review: failed to render markdown summary (SARIF still valid)\n' > "$MD_DST"
