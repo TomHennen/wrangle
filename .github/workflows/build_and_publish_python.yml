@@ -119,7 +119,7 @@ jobs:
       metadata-pre: ${{ steps.prep.outputs.metadata-pre }}
     steps:
       # TODO: replace with $/actions/prep when GitHub ships $/ syntax (#136)
-      - uses: TomHennen/wrangle/actions/prep@1b0bf5611b60d1ccfe27c6c6187d9b607977927b # claude/trim-redundant-unit-tests 2026-07-05
+      - uses: TomHennen/wrangle/actions/prep@a366bc71c22a76d012366efda14fb5cfc41a9be4 # reconv736 2026-07-05
         id: prep
         with:
           build-type: python
@@ -138,7 +138,7 @@ jobs:
       security-events: write
     steps:
       # TODO: replace with $/actions/scan when GitHub ships $/ syntax (#136)
-      - uses: TomHennen/wrangle/actions/scan@1b0bf5611b60d1ccfe27c6c6187d9b607977927b # claude/trim-redundant-unit-tests 2026-07-05
+      - uses: TomHennen/wrangle/actions/scan@a366bc71c22a76d012366efda14fb5cfc41a9be4 # reconv736 2026-07-05
         if: ${{ inputs.scan-tools != '' }}
         with:
           checkout: "true"
@@ -170,7 +170,7 @@ jobs:
           ref: ${{ inputs.ref || '' }}
 
       # TODO: replace with $/build/actions/python when GitHub ships $/ syntax (#136)
-      - uses: TomHennen/wrangle/build/actions/python@1b0bf5611b60d1ccfe27c6c6187d9b607977927b # claude/trim-redundant-unit-tests 2026-07-05
+      - uses: TomHennen/wrangle/build/actions/python@a366bc71c22a76d012366efda14fb5cfc41a9be4 # reconv736 2026-07-05
         id: build
         with:
           path: ${{ inputs.path }}
@@ -261,7 +261,7 @@ jobs:
       bundles-artifact-name: ${{ steps.attest.outputs.bundles-artifact-name }}
     steps:
       # TODO: replace with $/actions/attest_provenance when GitHub ships $/ syntax (#136)
-      - uses: TomHennen/wrangle/actions/attest_provenance@1b0bf5611b60d1ccfe27c6c6187d9b607977927b # claude/trim-redundant-unit-tests 2026-07-05
+      - uses: TomHennen/wrangle/actions/attest_provenance@a366bc71c22a76d012366efda14fb5cfc41a9be4 # reconv736 2026-07-05
         id: attest
         with:
           build-type: python
@@ -284,7 +284,7 @@ jobs:
       contents: write       # create the release if absent and attach the bundle on tag pushes
     steps:
       # TODO: replace with $/actions/verify_release when GitHub ships $/ syntax (#136)
-      - uses: TomHennen/wrangle/actions/verify_release@1b0bf5611b60d1ccfe27c6c6187d9b607977927b # claude/trim-redundant-unit-tests 2026-07-05
+      - uses: TomHennen/wrangle/actions/verify_release@a366bc71c22a76d012366efda14fb5cfc41a9be4 # reconv736 2026-07-05
         with:
           build-type: python
           shortname: ${{ needs.prep.outputs.shortname }}
