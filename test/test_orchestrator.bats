@@ -324,12 +324,16 @@ ADAPT
     run_orchestrator -s "$TEST_DIR/src" -o "$TEST_DIR/output" "error-tool"
 
     [ "$status" -eq 2 ]
+    # An error marker is written so check_results catches the failure even when
+    # the scan step runs under continue-on-error (and honors :info on the error).
+    [ -f "$TEST_DIR/output/error-tool/error" ]
 }
 
 @test "orchestrator: handles install failure (exit 2)" {
     run_orchestrator -s "$TEST_DIR/src" -o "$TEST_DIR/output" "bad-install"
 
     [ "$status" -eq 2 ]
+    [ -f "$TEST_DIR/output/bad-install/error" ]
 }
 
 @test "orchestrator: runs multiple tools" {
