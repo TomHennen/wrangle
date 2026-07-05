@@ -36,11 +36,9 @@ on:
         default: "osv zizmor scorecard:info dependency-review wrangle-lint"
       go-cache:
         description: >
-          Set to "enabled" to cache the Go module + build caches the
-          scan tools build from source (osv-scanner et al. — #343).
-          Default off: the cache is ~1.5–3 GB against this repo's
-          Actions cache quota. Source scanning produces no provenance,
-          so caching is L3-safe here regardless.
+          Deprecated no-op. The source-scan tools now ship as curated,
+          digest-pinned images and no longer build from source, so this
+          caches nothing. Retained so callers that still set it don't fail.
         required: false
         type: string
         default: ""
@@ -51,7 +49,7 @@ on:
           shell-build job caches the Go module + build caches keyed on
           that go.sum, so those tools aren't recompiled from source every
           run. The cache counts against your repo's Actions quota. Empty
-          (default) disables it. To cache the scan tools, use go-cache.
+          (default) disables it.
         required: false
         type: string
         default: ""
@@ -103,7 +101,6 @@ jobs:
         with:
           checkout: "true"
           tools: ${{ inputs.scan-tools }}
-          go-cache: ${{ inputs.go-cache }}
 
   shell-build:
     needs: [prep]

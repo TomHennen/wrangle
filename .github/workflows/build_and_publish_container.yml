@@ -70,13 +70,9 @@ on:
         default: "osv zizmor scorecard:info dependency-review wrangle-lint"
       go-cache:
         description: >
-          Set to "enabled" to cache the Go module + build caches the
-          source-scan tools build from source (osv-scanner et al. —
-          #343) on PR / non-release runs. Release builds always run
-          cache-free regardless: the scan gates an attested release, so
-          its tools build cold and a poisoned cache cannot forge a
-          passing scan (docs/SLSA_L3_AUDIT.md). Default off — the cache
-          is ~1.5–3 GB against this repo's Actions cache quota.
+          Deprecated no-op. The source-scan tools now ship as curated,
+          digest-pinned images and no longer build from source, so this
+          caches nothing. Retained so callers that still set it don't fail.
         required: false
         type: string
         default: ""
@@ -152,9 +148,6 @@ jobs:
           # The build job folds this into the unified container-metadata.
           artifact-name: ${{ needs.prep.outputs.scan }}
           retention-days: 1
-          # Cold on release: the scan gates an attested build, so a
-          # poisoned tool cache must not be able to forge a passing scan.
-          go-cache: ${{ needs.prep.outputs.should-release != 'true' && inputs.go-cache || '' }}
 
   build:
     # needs `scan` so a load-bearing finding blocks the mid-composite push.

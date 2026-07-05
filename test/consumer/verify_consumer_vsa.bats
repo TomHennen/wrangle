@@ -300,6 +300,9 @@ require_sigstore() {
         run "$REPO_ROOT/actions/verify-vsa/verify_vsa.sh"
     [[ "$status" -eq 1 ]]
     [[ "$output" == *"ampel rejected"* ]]
+    # Gate passed, so the rejection is ampel's verdict — not a gate/env failure
+    # (which also exits non-zero and prints "ampel rejected").
+    [[ "$output" == *"toolbox-image VSA verified PASSED"* ]]
 }
 
 # Internal dogfood switch: WRANGLE_VSA_NON_STRICT=1 selects the non-strict
@@ -336,6 +339,9 @@ require_sigstore() {
         run "$REPO_ROOT/actions/verify-vsa/verify_vsa.sh"
     [[ "$status" -eq 1 ]]
     [[ "$output" == *"ampel rejected"* ]]
+    # Gate passed, so the rejection is ampel's verdict — not a gate/env failure
+    # (which also exits non-zero and prints "ampel rejected").
+    [[ "$output" == *"toolbox-image VSA verified PASSED"* ]]
 }
 
 # Gate-level tamper bind: the wrapper verifies the bytes on disk against the
@@ -354,6 +360,9 @@ require_sigstore() {
         run "$REPO_ROOT/actions/verify-vsa/verify_vsa.sh"
     [[ "$status" -eq 1 ]]
     [[ "$output" == *"ampel rejected"* ]]
+    # Gate passed, so the rejection is ampel's verdict — not a gate/env failure
+    # (which also exits non-zero and prints "ampel rejected").
+    [[ "$output" == *"toolbox-image VSA verified PASSED"* ]]
 }
 
 # --- multi-line bundle: per-subject self-selection + missing-subject fail-close ---
@@ -455,6 +464,9 @@ _make_multiline_bundle() {
         run "$REPO_ROOT/actions/verify-vsa/verify_vsa.sh"
     [[ "$status" -eq 1 ]]
     [[ "$output" == *"ampel rejected"* ]]
+    # Gate passed, so the rejection is ampel's verdict — not a gate/env failure
+    # (which also exits non-zero and prints "ampel rejected").
+    [[ "$output" == *"toolbox-image VSA verified PASSED"* ]]
 }
 
 # --- #562: signed-metadata bundle (SBOM + scan/v1) regression ----------------

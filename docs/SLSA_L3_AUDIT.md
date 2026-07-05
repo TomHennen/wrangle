@@ -138,6 +138,12 @@ adopter consuming wrangle through one of wrangle's **reusable workflows**:
 > **The Build Track levels above are unchanged** — nothing cached reaches a
 > release build.
 
+> **Update — 2026-07-05.** The source-scan tools are now delivered as curated,
+> digest-pinned images (VSA-verified at pull), so `actions/scan` no longer runs
+> `go install` and there is nothing to cache. The `go-cache` input is now a
+> declared no-op, retained only so callers that still set it don't fail; the
+> release-cold-cache concern above no longer applies.
+
 Two caveats narrow every Build L3 row above:
 
 - **Direct composite consumption is not a supported L3 path.** Calling the
