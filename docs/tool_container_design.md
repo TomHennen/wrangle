@@ -57,6 +57,7 @@ The orchestrator runs each tool as:
 
 ```
 docker run --rm --network <policy> -u <runner_uid>:<gid> \
+  --cap-drop ALL --security-opt no-new-privileges \
   -v <src>:/src:ro -v <out>:/output [-e WRANGLE_KIND=<kind>] [declared tool env] <image> /src /output
 ```
 
@@ -80,6 +81,10 @@ deliberately:
 | `env -i <allowlist>` — adapter sees only allowed env | bare `docker run` inherits nothing; allowed vars passed explicitly with `-e` |
 | `WRANGLE_EXTRA_*` forwarding | explicit `-e WRANGLE_EXTRA_*` per declaring tool |
 | post-run filesystem snapshot (warn-only) | `/src:ro` + `/output`-only mount — fail-closed write confinement, an upgrade |
+
+Signing (`attest`) containers additionally never receive the OIDC mint-request vars
+(`ACTIONS_ID_TOKEN_REQUEST_*`); the host mints the short-lived `SIGSTORE_ID_TOKEN` and passes only that
+by name (§7).
 
 SPEC's Adapter Script Interface (environment/security sections) is updated in the same change.
 
@@ -266,6 +271,12 @@ As the `wrangle-lint`/`wrangle-attest` entries above show, an entry can carry an
 selected by command rather than a separate image per tool — handy for the owned-Go tools (§3.4) and for a
 BYO image that exposes more than one tool. The capability rules (§3.7) and least-privilege defaults still
 apply per entry; the cost is a larger per-entry surface to validate (§8).
+
+> **Deferral note.** The unified `wrangle` image above (one image shared by `wrangle-lint` and
+> `wrangle-attest`, selected by `command:`) is a proposed shape, deferred to #642; neither image exists
+> today. The shipped `tools/catalog.json` diverges: `wrangle-lint` is on its own image, signing runs in a
+> separate `attest-toolbox` entry (`kind: attest`, `token: sigstore`), and every entry carries an explicit
+> `delivery: image`. Read `tools/catalog.json` for the current shape.
 
 **Adopter — selecting tools** (pin wrangle, choose which to run):
 
