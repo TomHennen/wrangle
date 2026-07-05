@@ -8,14 +8,6 @@ on:
         required: false
         type: string
         default: "osv zizmor scorecard:info dependency-review wrangle-lint"
-      go-cache:
-        description: >
-          Deprecated no-op. The source-scan tools now ship as curated,
-          digest-pinned images and no longer build from source, so this
-          caches nothing. Retained so callers that still set it don't fail.
-        required: false
-        type: string
-        default: ""
 
 jobs:
   # MUST stay first under `jobs:`: prep's guard refuses unsafe triggers
@@ -26,7 +18,7 @@ jobs:
     permissions: {}    # guard reads env only — no workspace, no API, no secrets
     steps:
       # TODO: replace with $/actions/prep when GitHub ships $/ syntax (#136)
-      - uses: TomHennen/wrangle/actions/prep@7908aadf0476e392d5b7bb046845363ff8da2140 # fix/verify-empty-vsa-693 2026-07-05
+      - uses: TomHennen/wrangle/actions/prep@b631f580ca2ff137bd96ee62af40d97c333e3f4a # reconv738 2026-07-05
 
   check-change:
     needs: [prep]
@@ -44,7 +36,7 @@ jobs:
       # empty and the name is just "scan".
       # TODO: replace with $/actions/scan when GitHub ships $/ syntax (#136)
       - name: Source scan
-        uses: TomHennen/wrangle/actions/scan@7908aadf0476e392d5b7bb046845363ff8da2140 # fix/verify-empty-vsa-693 2026-07-05
+        uses: TomHennen/wrangle/actions/scan@b631f580ca2ff137bd96ee62af40d97c333e3f4a # reconv738 2026-07-05
         with:
           checkout: "true"
           tools: ${{ inputs.tools }}

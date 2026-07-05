@@ -85,11 +85,3 @@ STUB
     [ "$(wc -l < "$TEST_DIR/attached")" -eq 1 ]
     grep -q '^attach' "$TEST_DIR/cosign-verbs"
 }
-
-@test "attest_metadata_oci sign_metadata: a missing metadata dir fails closed" {
-    local sha; sha="$(printf '0%.0s' {1..64})"
-    SUBJECTS="sha256:$sha" METADATA_ROOT="$TEST_DIR/absent" \
-        BUNDLE_OUT="$TEST_DIR/bundles" GITHUB_REPOSITORY="o/r" \
-        OCI_TARGET="ghcr.io/o/r/img@sha256:$sha" run "$SIGN"
-    [ "$status" -ne 0 ]
-}

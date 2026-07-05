@@ -41,14 +41,6 @@ on:
         required: false
         type: string
         default: "osv zizmor scorecard:info dependency-review wrangle-lint"
-      go-cache:
-        description: >
-          Deprecated no-op. The source-scan tools now ship as curated,
-          digest-pinned images and no longer build from source, so this
-          caches nothing. Retained so callers that still set it don't fail.
-        required: false
-        type: string
-        default: ""
       go-tools-dir:
         description: >
           Workspace-relative directory holding a go.mod + go.sum whose
@@ -109,7 +101,7 @@ jobs:
     permissions: {}    # guard reads env only — no workspace, no API, no secrets
     steps:
       # TODO: replace with $/actions/prep when GitHub ships $/ syntax (#136)
-      - uses: TomHennen/wrangle/actions/prep@7908aadf0476e392d5b7bb046845363ff8da2140 # fix/verify-empty-vsa-693 2026-07-05
+      - uses: TomHennen/wrangle/actions/prep@b631f580ca2ff137bd96ee62af40d97c333e3f4a # reconv738 2026-07-05
 
   # Source scan. A load-bearing (:fail) finding fails the run alongside
   # the shell build/test (there is no artifact to gate publishing of).
@@ -122,7 +114,7 @@ jobs:
       security-events: write
     steps:
       # TODO: replace with $/actions/scan when GitHub ships $/ syntax (#136)
-      - uses: TomHennen/wrangle/actions/scan@7908aadf0476e392d5b7bb046845363ff8da2140 # fix/verify-empty-vsa-693 2026-07-05
+      - uses: TomHennen/wrangle/actions/scan@b631f580ca2ff137bd96ee62af40d97c333e3f4a # reconv738 2026-07-05
         if: ${{ inputs.scan-tools != '' }}
         with:
           checkout: "true"
@@ -198,7 +190,7 @@ jobs:
         # bats-jobs input — the main-pinned version would ignore it and run
         # bats serially, so the dogfood run wouldn't exercise the fan-out.
         # Bump to main post-merge via tools/bump_action_pins.sh.
-        uses: TomHennen/wrangle/build/actions/shell@7908aadf0476e392d5b7bb046845363ff8da2140 # fix/verify-empty-vsa-693 2026-07-05
+        uses: TomHennen/wrangle/build/actions/shell@b631f580ca2ff137bd96ee62af40d97c333e3f4a # reconv738 2026-07-05
         with:
           scan-path: ${{ inputs.scan-path }}
           bats-path: ${{ inputs.bats-path }}

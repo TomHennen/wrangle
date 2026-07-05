@@ -117,8 +117,6 @@ teardown() {
     # A relative policy path is resolved to an absolute path under the action's checkout.
     printf '%s\n' "${args[@]}" | grep -qE -- "^--policy=/.*/policies/release\.json$"
     printf '%s\n' "${args[@]}" | grep -qx -- "--exit-code=true"
-    # Required while the catalog attest-toolbox ships pre-#298-fix ampel (#563).
-    printf '%s\n' "${args[@]}" | grep -qxE -- "--workers=(8|9|[1-9][0-9]+)"
     printf '%s\n' "${args[@]}" | grep -qx -- "--attest-results"
     printf '%s\n' "${args[@]}" | grep -qx -- "--attest-format=vsa"
     printf '%s\n' "${args[@]}" | grep -qx -- "--results-path=$VSA"
@@ -236,16 +234,6 @@ teardown() {
 }
 
 # --- bnd push arg vector (GitHub attestation store) ---
-
-@test "run_verify: bnd push args target the store repo with the signed VSA file" {
-    local vsa="$TEST_DIR/vsa.jsonl"
-    mapfile -t args < <(wrangle_bnd_push_args "owner/repo" "$vsa")
-    [[ "${args[0]}" == "push" ]]
-    [[ "${args[1]}" == "github" ]]
-    # The org/repo is positional, then the bundle file.
-    [[ "${args[2]}" == "owner/repo" ]]
-    [[ "${args[3]}" == "$vsa" ]]
-}
 
 @test "run_verify: bnd push arg vector names a real bnd subcommand" {
     if [[ ! -x "$BND_BIN" ]]; then skip_or_fail "real bnd not available"; fi

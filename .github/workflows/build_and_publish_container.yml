@@ -68,14 +68,6 @@ on:
         required: false
         type: string
         default: "osv zizmor scorecard:info dependency-review wrangle-lint"
-      go-cache:
-        description: >
-          Deprecated no-op. The source-scan tools now ship as curated,
-          digest-pinned images and no longer build from source, so this
-          caches nothing. Retained so callers that still set it don't fail.
-        required: false
-        type: string
-        default: ""
       policy:
         description: |
           wrangle PolicySet the release is verified against (path under
@@ -124,7 +116,7 @@ jobs:
       scan: ${{ steps.prep.outputs.scan }}
     steps:
       # TODO: replace with $/actions/prep when GitHub ships $/ syntax (#136)
-      - uses: TomHennen/wrangle/actions/prep@7908aadf0476e392d5b7bb046845363ff8da2140 # fix/verify-empty-vsa-693 2026-07-05
+      - uses: TomHennen/wrangle/actions/prep@b631f580ca2ff137bd96ee62af40d97c333e3f4a # reconv738 2026-07-05
         id: prep
         with:
           build-type: container
@@ -143,7 +135,7 @@ jobs:
       security-events: write
     steps:
       # TODO: replace with $/actions/scan when GitHub ships $/ syntax (#136)
-      - uses: TomHennen/wrangle/actions/scan@7908aadf0476e392d5b7bb046845363ff8da2140 # fix/verify-empty-vsa-693 2026-07-05
+      - uses: TomHennen/wrangle/actions/scan@b631f580ca2ff137bd96ee62af40d97c333e3f4a # reconv738 2026-07-05
         if: ${{ inputs.scan-tools != '' }}
         with:
           checkout: "true"
@@ -169,7 +161,7 @@ jobs:
     # TODO: replace with $/build/actions/container when GitHub ships $/ syntax (#136)
     - name: "build and publish"
       id: build
-      uses: TomHennen/wrangle/build/actions/container@7908aadf0476e392d5b7bb046845363ff8da2140 # fix/verify-empty-vsa-693 2026-07-05
+      uses: TomHennen/wrangle/build/actions/container@b631f580ca2ff137bd96ee62af40d97c333e3f4a # reconv738 2026-07-05
       with:
         path: ${{ inputs.path }}
         dockerfile: ${{ inputs.dockerfile }}
@@ -247,7 +239,7 @@ jobs:
       # image's bundle the verify job appends the VSA to. cosign is built from
       # tools/go.mod here.
       # TODO: replace with $/actions/attest_metadata_oci when GitHub ships $/ syntax (#136)
-      - uses: TomHennen/wrangle/actions/attest_metadata_oci@7908aadf0476e392d5b7bb046845363ff8da2140 # fix/verify-empty-vsa-693 2026-07-05
+      - uses: TomHennen/wrangle/actions/attest_metadata_oci@b631f580ca2ff137bd96ee62af40d97c333e3f4a # reconv738 2026-07-05
         with:
           shortname: ${{ needs.prep.outputs.shortname }}
           subject-digest: ${{ needs.build.outputs.digest }}
@@ -286,7 +278,7 @@ jobs:
 
       # oci-target pushes the VSA referrer; the dist download is skipped (the image is the artifact).
       # TODO: replace with $/actions/verify_release when GitHub ships $/ syntax (#136)
-      - uses: TomHennen/wrangle/actions/verify_release@7908aadf0476e392d5b7bb046845363ff8da2140 # fix/verify-empty-vsa-693 2026-07-05
+      - uses: TomHennen/wrangle/actions/verify_release@b631f580ca2ff137bd96ee62af40d97c333e3f4a # reconv738 2026-07-05
         with:
           build-type: container
           shortname: ${{ needs.prep.outputs.shortname }}

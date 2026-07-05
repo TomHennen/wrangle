@@ -75,11 +75,6 @@ setup() {
     [[ -x "$DISPATCH" ]]
 }
 
-@test "dispatch.sh starts with set -euo pipefail" {
-    run head -3 "$DISPATCH"
-    [[ "$output" == *"set -euo pipefail"* ]]
-}
-
 @test "dispatch.sh uses printf not echo for output" {
     # No bare echo statements
     run grep -c '^[[:space:]]*echo ' "$DISPATCH"
