@@ -57,7 +57,7 @@ TAG_NAME="0.0.0-pr.${PR_NUMBER}.${WRANGLE_RUN_ID}"
 GENERATED_FILE=".github/workflows/test-wrangle.yml"
 CLEANUP_TAG=""
 
-# shellcheck disable=SC2317 # invoked indirectly via trap
+# shellcheck disable=SC2317,SC2329 # invoked indirectly via trap
 cleanup() {
     if [[ -n "$CLEANUP_TAG" ]]; then
         printf 'Cleaning up: deleting tag %s from %s\n' "$CLEANUP_TAG" "$COMPANION_REPO"
