@@ -150,7 +150,7 @@ jobs:
       metadata-pre: ${{ steps.prep.outputs.metadata-pre }}
     steps:
       # TODO: replace with $/actions/prep when GitHub ships $/ syntax (#136)
-      - uses: TomHennen/wrangle/actions/prep@b035d68be4f56f4717f996fd6f7a4d403cbcaf48 # feat/containerize-verify-vsa-cleanup 2026-07-05
+      - uses: TomHennen/wrangle/actions/prep@f0ff9b1c2611878e51834b543c65c228f17f7409 # feat/containerize-verify-vsa-cleanup 2026-07-05
         id: prep
         with:
           build-type: npm
@@ -169,7 +169,7 @@ jobs:
       security-events: write
     steps:
       # TODO: replace with $/actions/scan when GitHub ships $/ syntax (#136)
-      - uses: TomHennen/wrangle/actions/scan@b035d68be4f56f4717f996fd6f7a4d403cbcaf48 # feat/containerize-verify-vsa-cleanup 2026-07-05
+      - uses: TomHennen/wrangle/actions/scan@f0ff9b1c2611878e51834b543c65c228f17f7409 # feat/containerize-verify-vsa-cleanup 2026-07-05
         if: ${{ inputs.scan-tools != '' }}
         with:
           checkout: "true"
@@ -203,7 +203,7 @@ jobs:
           ref: ${{ inputs.ref || '' }}
 
       # TODO: replace with $/build/actions/npm when GitHub ships $/ syntax (#136)
-      - uses: TomHennen/wrangle/build/actions/npm@b035d68be4f56f4717f996fd6f7a4d403cbcaf48 # feat/containerize-verify-vsa-cleanup 2026-07-05
+      - uses: TomHennen/wrangle/build/actions/npm@f0ff9b1c2611878e51834b543c65c228f17f7409 # feat/containerize-verify-vsa-cleanup 2026-07-05
         id: build
         with:
           path: ${{ inputs.path }}
@@ -282,7 +282,7 @@ jobs:
       bundles-artifact-name: ${{ steps.attest.outputs.bundles-artifact-name }}
     steps:
       # TODO: replace with $/actions/attest_provenance when GitHub ships $/ syntax (#136)
-      - uses: TomHennen/wrangle/actions/attest_provenance@b035d68be4f56f4717f996fd6f7a4d403cbcaf48 # feat/containerize-verify-vsa-cleanup 2026-07-05
+      - uses: TomHennen/wrangle/actions/attest_provenance@f0ff9b1c2611878e51834b543c65c228f17f7409 # feat/containerize-verify-vsa-cleanup 2026-07-05
         id: attest
         with:
           build-type: npm
@@ -305,7 +305,7 @@ jobs:
       contents: write       # create the release if absent and attach the bundle on tag pushes
     steps:
       # TODO: replace with $/actions/verify_release when GitHub ships $/ syntax (#136)
-      - uses: TomHennen/wrangle/actions/verify_release@b035d68be4f56f4717f996fd6f7a4d403cbcaf48 # feat/containerize-verify-vsa-cleanup 2026-07-05
+      - uses: TomHennen/wrangle/actions/verify_release@f0ff9b1c2611878e51834b543c65c228f17f7409 # feat/containerize-verify-vsa-cleanup 2026-07-05
         with:
           build-type: npm
           shortname: ${{ needs.prep.outputs.shortname }}
