@@ -40,6 +40,18 @@ _prebuild_one() {
         return 0
     fi
     tag="$(prebuild_image_tag "$dir")"
+    # WRANGLE_IMAGE_CACHE=gha (build_shell.yml's image-cache input): build via
+    # the buildx docker-container builder against the cross-run gha layer
+    # cache; on any failure fall back to a plain daemon build.
+    if [[ "${WRANGLE_IMAGE_CACHE:-}" == "gha" ]]; then
+        if docker buildx build -q -f "$dockerfile" -t "$tag" --load \
+            --cache-from "type=gha,scope=wrangle-img-$dir" \
+            --cache-to "type=gha,scope=wrangle-img-$dir,mode=max" \
+            "$REPO_ROOT" >/dev/null 2>&1; then
+            return 0
+        fi
+        printf 'prebuild_tool_images: gha-cache build failed for %s, using plain build\n' "$dir" >&2
+    fi
     docker build -q -f "$dockerfile" -t "$tag" "$REPO_ROOT" >/dev/null 2>&1 \
         || printf 'prebuild_tool_images: build failed for %s (cache not warmed)\n' "$dir" >&2
 }
@@ -57,6 +69,12 @@ prebuild_tool_images() {
     for pid in "${pids[@]+"${pids[@]}"}"; do
         wait "$pid"
     done
+
+    # Lets the image bats' setup_file skip its own build when the prebuilt
+    # tag is present (wrangle_prebuilt_image in test/lib/image_test_harness.sh).
+    if [[ -n "${GITHUB_ENV:-}" ]]; then
+        printf 'WRANGLE_TOOL_IMAGES_PREBUILT=1\n' >> "$GITHUB_ENV"
+    fi
 }
 
 if [[ "${BASH_SOURCE[0]}" == "${0}" ]]; then

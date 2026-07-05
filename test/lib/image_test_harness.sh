@@ -18,6 +18,13 @@ wrangle_require_docker() {
     fi
 }
 
+# wrangle_prebuilt_image <tag> — true when the integration setup prebuilt
+# <tag> (test/prebuild_tool_images.sh), letting a setup_file skip its build.
+wrangle_prebuilt_image() {
+    [[ "${WRANGLE_TOOL_IMAGES_PREBUILT:-}" == "1" ]] \
+        && docker image inspect "$1" >/dev/null 2>&1
+}
+
 # wrangle_image_scan <image> <src_dir> <out_dir> [network]
 # Runs the image under the contract sandbox (read-only src, writable output,
 # non-root as the caller, network off by default) and returns its exit code.

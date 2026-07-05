@@ -67,6 +67,18 @@ on:
         required: false
         type: string
         default: ""
+      image-cache:
+        description: >
+          Set to "enabled" to back the docker images the setup-script builds
+          with a cross-run buildx layer cache (the gha cache backend, as
+          test.yml's test-image prebuild). Counts against the repo's Actions
+          cache quota and exposes the run's Actions cache credentials to the
+          job's later steps. Test/scan only: a cache hit restores prebuilt
+          layers without rebuilding their inputs — never enable on a release
+          build. Empty (default) disables it.
+        required: false
+        type: string
+        default: ""
     secrets:
       gh_token:
         description: >
@@ -140,6 +152,27 @@ jobs:
         with:
           path: ${{ runner.temp }}/.wrangle/bin
           key: setup-tools-${{ runner.os }}-${{ hashFiles(format('{0}/go.sum', inputs.go-tools-dir)) }}
+
+      # The gha cache backend needs a docker-container builder, and CLI buildx
+      # needs the runner's cache credentials, which GitHub injects only into
+      # action processes — export them with the first-party github-script
+      # (the upstream-documented crazy-max/ghaction-github-runtime would add a
+      # third-party dependency for the same loop).
+      - name: Set up buildx for the image cache
+        if: ${{ inputs.image-cache == 'enabled' }}
+        uses: docker/setup-buildx-action@d7f5e7f509e45cec5c76c4d5afdd7de93d0b3df5 # v4.1.0
+
+      - name: Expose Actions cache credentials for buildx
+        if: ${{ inputs.image-cache == 'enabled' }}
+        uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v9.0.0
+        with:
+          script: |
+            for (const k of ['ACTIONS_CACHE_URL', 'ACTIONS_CACHE_SERVICE_V2',
+                             'ACTIONS_RESULTS_URL', 'ACTIONS_RUNTIME_TOKEN',
+                             'ACTIONS_RUNTIME_URL']) {
+              if (process.env[k]) core.exportVariable(k, process.env[k]);
+            }
+            core.exportVariable('WRANGLE_IMAGE_CACHE', 'gha');
 
       - name: Run shell build
         # TODO: replace with $/build/actions/shell when GitHub ships $/ syntax (#136)
