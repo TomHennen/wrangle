@@ -272,12 +272,16 @@ bears on L3: a release build must not consume a shared cache that isn't
 re-verified on use. (PR builds may cache freely; they produce no provenance.)
 Note that the Go **build** cache is *not* re-verified on hit — which is why it's
 forced cold on release; npm is the one surface that keeps a cache on release,
-relying on `npm ci`. The scan tools no longer build from source — they ship as
-digest-pinned images — so there is no scan-job build cache to isolate.
+relying on `npm ci`. wrangle's own tools (the osv/zizmor/wrangle-lint scanners
+and the syft SBOM tool) no longer build from source — they ship as curated,
+digest-pinned images that `run.sh` VSA-verifies at pull (PASSED, SLSA-L3,
+`resourceUri`==image digest, via `verify_image_vsa`, fail-closed) before running.
+So there is no tool-build cache to isolate, and each reused image input is itself
+provenance-gated — the control SLSA calls for around reused inputs.
 
 | Surface | On release | Re-verified on hit? | Verdict |
 |---|---|---|---|
-| Scan-job tool image | No build cache — scan tools ship as digest-pinned images, not built from source | n/a | MEETS — no build cache to poison; scan output gates the build but isn't an attested artifact |
+| Curated tool images (scan + SBOM) | Digest-pinned images, not built from source (no build cache) | Yes — VSA-verified at pull (`verify_image_vsa`) | MEETS — no build cache to poison, and every reused wrangle tool image is provenance-gated (PASSED, SLSA-L3, `resourceUri`==digest) before it runs |
 | Go build (`setup-go`) | Cold (`cache: false`) | n/a | MEETS |
 | Python uv | Cold (`enable-cache: false`) | n/a | MEETS |
 | Python pip | No cache, ever | n/a | MEETS |
