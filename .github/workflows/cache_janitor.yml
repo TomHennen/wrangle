@@ -1,0 +1,25 @@
+name: Cache Janitor
+
+# A closed PR's caches otherwise linger up to GitHub's 7-day TTL, and at the
+# 10GB quota the LRU evictor can't tell them apart from main's hot caches.
+
+on:
+  pull_request:
+    types: [closed]
+
+permissions: {}
+
+jobs:
+  purge:
+    runs-on: ubuntu-latest
+    permissions:
+      actions: write
+    steps:
+      - name: Delete the closed PR's caches
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+          REF: refs/pull/${{ github.event.pull_request.number }}/merge
+        run: |
+          gh cache list -R "$REPO" --ref "$REF" --limit 100 --json id --jq '.[].id' \
+            | while read -r id; do gh cache delete -R "$REPO" "$id"; done
