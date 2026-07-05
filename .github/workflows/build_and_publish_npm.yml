@@ -85,13 +85,9 @@ on:
         default: "osv zizmor scorecard:info dependency-review wrangle-lint"
       go-cache:
         description: >
-          Set to "enabled" to cache the Go module + build caches the
-          source-scan tools build from source (osv-scanner et al. —
-          #343) on PR / non-release runs. Release builds always run
-          cache-free regardless: the scan gates an attested release, so
-          its tools build cold and a poisoned cache cannot forge a
-          passing scan (docs/SLSA_L3_AUDIT.md). Default off — the cache
-          is ~1.5–3 GB against this repo's Actions cache quota.
+          Deprecated no-op. The source-scan tools now ship as curated,
+          digest-pinned images and no longer build from source, so this
+          caches nothing. Retained so callers that still set it don't fail.
         required: false
         type: string
         default: ""
@@ -105,6 +101,11 @@ on:
         required: false
         type: string
         default: policies/wrangle-default-npm-v1.hjson
+      sbom-tool:
+        description: "Wrangle's default SBOM tool, or one you define yourself in `.wrangle/tools.json`."
+        required: false
+        type: string
+        default: sbom
     outputs:
       hashes:
         description: "Base64-encoded SHA-256 hashes of built artifacts (for SLSA provenance)"
@@ -149,7 +150,7 @@ jobs:
       metadata-pre: ${{ steps.prep.outputs.metadata-pre }}
     steps:
       # TODO: replace with $/actions/prep when GitHub ships $/ syntax (#136)
-      - uses: TomHennen/wrangle/actions/prep@0ae21912101fc1deb6290c44bfb41aceb96219e0 # claude/trim-redundant-unit-tests 2026-06-21
+      - uses: TomHennen/wrangle/actions/prep@7908aadf0476e392d5b7bb046845363ff8da2140 # fix/verify-empty-vsa-693 2026-07-05
         id: prep
         with:
           build-type: npm
@@ -168,7 +169,7 @@ jobs:
       security-events: write
     steps:
       # TODO: replace with $/actions/scan when GitHub ships $/ syntax (#136)
-      - uses: TomHennen/wrangle/actions/scan@0ae21912101fc1deb6290c44bfb41aceb96219e0 # claude/trim-redundant-unit-tests 2026-06-21
+      - uses: TomHennen/wrangle/actions/scan@7908aadf0476e392d5b7bb046845363ff8da2140 # fix/verify-empty-vsa-693 2026-07-05
         if: ${{ inputs.scan-tools != '' }}
         with:
           checkout: "true"
@@ -177,9 +178,6 @@ jobs:
           # The build job folds this into the unified npm-metadata.
           artifact-name: ${{ needs.prep.outputs.scan }}
           retention-days: 1
-          # Cold on release: the scan gates an attested build, so a
-          # poisoned tool cache must not be able to forge a passing scan.
-          go-cache: ${{ needs.prep.outputs.should-release == 'true' && '' || inputs.go-cache }}
 
   build:
     # needs `scan` to fold the untrusted scan output into the metadata dir.
@@ -199,19 +197,20 @@ jobs:
       # JSON array of dist filenames the verify job binds one VSA to each.
       dist-files: ${{ steps.distfiles.outputs.files }}
     steps:
-      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
         with:
           persist-credentials: false
           ref: ${{ inputs.ref || '' }}
 
       # TODO: replace with $/build/actions/npm when GitHub ships $/ syntax (#136)
-      - uses: TomHennen/wrangle/build/actions/npm@0ae21912101fc1deb6290c44bfb41aceb96219e0 # claude/trim-redundant-unit-tests 2026-06-21
+      - uses: TomHennen/wrangle/build/actions/npm@7908aadf0476e392d5b7bb046845363ff8da2140 # fix/verify-empty-vsa-693 2026-07-05
         id: build
         with:
           path: ${{ inputs.path }}
           node-version: ${{ inputs.node-version }}
           run-tests: ${{ inputs.run-tests }}
           ignore-scripts: ${{ inputs.ignore-scripts }}
+          sbom-tool: ${{ inputs.sbom-tool }}
 
       # The npm composite doesn't emit the package name; read it from
       # package.json for the VSA resourceUri purl. Scoped names (@scope/pkg) pass through.
@@ -283,7 +282,7 @@ jobs:
       bundles-artifact-name: ${{ steps.attest.outputs.bundles-artifact-name }}
     steps:
       # TODO: replace with $/actions/attest_provenance when GitHub ships $/ syntax (#136)
-      - uses: TomHennen/wrangle/actions/attest_provenance@0ae21912101fc1deb6290c44bfb41aceb96219e0 # claude/trim-redundant-unit-tests 2026-06-21
+      - uses: TomHennen/wrangle/actions/attest_provenance@7908aadf0476e392d5b7bb046845363ff8da2140 # fix/verify-empty-vsa-693 2026-07-05
         id: attest
         with:
           build-type: npm
@@ -306,7 +305,7 @@ jobs:
       contents: write       # create the release if absent and attach the bundle on tag pushes
     steps:
       # TODO: replace with $/actions/verify_release when GitHub ships $/ syntax (#136)
-      - uses: TomHennen/wrangle/actions/verify_release@0ae21912101fc1deb6290c44bfb41aceb96219e0 # claude/trim-redundant-unit-tests 2026-06-21
+      - uses: TomHennen/wrangle/actions/verify_release@7908aadf0476e392d5b7bb046845363ff8da2140 # fix/verify-empty-vsa-693 2026-07-05
         with:
           build-type: npm
           shortname: ${{ needs.prep.outputs.shortname }}

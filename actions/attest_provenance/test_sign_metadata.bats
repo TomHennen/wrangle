@@ -39,6 +39,10 @@ setup() {
 
     ATTEST_BIN="$(command -v wrangle-attest || echo "${WRANGLE_BIN_DIR}/wrangle-attest")"
     export ATTEST_BIN
+
+    # Signing always containerizes; make the toolbox path transparent so the
+    # tool stubs run. Recording-docker/fail-closed tests override.
+    wrangle_stub_toolbox_transparent
 }
 
 teardown() {

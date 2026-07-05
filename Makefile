@@ -1,4 +1,4 @@
-.PHONY: all test lint shellcheck shellstyle workflowstyle gotest bats zizmor integration bump-action-pins converge-action-pins
+.PHONY: all test lint shellcheck shellstyle workflowstyle gotest bats zizmor integration bump-action-pins converge-action-pins check-catalog check-catalog-freshness check-catalog-provenance-freshness bump-catalog-digest bump-catalog-to-latest
 
 # bash, not the default sh: the integration recipe sources lib/env.sh,
 # whose `set -o pipefail` dash doesn't reliably support.
@@ -45,11 +45,15 @@ shellcheck:
 # Run bats tests. Fan out across files with GNU parallel (#530); within-file
 # order is preserved so a file's setup assumptions hold. Falls back to serial
 # when parallel is absent, so a host without it still runs the suite.
+# test/consumer/ is NOT here: those suites need real ampel/cosign, so they are
+# integration tests (in INTEGRATION_BATS + the dogfooded shell-build auto-detect)
+# — kept out of this hermetic suite, which can't provide the tools and would
+# silently skip them (the container test job can't see it's in CI to fail-hard).
 BATS_JOBS ?= $(shell nproc 2>/dev/null || sysctl -n hw.ncpu 2>/dev/null || echo 4)
 BATS_PARALLEL ?= $(if $(filter-out 0 1,$(BATS_JOBS)),$(if $(shell command -v parallel 2>/dev/null),--jobs $(BATS_JOBS) --no-parallelize-within-files))
 bats:
 	@echo "=== bats ==="
-	@bats $(BATS_PARALLEL) test/ test/lib/ test/consumer/ test/integration/ tools/*/test.bats actions/*/*.bats build/actions/*/test.bats
+	@bats $(BATS_PARALLEL) test/ test/lib/ test/integration/ tools/*/test.bats actions/*/*.bats build/actions/*/test.bats
 
 # Non-hermetic: installs real tools (network, registries, Sigstore) via
 # test/setup_integration.sh, then runs the integration bats suites. NOT in
@@ -61,10 +65,10 @@ integration:
 	@if [[ -n "$$GOTMPDIR" ]]; then mkdir -p "$$GOTMPDIR"; fi
 	@source lib/env.sh && ./test/setup_integration.sh && bats $(BATS_PARALLEL) $(INTEGRATION_BATS)
 
-# Workflow security linting (matches tools/zizmor/action.yml's CI invocation).
+# Workflow security linting against the wrangle repo itself.
 # --no-online-audits keeps the test container offline-friendly; the audits
 # that need network (e.g. known-vulnerable-actions against the GitHub
-# Advisories DB) are exercised by the same upstream action in CI. unpinned-uses
+# Advisories DB) are exercised by the zizmor tool image in CI. unpinned-uses
 # works offline, so this run does enforce SHA-pinning locally.
 zizmor:
 	@echo "=== zizmor ==="
@@ -84,11 +88,29 @@ bump-action-pins:
 converge-action-pins:
 	@./tools/converge_action_pins.sh
 
-# Update a binary-download tool's version and hardcoded checksum. Go-module
-# tools (osv-scanner, cosign, ampel, bnd) are pinned in tools/go.mod and
-# bumped by Dependabot instead.
-# Usage: make update-tool TOOL=syft VERSION=1.2.3
-update-tool:
-	@echo "Tool version update helper — not yet implemented"
-	@echo "Will download $(TOOL) $(VERSION), compute SHA-256, and patch tools/$(TOOL)/install.sh"
-	@exit 1
+# Static, network-free catalog validator (digest-pinned, on-namespace, capability
+# enum). Runs every PR; see tools/check_catalog.sh.
+check-catalog:
+	@./tools/check_catalog.sh
+
+# Adoption-lag freshness check: compares each curated image digest against its
+# :latest tag in the registry (network). A release precondition, not a per-PR
+# gate. See tools/check_catalog_freshness.sh.
+check-catalog-freshness:
+	@./tools/check_catalog_freshness.sh
+
+# Provenance source-freshness: fails if a pinned image's build commit differs
+# from HEAD's tool source (network + full git history). A release precondition,
+# not a per-PR gate. See tools/check_catalog_provenance_freshness.sh.
+check-catalog-provenance-freshness:
+	@./tools/check_catalog_provenance_freshness.sh
+
+# One-command fix when check-catalog-freshness reports drift.
+# Usage: make bump-catalog-digest TOOL=osv DIGEST=sha256:<64hex>
+bump-catalog-digest:
+	@./tools/bump_catalog_digest.sh $(TOOL) $(DIGEST)
+
+# Repoint every curated entry to its current registry :latest digest (the batch
+# driver the post-publish auto-bump runs). See tools/bump_catalog_to_latest.sh.
+bump-catalog-to-latest:
+	@./tools/bump_catalog_to_latest.sh

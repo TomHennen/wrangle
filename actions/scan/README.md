@@ -23,7 +23,7 @@ jobs:
       actions: read
       contents: read
       security-events: write   # SARIF upload to the Security tab
-    uses: TomHennen/wrangle/.github/workflows/check_source_change.yml@v0.2.2 # zizmor: ignore[unpinned-uses] - immutable
+    uses: TomHennen/wrangle/.github/workflows/check_source_change.yml@v0.3.1 # zizmor: ignore[unpinned-uses] - immutable
 ```
 
 Findings appear in the Security tab; the run's step summary shows an overview.
@@ -49,12 +49,14 @@ The May 2026 Mini Shai-Hulud compromise of TanStack/router is the canonical exam
 The `tools` input is a space-separated list. Default: `"osv zizmor scorecard:info dependency-review wrangle-lint"`. Suffix with `:info` to make a tool's findings non-blocking.
 
 ```yaml
-uses: TomHennen/wrangle/.github/workflows/check_source_change.yml@v0.2.2 # zizmor: ignore[unpinned-uses] - immutable
+uses: TomHennen/wrangle/.github/workflows/check_source_change.yml@v0.3.1 # zizmor: ignore[unpinned-uses] - immutable
 with:
   tools: "osv zizmor"   # skip Scorecard and dependency-review
 ```
 
 `dependency-review` only runs on `pull_request` events (the upstream action needs the PR diff); on `push` it is silently skipped, the same way `scorecard` is skipped on PRs. Per-tool configuration is not yet exposed — see [#221](https://github.com/TomHennen/wrangle/issues/221).
+
+Zizmor's online audits use the workflow token by default; pass `github-token: ""` to keep them offline.
 
 ## Out of scope (today)
 

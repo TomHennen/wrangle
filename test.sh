@@ -38,9 +38,15 @@ if ! docker info >/dev/null 2>&1; then
     exit 1
 fi
 
-# Build the test container (cached after first run)
-echo "=== Building test container ==="
-docker build -t "$IMAGE_NAME" -f "$SCRIPT_DIR/test/Dockerfile" "$SCRIPT_DIR"
+# Build the test container. Locally this relies on the Docker daemon's layer
+# cache (warm across runs). In CI the runner is ephemeral, so the workflow
+# prebuilds the image with a GitHub Actions layer cache and sets
+# WRANGLE_TEST_IMAGE_PREBUILT to have this script reuse it instead of rebuilding
+# (#308).
+if [[ -z "${WRANGLE_TEST_IMAGE_PREBUILT:-}" ]]; then
+    echo "=== Building test container ==="
+    docker build -t "$IMAGE_NAME" -f "$SCRIPT_DIR/test/Dockerfile" "$SCRIPT_DIR"
+fi
 
 # Map the script-level alias to the Makefile target list. Array form so
 # `quick` can pass multiple targets to one `make` invocation without

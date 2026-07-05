@@ -19,6 +19,9 @@ setup() {
     export WRANGLE_RETRY_DELAY=0
     # shellcheck source=../lib/sign_metadata.sh
     source "$LIB"
+    # Signing always containerizes; make the toolbox path transparent so the
+    # assemble/seed tests exercise their tool stubs. Recording-docker tests override.
+    wrangle_stub_toolbox_transparent
 }
 
 teardown() {
@@ -262,4 +265,139 @@ STUB
     run wrangle_sign_and_assemble_bundles
     [[ "$status" -ne 0 ]]
     [[ "$output" == *"no signed metadata"* ]]
+}
+
+# --- containerized signing (the attest-toolbox image under the token grant) ---
+
+_toolbox_image="ghcr.io/tomhennen/wrangle/attest-toolbox@sha256:0000000000000000000000000000000000000000000000000000000000000000"
+
+# docker records its argv; gh returns a PASSED L3 VSA for the toolbox image; curl
+# mints a fixed sigstore JWT; the catalog carries the token: sigstore grant.
+_stub_toolbox_container() {
+    cat > "$TEST_DIR/docker" <<EOF
+#!/bin/bash
+printf '%s\n' "\$*" > "$TEST_DIR/docker.args"
+EOF
+    cat > "$TEST_DIR/gh" <<EOF
+#!/bin/bash
+cat <<JSON
+[{"verificationResult":{"statement":{"predicate":{"verificationResult":"PASSED","resourceUri":"$_toolbox_image","verifiedLevels":["SLSA_BUILD_LEVEL_3"]}}}}]
+JSON
+EOF
+    cat > "$TEST_DIR/curl" <<'EOF'
+#!/bin/bash
+printf '{"value":"MINTED-SIGSTORE-JWT"}\n'
+EOF
+    chmod +x "$TEST_DIR/docker" "$TEST_DIR/gh" "$TEST_DIR/curl"
+    cat > "$TEST_DIR/catalog.json" <<JSON
+{"tools":{"attest-toolbox":{"kind":"attest","image":"$_toolbox_image","network":"egress","token":"sigstore"}}}
+JSON
+    export PATH="$TEST_DIR:$PATH"
+    export WRANGLE_CATALOG="$TEST_DIR/catalog.json"
+    export ACTIONS_ID_TOKEN_REQUEST_URL="https://oidc.example/token"
+    export ACTIONS_ID_TOKEN_REQUEST_TOKEN="request-bearer-secret"
+    export GITHUB_TOKEN="registry-token"
+}
+
+@test "sign_metadata: metadata signing runs in-container with a name-threaded sigstore token" {
+    _stub_toolbox_container
+    local meta="$TEST_DIR/meta"; mkdir -p "$meta"
+    printf '{}' > "$meta/wrangle_attestation_metadata.json"
+    export METADATA_ROOT="$meta" COMMIT="abc123"
+    local sha; sha="$(printf '0%.0s' {1..64})"
+    wrangle_sign_metadata_statements "sha256:$sha" "$TEST_DIR/out.jsonl"
+    # wrangle-attest --sign ran inside the VSA-gated toolbox image.
+    grep -q -- "$_toolbox_image wrangle-attest" "$TEST_DIR/docker.args"
+    grep -q -- "--sign" "$TEST_DIR/docker.args"
+    # Only the sigstore token is threaded, by name; never the request vars, never
+    # the minted value on argv, never the registry token.
+    grep -q -- "-e SIGSTORE_ID_TOKEN" "$TEST_DIR/docker.args"
+    ! grep -q "MINTED-SIGSTORE-JWT" "$TEST_DIR/docker.args"
+    ! grep -q "ACTIONS_ID_TOKEN_REQUEST" "$TEST_DIR/docker.args"
+    ! grep -q -- "-e GITHUB_TOKEN" "$TEST_DIR/docker.args"
+    # The workspace and RUNNER_TEMP are mounted and the working dir is set, so the
+    # same (relative-in-prod) metadata/subject/out paths resolve as they do in-job.
+    grep -q -- "-w $PWD" "$TEST_DIR/docker.args"
+    grep -q -- "--mount type=bind,source=$RUNNER_TEMP,target=$RUNNER_TEMP" "$TEST_DIR/docker.args"
+}
+
+@test "sign_metadata: store push runs in-container with the registry token, no sigstore token" {
+    _stub_toolbox_container
+    export GITHUB_REPOSITORY="o/r"
+    printf 'stmt\n' > "$TEST_DIR/line.json"
+    wrangle_push_store "$TEST_DIR/line.json"
+    grep -q -- "$_toolbox_image bnd push github o/r" "$TEST_DIR/docker.args"
+    grep -q -- "-e GITHUB_TOKEN" "$TEST_DIR/docker.args"
+    # A store push is not a signing op — no sigstore token, and the GitHub API
+    # needs no registry-login mount.
+    ! grep -q -- "-e SIGSTORE_ID_TOKEN" "$TEST_DIR/docker.args"
+    ! grep -q -- "docker-config" "$TEST_DIR/docker.args"
+}
+
+@test "sign_metadata: OCI referrer push runs in-container with the job's registry login" {
+    _stub_toolbox_container
+    local sha; sha="$(printf '0%.0s' {1..64})"
+    export OCI_TARGET="ghcr.io/o/r/img@sha256:$sha"
+    export HOME="$TEST_DIR"; mkdir -p "$TEST_DIR/.docker"
+    printf 'stmt\n' > "$TEST_DIR/line.json"
+    wrangle_push_oci_referrer "$TEST_DIR/line.json"
+    grep -q -- "$_toolbox_image cosign attach attestation" "$TEST_DIR/docker.args"
+    grep -q -- "-e GITHUB_TOKEN" "$TEST_DIR/docker.args"
+    grep -q -- "-e DOCKER_CONFIG=/wrangle/docker-config" "$TEST_DIR/docker.args"
+    ! grep -q -- "-e SIGSTORE_ID_TOKEN" "$TEST_DIR/docker.args"
+}
+
+@test "sign_metadata: a missing token: sigstore grant fails closed (no docker, no in-job sign)" {
+    _stub_toolbox_container
+    # Strip the grant: signing must fail closed, never fall back to an in-job sign.
+    printf '{"tools":{"attest-toolbox":{"kind":"attest","image":"%s","network":"egress"}}}\n' \
+        "$_toolbox_image" > "$TEST_DIR/catalog.json"
+    cat > "$TEST_DIR/wrangle-attest" <<EOF
+#!/bin/bash
+touch "$TEST_DIR/attest.called"
+EOF
+    chmod +x "$TEST_DIR/wrangle-attest"
+    local meta="$TEST_DIR/meta"; mkdir -p "$meta"; printf '{}' > "$meta/wrangle_attestation_metadata.json"
+    export METADATA_ROOT="$meta" COMMIT="abc123"
+    local sha; sha="$(printf '0%.0s' {1..64})"
+    run wrangle_sign_metadata_statements "sha256:$sha" "$TEST_DIR/out.jsonl"
+    [ "$status" -ne 0 ]
+    grep -q "capability required to sign" <<< "$output"
+    [ ! -f "$TEST_DIR/docker.args" ]
+    [ ! -f "$TEST_DIR/attest.called" ]
+}
+
+@test "sign_metadata: relative METADATA_ROOT never becomes an invalid relative bind mount (blocker guard)" {
+    _stub_toolbox_container
+    # wrangle sets METADATA_ROOT/SUBJECTS relative; a bind mount source must be
+    # absolute, so the signer mounts the workspace + sets -w, never a relative source.
+    cd "$TEST_DIR"
+    mkdir -p metadata; printf '{}' > metadata/wrangle_attestation_metadata.json
+    export METADATA_ROOT="metadata" COMMIT="abc123"
+    local sha; sha="$(printf '0%.0s' {1..64})"
+    wrangle_sign_metadata_statements "sha256:$sha" "out.jsonl"
+    # Every bind mount source is an absolute host path (starts with /); none is relative.
+    ! grep -qE -- 'source=[^/]' "$TEST_DIR/docker.args"
+    # The workspace is mounted and set as the container working dir instead.
+    grep -q -- "-w $TEST_DIR" "$TEST_DIR/docker.args"
+    grep -q -- "--mount type=bind,source=$TEST_DIR,target=$TEST_DIR" "$TEST_DIR/docker.args"
+}
+
+@test "sign_metadata: metadata signing fails closed on a token-mint failure (no docker, no in-job fallback)" {
+    _stub_toolbox_container
+    # Mint fails when the ambient OIDC request vars are absent; the grant+opt-in
+    # path must NOT fall back to an in-job wrangle-attest.
+    unset ACTIONS_ID_TOKEN_REQUEST_URL ACTIONS_ID_TOKEN_REQUEST_TOKEN
+    cat > "$TEST_DIR/wrangle-attest" <<EOF
+#!/bin/bash
+touch "$TEST_DIR/attest.called"
+EOF
+    chmod +x "$TEST_DIR/wrangle-attest"
+    local meta="$TEST_DIR/meta"; mkdir -p "$meta"; printf '{}' > "$meta/wrangle_attestation_metadata.json"
+    export METADATA_ROOT="$meta" COMMIT="abc123"
+    local sha; sha="$(printf '0%.0s' {1..64})"
+    run wrangle_sign_metadata_statements "sha256:$sha" "$TEST_DIR/out.jsonl"
+    [ "$status" -ne 0 ]
+    [ ! -f "$TEST_DIR/docker.args" ]
+    [ ! -f "$TEST_DIR/attest.called" ]
 }

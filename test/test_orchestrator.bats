@@ -270,6 +270,23 @@ run_orchestrator() {
     [ "$status" -eq 0 ]
 }
 
+@test "orchestrator: skips action-pattern tool even when an adapter.sh is present" {
+    # A tool with an action.yml runs via its uses: step; an adapter.sh present
+    # only as its image entrypoint must not pull it onto the in-process path.
+    mkdir -p "$MOCK_TOOLS/action-img-tool"
+    echo "name: test" > "$MOCK_TOOLS/action-img-tool/action.yml"
+    cat > "$MOCK_TOOLS/action-img-tool/adapter.sh" << 'ADAPT'
+#!/bin/bash
+exit 2
+ADAPT
+    chmod +x "$MOCK_TOOLS/action-img-tool/adapter.sh"
+
+    run_orchestrator -s "$TEST_DIR/src" -o "$TEST_DIR/output" "action-img-tool"
+
+    [ "$status" -eq 0 ]
+    [ ! -f "$TEST_DIR/output/action-img-tool/output.sarif" ]
+}
+
 @test "orchestrator: strips policy suffix from tool names" {
     run_orchestrator -s "$TEST_DIR/src" -o "$TEST_DIR/output" "clean-tool:fail"
 
@@ -307,12 +324,16 @@ run_orchestrator() {
     run_orchestrator -s "$TEST_DIR/src" -o "$TEST_DIR/output" "error-tool"
 
     [ "$status" -eq 2 ]
+    # An error marker is written so check_results catches the failure even when
+    # the scan step runs under continue-on-error (and honors :info on the error).
+    [ -f "$TEST_DIR/output/error-tool/error" ]
 }
 
 @test "orchestrator: handles install failure (exit 2)" {
     run_orchestrator -s "$TEST_DIR/src" -o "$TEST_DIR/output" "bad-install"
 
     [ "$status" -eq 2 ]
+    [ -f "$TEST_DIR/output/bad-install/error" ]
 }
 
 @test "orchestrator: runs multiple tools" {
@@ -449,69 +470,6 @@ ADAPT
     [ "$status" -eq 0 ]
 }
 
-# --- Selective Go-tool install tests ---
-
-# Build two mock adapters that each declare a distinct Go package in go-tools,
-# plus a fake `go` that records the packages it was asked to install. Lets us
-# assert run.sh builds only the requested adapter's package, never the others'.
-setup_go_tools_mocks() {
-    for t in gotool-a gotool-b; do
-        mkdir -p "$MOCK_TOOLS/$t"
-        printf '#!/bin/bash\nset -euo pipefail\nexit 0\n' > "$MOCK_TOOLS/$t/adapter.sh"
-        chmod +x "$MOCK_TOOLS/$t/adapter.sh"
-    done
-    printf 'example.com/pkg/a\n' > "$MOCK_TOOLS/gotool-a/go-tools"
-    printf 'example.com/pkg/b\n' > "$MOCK_TOOLS/gotool-b/go-tools"
-
-    export GO_RECORD="$TEST_DIR/go-install-record"
-    : > "$GO_RECORD"
-    export FAKE_BIN="$TEST_DIR/fakebin"
-    mkdir -p "$FAKE_BIN"
-
-    # run.sh creates this to hold installed Go binaries (GOBIN). env.sh's
-    # default is CWD-relative, which is unwritable under the read-only repo
-    # mount the unit container runs in — point it at the writable test dir.
-    export WRANGLE_BIN_DIR="$TEST_DIR/bin"
-    cat > "$FAKE_BIN/go" << 'FAKEGO'
-#!/usr/bin/env bash
-set -euo pipefail
-pkgs=()
-seen_install=0
-while [ $# -gt 0 ]; do
-    case "$1" in
-        -C) shift 2; continue ;;
-        install) seen_install=1; shift; continue ;;
-        *) [ "$seen_install" -eq 1 ] && pkgs+=("$1"); shift ;;
-    esac
-done
-[ "${#pkgs[@]}" -gt 0 ] && printf '%s\n' "${pkgs[@]}" >> "$GO_RECORD"
-exit 0
-FAKEGO
-    chmod +x "$FAKE_BIN/go"
-}
-
-@test "orchestrator: installs only the Go package the requested adapter declares" {
-    setup_go_tools_mocks
-
-    PATH="$FAKE_BIN:$PATH" WRANGLE_TOOLS_DIR="$MOCK_TOOLS" \
-        run "$ORIG_DIR/run.sh" -s "$TEST_DIR/src" -o "$TEST_DIR/output" "gotool-a"
-
-    [ "$status" -eq 0 ]
-    grep -Fxq "example.com/pkg/a" "$GO_RECORD"
-    ! grep -Fxq "example.com/pkg/b" "$GO_RECORD"
-}
-
-@test "orchestrator: skips the Go install entirely when no adapter declares a tool" {
-    setup_go_tools_mocks
-
-    # clean-tool has no go-tools file, so the fake go must never be invoked.
-    PATH="$FAKE_BIN:$PATH" WRANGLE_TOOLS_DIR="$MOCK_TOOLS" \
-        run "$ORIG_DIR/run.sh" -s "$TEST_DIR/src" -o "$TEST_DIR/output" "clean-tool"
-
-    [ "$status" -eq 0 ]
-    [ ! -s "$GO_RECORD" ]
-}
-
 # --- scan/v1 attestation manifest (issue #420) ---
 
 @test "orchestrator: writes an osv scan/v1 manifest next to output.sarif (clean)" {
@@ -556,4 +514,121 @@ FAKEGO
     run_orchestrator -s "$TEST_DIR/src" -o "$TEST_DIR/output" "clean-tool"
     [ "$status" -eq 0 ]
     [ ! -f "$TEST_DIR/output/clean-tool/wrangle_attestation_metadata.json" ]
+}
+
+# --- image delivery: digest-pin enforcement (no docker; regex runs first) ---
+
+# Drive run.sh's image-ref validation directly: the @sha256 check rejects a
+# tag-only image before any docker call, and accepts a registry host:port pin.
+_image_catalog() {
+    # An image tool is "known" by its directory (no adapter.sh — the image is
+    # the adapter); the catalog marks delivery: image.
+    mkdir -p "$TEST_DIR/src" "$MOCK_TOOLS/imgtool"
+    cat > "$MOCK_TOOLS/catalog.json" <<JSON
+{"tools":{"imgtool":{"kind":"scan","delivery":"image","image":"$1"}}}
+JSON
+}
+
+@test "orchestrator: image delivery rejects a tag-only (non-digest-pinned) image" {
+    _image_catalog "registry.internal:5000/osv:latest"
+    run_orchestrator -s "$TEST_DIR/src" -o "$TEST_DIR/output" "imgtool"
+    [ "$status" -eq 2 ]
+    [[ "$output" == *"not digest-pinned"* ]]
+}
+
+@test "orchestrator: image delivery accepts a registry host:port digest pin" {
+    digest="sha256:0000000000000000000000000000000000000000000000000000000000000000"
+    _image_catalog "registry.internal:5000/wrangle-osv@$digest"
+    run_orchestrator -s "$TEST_DIR/src" -o "$TEST_DIR/output" "imgtool"
+    # The pin passes validation, so the digest-pin error never fires; the run
+    # then fails at docker (image absent / docker may be unavailable here).
+    [[ "$output" != *"not digest-pinned"* ]]
+}
+
+# --- catalog-only image tool: admitted with no local tools/<name>/ dir ---
+
+@test "orchestrator: a delivery: image tool with no directory is admitted (not unknown)" {
+    digest="sha256:0000000000000000000000000000000000000000000000000000000000000000"
+    mkdir -p "$TEST_DIR/src"
+    # No $MOCK_TOOLS/byotool directory; the catalog alone defines it.
+    cat > "$MOCK_TOOLS/catalog.json" <<JSON
+{"tools":{"byotool":{"kind":"sbom","delivery":"image","image":"registry.internal:5000/byo@$digest"}}}
+JSON
+    run_orchestrator -s "$TEST_DIR/src" -o "$TEST_DIR/output" "byotool"
+    # Reaches the image path rather than the "unknown tool" gate; docker then
+    # fails (image absent / docker may be unavailable), which is not our concern.
+    [[ "$output" != *"unknown tool"* ]]
+    [[ "$output" == *"running byotool (image)"* ]]
+}
+
+@test "orchestrator: a tool with no directory and no catalog image entry is unknown" {
+    run_orchestrator -s "$TEST_DIR/src" -o "$TEST_DIR/output" "nodir"
+    [ "$status" -eq 2 ]
+    [[ "$output" == *"unknown tool"* ]]
+}
+
+@test "orchestrator: the curated sbom key dispatches as a catalog-only image tool" {
+    # The default SBOM path (sbom-tool: sbom) has no tools/sbom/ dir, so it relies
+    # on the dir-gate resolving the real catalog's sbom entry to the image path.
+    [ ! -d "$ORIG_DIR/tools/sbom" ]
+    mkdir -p "$TEST_DIR/src"
+    WRANGLE_TOOLS_DIR="$ORIG_DIR/tools" WRANGLE_VERIFY_TOOL_IMAGES=0 \
+        run "$ORIG_DIR/run.sh" -s "$TEST_DIR/src" -o "$TEST_DIR/output" sbom
+    [[ "$output" != *"unknown tool"* ]]
+    [[ "$output" == *"running sbom (image)"* ]]
+}
+
+# --- custom tools: auto-discovered .wrangle/tools.json at the workspace root ---
+
+_byo_digest="sha256:0000000000000000000000000000000000000000000000000000000000000000"
+
+_write_custom_tools() {
+    mkdir -p "$TEST_DIR/ws/.wrangle" "$TEST_DIR/src"
+    printf '%s' "$1" > "$TEST_DIR/ws/.wrangle/tools.json"
+}
+
+@test "orchestrator: auto-discovers .wrangle/tools.json and admits a selected new tool" {
+    _write_custom_tools "{\"tools\":{\"byotool\":{\"kind\":\"sbom\",\"delivery\":\"image\",\"image\":\"registry.internal:5000/byo@$_byo_digest\"}}}"
+    GITHUB_WORKSPACE="$TEST_DIR/ws" \
+        run_orchestrator -s "$TEST_DIR/src" -o "$TEST_DIR/output" "byotool"
+    [[ "$output" != *"unknown tool"* ]]
+    [[ "$output" == *"running byotool (image)"* ]]
+}
+
+@test "orchestrator: no .wrangle/tools.json leaves the default catalog untouched" {
+    mkdir -p "$TEST_DIR/ws" "$TEST_DIR/src"
+    GITHUB_WORKSPACE="$TEST_DIR/ws" \
+        run_orchestrator -s "$TEST_DIR/src" -o "$TEST_DIR/output" "clean-tool"
+    [ "$status" -eq 0 ]
+    [ -f "$TEST_DIR/output/clean-tool/output.sarif" ]
+}
+
+@test "orchestrator: a .wrangle/tools.json symlink resolving outside the workspace is rejected" {
+    mkdir -p "$TEST_DIR/ws/.wrangle" "$TEST_DIR/src"
+    printf '{"tools":{}}' > "$TEST_DIR/outside.json"
+    ln -s "$TEST_DIR/outside.json" "$TEST_DIR/ws/.wrangle/tools.json"
+    GITHUB_WORKSPACE="$TEST_DIR/ws" \
+        run_orchestrator -s "$TEST_DIR/src" -o "$TEST_DIR/output" "clean-tool"
+    [ "$status" -eq 2 ]
+    [[ "$output" == *"resolves outside the workspace"* ]]
+}
+
+@test "orchestrator: an invalid .wrangle/tools.json entry aborts the run" {
+    _write_custom_tools '{"tools":{"byotool":{"kind":"sbom","delivery":"image","image":"ghcr.io/x:latest"}}}'
+    GITHUB_WORKSPACE="$TEST_DIR/ws" \
+        run_orchestrator -s "$TEST_DIR/src" -o "$TEST_DIR/output" "byotool"
+    [ "$status" -eq 2 ]
+    [[ "$output" == *"digest-pinned"* ]]
+}
+
+@test "orchestrator: a custom tool defined but NOT selected is never dispatched" {
+    # Selection gates execution: an injected .wrangle/tools.json entry that the
+    # selection does not name must stay defined-but-never-run (the property that
+    # makes auto-discovery safe under pull_request_target).
+    _write_custom_tools "{\"tools\":{\"injected\":{\"kind\":\"sbom\",\"delivery\":\"image\",\"image\":\"registry.internal:5000/evil@$_byo_digest\"}}}"
+    GITHUB_WORKSPACE="$TEST_DIR/ws" \
+        run_orchestrator -s "$TEST_DIR/src" -o "$TEST_DIR/output" "clean-tool"
+    [ "$status" -eq 0 ]
+    [[ "$output" != *"injected"* ]]
+    [ ! -d "$TEST_DIR/output/injected" ]
 }

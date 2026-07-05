@@ -1,0 +1,102 @@
+name: publish tool images
+
+# Build, publish, and attest wrangle's containerized tool images. One matrix
+# entry per tool — enroll a new tool by adding a line. The trigger is
+# deliberately broad (any tools/ or lib/ change) so we over-build rather than
+# miss a build: a tool image's build context is the repo root (the Dockerfile
+# builds from tools/go.mod and bundles adapter glue from lib/). See
+# docs/tool_container_design.md.
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - tools/**
+      - lib/**
+      # A catalog-only push is a digest bump, not a source change: excluding it
+      # keeps the auto-bump below from looping. Must stay after `tools/**` —
+      # last matching pattern wins, so reordering silently reopens the loop.
+      - "!tools/catalog.json"
+
+permissions: {}
+
+# Serialize publishes so two runs cannot race the shared `:latest` tag the
+# auto-bump resolves.
+concurrency:
+  group: publish-tool-images
+  cancel-in-progress: false
+
+jobs:
+  publish:
+    permissions:
+      contents: read          # checkout + source scan
+      id-token: write         # OIDC for keyless Cosign signing
+      packages: write         # push image + provenance to GHCR
+      attestations: write     # GitHub-issued SLSA provenance
+      actions: read           # source scan reads the Actions API
+      security-events: write  # source-scan SARIF -> Security tab
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - path: tools/osv
+            imagename: ghcr.io/tomhennen/wrangle/osv
+          # The attest/verify toolbox (ampel + bnd + cosign + wrangle-attest in
+          # one image). Built like the scan images, but it is the SLSA-L3 signing
+          # path that needs network + the OIDC token at run time, consumed under
+          # the pinned catalog digest by the containerized signing.
+          - path: tools/attest-toolbox
+            imagename: ghcr.io/tomhennen/wrangle/attest-toolbox
+          - path: tools/wrangle-lint
+            imagename: ghcr.io/tomhennen/wrangle/wrangle-lint
+          - path: tools/zizmor
+            imagename: ghcr.io/tomhennen/wrangle/zizmor
+          - path: tools/syft
+            imagename: ghcr.io/tomhennen/wrangle/syft
+    uses: ./.github/workflows/build_and_publish_container.yml
+    with:
+      path: ${{ matrix.path }}
+      dockerfile: ${{ matrix.path }}/Dockerfile
+      imagename: ${{ matrix.imagename }}
+      registry: ghcr.io
+      release-events: main-and-tags
+
+  # Open (never auto-merge) a catalog bump PR for the just-published digests.
+  # main-only, on the trusted push trigger (no pull_request_target).
+  bump-catalog:
+    needs: [publish]
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: write        # push the bump branch
+      pull-requests: write   # open the bump PR
+    steps:
+      # persist-credentials: false — the push authenticates with GH_TOKEN via an
+      # explicit push URL (open_catalog_bump_pr.sh), so no git credential is left
+      # on disk for a later step to exfiltrate.
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          persist-credentials: false
+          # Full history: open_catalog_bump_pr.sh converges the self-ref pins,
+          # which resolves each pinned sha's tree — a shallow clone lacks them.
+          fetch-depth: 0
+
+      # Resolve each curated `:latest` and rewrite drifted catalog entries. A
+      # registry backend error (exit 2) is advisory — any resolvable entry is
+      # still bumped and the PR opened for it.
+      - name: Bump catalog to published :latest digests
+        run: |
+          set +e
+          ./tools/bump_catalog_to_latest.sh
+          rc=$?
+          if [[ "$rc" -eq 2 ]]; then
+            printf '::warning::a curated image could not be resolved; its digest was left as-is\n'
+          fi
+
+      - name: Open the catalog bump PR
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          WRANGLE_AUTOBUMP_GH_REPO: ${{ github.repository }}
+        run: ./tools/open_catalog_bump_pr.sh

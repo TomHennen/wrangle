@@ -24,7 +24,7 @@ Per-action structural bats tests (`<action-dir>/test.bats`) already cover compos
 
 ### Fork PR safety is load-bearing
 
-The dispatch mechanism described below relies on a GitHub Actions property: `pull_request` workflows triggered from forks run without access to the base repo's secrets. The integration-test dispatch requires a secret (`TEST_REPO_PAT`, used to push a branch to the companion repo). Fork PRs do not get that secret, so the dispatch silently fails for them — the companion repo is never touched by untrusted code.
+The dispatch mechanism described below relies on a GitHub Actions property: `pull_request` workflows triggered from forks run without access to the base repo's secrets. The integration-test dispatch requires a secret (`TEST_REPO_PAT`, used to push an ephemeral tag to the companion repo). Fork PRs do not get that secret, so the dispatch silently fails for them — the companion repo is never touched by untrusted code.
 
 Everything else about this design flows from that one property. If a future change would weaken it (for example, switching to `pull_request_target` to "get secrets on fork PRs"), the change would have to re-prove the security model from scratch. Changes that do that are prohibited unless they pass a dedicated security review.
 
@@ -40,17 +40,32 @@ Three components, living in two repositories:
 
 | Component | Location | Responsibility |
 |-----------|----------|----------------|
-| **Dispatch workflow** | `wrangle/.github/workflows/integration-test.yml` | Triggered on every wrangle PR. For PRs from within the wrangle repo, pushes an **ephemeral branch** to the companion repo with a generated workflow file that pins wrangle at the PR's head SHA. Waits for the resulting workflow run and surfaces pass/fail status on the wrangle PR. Deletes the ephemeral branch after. |
-| **Companion repo** | `tomhennen/wrangle-test` (separate repository) | Small monorepo with one subdirectory per build type (`shell/`, `container/`, `scan/`). Ephemeral integration branches carry a generated `test-wrangle.yml` with one job per build type, each invoking the corresponding wrangle reusable workflow at the pinned SHA via `uses: TomHennen/wrangle/.github/workflows/<name>.yml@<literal-sha>`. |
+| **Dispatch workflow** | `wrangle/.github/workflows/integration-test.yml` | Triggered on every wrangle PR. For PRs from within the wrangle repo, pushes an **ephemeral tag** (`0.0.0-pr.<pr-number>.<wrangle-run-id>`) to the companion repo on a commit carrying a generated workflow file that pins wrangle at the PR's head SHA. Waits for the resulting workflow run and surfaces pass/fail status on the wrangle PR. Deletes the ephemeral tag (and any release it bore) after. |
+| **Companion repo** | `tomhennen/wrangle-test` (separate repository) | Small monorepo with one subdirectory per build type (`shell/`, `container/`, `scan/`). The ephemeral integration commit carries a generated `test-wrangle.yml` with one job per build type, each invoking the corresponding wrangle reusable workflow at the pinned SHA via `uses: TomHennen/wrangle/.github/workflows/<name>.yml@<literal-sha>`. |
 | **Status wait logic** | Inside the dispatch workflow | Polls GitHub's workflow-runs API filtered by `head_sha`. Succeeds iff the companion-side run concludes successfully. |
 
 The companion repo is a single repo with subdirectories, not one repo per build type. Splitting would multiply infrastructure (per-repo secrets, per-repo CI history, per-repo PAT scoping) without any corresponding benefit — each wrangle build type operates on its own subdirectory via `path`/`scan-path`/etc. inputs, so they coexist cleanly.
 
-### Why the ephemeral-branch mechanism
+### Why the generated-workflow mechanism
 
 GitHub Actions does not permit expressions in the `@ref` portion of `uses:`. The ref must be a literal string resolved at workflow-parse time — `uses: owner/repo/.github/workflows/foo.yml@${{ inputs.sha }}` is rejected with an "Unrecognized named-value" error before the workflow runs. That rules out a single static companion workflow file that takes the wrangle ref as an input.
 
-The workaround is to generate a fresh workflow file per wrangle PR, with the literal SHA baked in, on an ephemeral branch in the companion repo. The workflow file differs per branch; each wrangle PR gets its own independent branch, so concurrent wrangle PRs do not contend with each other.
+The workaround is to generate a fresh workflow file per wrangle PR, with the literal SHA baked in, on an ephemeral commit in the companion repo. The dispatch publishes that commit by pushing an ephemeral **tag** named `0.0.0-pr.<pr-number>.<wrangle-run-id>`. The workflow file differs per PR; each wrangle PR gets its own independent tag, so concurrent wrangle PRs do not contend with each other.
+
+### Why a tag push, not a branch push
+
+The dispatch publishes the generated commit via a **tag** rather than a branch because the per-PR golden (TomHennen/wrangle#506) asserts the *real release* wrangle's verify produces, and wrangle's release-attach is gated on a tag context (`github.ref_type == 'tag'`). A branch push exercises build/verify but produces no release, so the golden — which the companion gates on `github.ref_type == 'tag'` — would never run. The tag is therefore not an addition to a branch push; it **replaces** it. Pushing both would double the companion's runtime cost while adding no coverage (the branch run's golden is skipped). The companion retains a `branches: ["integration/**"]` trigger as an inert compatibility fallback for any caller that still pushes a branch, but wrangle's dispatch pushes the tag only.
+
+A tag push fires the companion's `push` event with `head_sha` set to the tagged commit, so the run-location poll (`head_sha=<commit>&event=push`) is identical to the prior branch flow. The companion's `cleanup-integration.yml` reaper matches `^0\.0\.0-pr\.[0-9]+\.[0-9]+$`; the dispatch's own `if: always()` step deletes the tag and its release best-effort, with the reaper as the authoritative cleanup.
+
+### Why the `0.0.0-pr.<n>.<run-id>` tag shape
+
+The temp tag must clear two constraints at once:
+
+- **Valid semver, so the go builder accepts it.** The companion's go fixture runs wrangle's goreleaser-based build with `--skip=publish`. goreleaser's `release` step hard-fails `invalid semantic version` on a non-semver tag, so the go archive is never produced and the golden fails. `0.0.0-pr.<n>.<run-id>` is a valid semver prerelease (`0.0.0` core, `pr.<n>.<run-id>` prerelease identifiers); goreleaser embeds it verbatim, so the go archive is named `wrangle-test-fixture-go_0.0.0-pr.<n>.<run-id>_linux_amd64.tar.gz`.
+- **No `v` prefix, so it never fires the companion's showcase.** The companion's `showcase.yml` triggers on `tags: ["v*"]`. A `v`-prefixed temp tag would spuriously start a showcase run on every wrangle PR; dropping the `v` keeps `0.0.0-pr.*` outside that glob (and outside the showcase prune job's `vYYYYMMDD-<sha7>` / `matching-refs/tags/v` filters), so the temp tag drives only the per-PR golden path.
+
+Both segments stay numeric (`^[0-9]+$`, validated fail-closed before the tag is built), so the shape collapses to `<TAG>` under the golden's existing `${tag#v}` masking with no special case.
 
 ### Why `push`-only (not `push` + `pull_request`)
 
@@ -71,7 +86,7 @@ An attacker opens a PR from a fork of wrangle containing malicious code — for 
 
 ### Defense: GitHub's baseline fork-PR secret exclusion
 
-GitHub Actions has a built-in rule: `pull_request` workflows triggered from forks run **without** access to repository secrets. The integration-test workflow needs a secret (`TEST_REPO_PAT`, to push a branch to the companion repo). Fork PRs do not get that secret, so:
+GitHub Actions has a built-in rule: `pull_request` workflows triggered from forks run **without** access to repository secrets. The integration-test workflow needs a secret (`TEST_REPO_PAT`, to push an ephemeral tag to the companion repo). Fork PRs do not get that secret, so:
 
 - The `TEST_REPO_PAT` environment variable is unset in the dispatch step.
 - Any `git push` against the companion repo fails with an authentication error.
@@ -81,7 +96,7 @@ Either way: **no malicious code from the fork reaches the companion repo**, beca
 
 ### What internal PRs can reach
 
-A PR from within the wrangle repo (maintainers, trusted contributors with write access, or Claude Code running under a maintainer's account) does get the secret and does trigger the companion repo. That dispatch pushes a branch to the companion repo, whose workflow then runs wrangle's reusable workflows at the PR's head SHA — which means it ultimately executes code the PR author wrote.
+A PR from within the wrangle repo (maintainers, trusted contributors with write access, or Claude Code running under a maintainer's account) does get the secret and does trigger the companion repo. That dispatch pushes a tag to the companion repo, whose workflow then runs wrangle's reusable workflows at the PR's head SHA — which means it ultimately executes code the PR author wrote.
 
 This is acceptable because:
 
@@ -96,7 +111,7 @@ The security model treats the two repos asymmetrically:
 - **Wrangle is trusted.** Compromising wrangle propagates to every adopter; protecting it is the whole point of this project. Secrets that matter (release signing keys, Cosign credentials, cross-repo tokens) live on the wrangle side and are not reachable by the integration-test mechanism.
 - **The companion repo is not trusted — and does not need to be.** It is explicitly disposable: image tags under `ghcr.io/tomhennen/wrangle-test-staging` are rotated or deleted at any time; the repo itself is not a stable API; no external consumer may depend on it. Worst-case compromise of the companion repo is "someone clobbered staging," which the spec accepts by design.
 
-This asymmetry is why `TEST_REPO_PAT` is scoped with `contents:write` on the companion repo. That capability is what the dispatch mechanism needs (push an ephemeral branch; delete it on cleanup). A PAT with that scope, if leaked, lets an attacker push arbitrary workflow YAML to the companion repo's branches; those workflows run under the companion's `GITHUB_TOKEN`. But the companion's `GITHUB_TOKEN` has no access to wrangle, no access to release infrastructure, and can only reach the staging image path. The attacker's blast radius is bounded to the set of things the spec already says are acceptable losses.
+This asymmetry is why `TEST_REPO_PAT` is scoped with `contents:write` on the companion repo. That capability is what the dispatch mechanism needs (push an ephemeral tag; delete it and its release on cleanup). A PAT with that scope, if leaked, lets an attacker push arbitrary workflow YAML to the companion repo's refs; those workflows run under the companion's `GITHUB_TOKEN`. But the companion's `GITHUB_TOKEN` has no access to wrangle, no access to release infrastructure, and can only reach the staging image path. The attacker's blast radius is bounded to the set of things the spec already says are acceptable losses.
 
 ### Companion repo secrets
 
@@ -107,7 +122,7 @@ The companion repo holds only the secrets required to exercise wrangle's workflo
 | Secret | Scope | What happens if compromised |
 |--------|-------|------------------------------|
 | `GITHUB_TOKEN` (built-in) | The companion repo only. `contents: read`, `packages: write` on companion-repo-scoped images. | Attacker can clobber `ghcr.io/tomhennen/wrangle-test-staging:*` image tags. No downstream consumers. |
-| `TEST_REPO_PAT` (wrangle side) | `contents:write` on `tomhennen/wrangle-test` **only**. | Attacker can push branches to the companion repo, triggering its workflows with arbitrary YAML. Workflows run under the companion's own `GITHUB_TOKEN`, which itself holds no cross-repo access. Net: attacker can clobber staging images and leave noise branches in the companion repo. Cannot reach wrangle, read wrangle's secrets, touch other repos, or escape the staging blast radius. |
+| `TEST_REPO_PAT` (wrangle side) | `contents:write` on `tomhennen/wrangle-test` **only**. | Attacker can push tags/branches (and create the releases they bear) on the companion repo, triggering its workflows with arbitrary YAML. Workflows run under the companion's own `GITHUB_TOKEN`, which itself holds no cross-repo access. Net: attacker can clobber staging images and leave noise tags/releases in the companion repo. Cannot reach wrangle, read wrangle's secrets, touch other repos, or escape the staging blast radius. |
 
 The companion repo explicitly **does not** hold:
 
@@ -138,6 +153,7 @@ The following are **not permitted** in the integration-test dispatch workflow:
 - **Checking out the PR's code in a `pull_request_target` workflow.** Even if the trigger exists for another reason, checking out `${{ github.event.pull_request.head.sha }}` and executing it is the "pwn request" pattern.
 - **Using an organization-level PAT** where a repo-scoped PAT would suffice. Scope creep makes compromise worse.
 - **Reusing the companion repo's secrets in any other workflow** on that repo. Each workflow gets exactly the secrets it needs.
+- **Interpolating an unvalidated value into the pushed ref or any `git`/`gh` command.** The pr-number and run-id segments of the `0.0.0-pr.<n>.<run-id>` tag MUST be validated `^[0-9]+$` (fail closed) and threaded through `env:` before they reach `git tag`/`git push`/a `run:` body — never inlined as `${{ github.* }}`. The `0.0.0-pr.` prefix is a fixed literal, so only the two numeric segments are variable; both being all-digits keeps the tag inside the reaper's `^0\.0\.0-pr\.[0-9]+\.[0-9]+$` shape and outside the showcase's `v*` namespace.
 
 Any change to the dispatch workflow that could plausibly affect the security model requires review by a maintainer who explicitly confirms the fork-PR defense still holds.
 
@@ -147,8 +163,8 @@ Any change to the dispatch workflow that could plausibly affect the security mod
 tomhennen/wrangle-test/
 ├── .github/
 │   └── workflows/
-│       ├── test-wrangle.yml.template  # template copied + SHA-substituted onto integration/* branches
-│       └── cleanup-integration.yml    # janitor: delete stale integration branches
+│       ├── test-wrangle.yml.template  # template written + SHA-substituted onto the 0.0.0-pr.<n>.<run-id> tag commit
+│       └── cleanup-integration.yml    # janitor: delete stale 0.0.0-pr.<n>.<run-id> tags + releases
 ├── shell/
 │   ├── script.sh
 │   └── test.bats
@@ -160,18 +176,19 @@ tomhennen/wrangle-test/
 └── README.md                          # explains what this repo is, points back at wrangle
 ```
 
-The `main` branch of the companion repo intentionally does **not** carry an active `test-wrangle.yml` — GitHub Actions does not permit expressions in `uses: @ref`, so the file must be generated fresh per wrangle PR with a literal SHA baked in. The template file lives at `.github/workflows/test-wrangle.yml.template` and is copied onto each ephemeral `integration/*` branch by the wrangle-side dispatch script after a single substitution of an `__WRANGLE_SHA__` placeholder. The `.template` suffix (rather than `.yml`) ensures GitHub Actions does not discover or list the file — Actions only processes files ending in `.yml` or `.yaml`.
+The `main` branch of the companion repo intentionally does **not** carry an active `test-wrangle.yml` — GitHub Actions does not permit expressions in `uses: @ref`, so the file must be generated fresh per wrangle PR with a literal SHA baked in. The template file lives at `.github/workflows/test-wrangle.yml.template` and is written onto the ephemeral integration commit by the wrangle-side dispatch script after a single substitution of an `__WRANGLE_SHA__` placeholder; that commit is published by pushing the `0.0.0-pr.<n>.<run-id>` tag. The `.template` suffix (rather than `.yml`) ensures GitHub Actions does not discover or list the file — Actions only processes files ending in `.yml` or `.yaml`.
 
 The `README.md` **must** lead with a "Do not depend on this repo" banner — a short, visually prominent notice at the top of the file stating that the repo is a disposable test surface, that image tags under `ghcr.io/tomhennen/wrangle-test-staging` are rotated or deleted without notice, and that no external consumer may depend on either. This is a contract item, not a nicety: it is the human-visible counterpart of the "blast radius is bounded to staging" argument in the security model.
 
 ### `test-wrangle.yml.template`
 
-The template triggers on `push` against the ephemeral branch namespace, with wrangle pinned via an `__WRANGLE_SHA__` placeholder that the dispatch script substitutes with the PR's head SHA before pushing:
+The template triggers on `push` for the ephemeral `0.0.0-pr.*` tag namespace (the release-bearing path) and retains the `integration/**` branch namespace as an inert compatibility fallback, with wrangle pinned via an `__WRANGLE_SHA__` placeholder that the dispatch script substitutes with the PR's head SHA before pushing. The release-asserting `golden` job is gated `if: github.ref_type == 'tag'`, so it runs only on the tag path:
 
 ```yaml
 on:
   push:
     branches: ["integration/**"]
+    tags: ["0.0.0-pr.*"]
 
 jobs:
   test-shell:
@@ -190,8 +207,6 @@ jobs:
       path: container
       imagename: ghcr.io/tomhennen/wrangle-test-staging
       registry: ghcr.io
-    secrets:
-      gh_token: ${{ secrets.GITHUB_TOKEN }}
 
   test-scan:
     uses: TomHennen/wrangle/.github/workflows/check_source_change.yml@__WRANGLE_SHA__
@@ -205,7 +220,7 @@ New build types (npm, python, go, etc.) are added as additional jobs alongside t
 
 ### `cleanup-integration.yml`
 
-A janitor workflow on the companion repo, triggered on `schedule:` (e.g., hourly) and on `workflow_dispatch`, that deletes `integration/*` branches older than a configurable age (default: 24 hours). This is the authoritative cleanup path — the dispatch script's own `if: always()` branch-delete is best-effort (it does not run on hard-cancel of the wrangle job), so the janitor is what guarantees the companion repo's branch list does not grow unbounded.
+A janitor workflow on the companion repo, triggered on `schedule:` and on `workflow_dispatch`, that deletes ephemeral `0.0.0-pr.<n>.<run-id>` tags + their releases (matching `^0\.0\.0-pr\.[0-9]+\.[0-9]+$`) older than a configurable age, and any legacy `integration/*` branches. This is the authoritative cleanup path — the dispatch script's own `if: always()` tag-and-release delete is best-effort (it does not run on hard-cancel of the wrangle job), so the janitor is what guarantees the companion repo's tag/release/branch list does not grow unbounded.
 
 ### Fixture requirements
 
@@ -230,14 +245,14 @@ On every wrangle PR:
 
 1. **GitHub fires `pull_request` event.** The wrangle dispatch workflow (`.github/workflows/integration-test.yml`) starts.
 2. **Fork-PR guard.** The job's `if:` checks that the PR head repo matches the base repo (`github.event.pull_request.head.repo.full_name == github.repository`). Fork PRs skip straight past the dispatch job; the check appears as "skipped" on the PR, with a link to this spec for context.
-3. **Generate the companion workflow file.** For internal PRs, the dispatch script clones the companion repo (shallow, single-branch — `git clone --depth 1 --single-branch`) via `TEST_REPO_PAT`, reads `.github/workflows/test-wrangle.yml.template` from `main`, substitutes the `__WRANGLE_SHA__` token with the wrangle PR's head SHA, and writes the result to `.github/workflows/test-wrangle.yml` on a fresh branch named `integration/pr-<wrangle-pr-number>-<short-sha>`. The script runs the three template assertions described in §"`test-wrangle.yml.template`" (token presence, token absence after substitution, workflow coverage) — any failure means the template is malformed or stale and the dispatch aborts without pushing.
-4. **Push the ephemeral branch.** The script pushes the branch to the companion repo. This fires a `push` event matching the `integration/**` filter — the generated workflow runs with `github.event_name == 'push'`, exercising event-name-gated logic on the non-`pull_` branch (in particular, the container builder's SLSA provenance job).
-5. **Locate the dispatched run.** The script polls `GET /repos/tomhennen/wrangle-test/actions/runs?head_sha=<pushed-sha>&event=push` until the run appears. This endpoint is keyed on HEAD SHA and event type, so there is no "most recent run" race even across concurrent wrangle PRs.
-6. **Wait for completion.** `gh run watch --exit-status <run-id>` (or an equivalent polling loop on the runs endpoint) blocks until the run concludes. The script exits success iff the run concluded `success`.
-7. **Surface result on the wrangle PR.** The dispatch script's exit code propagates to the wrangle workflow step, which GitHub's check API surfaces as pass/fail on the wrangle PR.
-8. **Cleanup (runs in `if: always()`).** On completion, success or failure (but not hard-cancel or runner-level failures — `if: always()` does not run when the job is terminated without shutdown or when the runner crashes), the script deletes the ephemeral branch. Any leaked branches are reaped later by `cleanup-integration.yml` (see §"Companion repo layout"), which is the authoritative cleanup path.
+3. **Validate the dispatch inputs.** The dispatch receives `<pr-number>` (`github.event.pull_request.number`) and `<wrangle-run-id>` (`github.run_id`), both threaded through `env:`, never inlined into a `run:` body. Both feed the pushed tag name and downstream `git`/`gh` commands, so the script rejects (exit 2, fail closed) anything that is not `^[0-9]+$` before any command sees the value. The SHA is validated as a 40-char hex string by the substitution assertions below.
+4. **Generate the companion workflow file.** For internal PRs, the dispatch script clones the companion repo (shallow, single-branch — `git clone --depth 1 --single-branch`) via `TEST_REPO_PAT`, reads `.github/workflows/test-wrangle.yml.template` from `main`, substitutes the `__WRANGLE_SHA__` token with the wrangle PR's head SHA, and writes the result to `.github/workflows/test-wrangle.yml` on a fresh commit. The script runs the three template assertions described in §"`test-wrangle.yml.template`" (token presence, token absence after substitution, workflow coverage) — any failure means the template is malformed or stale and the dispatch aborts without pushing.
+5. **Push the ephemeral tag.** The script tags the generated commit `0.0.0-pr.<pr-number>.<wrangle-run-id>` (both numeric) and pushes `refs/tags/<tag>` to the companion repo. This fires a `push` event matching the template's `tags: ["0.0.0-pr.*"]` filter — the generated workflow runs with `github.event_name == 'push'` and `github.ref_type == 'tag'`, which exercises event-name-gated logic on the non-`pull_` branch (the container builder's SLSA provenance job) **and** the tag-gated release-attach path. wrangle's verify creates a real (temporary) release for the tag; the companion's golden job asserts that release's asset set and per-bundle predicate types.
+6. **Locate the dispatched run.** The script polls `GET /repos/tomhennen/wrangle-test/actions/runs?head_sha=<pushed-sha>&event=push` until the run appears. A tag push fires `event=push` with `head_sha` = the tagged commit, so this endpoint is keyed on HEAD SHA and event type, with no "most recent run" race even across concurrent wrangle PRs.
+7. **Wait for completion.** `gh run watch --exit-status <run-id>` (or an equivalent polling loop on the runs endpoint) blocks until the run concludes. The script exits success iff the run concluded `success`. The exit code propagates to the wrangle workflow step, which GitHub's check API surfaces as pass/fail on the wrangle PR.
+8. **Cleanup (runs in `if: always()`).** On completion, success or failure (but not hard-cancel or runner-level failures — `if: always()` does not run when the job is terminated without shutdown or when the runner crashes), the script deletes the ephemeral tag and any release it bore. Leaked tags + releases are reaped later by `cleanup-integration.yml` (see §"Companion repo layout"), which matches `^0\.0\.0-pr\.[0-9]+\.[0-9]+$` and is the authoritative cleanup path.
 
-Each wrangle PR gets its own ephemeral branch, so concurrent wrangle PRs do not contend. A per-PR concurrency group on the dispatch workflow (`integration-${{ github.event.pull_request.number }}`, `cancel-in-progress: true`) prevents the same wrangle PR's duplicate runs (from force-push, etc.) from stepping on each other. **Important nuance**: `cancel-in-progress` cancels the wrangle-side dispatch job, but it does NOT reach into the companion repo to cancel a run it already triggered. That companion-side run will keep executing against the old SHA; the janitor reaps its branch. Implementations may additionally call `POST /repos/tomhennen/wrangle-test/actions/runs/<run-id>/cancel` during the canceled dispatch's cleanup step to stop the companion run early, but this is a cost optimization, not a correctness requirement.
+Each wrangle PR gets its own ephemeral tag (the `0.0.0-pr.<n>.<run-id>` tag is unique per dispatch run, since `<run-id>` is the wrangle dispatch run's id), so concurrent wrangle PRs do not contend, and a force-pushed re-run gets a fresh tag rather than overwriting the prior run's. A per-PR concurrency group on the dispatch workflow (`integration-${{ github.event.pull_request.number }}`, `cancel-in-progress: true`) cancels the same wrangle PR's duplicate dispatch jobs. **Important nuance**: `cancel-in-progress` cancels the wrangle-side dispatch job, but it does NOT reach into the companion repo to cancel a run it already triggered. That companion-side run will keep executing against the old SHA; the janitor reaps its tag + release. Implementations may additionally call `POST /repos/tomhennen/wrangle-test/actions/runs/<run-id>/cancel` during the canceled dispatch's cleanup step to stop the companion run early, but this is a cost optimization, not a correctness requirement.
 
 Total latency: typically 3–8 minutes per wrangle PR, dominated by the slowest companion job.
 
@@ -291,7 +306,7 @@ Any new `github.event_name`-based conditional added to a reusable workflow, comp
 An integration test fails (and blocks the wrangle PR check) under these conditions:
 
 - The companion repo's `push`-triggered workflow run concludes as anything other than `success` — a job fails, a setup step fails, the workflow times out, or the workflow cannot parse at all.
-- The dispatch step in wrangle's workflow cannot generate or push the ephemeral branch (network failures, API errors, malformed template that fails token-assertion checks, or the workflow coverage check detecting a missing reusable workflow).
+- The dispatch step in wrangle's workflow cannot generate or push the ephemeral tag (network failures, API errors, a non-numeric pr-number/run-id failing input validation, a malformed template that fails token-assertion checks, or the workflow coverage check detecting a missing reusable workflow).
 - The wait-loop locating or watching the run times out (upper bound on how long the companion repo is allowed to run).
 
 An integration test is **not** expected to fail under these conditions (if it does, the test has a real problem):
@@ -304,7 +319,7 @@ Deterministic pass/fail is a requirement. Flaky integration tests erode the sign
 
 ### Fork PR behavior
 
-Fork PRs skip the dispatch job entirely. The check appears as "skipped" (not "failed") on the PR, with a clear explanation. Maintainers reviewing a fork PR can — after reading the code — merge it to a branch in the wrangle repo to get the integration test to run against it, or manually generate and push the ephemeral companion branch themselves with the fork's SHA if they have vetted the code.
+Fork PRs skip the dispatch job entirely. The check appears as "skipped" (not "failed") on the PR, with a clear explanation. Maintainers reviewing a fork PR can — after reading the code — merge it to a branch in the wrangle repo to get the integration test to run against it, or manually generate and push the ephemeral companion tag themselves with the fork's SHA if they have vetted the code.
 
 GitHub's "Require approval for outside collaborators" gate is deliberately **not** relied on here. That gate controls whether a fork PR's workflow runs at all, but it does not grant secret access after approval: `pull_request` workflows from forks run without secrets even when a maintainer approves — that's the hard GitHub invariant this entire security model depends on. So there is no safe "click to run integration test" button for fork PRs; obtaining pre-merge integration coverage would require `pull_request_target`, which this spec explicitly prohibits (see "Prohibited patterns").
 
@@ -323,7 +338,7 @@ GitHub's "Require approval for outside collaborators" gate is deliberately **not
 - **Companion repo drift.** The companion repo's fixtures and template can drift out of sync with wrangle's expectations. The workflow coverage check (see §"`test-wrangle.yml.template`") catches the most dangerous form — wrangle adds a reusable workflow and the template doesn't reference it — by failing the dispatch. Other forms of drift (e.g., wrangle adds a required input to an existing workflow and the template doesn't pass it) are caught when the companion run itself fails. Fixture drift (stale dependencies, changed build contexts) is not caught automatically; mitigation is periodic manual refresh on the same cadence as tool upgrades.
 - **PAT rotation.** `TEST_REPO_PAT` is a long-lived credential. It must be rotated periodically; the rotation process is out of scope for this spec but should be documented in wrangle's operational runbook when that exists.
 - **Cross-repo observability.** A failing integration test on a wrangle PR points at a workflow run in the companion repo. Contributors need to follow that link to see what broke. This is an ergonomics cost of the companion-repo model compared to same-repo CI.
-- **Ephemeral branch accumulation.** Each wrangle PR creates one branch in the companion repo. The dispatch script deletes it on completion, but canceled wrangle runs, GitHub Actions-side crashes, or bugs in the cleanup step can leak state. The `cleanup-integration.yml` janitor (see §"Companion repo layout") deletes stale branches on a schedule; without it, the companion repo's branch list would grow unbounded.
+- **Ephemeral tag + release accumulation.** Each wrangle PR dispatch creates one `0.0.0-pr.<n>.<run-id>` tag in the companion repo, and wrangle's tag-gated verify creates a temporary release on it. The dispatch script deletes both on completion, but canceled wrangle runs, GitHub Actions-side crashes, or bugs in the cleanup step can leak state. The `cleanup-integration.yml` janitor (see §"Companion repo layout") reaps stale `^0\.0\.0-pr\.[0-9]+\.[0-9]+$` tags + releases on a schedule; without it, the companion repo's tag/release list would grow unbounded.
 - **Concurrency within a single wrangle PR.** A force-push to a wrangle PR triggers a new integration run while the previous one may still be in flight. A per-wrangle-PR concurrency group (`integration-${{ github.event.pull_request.number }}`) on the dispatch workflow, with `cancel-in-progress: true`, cancels the wrangle-side dispatcher; the companion-side run it already triggered continues unless the dispatch script's cleanup step (if it runs) explicitly cancels it. The janitor is the ultimate cleanup.
 - **API rate limits.** Each wrangle PR consumes several `TEST_REPO_PAT` API calls (clone, push, poll, branch delete). At current wrangle PR volume this is far below GitHub's 5000/hour PAT rate limit; at much higher volumes or during CI storms this could matter.
 - **PAT-authored PR trigger rule (for future work).** This spec does not require it, but future work that needs `pull_request` firing against the companion repo must know: PRs created with `GITHUB_TOKEN` do NOT fire `pull_request` workflows (GitHub's recursion guard). Only PAT- or App-authored PRs do. Any revisit of dual-trigger coverage must explicitly use `TEST_REPO_PAT` for `gh pr create`, never the built-in token.

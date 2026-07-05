@@ -17,7 +17,7 @@ jobs:
       attestations: write     # GitHub-issued SLSA provenance
       actions: read           # source scan
       security-events: write  # scan findings -> Security tab
-    uses: TomHennen/wrangle/.github/workflows/build_and_publish_python.yml@v0.2.2 # zizmor: ignore[unpinned-uses] - immutable
+    uses: TomHennen/wrangle/.github/workflows/build_and_publish_python.yml@v0.3.1 # zizmor: ignore[unpinned-uses] - immutable
     with:
       path: "."
       release-events: tag-only   # only tag pushes publish
@@ -58,7 +58,7 @@ Publishing happens in your workflow, so two things there are load-bearing — bo
 2. **Verify before you publish** — run wrangle's [`verify-vsa`](../../../actions/verify-vsa/README.md) action between `download-artifact` and the publish step, piping the build's `resource-uri` output, so the exact bytes leaving the runner are the bytes that passed wrangle's policy:
 
    ```yaml
-   - uses: TomHennen/wrangle/actions/verify-vsa@v0.2.2 # zizmor: ignore[unpinned-uses] - immutable
+   - uses: TomHennen/wrangle/actions/verify-vsa@v0.3.1 # zizmor: ignore[unpinned-uses] - immutable
      with:
        path: dist/
        resource-uri: ${{ needs.build.outputs.resource-uri }}
@@ -79,7 +79,7 @@ Downstream users verify a dist file with one command. Download the wheel (or sdi
 
 ```bash
 ampel verify --subject <dist-file> \
-  --policy git+https://github.com/TomHennen/wrangle@v0.2.2#policies/wrangle-vsa-consumer-v1.hjson \
+  --policy git+https://github.com/TomHennen/wrangle@v0.3.1#policies/wrangle-vsa-consumer-v1.hjson \
   --collector jsonl:<dist-file>.intoto.jsonl \
   --context expectedResourceUri:pkg:pypi/<name>@<version> \
   --context sourceRepo:https://github.com/<your-org>/<your-repo>

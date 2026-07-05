@@ -504,6 +504,22 @@ EOF
     [ ! -f "$META/output.sarif" ]
 }
 
+@test "collect_outputs: a broken markdown renderer does not fail the step (SARIF already written)" {
+    # sarif_to_md.sh is resolved relative to the script, so run a copy of the
+    # tool against a stub lib whose renderer always fails.
+    local root="$TMP_DIR/stubtree"
+    mkdir -p "$root/tools/depreview" "$root/lib"
+    cp "$TOOL_DIR/collect_outputs.sh" "$TOOL_DIR/vulnerable_changes_to_sarif.sh" "$root/tools/depreview/"
+    printf '#!/bin/bash\nexit 1\n' > "$root/lib/sarif_to_md.sh"
+    chmod +x "$root/lib/sarif_to_md.sh"
+
+    META="$TMP_DIR/meta-mdfail"
+    VULNERABLE_CHANGES='' run "$root/tools/depreview/collect_outputs.sh" "$META"
+    [ "$status" -eq 0 ]
+    [ -f "$META/output.sarif" ]
+    grep -q "failed to render markdown summary" "$META/output.md"
+}
+
 @test "collect_outputs: usage error when metadata dir arg missing" {
     run "$TOOL_DIR/collect_outputs.sh"
     [ "$status" -eq 1 ]

@@ -52,6 +52,7 @@ All shell conventions — preamble form, quoting, `printf` over `echo`, `[[ ]]` 
 - **Action reference pinning** — required pin format per context, the `@main` prohibition, and self-reference bumping: [DEP_MGMT.md](DEP_MGMT.md).
 - **Installing and verifying tools** — install-method decision tree, integrity-tier ladder, and freshness-first rule: [DEP_MGMT.md](DEP_MGMT.md). Install-script mechanics (`lib/download_verify.sh`, `$WRANGLE_BIN_DIR`, idempotency, atomic `mv`) are the Install Script Interface contract in SPEC.md.
 - **Pin drift across files** — single-source or a divergence-fail test: [DEP_MGMT.md § Drift](DEP_MGMT.md#drift).
+- **Curated tool-image digests** (`tools/catalog.json`) — digest-pinned on the wrangle namespace, enforced by `tools/check_catalog.sh`; adoption-lag against `:latest` checked at release by `tools/check_catalog_freshness.sh` (fix with `tools/bump_catalog_digest.sh`).
 
 ## Adapter contract (full: SPEC.md §Adapter Script Interface)
 
@@ -94,7 +95,7 @@ Wrangle uses its own workflows. If a wrangle feature does not work on the wrangl
 
 A PR that changes a composite action (or a file it reads, like a `policies/*.hjson` PolicySet) and wires it into a reusable workflow needs a **bootstrap pin**: the nested `uses: TomHennen/wrangle/actions/<name>@<sha>` self-reference is fetched from its pinned (main) SHA, not the PR head, so the integration test otherwise runs the old action. The pin → merge → bump lifecycle and the `check_pin_ancestry` control are in [docs/e2e_testing.md](docs/e2e_testing.md).
 
-For throwaway end-to-end experiments before promoting to the integration companion or `wrangle-test`, use the scratch repo [`TomHennen/wrangle-agent-playground`](https://github.com/TomHennen/wrangle-agent-playground) — commit/push/PR there freely; nothing in it is permanent.
+For throwaway end-to-end experiments before promoting to the integration companion or `wrangle-test`, use the scratch repos [`TomHennen/wrangle-agent-playground`](https://github.com/TomHennen/wrangle-agent-playground) (public) and [`TomHennen/wrangle-agent-playground-private`](https://github.com/TomHennen/wrangle-agent-playground-private) (private — for private-repo-specific behavior like Advanced-Security SARIF upload or attestation) — commit/push/PR there freely; nothing in them is permanent.
 
 ## Security
 
@@ -105,6 +106,7 @@ For throwaway end-to-end experiments before promoting to the integration compani
 ## Contributing process
 
 - Branch from `main` with descriptive names; PRs must pass CI (`make test`), shellcheck, and actionlint cleanly.
+- **Don't delete a branch that's the base of an open stacked PR** — GitHub auto-closes the dependent; rebase dependents onto `main` first (and `--delete-branch` fails from inside a worktree, where `main` is checked out elsewhere).
 - **No merge without an `LGTM` from the repository owner** — green CI alone is never authorization to merge.
 - If a PR fully fixes a tracked issue, close it from the description with a closing keyword (`Fixes #NNN`); if unsure it fully resolves the issue, ask the owner.
 - Update the README and `gh_workflow_examples/` if the adoption interface changes.

@@ -34,6 +34,18 @@ MOCK
     [[ "$output" == *"already installed"* ]]
 }
 
+@test "syft install: a version that only shares a prefix is not treated as installed" {
+    # 1.42.40 must not satisfy a request for 1.42.4 (substring match bug).
+    cat > "$WRANGLE_BIN_DIR/syft" << 'MOCK'
+#!/bin/bash
+printf '{"application":"syft","version":"1.42.40","buildDate":""}'
+MOCK
+    chmod +x "$WRANGLE_BIN_DIR/syft"
+
+    run "$ORIG_DIR/tools/syft/install.sh" "1.42.4"
+    [[ "$output" != *"already installed"* ]]
+}
+
 @test "syft install: fails fast if cosign is not on PATH" {
     # Mock curl to return any content (so download succeeds), then ensure
     # cosign is not findable. install.sh must abort before tarball download.
@@ -146,6 +158,34 @@ MOCK
 @test "syft install: uses WRANGLE_BIN_DIR" {
     run grep 'WRANGLE_BIN_DIR' "$ORIG_DIR/tools/syft/install.sh"
     [ "$status" -eq 0 ]
+}
+
+# A syft shim records its argv and emits a valid empty SBOM: the real syft needs
+# network and a package ecosystem, but the adapter's flag wiring is what's tested.
+_syft_shim() {
+    cat > "$TEST_DIR/bin/syft" << MOCK
+#!/bin/bash
+printf '%s\n' "\$*" > "$TEST_DIR/syft_argv"
+printf '{}'
+MOCK
+    chmod +x "$TEST_DIR/bin/syft"
+}
+
+@test "syft adapter: passes --source-name when WRANGLE_SOURCE_NAME is set" {
+    _syft_shim
+    mkdir -p "$TEST_DIR/src" "$TEST_DIR/out"
+    PATH="$TEST_DIR/bin:$PATH" WRANGLE_SOURCE_NAME="my-project" \
+        run "$ORIG_DIR/tools/syft/adapter.sh" "$TEST_DIR/src" "$TEST_DIR/out"
+    [ "$status" -eq 0 ]
+    [[ "$(cat "$TEST_DIR/syft_argv")" == *"--source-name my-project"* ]]
+}
+
+@test "syft adapter: omits --source-name when WRANGLE_SOURCE_NAME is unset" {
+    _syft_shim
+    mkdir -p "$TEST_DIR/src" "$TEST_DIR/out"
+    PATH="$TEST_DIR/bin:$PATH" run "$ORIG_DIR/tools/syft/adapter.sh" "$TEST_DIR/src" "$TEST_DIR/out"
+    [ "$status" -eq 0 ]
+    [[ "$(cat "$TEST_DIR/syft_argv")" != *"--source-name"* ]]
 }
 
 @test "install: cosign verification retries once and surfaces cosign stderr on final failure" {

@@ -4,7 +4,7 @@ Wrangle builds a container image from your Dockerfile and publishes it to ghcr.i
 
 ## Quick start
 
-Copy [`build_and_publish_containers.yml`](../../../gh_workflow_examples/build_and_publish_containers.yml) into `.github/workflows/` and fill in three inputs (the example wires the permissions and `gh_token` secret):
+Copy [`build_and_publish_containers.yml`](../../../gh_workflow_examples/build_and_publish_containers.yml) into `.github/workflows/` and fill in three inputs (the example wires the permissions):
 
 | Input | Value |
 |-------|-------|
@@ -35,7 +35,7 @@ Consumers verify the image with one command — ampel fetches the VSA straight f
 
 ```bash
 ampel verify --subject sha256:<digest> \
-  --policy git+https://github.com/TomHennen/wrangle@v0.2.2#policies/wrangle-vsa-consumer-v1.hjson \
+  --policy git+https://github.com/TomHennen/wrangle@v0.3.1#policies/wrangle-vsa-consumer-v1.hjson \
   --collector oci:<imagename>@sha256:<digest> \
   --context expectedResourceUri:<imagename>@sha256:<digest> \
   --context sourceRepo:https://github.com/<your-org>/<your-repo>

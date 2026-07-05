@@ -46,6 +46,22 @@ setup() {
     [ "$status" -ne 0 ]
 }
 
+@test "gen_policies: scorecard tenet is spliced literally (CEL && and \\. survive)" {
+    # A gsub-based splice would reinterpret & (whole-match) and backslashes in
+    # the tenet; run a copy of the generator against a fixture carrying both.
+    local gendir="$BATS_TEST_TMPDIR/gendir" out="$BATS_TEST_TMPDIR/out"
+    mkdir -p "$gendir" "$out"
+    cp "$GEN_DIR/gen.sh" "$GEN_DIR/policy.hjson.in" "$gendir/"
+    printf '%s\n' \
+        '        {' \
+        '            code: "score >= 7.0 && matches(id, \"v[0-9]\\.[0-9]\")"' \
+        '        }' > "$gendir/scorecard-tenet.hjson.in"
+    "$gendir/gen.sh" "$out"
+    run grep -F 'code: "score >= 7.0 && matches(id, \"v[0-9]\\.[0-9]\")"' \
+        "$out/wrangle-strict-go-v1.hjson"
+    [ "$status" -eq 0 ]
+}
+
 @test "gen_policies: every generated PolicySet keeps the identity-binding markers" {
     "$GEN_DIR/gen.sh" "$BATS_TEST_TMPDIR"
     for eco in "${ECOS[@]}"; do
@@ -54,4 +70,22 @@ setup() {
             [ "$output" -eq 2 ]
         done
     done
+}
+
+# The provenance tier is hand-maintained outside the generator, so the
+# release-pinned policy and release-tag identity it copies from the template
+# need their own divergence check (eco-normalized byte equality across all 12).
+@test "gen_policies: release-pinned policy + identity blocks match across every PolicySet" {
+    local f block ref_block="" ident ref_ident=""
+    for f in "$POLICIES_DIR"/wrangle-{default,strict,provenance}-*-v1.hjson; do
+        block="$(sed -n '/\/\/ Advisory:/,/^        }$/p' "$f")"
+        ident="$(sed -n '/id: "wrangle-builder-release-tag"/,/^            }$/p' "$f" \
+                 | sed 's/build_and_publish_[a-z]*/build_and_publish_ECO/')"
+        [ -n "$block" ]
+        [ -n "$ident" ]
+        if [ -z "$ref_block" ]; then ref_block="$block"; ref_ident="$ident"; continue; fi
+        [ "$block" = "$ref_block" ]
+        [ "$ident" = "$ref_ident" ]
+    done
+    [ -n "$ref_block" ]
 }

@@ -238,6 +238,8 @@ Every wrangle build-type reusable workflow verifies its provenance before declar
 3. A FAILED verdict fails the workflow; standard `needs:` propagation then blocks any caller's release-time job (e.g., python publish, container release tagging). This closes the "tampered between build and publish" window — the build provenance only covers what wrangle built, not what the registry serves on subsequent reads. For container, ampel pulls the provenance from the registry by digest, so the verdict also covers the registry round-trip.
 4. On a PASS, the same job signs one VSA per dist subject and appends it to that subject's already-assembled `<artifact>.intoto.jsonl` bundle (the bundle the attest job staged — the signed SLSA provenance plus that subject's signed SBOM + scan/v1 statements; see [Artifact roles](#artifact-roles)), so the completed bundle carries one statement per line: provenance, that subject's signed metadata, and the VSA. Verify is append-only — it seeds nothing, it only signs and appends each VSA — so the wrangle signer identity is declared once (in the PolicySet) rather than duplicated in a separate verify flag, and verification and delivery are one step. The unsigned VSA never crosses a step boundary: emit → `bnd`-sign → append happens in one `actions/verify` process. The bundles are the delivery vehicle for every wrangle-produced attestation — delivered as GitHub release assets for npm/go/python. A container build has a single image-digest subject, so it completes one combined bundle, delivered as the workflow artifact; the lone signed VSA statement is *also* pushed to the registry as its own OCI 1.1 referrer on the image digest (`cosign attach attestation`). `cosign attach attestation` accepts a single statement and round-trips it verbatim with `verificationMaterial` intact, but rejects a multi-line concatenation — so the by-digest referrer carries the VSA alone (the provenance is already its own referrer from `attest-build-provenance`). That by-digest VSA referrer is the path the container consumer verifies, so its push fails closed; unifying every build type onto a single GitHub attestation-store delivery is tracked in [#372](https://github.com/TomHennen/wrangle/issues/372). This is issue [#181](https://github.com/TomHennen/wrangle/issues/181)'s consolidation; per-subject VSA semantics are preserved (one VSA statement per subject, merged with the provenance), now packaged one file per artifact.
 
+The emitted VSA's `verifiedLevels` records `SLSA_BUILD_LEVEL_3` plus one `WRANGLE_*` marker per passing check in the evaluated tier — `WRANGLE_HAS_SBOM`, `WRANGLE_VULN_SCANNED` (osv), `WRANGLE_WORKFLOWS_LINTED` (zizmor), `WRANGLE_LINTED` (wrangle-lint), `WRANGLE_SCORECARD_PASSED` (strict) — and `WRANGLE_RELEASE_PINNED` when the provenance was signed by a wrangle build workflow pinned at a release tag ([#424](https://github.com/TomHennen/wrangle/issues/424)). The release-pinned policy is advisory (`meta.enforce: OFF`): each PolicySet declares a second, tag-restricted sigstore identity (`@refs/tags/vX.Y.Z`) alongside the any-ref identity that gates admission, and the marker tenet reads which declared identities the verified cert SAN actually matched (`predicates[0].verification.identities`) — so the marker is anchored in the signature, not in unsigned predicate fields like `builder.id`. A branch/SHA-pinned build SOFTFAILs only that policy and still emits a PASSED VSA, just without the marker. Consumers gate on markers with a contains check, never array equality — later wrangle versions may add markers.
+
 Why no opt-out. Verification is the point of wrangle's "build → release" contract; a release that skipped it would still emit a signed VSA consumers trust, with nothing behind it. Because the `verify` job is gated on `should-release`, PR/dev builds produce no VSA at all — there is no green-looking VSA on an unverified build to mislead a consumer.
 
 Why opt-out exists. Some adopters run custom verification policies (different `--source-uri` constraints, custom cert identities, ratchet-style multi-tag-tolerance). For those cases the opt-out lets them keep wrangle's build/provenance/attestation while replacing the verify step. The contract becomes: wrangle still pushes/builds/attests, but the integrity-between-build-and-publish guarantee shifts to the adopter.
@@ -355,26 +357,48 @@ ARGUMENTS:
   src_dir     Path to the source code to scan (read-only)
   output_dir  Path to write results (writable, already exists)
 
+TOOL KIND:
+  The tool's `kind` (the catalog `kind:` field; default `scan`) captures its
+  input/stage — `scan` runs on the source tree, `sbom` produces an SBOM at its
+  own point in the pipeline. It does NOT change the output or exit handling
+  below, which are uniform across kinds. An image-delivery tool is told its
+  kind via WRANGLE_KIND.
+
 OUTPUT FILES (written to output_dir):
-  output.sarif   REQUIRED  SARIF 2.1.0 JSON
-  output.md      OPTIONAL  Human-readable markdown summary
-  output.txt     OPTIONAL  Human-readable plain text (fallback if no .md)
+  A tool writes whatever its kind produces; the orchestrator collects /output
+  and attests its primary output file by name:
+    output.sarif    a SARIF 2.1.0 scan result
+    sbom.spdx.json  an SPDX SBOM
+  (CycloneDX is future work; sbom.cyclonedx.json is not yet recognized.)
+  Plus optional human-readable companions for a SARIF result:
+    output.md   Human-readable markdown summary
+    output.txt  Human-readable plain text (fallback if no .md)
+  When output.sarif is present and neither output.md nor output.txt is, the
+  orchestrator generates output.md from output.sarif via lib/sarif_to_md.sh;
+  an adapter that produces richer output should write its own output.md.
 
-  If the adapter does not produce output.md or output.txt, the
-  orchestrator generates output.md from output.sarif via
-  lib/sarif_to_md.sh. Adapters that produce richer tool-specific
-  output should write their own output.md to prevent this fallback.
+  A run that exits 0 but writes no recognized output file is a clean no-op
+  (green, no artifact, no attestation); the tool is responsible for emitting
+  its artifact or exiting non-zero.
 
-EXIT CODES:
-  0  Scan completed, no findings
-  1  Scan completed, findings detected
-  2  Scan failed (tool error)
+EXIT CODES (uniform across kinds):
+  0  Completed, no findings
+  1  Completed, findings detected
+  2  Tool error
+  An sbom tool has no findings state, so it simply never returns 1.
 
 PRECONDITIONS:
   Tool binary is on $PATH (handled by install script)
   jq is available
 
 ENVIRONMENT:
+  The orchestrator sets these WRANGLE_* variables for every tool image:
+    WRANGLE_KIND         the tool's kind (input/stage; see TOOL KIND above)
+    WRANGLE_SOURCE_NAME  basename of the scanned source dir (the /src mount
+                         hides its real path)
+    WRANGLE_EXTRA_<VAR>  the runner's WRANGLE_EXTRA_<VAR> reaches the tool as
+                         <VAR>, prefix stripped (see the WRANGLE_EXTRA_ rule below)
+
   Adapters run with a restricted environment. Only the following variables
   are passed through from the runner:
     PATH, HOME, TMPDIR, RUNNER_TEMP, GITHUB_WORKSPACE, GITHUB_STEP_SUMMARY
@@ -398,6 +422,13 @@ SECURITY:
     prevent markdown/HTML injection
   - jq exit codes MUST be checked; malformed SARIF must not silently pass
 ```
+
+**Setup-script image-cache contract (shell build type):** when the caller
+enables `build_shell.yml`'s `image-cache`, the setup-script MAY append docker
+image tags (one per line) to the file named by `$WRANGLE_IMAGE_CACHE_LIST` to
+have them cached across runs, and on a cache hit the check steps see
+`WRANGLE_TOOL_IMAGES_PREBUILT=1` — a test MAY skip building an image whose tag
+is already present.
 
 ### Install Script Interface
 
@@ -545,21 +576,35 @@ OPTIONS:
 ARGUMENTS:
   tool1, tool2   Tool specs to run (e.g., osv, zizmor, scorecard:info).
                  Optional :fail/:info suffix is stripped before processing.
-                 Action-pattern tools (no adapter.sh) are silently skipped.
+                 Action-pattern tools (an action.yml, or no adapter.sh and
+                 no catalog image entry) are silently skipped.
 
 BEHAVIOR:
   For each tool:
     1. Strip :policy suffix if present (run.sh does not use the policy —
        that is handled by lib/check_results.sh in the scan action)
     2. Validate tool name matches ^[a-z][a-z0-9_-]*$ (reject otherwise)
-    3. Verify tools/<tool>/ directory exists (reject if not — unknown tool)
-    4. Skip if tools/<tool>/adapter.sh is missing (the tool is
-       action-pattern, handled by uses: steps in the scan action)
-    5. Run tools/<tool>/install.sh if present — go.mod tools were all
-       installed upfront (timeout: 5 minutes)
+    3. Verify tools/<tool>/ directory exists, OR the catalog gives the tool a
+       `delivery: image` entry (a catalog-only image tool needs no local
+       directory); reject otherwise as an unknown tool
+    4. Skip if tools/<tool>/action.yml exists (action-pattern — handled by
+       uses: steps in the scan action; any adapter.sh present is only the
+       tool image's entrypoint). Otherwise resolve the tool's
+       tools/catalog.json entry: a `delivery: image` entry runs the tool's
+       pinned image via `docker run` (read-only /src, writable /output owned
+       by the runner UID, --network none unless the entry declares
+       `network: egress`, a `secret:` passed via -e); else skip if
+       tools/<tool>/adapter.sh is missing.
+    5. (adapter path) Run tools/<tool>/install.sh if present — go.mod tools
+       were all installed upfront (timeout: 5 minutes)
     6. Create <output_dir>/<tool>/
-    7. Run tools/<tool>/adapter.sh <src_dir> <output_dir>/<tool>/ (timeout: 10 minutes)
-    8. Record pass/fail status
+    7. Run the adapter or image with <src_dir> and <output_dir>/<tool>/ under
+       the uniform 0/1/2 exit contract (an image gets WRANGLE_KIND for its
+       input/stage). A scan tool writes output.sarif; an sbom tool writes
+       sbom.spdx.json (timeout: 10 minutes)
+    8. Record pass/fail status; attest the primary output file by name —
+       output.sarif via the scan/v1 manifest, sbom.spdx.json via its in-toto
+       predicate https://spdx.dev/Document
 
   After all tools:
     9. Print summary table to stdout
@@ -601,6 +646,49 @@ NOTES:
 
 ---
 
+### Custom Tools (adopter catalog, add-only)
+
+`run.sh` auto-discovers a `.wrangle/tools.json` at the workspace root (`$GITHUB_WORKSPACE`, else the working
+directory) and unions the adopter tools it defines into the curated catalog (`lib/merge_catalog.sh`). The
+file is optional — its absence changes nothing. Its resolved path MUST stay inside the workspace, so a
+symlink escaping it is rejected. A custom tool is *defined* by this file but only *runs* when the selection
+names it (`tools:` for scan, `sbom-tool:` for the build SBOM); an unselected entry is never dispatched.
+Because those selection inputs come from the base workflow, a fork opening a `pull_request_target` cannot
+select an injected tool.
+
+```jsonc
+{
+  "tools": {
+    "my-sbom": {                                  // a tool wrangle doesn't ship — full definition
+      "kind": "sbom",
+      "delivery": "image",
+      "image": "ghcr.io/myorg/my-sbom@sha256:<64hex>"
+    }
+  }
+}
+```
+
+**Add-only — collision is an error.** A custom tool name that matches a curated tool is a hard error; the
+model never overrides or field-merges a curated entry. To change how a curated tool runs, add your own tool
+under a new name and deselect the curated one via `tools:` / `sbom-tool:`. Each added tool declares its own
+capabilities standalone; nothing inherits from any curated entry.
+
+**Per-entry validation** (any failure fails closed, aborting the run): tool name matches
+`^[a-z][a-z0-9_-]*$`; `kind` ∈ {`scan`, `sbom`, `attest`}; `delivery` is `image`; `image` is digest-pinned
+(`name@sha256:<64hex>`) **and outside the wrangle namespace** (`ghcr.io/tomhennen/wrangle/*` is rejected —
+a custom tool cannot borrow a wrangle VSA identity); a declared `network` ∈ {`none`, `egress`} and `secret`
+matches `^[a-z][a-z0-9-]*$`. The value rules are shared with the curated-catalog linter via
+`lib/catalog_rules.sh`.
+
+**Trust boundary.** The custom-tools file is trusted adopter configuration: an added tool may grant itself
+`egress` + a `secret`, so the file MUST come from the trusted repository, never from untrusted PR contents
+in a job that carries `WRANGLE_EXTRA_*` secrets. Because a custom image is always off the wrangle namespace
+it carries no wrangle VSA, so `run.sh` skips the VSA gate and trusts it as the adopter's own — the adopter
+owns its digest pin and freshness. It still runs in the full contract sandbox (read-only `/src`,
+`--network none` unless granted, `--cap-drop ALL`, no-new-privileges, non-root).
+
+---
+
 ## Composite Action Interface
 
 The scan action (`actions/scan/action.yml`) is the primary entry point for GitHub Actions users.
@@ -635,7 +723,7 @@ The scan action parses the `tools` input to dispatch adapter-pattern tools (thos
 
 The **step summary is the primary output**. It works on all repos — private, no Advanced Security, etc. SARIF upload to the Security tab is additive. The **metadata directory** (`$GITHUB_WORKSPACE/.wrangle/metadata/`) is a complete catalog of which tools ran and what they found, enabling future signed attestations.
 
-**Portability:** Shell script paths use `${{ github.action_path }}` for resolution relative to the composite action's own directory. Action-pattern tool steps use `./` paths (e.g., `uses: ./tools/zizmor`), which resolve to the same repo at the called ref — so when an adopter pins `@<sha>`, all internal actions resolve at that commit, and when wrangle's own CI runs on a PR branch, they resolve at the PR's code.
+**Portability:** Shell script paths use `${{ github.action_path }}` for resolution relative to the composite action's own directory. Action-pattern tool steps use `./` paths (e.g., `uses: ./tools/scorecard`), which resolve to the same repo at the called ref — so when an adopter pins `@<sha>`, all internal actions resolve at that commit, and when wrangle's own CI runs on a PR branch, they resolve at the PR's code.
 
 **Path constraint:** The composite action resolves the orchestrator via `${{ github.action_path }}/../../run.sh`, which means the scan action MUST remain at exactly `actions/scan/` (two directories below the repo root). This is a hard structural constraint — moving the action to a different depth breaks the relative path. If the directory layout changes, these paths must be updated in the same commit.
 
@@ -691,7 +779,7 @@ jobs:
       actions: read
       contents: read
       security-events: write
-    uses: TomHennen/wrangle/.github/workflows/check_source_change.yml@v0.2.2 # zizmor: ignore[unpinned-uses] - immutable
+    uses: TomHennen/wrangle/.github/workflows/check_source_change.yml@v0.3.1 # zizmor: ignore[unpinned-uses] - immutable
 ```
 
 This is the entire file an adopter needs. No secrets, no configuration, no dependencies to manage.
@@ -703,7 +791,7 @@ This is the entire file an adopter needs. No secrets, no configuration, no depen
 | Tool | Pattern | What it does |
 |------|---------|-------------|
 | [OSV-Scanner](https://github.com/google/osv-scanner) | Adapter | Scans dependencies against the OSV database |
-| [Zizmor](https://github.com/zizmorcore/zizmor) | Action (wraps `zizmorcore/zizmor-action`) | Security-focused linting of GitHub Actions workflows |
+| [Zizmor](https://github.com/zizmorcore/zizmor) | Adapter (containerized) | Security-focused linting of GitHub Actions workflows |
 | [OSSF Scorecard](https://scorecard.dev/) | Action (wraps `ossf/scorecard-action`) | Assesses repo security health across 18+ categories |
 | [Dependency Review](https://github.com/actions/dependency-review-action) | Action (wraps `actions/dependency-review-action`) | PR-time gate: blocks PRs that introduce known-vulnerable dependencies. Runs on `pull_request` events only |
 | wrangle-lint | Adapter (first-party Go) | Audits the adopter's `.github/dependabot.yml` for config footguns that silently defeat dependency hygiene (see `tools/wrangle-lint/SPEC.md`) |
@@ -773,7 +861,7 @@ The install scripts include OS/arch detection (`linux/darwin`, `amd64/arm64`) as
    - `test.bats` — structural tests (action.yml exists, SHA pinned, etc.)
 2. Add a `uses: ./tools/foo` step in `actions/scan/action.yml`
 
-Everything for one tool lives in one directory. No Docker images, no registry management, no workflow changes for adopters.
+Everything for one tool lives in one directory, with no workflow changes for adopters. Most tools deliver as a downloaded binary or a wrapped action; a tool that needs a container delivers as one via the catalog (`delivery: image`, see Design Decisions below).
 
 ### Tool Sub-specifications
 
@@ -782,7 +870,7 @@ Each tool's detailed specification lives in `tools/<name>/SPEC.md` alongside the
 | Tool | Pattern | Default policy | Details |
 |------|---------|---------------|---------|
 | OSV-Scanner | Adapter | `:fail` | [`tools/osv/SPEC.md`](../tools/osv/SPEC.md) |
-| Zizmor | Action | `:fail` | [`tools/zizmor/SPEC.md`](../tools/zizmor/SPEC.md) |
+| Zizmor | Adapter | `:fail` | [`tools/zizmor/SPEC.md`](../tools/zizmor/SPEC.md) |
 | OSSF Scorecard | Action | `:info` | [`tools/scorecard/SPEC.md`](../tools/scorecard/SPEC.md) |
 | Dependency Review | Action | `:fail` | [`tools/dependency-review/SPEC.md`](../tools/dependency-review/SPEC.md) |
 
@@ -814,20 +902,18 @@ The `.wrangle/` directory is in `.gitignore` to prevent accidental commits. The 
 
 ## Design Decisions
 
-### Binary downloads over Docker images
+### Binary downloads as the default, container images per-tool
 
-**Previous approach:** Tools were wrapped in Docker images, pushed to ghcr.io, and run via `docker run` with volume mounts.
-
-**New approach:** Tools are downloaded as standalone binaries and run directly.
-
-**Rationale:**
+**Default:** Tools are downloaded as standalone binaries (or wrapped as actions) and run directly, because for most tools that wins on:
 - **Speed:** No image pull latency (cached binary downloads are near-instant)
 - **Simplicity:** No container registry to manage, no image build pipeline
 - **Portability:** Works on any runner (macOS, self-hosted, ARM — not just Linux with Docker)
 - **Testability:** No Docker-in-Docker complexity; scripts testable with bats-core locally
 - **Adoption friction:** No authentication needed to pull tool images
 
-The container *build/publish* workflow (for building adopters' Docker images) remains unchanged.
+**Per-tool exception:** A tool whose upstream ships only as a container, or that needs an isolated runtime, opts into container delivery through the catalog (`delivery: image` with a digest-pinned `image:`); the orchestrator runs it via `docker run` under the adapter contract sandbox. Binary/adapter delivery remains the default. See [docs/tool_container_design.md](tool_container_design.md).
+
+The container *build/publish* workflow (for building adopters' Docker images) is a separate concern and remains unchanged.
 
 ### Reusable workflow + composite action (two layers)
 
@@ -922,7 +1008,7 @@ The sum.golang.org tier applies to Go modules installed via `go install` from th
 
 **No fallback between verification methods.** Each tool's verification method is chosen at development time. If provenance verification fails for a tool configured to use it, the install MUST fail — even if the checksum passed. A verification failure may indicate a supply chain attack; silently downgrading to a weaker method would mask the attack.
 
-**Version upgrade workflow:** To update a tool version, run `make update-tool TOOL=osv VERSION=x.y.z`. This helper downloads the new binary, computes its SHA-256 checksum, and patches the install script. The contributor then verifies the change, commits both the version and checksum update together, and opens a PR. Dependabot is not used for tool binaries because it cannot update hardcoded checksums.
+**Version upgrade workflow:** Binary-download tool versions are bumped by hand today — edit the pinned version (and, for a hardcoded-checksum tool, its SHA-256) in the install script, verify the new binary, and commit the version and checksum together in a single atomic commit. Dependabot is not used for these because it cannot update hardcoded checksums; the Go- and pip-managed tools that DEP_MGMT.md makes the default are Dependabot-covered instead. Automating the manual binary surface is tracked in #264.
 
 ### Shared Download/Verify Library
 
@@ -1032,7 +1118,7 @@ Wrangle is a supply chain amplifier — a compromise of wrangle propagates to ev
 - **Action reference pinning:** All third-party actions pinned to full commit SHAs (protects against upstream action compromise).
 - **Signed commits:** All commits to the wrangle repo should be signed.
 - **Minimal permissions:** Wrangle's own workflows request only the permissions they need.
-- **Dependency management:** Dependabot for GitHub Actions dependencies; `make update-tool` for tool binary versions.
+- **Dependency management:** Dependabot for GitHub Actions and package-manager-installed tool dependencies; manual version+checksum bumps for binary-download tools (automation tracked in #264).
 - **SLSA build provenance:** When wrangle produces releasable artifacts (e.g., if it ships a CLI or pre-built actions), those artifacts should have SLSA L3 build provenance via `actions/attest-build-provenance` run inside a reusable build workflow, the same standard wrangle helps adopters achieve. Aspirational — not currently in a numbered release milestone.
 - **Delayed dependency updates:** Wrangle does not auto-merge dependency updates immediately. New versions of upstream tools are adopted only after a delay (e.g., 7 days) to allow the community to discover supply chain attacks before wrangle amplifies them to all adopters. This follows the [OpenSSF Concise Guide for Evaluating Open Source Software](https://best.openssf.org/Concise-Guide-for-Evaluating-Open-Source-Software) principle of not being the first to adopt a new release.
 

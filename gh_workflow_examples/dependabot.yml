@@ -14,6 +14,14 @@ updates:
     # directory entry per action — github-actions globs don't recurse into
     # nested action.yml files.
     directory: "/"
+    # An action pinned in several files (a wrangle ref in multiple workflows,
+    # or across "/" and your composites) moves in one PR under group-by, so no
+    # two copies diverge.
+    groups:
+      across-directories:
+        patterns:
+          - "*"
+        group-by: dependency-name
     schedule:
       interval: "weekly"
     open-pull-requests-limit: 5
@@ -24,6 +32,11 @@ updates:
   # - package-ecosystem: "npm"
   #   directories:
   #     - "/**"
+  #   groups:
+  #     across-directories:
+  #       patterns:
+  #         - "*"
+  #       group-by: dependency-name
   #   schedule:
   #     interval: "weekly"
   #   open-pull-requests-limit: 5
@@ -33,6 +46,11 @@ updates:
   # - package-ecosystem: "pip"
   #   directories:
   #     - "/**"
+  #   groups:
+  #     across-directories:
+  #       patterns:
+  #         - "*"
+  #       group-by: dependency-name
   #   schedule:
   #     interval: "weekly"
   #   open-pull-requests-limit: 5
@@ -42,6 +60,11 @@ updates:
   # - package-ecosystem: "gomod"
   #   directories:
   #     - "/**"
+  #   groups:
+  #     across-directories:
+  #       patterns:
+  #         - "*"
+  #       group-by: dependency-name
   #   schedule:
   #     interval: "weekly"
   #   open-pull-requests-limit: 5
@@ -51,6 +74,11 @@ updates:
   # - package-ecosystem: "docker"   # base-image updates (Dockerfile FROM lines)
   #   directories:
   #     - "/**"
+  #   groups:
+  #     across-directories:
+  #       patterns:
+  #         - "*"
+  #       group-by: dependency-name
   #   schedule:
   #     interval: "weekly"
   #   open-pull-requests-limit: 5

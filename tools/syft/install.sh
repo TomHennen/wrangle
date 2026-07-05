@@ -26,8 +26,8 @@ BIN_DIR="${WRANGLE_BIN_DIR:-${RUNNER_TEMP:-.}/.wrangle/bin}"
 
 # Idempotency: skip if the requested version is already on disk.
 if [[ -x "${BIN_DIR}/${TOOL_NAME}" ]]; then
-    installed_version="$("${BIN_DIR}/${TOOL_NAME}" version --output json 2>/dev/null | grep -o '"version":"[^"]*"' | head -1 || true)"
-    if [[ "$installed_version" == *"${VERSION}"* ]]; then
+    installed_version="$("${BIN_DIR}/${TOOL_NAME}" version --output json 2>/dev/null | grep -o '"version":"[^"]*"' | head -1 | sed 's/^"version":"//; s/"$//' || true)"
+    if [[ "$installed_version" == "${VERSION}" ]]; then
         printf 'wrangle: %s %s already installed\n' "$TOOL_NAME" "$VERSION"
         exit 0
     fi

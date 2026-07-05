@@ -44,6 +44,17 @@ wrangle_resolve_policy() {
 # shellcheck source=../../lib/sign_metadata.sh
 source "$LIB_DIR/sign_metadata.sh"
 
+# shellcheck source=../../lib/read_catalog.sh
+source "$LIB_DIR/read_catalog.sh"
+# shellcheck source=../../lib/verify_image_vsa.sh
+source "$LIB_DIR/verify_image_vsa.sh"
+# Toolbox dispatch (image resolution + VSA gate + hardened docker run + token
+# mint), shared with the attest job's signer helpers.
+# shellcheck source=../../lib/toolbox_run.sh
+source "$LIB_DIR/toolbox_run.sh"
+
+WRANGLE_CATALOG="${WRANGLE_CATALOG:-$REPO_ROOT/tools/catalog.json}"
+
 # Emit the ampel subject flag for one subject, one arg per line. A digest-form
 # subject (algo:hex, e.g. a container) passes through; a file subject is hashed
 # to sha256 ourselves and passed as --subject-hash so the VSA subject carries a
@@ -74,8 +85,9 @@ wrangle_ampel_verify_args() {
     local args=(verify "$subject_arg"
         --collector="jsonl:$bundle")
     [[ -n "${COLLECTOR:-}" ]] && args+=(--collector="$COLLECTOR")
-    # ampel drops the signer-identity match on tenets beyond --workers; keep it
-    # above the largest tier's tenet count (strict: 8) until carabiner-dev/ampel#298 lands.
+    # The catalog attest-toolbox image still ships pre-#298-fix ampel (< v1.3.1),
+    # which drops identity matches on tenets beyond --workers; keep the flag
+    # until that image's digest is bumped to a v1.3.1 build (#563).
     args+=(--policy="$(wrangle_resolve_policy "$POLICY")"
         --workers=32
         --exit-code="$FAIL"
@@ -91,6 +103,23 @@ wrangle_ampel_verify_args() {
 # Build the bnd statement argument vector that signs a VSA in place.
 wrangle_bnd_sign_args() {
     printf '%s\n' statement "$1"
+}
+
+# Run ampel verify in the VSA-gated toolbox image. The bundle, results path, and
+# (relative) BUNDLE_OUT ride the workspace/temp mounts; only the policy dir needs
+# an extra mount — a disk policy resolves under the action checkout, outside the
+# workspace (a *://* locator is fetched, not read). An oci: collector reads
+# attestations from ghcr, so it also gets the job's registry login and token.
+wrangle_ampel() {
+    local policy
+    policy="$(wrangle_resolve_policy "$POLICY")"
+    local -a extra=()
+    case "$policy" in
+        *://*) ;;
+        *)     extra+=(--mount "$(dirname "$policy")") ;;
+    esac
+    [[ -n "${COLLECTOR:-}" ]] && extra+=(--docker-config --env GITHUB_TOKEN)
+    wrangle_toolbox_exec "${extra[@]}" -- ampel "$@"
 }
 
 # ampel verify one subject -> unsigned VSA at $2, streaming the report to the
@@ -111,7 +140,7 @@ wrangle_verify_emit_vsa() {
     # the policy verdict, and piping straight into the truncating sanitizer could
     # SIGPIPE ampel and flip a PASS into a blocked release.
     report="$(mktemp)"
-    wrangle_retry_once "$report" ampel "${args[@]}" || rc=$?
+    wrangle_retry_once "$report" wrangle_ampel "${args[@]}" || rc=$?
     wrangle_sanitize_output < "$report" >> "$GITHUB_STEP_SUMMARY"
     # The step summary is easy to miss, so echo a failed report to the job log.
     if [[ "$rc" -ne 0 ]]; then
@@ -122,14 +151,25 @@ wrangle_verify_emit_vsa() {
     return "$rc"
 }
 
-# bnd-sign the unsigned VSA at $1 in place; the signed statement lands at $1.
+# bnd-sign the unsigned VSA at $1 in place (in the toolbox container, minting a
+# step-local SIGSTORE_ID_TOKEN threaded by name); the signed statement lands at $1.
 wrangle_sign_vsa() {
     local vsa="$1"
     local args
     mapfile -t args < <(wrangle_bnd_sign_args "$vsa.unsigned")
     mv "$vsa" "$vsa.unsigned"
-    wrangle_retry_once "$vsa" bnd "${args[@]}"
+    local rc=0
+    wrangle_retry_once "$vsa" wrangle_toolbox_exec \
+        --sigstore -- bnd "${args[@]}" || rc=$?
     rm -f "$vsa.unsigned"
+    # bnd can exit 0 yet emit nothing; an empty output would silently append no
+    # VSA line to the bundle (jq -c on empty input yields nothing). Fail closed,
+    # matching the attest side (lib/sign_metadata.sh).
+    if [[ "$rc" -eq 0 && ! -s "$vsa" ]]; then
+        printf 'wrangle: VSA signing produced no output for %s\n' "$vsa" >&2
+        return 1
+    fi
+    return "$rc"
 }
 
 # Push the signed VSA at $1 as its own OCI referrer (container only). Fails
@@ -206,12 +246,13 @@ wrangle_run() {
 # (goreleaser built but published nothing). Enumerate via a temp file, not a
 # process substitution, so a find that dies mid-traversal fails closed.
 wrangle_attach_release() {
-    local ref="$GITHUB_REF_NAME"
-    # No release for the tag: create an empty published release to fill with only
-    # attested assets. Fail closed if creation fails — never fall through to upload.
+    local ref="$GITHUB_REF_NAME" create_err
+    # Create the tag's release if absent. A peer build-type job sharing it can win
+    # the create race, so re-check existence and fail closed only if still absent.
     if ! gh release view "$ref" >/dev/null 2>&1; then
-        if ! gh release create "$ref" --generate-notes --title "$ref"; then
-            printf 'wrangle: failed to create GitHub release for %s\n' "$ref" >&2
+        if ! create_err="$(gh release create "$ref" --generate-notes --title "$ref" 2>&1)" \
+            && ! gh release view "$ref" >/dev/null 2>&1; then
+            printf 'wrangle: failed to create GitHub release for %s: %s\n' "$ref" "$create_err" >&2
             return 1
         fi
     fi

@@ -26,6 +26,13 @@ on:
         required: false
         type: string
         default: ""
+      bats-jobs:
+        description: >
+          Number of bats test files to run concurrently. 1 (default) is
+          serial; raise it only when the suite shares no cross-file state.
+        required: false
+        type: string
+        default: "1"
       scan-tools:
         description: |
           Space-separated source-scan tools (suffix :info for
@@ -36,11 +43,9 @@ on:
         default: "osv zizmor scorecard:info dependency-review wrangle-lint"
       go-cache:
         description: >
-          Set to "enabled" to cache the Go module + build caches the
-          scan tools build from source (osv-scanner et al. — #343).
-          Default off: the cache is ~1.5–3 GB against this repo's
-          Actions cache quota. Source scanning produces no provenance,
-          so caching is L3-safe here regardless.
+          Deprecated no-op. The source-scan tools now ship as curated,
+          digest-pinned images and no longer build from source, so this
+          caches nothing. Retained so callers that still set it don't fail.
         required: false
         type: string
         default: ""
@@ -51,7 +56,7 @@ on:
           shell-build job caches the Go module + build caches keyed on
           that go.sum, so those tools aren't recompiled from source every
           run. The cache counts against your repo's Actions quota. Empty
-          (default) disables it. To cache the scan tools, use go-cache.
+          (default) disables it.
         required: false
         type: string
         default: ""
@@ -67,6 +72,33 @@ on:
         required: false
         type: string
         default: ""
+      image-cache:
+        description: >
+          Set to "enabled" to docker-save/load the images the tests build
+          across runs (actions/cache, exact key on tools/**, lib/** and
+          Dockerfiles). Worth enabling when your bats build docker images
+          and those rebuilds dominate the run: warm runs get the build
+          time back for ~200MB of cache quota. The setup-script registers
+          the tags to save by appending them to $WRANGLE_IMAGE_CACHE_LIST;
+          on a hit the images are loaded and WRANGLE_TOOL_IMAGES_PREBUILT=1
+          lets tests skip their own builds. Enable only if your image
+          build inputs live
+          under tools/ and lib/ — inputs elsewhere aren't in the key, so
+          their changes would restore stale images. Counts against the
+          repo's Actions cache quota. Test/scan only: a hit restores
+          prebuilt images without rebuilding their inputs — never enable
+          on a release build. Empty (default) disables it.
+        required: false
+        type: string
+        default: ""
+    secrets:
+      gh_token:
+        description: >
+          Token exposed to the bats step as GH_TOKEN, for integration tests
+          that call gh (e.g. the pull-time VSA gate's `gh attestation verify`).
+          Omit to leave bats tokenless — the default, so an adopter's bats see
+          no token.
+        required: false
 
 jobs:
   # MUST stay first under `jobs:`: prep's guard refuses unsafe triggers
@@ -77,7 +109,7 @@ jobs:
     permissions: {}    # guard reads env only — no workspace, no API, no secrets
     steps:
       # TODO: replace with $/actions/prep when GitHub ships $/ syntax (#136)
-      - uses: TomHennen/wrangle/actions/prep@0ae21912101fc1deb6290c44bfb41aceb96219e0 # claude/trim-redundant-unit-tests 2026-06-21
+      - uses: TomHennen/wrangle/actions/prep@7908aadf0476e392d5b7bb046845363ff8da2140 # fix/verify-empty-vsa-693 2026-07-05
 
   # Source scan. A load-bearing (:fail) finding fails the run alongside
   # the shell build/test (there is no artifact to gate publishing of).
@@ -90,20 +122,24 @@ jobs:
       security-events: write
     steps:
       # TODO: replace with $/actions/scan when GitHub ships $/ syntax (#136)
-      - uses: TomHennen/wrangle/actions/scan@0ae21912101fc1deb6290c44bfb41aceb96219e0 # claude/trim-redundant-unit-tests 2026-06-21
+      - uses: TomHennen/wrangle/actions/scan@7908aadf0476e392d5b7bb046845363ff8da2140 # fix/verify-empty-vsa-693 2026-07-05
         if: ${{ inputs.scan-tools != '' }}
         with:
           checkout: "true"
           tools: ${{ inputs.scan-tools }}
-          go-cache: ${{ inputs.go-cache }}
 
   shell-build:
     needs: [prep]
     runs-on: ubuntu-latest
     permissions:
       contents: read
+    # Reaches the auto-detected integration bats (run_bats in the composite
+    # below) so a test that calls gh can authenticate. Empty when the caller
+    # passes no gh_token secret, leaving bats tokenless.
+    env:
+      GH_TOKEN: ${{ secrets.gh_token }}
     steps:
-      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
         with:
           persist-credentials: false
 
@@ -123,19 +159,73 @@ jobs:
       # and never gates a release (this workflow attests nothing).
       - name: Cache setup-script tool binaries
         if: ${{ inputs.cache-setup-tools == 'enabled' && inputs.go-tools-dir != '' }}
-        uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: ${{ runner.temp }}/.wrangle/bin
           key: setup-tools-${{ runner.os }}-${{ hashFiles(format('{0}/go.sum', inputs.go-tools-dir)) }}
 
+      # Cross-run cache of the docker images the setup-script registers in
+      # $WRANGLE_IMAGE_CACHE_LIST (docker save/load): a hit loads the images
+      # so the tests skip their own builds; a miss leaves the tests building
+      # as usual and the save steps below capture what they built. Exact key
+      # only — a stale image must never stand in for current build inputs.
+      - name: Restore tool images
+        id: tool-image-cache
+        if: ${{ inputs.image-cache == 'enabled' }}
+        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ${{ runner.temp }}/wrangle-tool-images.tar
+          key: tool-images-${{ runner.os }}-${{ hashFiles('tools/**', 'lib/**', '**/Dockerfile*') }}
+
+      # The list registration must happen on hit AND miss (the save path
+      # reads it), so only the load is gated on the cache hit.
+      - name: Load cached tool images
+        if: ${{ inputs.image-cache == 'enabled' }}
+        env:
+          IMAGE_TAR: ${{ runner.temp }}/wrangle-tool-images.tar
+          LIST_PATH: ${{ runner.temp }}/wrangle-image-cache-list
+          CACHE_HIT: ${{ steps.tool-image-cache.outputs.cache-hit }}
+        run: |
+          set -euo pipefail
+          printf 'WRANGLE_IMAGE_CACHE_LIST=%s\n' "$LIST_PATH" >> "$GITHUB_ENV"
+          [[ "$CACHE_HIT" == "true" ]] || exit 0
+          docker load -i "$IMAGE_TAR" >/dev/null
+          printf 'WRANGLE_TOOL_IMAGES_PREBUILT=1\n' >> "$GITHUB_ENV"
+
       - name: Run shell build
         # TODO: replace with $/build/actions/shell when GitHub ships $/ syntax (#136)
         # Bootstrap pin (docs/e2e_testing.md): the composite gained the
-        # setup-script input and multi-path bats — the main-pinned version
-        # would ignore setup-script and fail the dogfooded integration bats.
+        # bats-jobs input — the main-pinned version would ignore it and run
+        # bats serially, so the dogfood run wouldn't exercise the fan-out.
         # Bump to main post-merge via tools/bump_action_pins.sh.
-        uses: TomHennen/wrangle/build/actions/shell@0ae21912101fc1deb6290c44bfb41aceb96219e0 # claude/trim-redundant-unit-tests 2026-06-21
+        uses: TomHennen/wrangle/build/actions/shell@7908aadf0476e392d5b7bb046845363ff8da2140 # fix/verify-empty-vsa-693 2026-07-05
         with:
           scan-path: ${{ inputs.scan-path }}
           bats-path: ${{ inputs.bats-path }}
           setup-script: ${{ inputs.setup-script }}
+          bats-jobs: ${{ inputs.bats-jobs }}
+
+      # Only images the run actually built and registered are saved; a red
+      # run saves nothing (these steps are skipped on failure).
+      - name: Save tool images
+        id: save-tool-images
+        if: ${{ inputs.image-cache == 'enabled' && steps.tool-image-cache.outputs.cache-hit != 'true' }}
+        env:
+          IMAGE_TAR: ${{ runner.temp }}/wrangle-tool-images.tar
+        run: |
+          set -euo pipefail
+          [[ -s "${WRANGLE_IMAGE_CACHE_LIST:-}" ]] || exit 0
+          tags=()
+          while IFS= read -r tag; do
+              docker image inspect "$tag" >/dev/null 2>&1 && tags+=("$tag")
+          done < "$WRANGLE_IMAGE_CACHE_LIST"
+          [[ "${#tags[@]}" -gt 0 ]] || exit 0
+          docker save -o "$IMAGE_TAR" "${tags[@]}"
+          printf 'saved=true\n' >> "$GITHUB_OUTPUT"
+
+      - name: Cache tool images
+        if: ${{ inputs.image-cache == 'enabled' && steps.save-tool-images.outputs.saved == 'true' }}
+        uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ${{ runner.temp }}/wrangle-tool-images.tar
+          key: tool-images-${{ runner.os }}-${{ hashFiles('tools/**', 'lib/**', '**/Dockerfile*') }}

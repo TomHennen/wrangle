@@ -26,6 +26,7 @@ Multi-registry support is a planned extension. See "Known limitations" for the s
 | Input | Required | Description |
 |-------|----------|-------------|
 | `path` | yes | Relative path to the directory containing the Dockerfile |
+| `dockerfile` | no | Path to the Dockerfile. Default: `{path}/Dockerfile` with `path` as the build context. When set, the build context is the repo root (so the Dockerfile can `COPY` files outside `path`). `path` still names the artifacts. |
 | `imagename` | yes | Full image name including registry (e.g., `ghcr.io/owner/repo/image`) |
 | `registry` | yes | Container registry hostname (e.g., `ghcr.io`) |
 | `github_token` | yes | `GITHUB_TOKEN` with `packages:write` scope |
@@ -43,14 +44,16 @@ Multi-registry support is a planned extension. See "Known limitations" for the s
 | Input | Required | Description |
 |-------|----------|-------------|
 | `path` | yes | Passed through to composite action |
+| `dockerfile` | no | Passed through to composite action (see the composite-action input above) |
 | `imagename` | yes | Passed through to composite action |
 | `registry` | yes | Passed through to composite action |
 
 ### Reusable workflow secrets
 
-| Secret | Required | Description |
-|--------|----------|-------------|
-| `gh_token` | yes | GitHub token, used by the composite action and by the attest/verify jobs for GHCR operations (registry login, pushing the attestation and VSA referrers) |
+None required. Every job authenticates with its own `GITHUB_TOKEN` (each requests
+the `packages: write` / `id-token: write` it needs). A deprecated optional
+`gh_token` secret remains declared for callers still passing it (it is a no-op,
+slated for removal) — new callers pass no secrets.
 
 ### Reusable workflow outputs
 
@@ -117,6 +120,7 @@ All inputs are passed through `env:` blocks — never interpolated directly in `
 | Input | Validation |
 |-------|-----------|
 | `path` | Must be relative (no leading `/`), no `..` traversal, characters match `^[a-zA-Z0-9_./-]+$` |
+| `dockerfile` | When set, same rules as `path` (relative, no `..`, `^[a-zA-Z0-9_./-]+$`) via `lib/validate_path.sh` — it flows into the build as `docker/build-push-action`'s `file`. Empty is allowed and selects the default `path`-subdirectory context. |
 | `registry` | Characters match `^[a-z0-9.-]+$` |
 | `imagename` | Characters match `^[a-z0-9./:_-]+$` |
 

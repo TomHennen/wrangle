@@ -18,7 +18,7 @@ Pin by release **tag** (`@vX.Y.Z`), with an inline zizmor exception on that one
 line:
 
 ```yaml
-uses: TomHennen/wrangle/.github/workflows/build_and_publish_go.yml@v0.2.2 # zizmor: ignore[unpinned-uses] - immutable
+uses: TomHennen/wrangle/.github/workflows/build_and_publish_go.yml@v0.3.1 # zizmor: ignore[unpinned-uses] - immutable
 ```
 
 wrangle's release tags are
@@ -64,6 +64,40 @@ commit" to "any release," nothing more.
 The latest [release](https://github.com/TomHennen/wrangle/releases) tag.
 Dependabot and the examples under
 [`gh_workflow_examples/`](../gh_workflow_examples/) track the current release.
+
+## Can I use wrangle with immutable releases?
+
+Not yet, on the build types that attach assets to a GitHub Release. Wrangle
+attaches the signed VSA (and, for Go, the attested archives) *after* the
+release is published, which
+[immutable releases](https://docs.github.com/en/code-security/concepts/supply-chain-security/immutable-releases)
+forbid. Effect by build type:
+
+- **Go** — always fails: the release is published before wrangle attaches the
+  attested archives, so the asset upload hits an immutable release every time.
+- **Python / npm** — fails only when a published GitHub Release already exists
+  for the tag (the artifact itself goes to PyPI / npmjs.org regardless).
+- **Container** — unaffected: the VSA is an OCI referrer on the image digest,
+  never a release asset.
+
+Leave immutable releases off on repos using wrangle's Go/Python/npm build types
+until [#407](https://github.com/TomHennen/wrangle/issues/407) moves the attach
+to a draft → attach → publish flow.
+
+## Can I use wrangle on a private repo?
+
+The **source-only** and **shell** workflows run anywhere. The build pipelines
+(Go, Python, npm, Container) don't work on a **user-owned private repo** yet:
+each one persists SLSA provenance to
+[GitHub's attestation store](https://docs.github.com/rest/repos/attestations#create-an-attestation),
+which GitHub doesn't offer for user-owned private repos. The release fails with
+`Failed to persist attestation: Feature not available for user-owned private
+repositories`, and nothing is published.
+
+Run a build pipeline on a **public repo**, or on a **private repo owned by an
+org** with a plan that includes private attestations. Scan-tool specifics for
+private repos without Advanced Security are [below](#im-on-a-private-repo-without-advanced-security--which-scan-tools-work).
+Tracking: [#597](https://github.com/TomHennen/wrangle/issues/597).
 
 ## I'm on a private repo without Advanced Security — which scan tools work?
 

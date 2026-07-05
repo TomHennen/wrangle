@@ -1,5 +1,8 @@
 #!/usr/bin/env bats
 
+# shared skip_or_fail: skips locally, fails in CI so coverage can't degrade unseen.
+load "../../../test/lib/bats_helpers"
+
 # Tests for the Go build composites (checks/, build/) and
 # the reusable workflow build_and_publish_go.yml.
 #
@@ -489,26 +492,11 @@ func main() {}
     [[ "$status" -eq 0 ]]
 }
 
-@test "go.build: action installs syft via tools/syft (not curl | sh, no install-to-/usr/local/bin)" {
-    # No curl-pipe-shell anywhere.
-    run grep -E 'curl[^|]*\| *sh' "$BUILD_ACTION"
-    [[ "$status" -ne 0 ]]
-    # No INSTALL/COPY/MOVE writes to /usr/local/bin (per CLAUDE.md
-    # "install to $WRANGLE_BIN_DIR, never /usr/local/bin"). A
-    # `sudo ln -sf` symlink from $WRANGLE_BIN_DIR to /usr/local/bin
-    # is explicitly NOT a CLAUDE.md violation — the binary stays in
-    # $WRANGLE_BIN_DIR; the symlink is wiring for downstream PATH
-    # lookups (see the zig install step), and zig was already
-    # SHA-256 verified by tools/zig/install.sh.
-    run grep -E '(cp|install|mv|tar)[^|]*/usr/local/bin' "$BUILD_ACTION"
-    [[ "$status" -ne 0 ]]
-    run grep 'tools/syft/install.sh' "$BUILD_ACTION"
+@test "go.build: SBOM via container dispatch (lib/generate_sbom.sh, no inline syft/cosign)" {
+    run grep -F 'lib/generate_sbom.sh' "$BUILD_ACTION"
     [[ "$status" -eq 0 ]]
-}
-
-@test "go.build: action installs cosign before syft (signature verification)" {
-    run bash -c "awk '/sigstore\\/cosign-installer/{c=NR} /tools\\/syft\\/install.sh/{s=NR} END{exit !(c && s && c<s)}' \"$BUILD_ACTION\""
-    [[ "$status" -eq 0 ]]
+    run grep -E 'cosign-installer|tools/syft/install.sh|syft dir:|-o spdx-json' "$BUILD_ACTION"
+    [[ "$status" -ne 0 ]]
 }
 
 @test "go.checks: run_checks.sh runs under stop_commands_guard (test/govulncheck execute arbitrary code)" {
@@ -619,16 +607,9 @@ func main() {}
     grep -qE "if:.*inputs\\.scan-tools != ''" <<<"$section"
 }
 
-@test "go: scan job needs prep so go-cache can read should-release" {
+@test "go: scan job needs prep for the metadata artifact name" {
     section="$(awk '/^  [a-z][a-z_-]*:$/ { in_section = ($0 == "  scan:") } in_section' "$WORKFLOW")"
     grep -qE 'needs:.*prep' <<<"$section"
-}
-
-@test "go: scan job forces go-cache off on release" {
-    # The scan gates the attested release; its Go tool cache must build cold
-    # on release so a poisoned cache cannot forge a passing scan.
-    section="$(awk '/^  [a-z][a-z_-]*:$/ { in_section = ($0 == "  scan:") } in_section' "$WORKFLOW")"
-    grep -qE "go-cache:.*should-release == 'true' && ''" <<<"$section"
 }
 
 @test "go: workflow release job needs scan (load-bearing finding blocks publish)" {
@@ -732,7 +713,7 @@ func main() {}
 # Helper: skip the calling test if Go is not on PATH.
 need_go() {
     if ! command -v go >/dev/null 2>&1; then
-        skip "go binary not on PATH (run via ./test.sh to use the Docker image)"
+        skip_or_fail "go binary not on PATH (run via ./test.sh to use the Docker image)"
     fi
 }
 

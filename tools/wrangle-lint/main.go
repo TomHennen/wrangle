@@ -331,8 +331,14 @@ func checkDependabot(ymlPath, uri, srcDir string) ([]finding, error) {
 		dirs := entryDirectories(entry)
 		hasGlob := false
 		for _, d := range dirs {
-			if strings.Contains(d.val, "**") {
+			// Any glob makes literal WL004 coverage comparison meaningless — a
+			// `/actions/*` is a valid covering config, so comparing its literal
+			// text against real dirs would spuriously flag every composite it
+			// covers. `**` is additionally flagged by WL003 below.
+			if strings.Contains(d.val, "*") {
 				hasGlob = true
+			}
+			if strings.Contains(d.val, "**") {
 				findings = append(findings, finding{"WL003", uri, ymlPath, d.line, fmt.Sprintf(
 					"The github-actions entry's '%s' is a `**` glob: Dependabot does not recurse "+
 						"into nested action.yml (so composite actions are never bumped) and `/**` "+
@@ -340,8 +346,8 @@ func checkDependabot(ymlPath, uri, srcDir string) ([]finding, error) {
 						"`directories: [\"/\", \"/path/to/your/action\"]`.", d.val)})
 			}
 		}
-		// A glob is already flagged (WL003); enumerating coverage on top would
-		// double-report. Only check coverage when explicit directories are used.
+		// A glob directory can't be coverage-checked literally; skip WL004 when
+		// any glob is present (a `**` is already flagged by WL003).
 		if hasGlob {
 			continue
 		}

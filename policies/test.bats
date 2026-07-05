@@ -38,7 +38,7 @@
 # AMPEL-IDENTITY-BINDING markers in policies/*.hjson.
 strip_identities() {
     sed -e '/AMPEL-IDENTITY-BINDING:START/,/AMPEL-IDENTITY-BINDING:END/d' \
-        -e '/^[[:space:]]*identities: \[ { ref: { id: "[^"]*" } } \]$/d' "$1"
+        -e '/^[[:space:]]*identities: \[ { ref: { id: "[^"]*" } }\(, { ref: { id: "[^"]*" } }\)* \]$/d' "$1"
 }
 
 # skip_or_fail (fail-not-skip under CI) lives in a shared bats helper.
@@ -195,7 +195,9 @@ expect_fail_closed() {
     [ "$status" -eq 0 ]
     run jq -r '.predicate.verificationResult' "$vsa"
     [ "$output" = "PASSED" ]
-    run jq -r '.predicate.verifiedLevels[0]' "$vsa"
+    # Exactly the SLSA level: the advisory release-pinned marker SOFTFAILs on an
+    # unsigned fixture (no verified identity), so its label must NOT appear.
+    run jq -r '.predicate.verifiedLevels | join(",")' "$vsa"
     [ "$output" = "SLSA_BUILD_LEVEL_3" ]
     # The per-release resourceUri the caller supplies must land in the VSA — this
     # is the field the emitted release VSA carries (build_and_publish_npm.yml).
@@ -235,7 +237,7 @@ expect_fail_closed() {
     [ "$status" -eq 0 ]
     run jq -r '.predicate.verificationResult' "$vsa"
     [ "$output" = "PASSED" ]
-    run jq -r '.predicate.verifiedLevels[0]' "$vsa"
+    run jq -r '.predicate.verifiedLevels | join(",")' "$vsa"
     [ "$output" = "SLSA_BUILD_LEVEL_3" ]
     run jq -r '.predicate.resourceUri' "$vsa"
     [ "$output" = "pkg:generic/wrangle-app@1.0.0" ]
@@ -260,8 +262,19 @@ expect_fail_closed() {
     [ "$status" -eq 0 ]
     run jq -r '.predicate.verificationResult' "$vsa"
     [ "$output" = "PASSED" ]
-    run jq -r '.predicate.verifiedLevels[0]' "$vsa"
-    [ "$output" = "SLSA_BUILD_LEVEL_3" ]
+    # Every passing check contributes its WRANGLE_* marker; the advisory
+    # release-pinned label is absent (unsigned fixture → SOFTFAIL).
+    run jq -r '.predicate.verifiedLevels | sort | join(",")' "$vsa"
+    [ "$output" = "SLSA_BUILD_LEVEL_3,WRANGLE_HAS_SBOM,WRANGLE_LINTED,WRANGLE_VULN_SCANNED,WRANGLE_WORKFLOWS_LINTED" ]
+}
+
+@test "ampel policy: default-go-v1 release-pinned marker SOFTFAILs without blocking the set" {
+    local rs="$BATS_TEST_TMPDIR/marker-rs.json"
+    run verify "$DEFAULT_GO_LOGIC" "$TD/good-default.bundle.jsonl" \
+        --attest-results --attest-format=ampel --results-path="$rs" -f tty
+    [ "$status" -eq 0 ]
+    run jq -r '.predicate.results[] | select(.policy.id == "wrangle-release-pinned") | .status' "$rs"
+    [ "$output" = "SOFTFAIL" ]
 }
 
 # The verify job (actions/verify) feeds ampel TWO collectors: the provenance
@@ -375,44 +388,94 @@ expect_fail_closed() {
 # The unsigned fixtures above can only run against the logic variant, so the
 # signer-identity admission is never exercised against a real signature. This
 # runs the FULL production python tier against a real SIGNED release bundle, the
-# same way actions/verify does (with --workers). The bundle is the complete
-# default tier (provenance + VSA + SBOM + clean osv/zizmor/wrangle-lint scans),
-# so it PASSES cleanly: every tenet PASS, ampel exit 0, signer identity
-# validated end to end.
+# same way actions/verify does. The bundle is the complete default tier
+# (provenance + VSA + SBOM + clean osv/zizmor/wrangle-lint scans), so it PASSES
+# cleanly: ampel exit 0, signer identity validated end to end.
 @test "ampel policy: default-python-v1 (production) PASSES a real signed default-tier bundle (clean overall)" {
     local rs="$BATS_TEST_TMPDIR/signed.json"
     run "$AMPEL" verify -p "$DEFAULT_PYTHON" -s "$SIGNED_SUBJECT" \
-        -c "jsonl:$SIGNED_BUNDLE" -x "$SIGNED_CTX" --workers=32 \
+        -c "jsonl:$SIGNED_BUNDLE" -x "$SIGNED_CTX" \
         --attest-results --attest-format=ampel --results-path="$rs" -f tty
     [ "$status" -eq 0 ]
     [ -s "$rs" ]
     run jq -r '.predicate.status' "$rs"
     [ "$output" = "PASS" ]
-    # Every tenet PASSES — no FAIL anywhere in the resultset.
-    run jq -r '[.predicate.results[] | select(.status != "PASS")] | length' "$rs"
+    # No FAIL anywhere; the only non-PASS is the advisory release-pinned marker,
+    # which SOFTFAILs because this fixture was built at refs/heads/main.
+    run jq -r '[.predicate.results[] | select(.status == "FAIL")] | length' "$rs"
     [ "$output" -eq 0 ]
+    run jq -r '[.predicate.results[] | select(.status != "PASS") | .policy.id] | join(",")' "$rs"
+    [ "$output" = "wrangle-release-pinned" ]
 }
 
-# Guard for ampel #298: with --workers below the tenet count ampel spuriously
-# fails an overflow tenet on identity validation, so the same signed bundle that
-# PASSES at --workers=32 must go RED at --workers=4.
-@test "ampel policy: default-python-v1 (production) goes RED at --workers=4 (ampel #298 guard)" {
+# Same signed production run, VSA output: the passing checks' WRANGLE_* markers
+# land in verifiedLevels through the real signer-identity admission, and the
+# release-pinned marker stays out (branch-built fixture).
+@test "ampel policy: default-python-v1 (production) emits the WRANGLE_* check markers in the signed VSA" {
+    local vsa="$BATS_TEST_TMPDIR/signed-vsa.json"
     run "$AMPEL" verify -p "$DEFAULT_PYTHON" -s "$SIGNED_SUBJECT" \
-        -c "jsonl:$SIGNED_BUNDLE" -x "$SIGNED_CTX" --workers=4 -f tty
-    [ "$status" -ne 0 ]
+        -c "jsonl:$SIGNED_BUNDLE" -x "$SIGNED_CTX" \
+        --attest-results --attest-format=vsa --results-path="$vsa" -f tty
+    [ "$status" -eq 0 ]
+    run jq -r '.predicate.verificationResult' "$vsa"
+    [ "$output" = "PASSED" ]
+    run jq -r '.predicate.verifiedLevels | sort | join(",")' "$vsa"
+    [ "$output" = "SLSA_BUILD_LEVEL_3,WRANGLE_HAS_SBOM,WRANGLE_LINTED,WRANGLE_VULN_SCANNED,WRANGLE_WORKFLOWS_LINTED" ]
+}
+
+# The release-tag identity is advisory-only, so no fail-closed test can prove
+# its regexp: a typo would silently never match and the marker would never be
+# emitted. Pin the regexp's behavior directly against SAN shapes. (Negations
+# use `run` + status: a bare `! grep` is errexit-exempt in a bats body, so its
+# failure would not fail the test.)
+@test "ampel policy: release-tag identity regexp accepts v-tag SANs and rejects everything else" {
+    local re
+    re="$(awk '/id: "wrangle-builder-release-tag"/{f=1} f && /identity:/{
+              sub(/^[[:space:]]*identity: "/, ""); sub(/"$/, ""); gsub(/\\\\/, "\\");
+              print; exit }' "$DEFAULT_GO")"
+    [ -n "$re" ]
+    local base="https://github.com/TomHennen/wrangle/.github/workflows/build_and_publish_go.yml"
+    grep -qE "$re" <<<"$base@refs/tags/v0.4.0"
+    grep -qE "$re" <<<"$base@refs/tags/v10.22.33"
+    local san
+    for san in "$base@refs/heads/main" "$base@refs/tags/v0.4.0-rc1" \
+               "$base@refs/tags/x0.4.0" "$base@refs/tags/v1" \
+               "$base@refs/tags/v0.4.0." "${base/wrangle/evil}@refs/tags/v0.4.0"; do
+        run grep -qE "$re" <<<"$san"
+        [ "$status" -ne 0 ]
+    done
+}
+
+# Positive path for the marker, with a real signature: rewrite ONLY the
+# release-tag identity's ref constraint to the branch ref this bundle was
+# actually signed at, and the marker must be emitted. Proves the tenet's CEL
+# identity id and the declared identity are wired end to end — a typo in either
+# would leave every committed test green (they only assert the SOFTFAIL side).
+@test "ampel policy: release-pinned marker IS emitted when the release-tag identity matches (signed)" {
+    local tagmatch="$BATS_TEST_TMPDIR/default-python-tagmatch.hjson"
+    sed 's#@refs/tags/v\[0-9\]+\\\\.\[0-9\]+\\\\.\[0-9\]+\$#@refs/heads/main$#' \
+        "$DEFAULT_PYTHON" > "$tagmatch"
+    grep -q 'refs/heads/main\$' "$tagmatch"
+    local vsa="$BATS_TEST_TMPDIR/tagmatch-vsa.json"
+    run "$AMPEL" verify -p "$tagmatch" -s "$SIGNED_SUBJECT" \
+        -c "jsonl:$SIGNED_BUNDLE" -x "$SIGNED_CTX" \
+        --attest-results --attest-format=vsa --results-path="$vsa" -f tty
+    [ "$status" -eq 0 ]
+    run jq -r '.predicate.verifiedLevels | sort | join(",")' "$vsa"
+    [ "$output" = "SLSA_BUILD_LEVEL_3,WRANGLE_HAS_SBOM,WRANGLE_LINTED,WRANGLE_RELEASE_PINNED,WRANGLE_VULN_SCANNED,WRANGLE_WORKFLOWS_LINTED" ]
 }
 
 # The signer-identity admission is the security property: a bundle signed by a
-# non-matching identity must FAIL even at --workers=32 (the clean-pass setting).
-# Derive a wrong-signer variant by swapping the bound build-workflow path in the
-# identity regexp for one this bundle was NOT signed by.
-@test "ampel policy: default-python-v1 FAILS a non-matching signer identity (even at --workers=32)" {
+# non-matching identity must FAIL. Derive a wrong-signer variant by swapping the
+# bound build-workflow path in the identity regexps for one this bundle was NOT
+# signed by.
+@test "ampel policy: default-python-v1 FAILS a non-matching signer identity" {
     local wrong="$BATS_TEST_TMPDIR/default-python-wrong-signer.hjson"
     sed '/mode: "regexp"/,/}/ s#build_and_publish_python#build_and_publish_attacker#' \
         "$DEFAULT_PYTHON" > "$wrong"
     local rs="$BATS_TEST_TMPDIR/wrong-signer.json"
     run "$AMPEL" verify -p "$wrong" -s "$SIGNED_SUBJECT" \
-        -c "jsonl:$SIGNED_BUNDLE" -x "$SIGNED_CTX" --workers=32 \
+        -c "jsonl:$SIGNED_BUNDLE" -x "$SIGNED_CTX" \
         --attest-results --attest-format=ampel --results-path="$rs" -f tty
     [ "$status" -ne 0 ]
     [ -s "$rs" ]
@@ -421,6 +484,23 @@ expect_fail_closed() {
     run jq -r '[.predicate.results[].eval_results[]?.error.message]
                | map(select(. == "attestation identity validation failed")) | length' "$rs"
     [ "$output" -ge 1 ]
+}
+
+# --- Consumer policy: the documented one-command adopter check -------------
+# Runs the nonstrict consumer PolicySet against the signed bundle's VSA the
+# same way docs/verifying_artifacts.md tells adopters to (the fixture's VSA is
+# branch-signed, which nonstrict accepts), and asserts the PASS assessment
+# echoes the VSA's verifiedLevels — the only place the ampel UX surfaces the
+# WRANGLE_* markers.
+@test "ampel policy: vsa-consumer-nonstrict PASSES the signed VSA and echoes verifiedLevels" {
+    local rs="$BATS_TEST_TMPDIR/consumer.json"
+    run "$AMPEL" verify -p "$POLICIES_DIR/wrangle-vsa-consumer-nonstrict-v1.hjson" \
+        -s "$SIGNED_SUBJECT" -c "jsonl:$SIGNED_BUNDLE" \
+        -x "expectedResourceUri:pkg:pypi/wrangle-test-fixture@0.0.1.dev27905469742,sourceRepo:https://github.com/TomHennen/wrangle-test" \
+        --attest-results --attest-format=ampel --results-path="$rs" -f tty
+    [ "$status" -eq 0 ]
+    run jq -r '.predicate.results[] | select(.policy.id == "vsa-passed") | .eval_results[0].assessment.message' "$rs"
+    [[ "$output" == *"verifiedLevels: SLSA_BUILD_LEVEL_3"* ]]
 }
 
 # --- Cross-file invariant --------------------------------------------------

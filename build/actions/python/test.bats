@@ -39,7 +39,10 @@ if [[ "${1:-}" == "-m" && "${2:-}" == "pip" && "${3:-}" == "install" ]]; then
         n=$(($(cat "$counter" 2>/dev/null || echo 0) + 1))
         printf '%d' "$n" > "$counter" 2>/dev/null || true
         fails=",${WRANGLE_TEST_PIP_FAILS:-},"
-        if [[ "$fails" == *",$n,"* ]]; then exit 1; fi
+        if [[ "$fails" == *",$n,"* ]]; then
+            printf 'pip-shim: simulated failure of install %d\n' "$n" >&2
+            exit 1
+        fi
     fi
 fi
 exit 0
@@ -124,9 +127,13 @@ setup() {
     [[ "$status" -eq 0 ]]
 }
 
-@test "python: action.yml generates SBOM" {
-    run grep -E 'spdx-json|sbom' "$ACTION"
+@test "python: SBOM via container dispatch (lib/generate_sbom.sh, no inline syft/cosign)" {
+    run grep -F 'lib/generate_sbom.sh' "$ACTION"
     [[ "$status" -eq 0 ]]
+    run grep -E 'cosign-installer|tools/syft/install.sh|syft dir:|-o spdx-json' "$ACTION"
+    [[ "$status" -ne 0 ]]
+    run grep -E 'curl[^|]*\| *sh|/usr/local/bin' "$ACTION"
+    [[ "$status" -ne 0 ]]
 }
 
 # --- Cache gating (SLSA L3 isolation, #224 / SLSA_L3_AUDIT.md Finding 1) ---
@@ -343,6 +350,9 @@ write_pyproject() {
     grep -qE '^python -m pip install -e \.\[dev\]$' <<<"$output"
     [[ "$output" == *"Installed with [dev] extra"* ]]
     ! grep -qE '^python -m pip install -e \.$' <<<"$output"
+    # The fallthrough is announced and the failing install's stderr surfaces.
+    [[ "$output" == *"WARNING: install with [test] extra failed"* ]]
+    [[ "$output" == *"pip-shim: simulated failure of install 1"* ]]
 }
 
 @test "python: install_deps.sh falls all the way through to bare install when both extras fail" {
@@ -359,6 +369,8 @@ write_pyproject() {
     grep -qE '^python -m pip install -e \.\[dev\]$' <<<"$output"
     grep -qE '^python -m pip install -e \.$' <<<"$output"
     [[ "$output" == *"Installed without test extras"* ]]
+    [[ "$output" == *"WARNING: install with [dev] extra failed"* ]]
+    [[ "$output" == *"pip-shim: simulated failure of install 2"* ]]
 }
 
 @test "python: install_deps.sh usage error with wrong arg count" {
@@ -407,15 +419,8 @@ write_pyproject() {
     [[ "$status" -eq 0 ]]
 }
 
-@test "python: scan job needs prep so go-cache can read should-release" {
+@test "python: scan job needs prep for the metadata artifact name" {
     run bash -c "sed -n '/^  scan:/,/^  [a-z]/p' \"$WORKFLOW\" | grep -E 'needs:.*prep'"
-    [[ "$status" -eq 0 ]]
-}
-
-@test "python: scan job forces go-cache off on release" {
-    # The scan gates the attested release; its Go tool cache must build cold
-    # on release so a poisoned cache cannot forge a passing scan.
-    run bash -c "sed -n '/^  scan:/,/^  [a-z]/p' \"$WORKFLOW\" | grep -E \"go-cache:.*should-release == 'true' && ''\""
     [[ "$status" -eq 0 ]]
 }
 
@@ -546,18 +551,6 @@ write_pyproject() {
 @test "python: no standalone python-bundle-* artifact (folded into metadata)" {
     run grep 'python-bundle-' "$WORKFLOW"
     [[ "$status" -ne 0 ]]
-}
-
-@test "python: action installs syft via tools/syft (not curl | sh)" {
-    run grep -E 'curl[^|]*\| *sh|/usr/local/bin' "$ACTION"
-    [[ "$status" -ne 0 ]]
-    run grep 'tools/syft/install.sh' "$ACTION"
-    [[ "$status" -eq 0 ]]
-}
-
-@test "python: action installs cosign before syft (signature verification)" {
-    run bash -c "awk '/sigstore\\/cosign-installer/{c=NR} /tools\\/syft\\/install.sh/{s=NR} END{exit !(c && s && c<s)}' \"$ACTION\""
-    [[ "$status" -eq 0 ]]
 }
 
 @test "python: hashes step strips ./ prefix for slsa-verifier" {

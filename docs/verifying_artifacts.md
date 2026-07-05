@@ -48,40 +48,37 @@ digest (see below). Adopters can suppress the attach with the verify action's
 wrangle creates the Release for the tag automatically if none exists; pre-create
 one yourself only for custom notes or a draft — see the per-language build READMEs.
 
-### A real example (the showcase Go release)
+### A real example (the curated v0.3.1 Go release)
 
 The [`wrangle-test`](https://github.com/TomHennen/wrangle-test) showcase
-publishes a Go release you can verify yourself. Tag `v20260621-fa5bd7f`
-includes, for its Go build:
+publishes a curated Go release — built with wrangle pinned at the `v0.3.1`
+release tag — that you can verify yourself. Its `v0.3.1` tag includes, for the
+Go build:
 
-- `wrangle-test-fixture-go_20260621-fa5bd7f_linux_amd64.tar.gz` — the archive
-- `wrangle-test-fixture-go_20260621-fa5bd7f_linux_amd64.tar.gz.intoto.jsonl` — its bundle (provenance + VSA)
+- `wrangle-test-fixture-go_0.3.1_linux_amd64.tar.gz` — the archive
+- `wrangle-test-fixture-go_0.3.1_linux_amd64.tar.gz.intoto.jsonl` — its bundle (provenance + VSA)
 - `go-metadata-go.zip` — the [unified metadata](metadata_layout.md) (SBOM + scan results)
 - `checksums.txt` — goreleaser's archive checksums
 
 Download the archive and its bundle:
 
 ```bash
-base=https://github.com/TomHennen/wrangle-test/releases/download/v20260621-fa5bd7f
-curl -sSLO "$base/wrangle-test-fixture-go_20260621-fa5bd7f_linux_amd64.tar.gz"
-curl -sSLO "$base/wrangle-test-fixture-go_20260621-fa5bd7f_linux_amd64.tar.gz.intoto.jsonl"
+base=https://github.com/TomHennen/wrangle-test/releases/download/v0.3.1
+curl -sSLO "$base/wrangle-test-fixture-go_0.3.1_linux_amd64.tar.gz"
+curl -sSLO "$base/wrangle-test-fixture-go_0.3.1_linux_amd64.tar.gz.intoto.jsonl"
 ```
 
-The showcase builds from `main`, not a release tag, so its VSA carries a
-`@refs/heads/main` signer identity — the strict `v*` consumer policy rejects it
-by design. Use the `nonstrict` policy, which accepts any ref:
+Built at the `v0.3.1` tag, its VSA carries a `@refs/tags/v0.3.1` signer
+identity, so the strict `wrangle-vsa-consumer-v1` policy verifies it — the same
+command you run against your own tag-built releases:
 
 ```bash
-ampel verify --subject wrangle-test-fixture-go_20260621-fa5bd7f_linux_amd64.tar.gz \
-  --policy git+https://github.com/TomHennen/wrangle@v0.2.2#policies/wrangle-vsa-consumer-nonstrict-v1.hjson \
-  --collector jsonl:wrangle-test-fixture-go_20260621-fa5bd7f_linux_amd64.tar.gz.intoto.jsonl \
-  --context expectedResourceUri:pkg:golang/github.com/tomhennen/wrangle-test/go@v20260621-fa5bd7f \
+ampel verify --subject wrangle-test-fixture-go_0.3.1_linux_amd64.tar.gz \
+  --policy git+https://github.com/TomHennen/wrangle@v0.3.1#policies/wrangle-vsa-consumer-v1.hjson \
+  --collector jsonl:wrangle-test-fixture-go_0.3.1_linux_amd64.tar.gz.intoto.jsonl \
+  --context expectedResourceUri:pkg:golang/github.com/tomhennen/wrangle-test/go@v0.3.1 \
   --context sourceRepo:https://github.com/TomHennen/wrangle-test
 ```
-
-For your own releases — built by pinning wrangle's reusable workflows to a
-release tag — swap `wrangle-vsa-consumer-nonstrict-v1` for the strict
-`wrangle-vsa-consumer-v1`.
 
 ## Recommended: `ampel verify` (one command)
 
@@ -99,7 +96,7 @@ bundle and self-selects the VSA matching `--subject`:
 
 ```bash
 ampel verify --subject <artifact> \
-  --policy git+https://github.com/TomHennen/wrangle@v0.2.2#policies/wrangle-vsa-consumer-v1.hjson \
+  --policy git+https://github.com/TomHennen/wrangle@v0.3.1#policies/wrangle-vsa-consumer-v1.hjson \
   --collector jsonl:<artifact>.intoto.jsonl \
   --context expectedResourceUri:<resourceUri from the table above> \
   --context sourceRepo:https://github.com/<your-org>/<your-repo>
@@ -110,7 +107,7 @@ download step:
 
 ```bash
 ampel verify --subject sha256:<digest> \
-  --policy git+https://github.com/TomHennen/wrangle@v0.2.2#policies/wrangle-vsa-consumer-v1.hjson \
+  --policy git+https://github.com/TomHennen/wrangle@v0.3.1#policies/wrangle-vsa-consumer-v1.hjson \
   --collector oci:<imagename>@sha256:<digest> \
   --context expectedResourceUri:<imagename>@sha256:<digest> \
   --context sourceRepo:https://github.com/<your-org>/<your-repo>
@@ -129,22 +126,32 @@ build type, including a container image by its OCI digest:
 
 ```bash
 ampel verify --subject sha256:<digest> \
-  --policy git+https://github.com/TomHennen/wrangle@v0.2.2#policies/wrangle-vsa-consumer-v1.hjson \
+  --policy git+https://github.com/TomHennen/wrangle@v0.3.1#policies/wrangle-vsa-consumer-v1.hjson \
   --collector github:<your-org>/<your-repo> \
   --context expectedResourceUri:<resourceUri from the table above> \
   --context sourceRepo:https://github.com/<your-org>/<your-repo>
 ```
 
-The `gh attestation verify --predicate-type` filter does **not** accept the VSA
-predicate URI (`https://slsa.dev/verification_summary/v1`) — GitHub returns HTTP
-422 from its filter allowlist — so use ampel (recommended) or an unfiltered `gh
-attestation verify`. The filter only blocks the query; storing and unfiltered
-fetch work.
-
 Pin the policy locator to any wrangle `v*` release tag — it does **not**
 need to match the wrangle version the adopter builds with. The `-v1` in the
 policy filename is the contract version; any release tag carrying that file
 verifies any wrangle-signed VSA.
+
+## What `verifiedLevels` carries
+
+Beyond `SLSA_BUILD_LEVEL_3`, the VSA lists a `WRANGLE_*` marker per wrangle
+check that passed — the full set and their meaning are in
+[SPEC.md §Release verification](SPEC.md#release-verification). The
+`ampel verify` commands above echo them in the PASS details
+(`verifiedLevels: SLSA_BUILD_LEVEL_3, WRANGLE_HAS_SBOM, …`). To read them
+straight from a release bundle, or gate on one (append
+`| grep -qx WRANGLE_HAS_SBOM`):
+
+```bash
+jq -r 'select(.dsseEnvelope).dsseEnvelope.payload | @base64d | fromjson
+  | select(.predicateType == "https://slsa.dev/verification_summary/v1")
+  | .predicate.verifiedLevels[]' <artifact>.intoto.jsonl
+```
 
 ## Without ampel: cosign + jq
 
@@ -186,28 +193,43 @@ old (possibly vulnerable) release; it raises the floor from any commit to any
 release. `--type` must be the full URI — cosign rejects the
 `slsaverificationsummary` alias.
 
-For container images, a digest subject has no file blob, so the command is
-`cosign verify-attestation` (cosign v3) against the image — this reads the VSA
-from its by-digest registry referrer. If you'd rather verify from the file,
-pull the VSA line out of the combined `<sha256-digest>.intoto.jsonl` workflow
-artifact and use `cosign verify-blob-attestation --new-bundle-format`, exactly
-as the file-artifact path above does. `cosign verify-attestation` prints the
-verified envelope to stdout, so capture and decode that:
+For container images the VSA is an OCI 1.1 referrer on the image digest, not a
+`sha256-<digest>.att` tag. cosign v3's `cosign verify-attestation` resolves it
+directly by digest; the recipe below uses `cosign download attestation` +
+`cosign verify-blob-attestation --new-bundle-format` instead, because that one
+recipe also covers the combined workflow-artifact bundle (the npm/go/python
+delivery vehicle). Pull the VSA referrer bundle with `cosign download
+attestation` (which lists each referrer bundle on its own line), select the VSA
+line, then bind it to the image digest — a digest subject has no file blob, so
+pass `--digest`/`--digestAlg` in place of a path:
 
 ```bash
-cosign verify-attestation \
-  --type https://slsa.dev/verification_summary/v1 \
+imagename=<imagename>; digest=<digest>   # the sha256 hex, no "sha256:" prefix
+
+cosign download attestation "$imagename@sha256:$digest" \
+  | jq -c "select(.dsseEnvelope.payload | @base64d | fromjson
+    | .predicateType == \"https://slsa.dev/verification_summary/v1\")" > vsa.intoto.jsonl
+
+cosign verify-blob-attestation --bundle vsa.intoto.jsonl --new-bundle-format \
   --certificate-oidc-issuer https://token.actions.githubusercontent.com \
   --certificate-identity-regexp '^https://github\.com/TomHennen/wrangle/\.github/workflows/build_and_publish_container\.yml@refs/tags/v[0-9.]+$' \
   --certificate-github-workflow-repository <your-org>/<your-repo> \
-  <imagename>@sha256:<digest> > vsa.json
+  --type https://slsa.dev/verification_summary/v1 \
+  --digest "$digest" --digestAlg sha256
 
-payload="$(jq -r '.payload' vsa.json | base64 -d)"
-jq -e '.subject[0].digest.sha256 == "<digest>"' <<<"$payload"
+payload="$(jq -r '.dsseEnvelope.payload' vsa.intoto.jsonl | base64 -d)"
 jq -e '.predicate.verificationResult == "PASSED"' <<<"$payload"
-jq -e '.predicate.resourceUri == "<imagename>@sha256:<digest>"' <<<"$payload"
+jq -e ".predicate.resourceUri == \"$imagename@sha256:$digest\"" <<<"$payload"
 jq -e '.predicate.verifiedLevels | index("SLSA_BUILD_LEVEL_3")' <<<"$payload"
 ```
+
+If you'd rather verify from the file, the combined `<sha256-digest>.intoto.jsonl`
+workflow artifact carries the same VSA — swap the `cosign download attestation`
+step for a `jq` filter over that file, exactly as the file-artifact path above
+does. The `@refs/tags/v…` anchor is the strict release identity (see the
+file-artifact note above); the showcase staging image is built SHA-pinned, so
+its VSA carries a bare `@<sha>` identity and verifies only under a loosened
+anchor.
 
 > **`slsa-verifier verify-vsa` is not usable here.** It only verifies
 > *key-signed* VSAs (it requires `--public-key-path`); wrangle's VSAs are

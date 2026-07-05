@@ -94,6 +94,117 @@ run_fresh() { run bash -c "cd '$REPO' && '$SCRIPT'"; }
     [[ "$output" != *"STALE: actions/release"* ]]
 }
 
+@test "check_pin_freshness: FAILS when a composite retargets a nested pin to a different path" {
+    # release@old wires actions/verify; HEAD's release wires actions/other. The
+    # pin is reachable and each nested target is itself unchanged, but the parent
+    # resolves DIFFERENT wiring — a path retarget, not a sha bump, so it is STALE.
+    local v; v="$(write_verify 'echo hi')"
+    mkdir -p "$REPO/actions/other"
+    printf 'name: other\n' > "$REPO/actions/other/action.yml"
+    git -C "$REPO" add actions/other && git -C "$REPO" commit -q -m other
+    local o; o="$(git -C "$REPO" rev-parse HEAD)"
+
+    mkdir -p "$REPO/actions/release"
+    printf 'name: release\n' > "$REPO/actions/release/action.yml"
+    printf '      - uses: TomHennen/wrangle/actions/verify@%s # pin\n' "$v" \
+        >> "$REPO/actions/release/action.yml"
+    git -C "$REPO" add actions/release && git -C "$REPO" commit -q -m 'release wires verify'
+    local rel_old; rel_old="$(git -C "$REPO" rev-parse HEAD)"
+
+    printf 'name: release\n' > "$REPO/actions/release/action.yml"
+    printf '      - uses: TomHennen/wrangle/actions/other@%s # pin\n' "$o" \
+        >> "$REPO/actions/release/action.yml"
+    git -C "$REPO" add actions/release && git -C "$REPO" commit -q -m 'release retargets to other'
+
+    printf '      - uses: TomHennen/wrangle/actions/release@%s # pin\n' "$rel_old" \
+        > "$REPO/.github/workflows/x.yml"
+    # Ancestry holds; freshness must catch the retarget.
+    run bash -c "cd '$REPO' && '$(dirname "$SCRIPT")/check_pin_ancestry.sh'"
+    [ "$status" -eq 0 ]
+    run_fresh
+    [ "$status" -eq 1 ]
+    [[ "$output" == *"STALE: actions/release"* ]]
+}
+
+@test "check_pin_freshness: lib/ and tools/catalog.json carry no self-ref pin refs (pin-free-scope invariant)" {
+    # Folding lib/ + tools/catalog.json into every pin's diff scope is only sound
+    # because they hold NO self-ref pin reference: any change to them then always
+    # hits the not-a-pin drift branch. Enforce that mechanically with the same pin
+    # regex the script builds — loose TomHennen/wrangle strings without an
+    # @<40-hex> ref (e.g. in lib/verify_image_vsa.sh) correctly do not match.
+    local root; root="$(cd "$(dirname "$BATS_TEST_FILENAME")/.." && pwd)"
+    local prefix escaped_prefix pin_re
+    prefix="${WRANGLE_PINS_REPO:-TomHennen/wrangle}"
+    escaped_prefix="$(printf '%s' "$prefix" | sed 's/\./\\./g')"
+    pin_re="${escaped_prefix}/[^@[:space:]]+@[0-9a-f]{40}"
+    run grep -rnE "$pin_re" "$root/lib" "$root/tools/catalog.json"
+    [ "$status" -ne 0 ]
+    [ -z "$output" ]
+}
+
+@test "check_pin_freshness: FAILS when tools/catalog.json changes after the pin (catalog consumer staleness)" {
+    # Catalog consumers read the pinned action's own tools/catalog.json, so a
+    # catalog-only digest bump must stale the pins that carry it. verify itself is
+    # unchanged; only the catalog moved after the pin.
+    write_verify 'echo hi' >/dev/null
+    mkdir -p "$REPO/tools"
+    printf '{"tools":{"osv":{"image":"x@sha256:aaa"}}}\n' > "$REPO/tools/catalog.json"
+    git -C "$REPO" add tools/catalog.json && git -C "$REPO" commit -q -m 'catalog v1'
+    local pinsha; pinsha="$(git -C "$REPO" rev-parse HEAD)"
+    printf '{"tools":{"osv":{"image":"x@sha256:bbb"}}}\n' > "$REPO/tools/catalog.json"
+    git -C "$REPO" commit -qam 'catalog v2'
+    printf '      - uses: TomHennen/wrangle/actions/verify@%s # pin\n' "$pinsha" \
+        > "$REPO/.github/workflows/x.yml"
+    run_fresh
+    [ "$status" -eq 1 ]
+    [[ "$output" == *STALE* ]]
+}
+
+@test "check_pin_freshness: FAILS when a lib/ helper changes after the pin (lib consumer staleness)" {
+    # Consumers source the pinned action's own lib/ helpers, so a lib-only change
+    # must stale the pins that carry it. verify itself is unchanged.
+    write_verify 'echo hi' >/dev/null
+    mkdir -p "$REPO/lib"
+    printf 'echo OLD\n' > "$REPO/lib/toolbox_run.sh"
+    git -C "$REPO" add lib && git -C "$REPO" commit -q -m 'lib v1'
+    local pinsha; pinsha="$(git -C "$REPO" rev-parse HEAD)"
+    printf 'echo NEW\n' > "$REPO/lib/toolbox_run.sh"
+    git -C "$REPO" commit -qam 'lib v2'
+    printf '      - uses: TomHennen/wrangle/actions/verify@%s # pin\n' "$pinsha" \
+        > "$REPO/.github/workflows/x.yml"
+    run_fresh
+    [ "$status" -eq 1 ]
+    [[ "$output" == *STALE* ]]
+}
+
+@test "check_pin_freshness: PASSES on a pure nested-pin SHA bump with catalog/lib in scope (#709 invariant)" {
+    # A converged composite pins an OLDER sha whose only diff to HEAD is a nested
+    # pin's SHA (same ref path) — a pure bump, not drift. Folding catalog/lib into
+    # scope must not disturb that: both are present and unchanged, so it stays FRESH.
+    mkdir -p "$REPO/tools" "$REPO/lib"
+    printf '{"tools":{}}\n' > "$REPO/tools/catalog.json"
+    printf 'echo lib\n' > "$REPO/lib/x.sh"
+    git -C "$REPO" add -A && git -C "$REPO" commit -q -m 'catalog + lib base'
+    local v1; v1="$(write_verify 'echo hi')"          # verify content is fixed hereafter
+    mkdir -p "$REPO/actions/release"
+    printf 'name: release\n' > "$REPO/actions/release/action.yml"
+    printf '      - uses: TomHennen/wrangle/actions/verify@%s # pin\n' "$v1" \
+        >> "$REPO/actions/release/action.yml"
+    git -C "$REPO" add actions/release && git -C "$REPO" commit -q -m 'release pins verify@v1'
+    local rel_old; rel_old="$(git -C "$REPO" rev-parse HEAD)"
+    # Pure SHA bump: re-pin nested verify v1 -> rel_old (verify content identical);
+    # catalog + lib untouched.
+    printf 'name: release\n' > "$REPO/actions/release/action.yml"
+    printf '      - uses: TomHennen/wrangle/actions/verify@%s # pin\n' "$rel_old" \
+        >> "$REPO/actions/release/action.yml"
+    git -C "$REPO" commit -qam 'release re-pins verify (pure sha bump)'
+    printf '      - uses: TomHennen/wrangle/actions/release@%s # pin\n' "$rel_old" \
+        > "$REPO/.github/workflows/x.yml"
+    run_fresh
+    [ "$status" -eq 0 ]
+    [[ "$output" == *"resolve to HEAD content"* ]]
+}
+
 @test "check_pin_freshness: PASSES (no-op) on an older pin whose path never changed" {
     # A pin at an older sha is FRESH if its path is byte-identical to HEAD's —
     # don't false-positive just because the sha is old.

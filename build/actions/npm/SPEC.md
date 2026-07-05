@@ -31,8 +31,8 @@ The two attestations live in two different places and serve two different surfac
 
 ### SBOM — `syft`
 
-- **Pick:** [`syft`](https://github.com/anchore/syft), the same tool wrangle's python build type uses, with the same Cosign-keyless-verified install (`tools/syft/install.sh`).
-- **Why:** Reuses an existing wrangle-verified install, produces SPDX natively (matching wrangle's cross-build-type SPDX standardization), and is OWASP-known-conformant. An earlier draft of this SPEC picked `npm sbom --sbom-format=spdx` (in-tree, npm 10+) but its conformance has been publicly criticized by the OWASP CycloneDX project lead (registry-integrity-hashes placed on components, license-parsing dropouts), and the equivalent claim for SPDX output was contested rather than settled. Switching to `syft` removes the question entirely. The contract — "wrangle produces a good SPDX SBOM at `metadata/npm/<shortname>/sbom.spdx.json`" — does not change.
+- **Pick:** [`syft`](https://github.com/anchore/syft), the same tool wrangle's python build type uses, dispatched as the curated, VSA-gated container SBOM tool through `run.sh` (see [`docs/tool_container_design.md`](../../../docs/tool_container_design.md)).
+- **Why:** Reuses wrangle's curated tool-image path, produces SPDX natively (matching wrangle's cross-build-type SPDX standardization), and is OWASP-known-conformant. An earlier draft of this SPEC picked `npm sbom --sbom-format=spdx` (in-tree, npm 10+) but its conformance has been publicly criticized by the OWASP CycloneDX project lead (registry-integrity-hashes placed on components, license-parsing dropouts), and the equivalent claim for SPDX output was contested rather than settled. Switching to `syft` removes the question entirely. The contract — "wrangle produces a good SPDX SBOM at `metadata/npm/<shortname>/sbom.spdx.json`" — does not change.
 - **Manager-agnostic.** `syft` reads the project source tree, so it works for npm, pnpm, and Yarn variants without per-manager branching when those land in v0.2+.
 - **Native code is not covered by source-tree scanning.** Bundled C/C++ binaries that `prebuild-install` fetches at consumer install time are not in source — see "Awkward cases — Native modules" for the layered-scanner recommendation.
 
@@ -154,7 +154,7 @@ Practical things the implementer will hit. Not contract-design speculation; that
   4. `npm pack --pack-destination dist` to produce `<name>-<version>.tgz` (scoped: `<scope>-<name>-<version>.tgz`) directly into `dist/`. Pass `--ignore-scripts` if the `ignore-scripts` input is `true`.
   5. Locate the produced tarball via a glob over `dist/*.tgz`, asserting exactly one match. Channel-free (no `tail -n1` of mixed stdout/stderr) and explicit fail-on-multi catches surprise multi-build scenarios early.
   6. SHA-256 the tarball; emit base64 `sha256:HASH FILENAME` hashes as the `hashes` output. The reusable workflow derives the per-artifact VSA matrix from it; the provenance subjects themselves come from `actions/attest-build-provenance`'s `subject-path dist/*`.
-  7. `syft dir:<path> -o spdx-json` to produce `sbom.spdx.json` (Cosign-keyless-verified install via `tools/syft/install.sh`, same as python).
+  7. `syft` over the source tree to produce `sbom.spdx.json`, dispatched as the curated container SBOM tool through `run.sh` (`lib/generate_sbom.sh`), same as python.
   8. OSV-Scanner against the lockfile.
   9. Write `sbom.spdx.json` into the unified `metadata/npm/<shortname>/` directory; the scan job's `scan/` output and (on release) the verify job's `.intoto.jsonl` bundle are folded into the same directory.
 - **Reusable workflow shape mirrors python's:**

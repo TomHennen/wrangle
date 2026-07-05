@@ -22,7 +22,7 @@ jobs:
     permissions:
       contents: read
     steps:
-      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
         with:
           persist-credentials: false
 
@@ -31,17 +31,18 @@ jobs:
           GH_TOKEN: ${{ secrets.TEST_REPO_PAT }}
           WRANGLE_SHA: ${{ github.event.pull_request.head.sha }}
           PR_NUMBER: ${{ github.event.pull_request.number }}
-        run: ./test/integration/dispatch.sh "$WRANGLE_SHA" "$PR_NUMBER"
+          WRANGLE_RUN_ID: ${{ github.run_id }}
+        run: ./test/integration/dispatch.sh "$WRANGLE_SHA" "$PR_NUMBER" "$WRANGLE_RUN_ID"
 
-      - name: Cleanup ephemeral branch
+      - name: Cleanup ephemeral tag and release
         if: always()
         env:
           GH_TOKEN: ${{ secrets.TEST_REPO_PAT }}
           PR_NUMBER: ${{ github.event.pull_request.number }}
-          WRANGLE_SHA: ${{ github.event.pull_request.head.sha }}
+          WRANGLE_RUN_ID: ${{ github.run_id }}
         run: |
-          SHORT_SHA="${WRANGLE_SHA:0:7}"
-          BRANCH="integration/pr-${PR_NUMBER}-${SHORT_SHA}"
+          TAG="0.0.0-pr.${PR_NUMBER}.${WRANGLE_RUN_ID}"
           REPO="${COMPANION_REPO:-tomhennen/wrangle-test}"
-          printf 'Best-effort cleanup of branch %s\n' "$BRANCH"
-          gh api "repos/${REPO}/git/refs/heads/${BRANCH}" --method DELETE 2>/dev/null || true
+          printf 'Best-effort cleanup of tag %s\n' "$TAG"
+          gh api "repos/${REPO}/git/refs/tags/${TAG}" --method DELETE 2>/dev/null || true
+          gh release delete "$TAG" --repo "$REPO" --yes 2>/dev/null || true

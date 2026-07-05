@@ -1,0 +1,42 @@
+name: Catalog Freshness
+
+# Advisory adoption-lag check (#596): weekly, compares each curated tool-image
+# digest in tools/catalog.json against its :latest tag in the registry. A drift
+# means a newer tool image was published but the catalog still pins the old one.
+# Kept off the per-PR path to avoid per-PR registry calls; the same check is a
+# release precondition (see the cut-release runbook). Advisory first because it
+# depends on a live registry (network/registry flake), unlike the deterministic
+# git-only pin checks which block directly — a failed run notifies; the intended
+# rollout is to a blocking release gate that fails closed on exit 2.
+
+on:
+  schedule:
+    - cron: "17 9 * * 1"
+  workflow_dispatch:
+
+permissions: {}
+
+jobs:
+  freshness:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          persist-credentials: false
+
+      # Drift (exit 1) fails the run as the actionable signal; a transient
+      # registry-unreachable (exit 2) warns but does not, so a registry blip
+      # can't page on a false negative.
+      - name: Check catalog image freshness
+        run: |
+          set +e
+          ./tools/check_catalog_freshness.sh
+          rc=$?
+          if [[ "$rc" -eq 2 ]]; then
+            printf '::warning::registry unreachable; catalog freshness undetermined this run\n'
+            exit 0
+          fi
+          exit "$rc"

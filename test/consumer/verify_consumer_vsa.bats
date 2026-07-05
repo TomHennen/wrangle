@@ -52,6 +52,17 @@ setup() {
     NONTAG_VSA="$FIX/npm-vsa-nontag.intoto.jsonl"
     NONTAG_BLOB="$FIX/npm-package-nontag.tgz"
     NONTAG_URI="pkg:npm/@tomhennen/wrangle-integration-fixture@0.0.2-integration.26922828083"
+    # A real go release bundle carrying the FULL signed-metadata set the other
+    # fixtures lack: provenance + signed SBOM + signed osv/zizmor/wrangle-lint
+    # scan/v1 + VSA, one signed statement per line. Captured from a release-tag
+    # (@refs/tags/v0.3.0) build, so it verifies under the strict $POLICY.
+    META_BUNDLE="$FIX/go-signed-metadata.intoto.jsonl"
+    META_BLOB="$FIX/go-signed-metadata-package.tar.gz"
+    META_URI="pkg:golang/github.com/TomHennen/wrangle-agent-playground@v0.2.0"
+    META_REPO="TomHennen/wrangle-agent-playground"
+    SBOM_PREDICATE="https://spdx.dev/Document"
+    SCAN_PREDICATE="https://github.com/TomHennen/wrangle/attestation/scan/v1"
+    GO_SIGNER_REGEX='^https://github\.com/TomHennen/wrangle/\.github/workflows/build_and_publish_go\.yml@'
     COSIGN_BIN="$(command -v cosign || echo "${WRANGLE_BIN_DIR:-/nonexistent}/cosign")"
     AMPEL_BIN="$(command -v ampel || echo "${WRANGLE_BIN_DIR:-/nonexistent}/ampel")"
     # The shipped strict policy requires a release-tag signer identity
@@ -63,6 +74,16 @@ setup() {
 }
 
 teardown() { rm -rf "$TMP"; }
+
+# verify_vsa.sh runs ampel in the toolbox image; the stub docker execs the
+# in-container command on the host, so the symlinked real ampel verifies the real
+# fixtures while the image VSA gate is faked.
+gate_toolbox_transparent() {
+    local stub="$TMP/toolbox-bin"
+    mkdir -p "$stub"
+    ln -sf "$AMPEL_BIN" "$stub/ampel"
+    wrangle_stub_toolbox_transparent "$stub"
+}
 
 # Sigstore reachability decides the local skip only. In CI the verification
 # command itself is the arbiter — a one-shot probe blip must not fail a job
@@ -259,7 +280,7 @@ require_sigstore() {
     mkdir -p "$TMP/dist" "$TMP/vsas"
     cp "$BLOB" "$TMP/dist/npm-package.tgz"
     cp "$VSA" "$TMP/vsas/npm-package.tgz.intoto.jsonl"
-    PATH="$(dirname "$AMPEL_BIN"):$PATH" \
+    gate_toolbox_transparent
         ARTIFACT_PATH="$TMP/dist" RESOURCE_URI="$RESOURCE_URI" REPO="$SIGNER_REPO" VSA_DIR="$TMP/vsas" \
         run "$REPO_ROOT/actions/verify-vsa/verify_vsa.sh"
     [[ "$status" -eq 0 ]]
@@ -274,11 +295,14 @@ require_sigstore() {
     mkdir -p "$TMP/dist" "$TMP/vsas"
     cp "$NONTAG_BLOB" "$TMP/dist/npm-package.tgz"
     cp "$NONTAG_VSA" "$TMP/vsas/npm-package.tgz.intoto.jsonl"
-    PATH="$(dirname "$AMPEL_BIN"):$PATH" \
+    gate_toolbox_transparent
         ARTIFACT_PATH="$TMP/dist" RESOURCE_URI="$NONTAG_URI" REPO="$SIGNER_REPO" VSA_DIR="$TMP/vsas" \
         run "$REPO_ROOT/actions/verify-vsa/verify_vsa.sh"
     [[ "$status" -eq 1 ]]
     [[ "$output" == *"ampel rejected"* ]]
+    # Gate passed, so the rejection is ampel's verdict — not a gate/env failure
+    # (which also exits non-zero and prints "ampel rejected").
+    [[ "$output" == *"toolbox-image VSA verified PASSED"* ]]
 }
 
 # Internal dogfood switch: WRANGLE_VSA_NON_STRICT=1 selects the non-strict
@@ -292,7 +316,7 @@ require_sigstore() {
     mkdir -p "$TMP/dist" "$TMP/vsas"
     cp "$NONTAG_BLOB" "$TMP/dist/npm-package.tgz"
     cp "$NONTAG_VSA" "$TMP/vsas/npm-package.tgz.intoto.jsonl"
-    PATH="$(dirname "$AMPEL_BIN"):$PATH" \
+    gate_toolbox_transparent
         WRANGLE_VSA_NON_STRICT=1 \
         ARTIFACT_PATH="$TMP/dist" RESOURCE_URI="$NONTAG_URI" REPO="$SIGNER_REPO" VSA_DIR="$TMP/vsas" \
         run "$REPO_ROOT/actions/verify-vsa/verify_vsa.sh"
@@ -310,11 +334,14 @@ require_sigstore() {
     mkdir -p "$TMP/dist" "$TMP/vsas"
     cp "$BLOB" "$TMP/dist/npm-package.tgz"
     cp "$VSA" "$TMP/vsas/npm-package.tgz.intoto.jsonl"
-    PATH="$(dirname "$AMPEL_BIN"):$PATH" \
+    gate_toolbox_transparent
         ARTIFACT_PATH="$TMP/dist" RESOURCE_URI="$RESOURCE_URI" REPO="attacker/evil-repo" VSA_DIR="$TMP/vsas" \
         run "$REPO_ROOT/actions/verify-vsa/verify_vsa.sh"
     [[ "$status" -eq 1 ]]
     [[ "$output" == *"ampel rejected"* ]]
+    # Gate passed, so the rejection is ampel's verdict — not a gate/env failure
+    # (which also exits non-zero and prints "ampel rejected").
+    [[ "$output" == *"toolbox-image VSA verified PASSED"* ]]
 }
 
 # Gate-level tamper bind: the wrapper verifies the bytes on disk against the
@@ -328,11 +355,14 @@ require_sigstore() {
     cp "$BLOB" "$TMP/dist/npm-package.tgz"
     printf 'tamper' >> "$TMP/dist/npm-package.tgz"   # one extra byte -> different sha256
     cp "$VSA" "$TMP/vsas/npm-package.tgz.intoto.jsonl"
-    PATH="$(dirname "$AMPEL_BIN"):$PATH" \
+    gate_toolbox_transparent
         ARTIFACT_PATH="$TMP/dist" RESOURCE_URI="$RESOURCE_URI" REPO="$SIGNER_REPO" VSA_DIR="$TMP/vsas" \
         run "$REPO_ROOT/actions/verify-vsa/verify_vsa.sh"
     [[ "$status" -eq 1 ]]
     [[ "$output" == *"ampel rejected"* ]]
+    # Gate passed, so the rejection is ampel's verdict — not a gate/env failure
+    # (which also exits non-zero and prints "ampel rejected").
+    [[ "$output" == *"toolbox-image VSA verified PASSED"* ]]
 }
 
 # --- multi-line bundle: per-subject self-selection + missing-subject fail-close ---
@@ -412,7 +442,7 @@ _make_multiline_bundle() {
     # One bundle per artifact, the production layout; the gate concatenates them.
     jq -c . "$VSA" > "$TMP/vsas/npm-package.tgz.intoto.jsonl"
     jq -c . "$PY_VSA" > "$TMP/vsas/py-package.whl.intoto.jsonl"
-    PATH="$(dirname "$AMPEL_BIN"):$PATH" \
+    gate_toolbox_transparent
         ARTIFACT_PATH="$TMP/dist" RESOURCE_URI="$RESOURCE_URI" REPO="$SIGNER_REPO" VSA_DIR="$TMP/vsas" \
         run "$REPO_ROOT/actions/verify-vsa/verify_vsa.sh"
     [[ "$status" -eq 0 ]]
@@ -429,9 +459,86 @@ _make_multiline_bundle() {
     printf 'bytes no VSA covers' > "$TMP/dist/uncovered.tgz"
     jq -c . "$VSA" > "$TMP/vsas/npm-package.tgz.intoto.jsonl"
     jq -c . "$PY_VSA" > "$TMP/vsas/py-package.whl.intoto.jsonl"
-    PATH="$(dirname "$AMPEL_BIN"):$PATH" \
+    gate_toolbox_transparent
         ARTIFACT_PATH="$TMP/dist" RESOURCE_URI="$RESOURCE_URI" REPO="$SIGNER_REPO" VSA_DIR="$TMP/vsas" \
         run "$REPO_ROOT/actions/verify-vsa/verify_vsa.sh"
     [[ "$status" -eq 1 ]]
     [[ "$output" == *"ampel rejected"* ]]
+    # Gate passed, so the rejection is ampel's verdict — not a gate/env failure
+    # (which also exits non-zero and prints "ampel rejected").
+    [[ "$output" == *"toolbox-image VSA verified PASSED"* ]]
+}
+
+# --- #562: signed-metadata bundle (SBOM + scan/v1) regression ----------------
+# The other consumer fixtures carry only VSA + provenance, so an attest-signing
+# regression that dropped — or stopped signing — the SBOM/scan metadata (#550
+# moved metadata signing into attest) would go unnoticed here. This bundle is a
+# real release capture with the FULL signed set; these tests fail closed if a
+# future regression strips a statement, leaves it unsigned, or breaks the strict
+# consumer verify over the whole bundle.
+
+# Emit each bundle line whose statement predicateType matches $1, one per line.
+_lines_with_predicate() {
+    local pt
+    while IFS= read -r line; do
+        [[ -n "$line" ]] || continue
+        pt="$(jq -r '.dsseEnvelope.payload' <<<"$line" | base64 -d | jq -r '.predicateType')"
+        if [[ "$pt" == "$1" ]]; then printf '%s\n' "$line"; fi
+    done < "$META_BUNDLE"
+    return 0
+}
+
+@test "consumer #562: bundle carries a signed SBOM cosign verifies against the go signer" {
+    [[ -x "$COSIGN_BIN" ]] || skip_or_fail "real cosign not available"
+    require_sigstore
+    local sbom="$TMP/sbom.jsonl"
+    _lines_with_predicate "$SBOM_PREDICATE" > "$sbom"
+    # Exactly one SBOM statement, and it must be signed by wrangle's go workflow.
+    [[ "$(wc -l <"$sbom")" -eq 1 ]]
+    run "$COSIGN_BIN" verify-blob-attestation --bundle "$sbom" --new-bundle-format \
+        --certificate-oidc-issuer "$ISSUER" \
+        --certificate-identity-regexp "$GO_SIGNER_REGEX" \
+        --certificate-github-workflow-repository "$META_REPO" \
+        --type "$SBOM_PREDICATE" \
+        "$META_BLOB"
+    [[ "$status" -eq 0 ]]
+    [[ "$output" == *"Verified OK"* ]]
+}
+
+@test "consumer #562: bundle carries signed osv/zizmor/wrangle-lint scan/v1, each cosign-verifies" {
+    [[ -x "$COSIGN_BIN" ]] || skip_or_fail "real cosign not available"
+    require_sigstore
+    local scans="$TMP/scans.jsonl"
+    _lines_with_predicate "$SCAN_PREDICATE" > "$scans"
+    # All three default-go-v1 scan tools are present as distinct scan/v1 statements.
+    run bash -c "while IFS= read -r l; do jq -r '.dsseEnvelope.payload' <<<\"\$l\" | base64 -d | jq -r '.predicate.tool.name'; done < '$scans' | sort -u"
+    [[ "$status" -eq 0 ]]
+    [[ "$output" == *"osv-scanner"* ]]
+    [[ "$output" == *"zizmor"* ]]
+    [[ "$output" == *"wrangle-lint"* ]]
+    # Each scan/v1 statement is signed by wrangle's go workflow (one cosign verify
+    # per line, so an unsigned statement fails closed).
+    while IFS= read -r line; do
+        printf '%s\n' "$line" > "$TMP/one-scan.jsonl"
+        run "$COSIGN_BIN" verify-blob-attestation --bundle "$TMP/one-scan.jsonl" \
+            --new-bundle-format \
+            --certificate-oidc-issuer "$ISSUER" \
+            --certificate-identity-regexp "$GO_SIGNER_REGEX" \
+            --certificate-github-workflow-repository "$META_REPO" \
+            --type "$SCAN_PREDICATE" \
+            "$META_BLOB"
+        [[ "$status" -eq 0 ]]
+        [[ "$output" == *"Verified OK"* ]]
+    done < "$scans"
+}
+
+@test "consumer #562: strict wrangle-vsa-consumer-v1 still verifies the full signed-metadata bundle" {
+    [[ -x "$AMPEL_BIN" ]] || skip_or_fail "real ampel not available"
+    require_sigstore
+    run "$AMPEL_BIN" verify --subject "$META_BLOB" \
+        --policy "$POLICY" --collector "jsonl:$META_BUNDLE" \
+        --context "expectedResourceUri:$META_URI" \
+        --context "sourceRepo:https://github.com/$META_REPO"
+    [[ "$status" -eq 0 ]]
+    [[ "$output" == *"PASS"* ]]
 }

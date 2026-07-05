@@ -13,6 +13,11 @@ on:
     branches: ["**"]
   workflow_dispatch:
 
+# Cancel superseded PR runs; the run_id fallback keeps each main/tag push in its own group (never cancelled).
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.run_id }}
+  cancel-in-progress: true
+
 jobs:
   build-shell:
     permissions:
@@ -27,13 +32,21 @@ jobs:
       # the tree — unit and integration suites alike — with their tool
       # dependencies installed by the setup script.
       setup-script: test/setup_integration.sh
+      # Fan the bats suite out across the runner's cores (ubuntu-latest: 4).
+      bats-jobs: "4"
       # Cache the Go tools built from source: go-tools-dir for the
-      # setup-script's tools in the shell-build job, go-cache for the
-      # scan job's osv-scanner et al. cache-setup-tools also caches the
-      # linked tool binaries so they aren't relinked when go.sum is stable.
-      go-cache: enabled
+      # setup-script's tools in the shell-build job. cache-setup-tools also
+      # caches the linked tool binaries so they aren't relinked when go.sum
+      # is stable.
       go-tools-dir: tools
       cache-setup-tools: enabled
+      # Cross-run layer cache for the tool images the setup script prebuilds.
+      image-cache: enabled
+    # The integration bats include the pull-time VSA gate's real-gh test
+    # (test/image/test_verify_tool_image_real_gh.bats); gh needs a token to
+    # read the public attestation. The job's own read-only token suffices.
+    secrets:
+      gh_token: ${{ secrets.GITHUB_TOKEN }}
 
   # Wrangle-internal (self-ref pins are not an adopter concern, so this
   # lives in the dogfood caller, not the reusable build_shell.yml). Fails
@@ -45,7 +58,7 @@ jobs:
     permissions:
       contents: read
     steps:
-      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
         with:
           persist-credentials: false
           # check_pin_ancestry needs full history to test reachability of pinned shas.
@@ -60,3 +73,9 @@ jobs:
       # at merge.
       - name: Check action pin freshness
         run: ./tools/check_pin_freshness.sh
+
+      # Static catalog hygiene (#596): every curated tool image is digest-pinned
+      # on the wrangle namespace and capabilities are default-closed. Network-free,
+      # so it runs every PR; the registry adoption-lag check is a release gate.
+      - name: Validate tool catalog
+        run: ./tools/check_catalog.sh

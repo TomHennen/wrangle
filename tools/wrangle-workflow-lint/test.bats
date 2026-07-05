@@ -147,6 +147,24 @@ teardown() {
     [[ "$output" == *"WWL002"* ]]
 }
 
+@test "WWL002: a root wrapped in format() is reported (the { } inside must not hide it)" {
+    tmp="$(mktemp /tmp/wwl-XXXXXX.yml)"
+    printf 'on: push\njobs:\n  b:\n    runs-on: ubuntu-latest\n    steps:\n      - run: echo "${{ format('\''{0}'\'', github.event.issue.title) }}"\n' > "$tmp"
+    run "$LINTER" "$tmp"
+    rm -f "$tmp"
+    [ "$status" -eq 1 ]
+    [[ "$output" == *"WWL002"* ]]
+}
+
+@test "WWL002: a root in an expression split across physical lines is reported" {
+    tmp="$(mktemp /tmp/wwl-XXXXXX.yml)"
+    printf 'on: push\njobs:\n  b:\n    runs-on: ubuntu-latest\n    steps:\n      - run: |\n          echo "${{\n            inputs.name\n          }}"\n' > "$tmp"
+    run "$LINTER" "$tmp"
+    rm -f "$tmp"
+    [ "$status" -eq 1 ]
+    [[ "$output" == *"WWL002"* ]]
+}
+
 @test "WWL002: github.event.* interpolated into a run body is reported" {
     tmp="$(mktemp /tmp/wwl-XXXXXX.yml)"
     printf 'on: push\njobs:\n  b:\n    runs-on: ubuntu-latest\n    steps:\n      - run: echo "${{ github.event.issue.title }}"\n' > "$tmp"

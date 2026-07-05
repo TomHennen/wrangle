@@ -19,7 +19,7 @@ Drop it into your publish job between `download-artifact` and the publish step:
     path: dist/
 
 # Pin by release tag; a SHA-pinned build's VSA fails this gate (see below).
-- uses: TomHennen/wrangle/actions/verify-vsa@v0.2.2 # zizmor: ignore[unpinned-uses] - immutable
+- uses: TomHennen/wrangle/actions/verify-vsa@v0.3.1 # zizmor: ignore[unpinned-uses] - immutable
   with:
     path: dist/
     resource-uri: ${{ needs.build.outputs.resource-uri }}

@@ -24,10 +24,8 @@ jobs:
       attestations: write  # wrangle's attest job writes GitHub-issued SLSA provenance
       actions: read  # source scan: Scorecard reads the Actions API
       security-events: write  # source-scan SARIF -> Security tab
-    uses: TomHennen/wrangle/.github/workflows/build_and_publish_container.yml@v0.2.2 # zizmor: ignore[unpinned-uses] - immutable
+    uses: TomHennen/wrangle/.github/workflows/build_and_publish_container.yml@v0.3.1 # zizmor: ignore[unpinned-uses] - immutable
     with:
       path: PATH/TO/FOLDER/WITH/Dockerfile
       imagename: ghcr.io/${{ github.repository }}/YOUR_IMAGE_NAME
       registry: 'ghcr.io'
-    secrets:
-      gh_token: ${{ secrets.GITHUB_TOKEN }}

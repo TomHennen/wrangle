@@ -2,17 +2,19 @@
 
 # Tests for the verify-vsa composite action. Three flavors:
 #
-#   - Behavioral: run verify_vsa.sh with an `ampel` shim on PATH that
-#     records its argv. A shim is required because a real `ampel verify`
-#     needs Sigstore (Fulcio/Rekor) plus a real keyless VSA for the exact
-#     file digest — that lives in test/consumer/verify_consumer_vsa.bats
+#   - Behavioral: run verify_vsa.sh with a transparent toolbox docker stub that
+#     execs an `ampel` shim recording its argv. A shim is required because a real
+#     `ampel verify` needs Sigstore (Fulcio/Rekor) plus a real keyless VSA for
+#     the exact file digest — that lives in test/consumer/verify_consumer_vsa.bats
 #     (real fixtures, real ampel) and the verify-vsa-action e2e job in
 #     .github/workflows/test.yml.
 #   - Structural: fingerprints on action.yml so a drive-by edit can't
-#     silently drop the env passthrough, the pinned installer/download
-#     steps, or the script delegation.
+#     silently drop the env passthrough, the pinned download step, or the
+#     script delegation.
 #   - Contract: divergence-fail guard tying this consumer to its producer
 #     (the bundle artifact-name convention in actions/verify).
+
+load "../../test/lib/bats_helpers"
 
 setup() {
     ACTION_DIR="$(cd "$(dirname "$BATS_TEST_FILENAME")" && pwd)"
@@ -30,11 +32,10 @@ printf '%s\n' "\$*" >> "$AMPEL_LOG"
 exit "\${AMPEL_SHIM_EXIT:-0}"
 EOF
     chmod +x "$TMP/bin/ampel"
-    # env.sh (sourced by verify_vsa.sh) prepends WRANGLE_BIN_DIR ahead of the
-    # shim, so pin it at the shim dir — otherwise a real ampel left in the
-    # default ./.wrangle/bin by a prior integration run shadows the shim.
-    export WRANGLE_BIN_DIR="$TMP/bin"
-    PATH="$TMP/bin:$PATH"
+    # ampel runs in the toolbox image: the transparent docker stub execs the
+    # in-container command on the host, so the shim above records ampel's argv.
+    export TEST_DIR="$TMP"
+    wrangle_stub_toolbox_transparent "$TMP/bin"
 }
 
 teardown() { rm -rf "$TMP"; }
@@ -94,18 +95,6 @@ make_bundle() {
     ARTIFACT_PATH="$TMP/a.tgz" RESOURCE_URI="pkg:npm/a@1" REPO="owner/repo" VSA_DIR="$TMP/nope" run "$SCRIPT"
     [[ "$status" -eq 2 ]]
     [[ "$output" == *"VSA_DIR is not a directory"* ]]
-}
-
-@test "behavior: fails when ampel is not on PATH" {
-    touch "$TMP/a.tgz"
-    make_bundle
-    # PATH pinned to system dirs only: the dev machine may carry a real ampel
-    # somewhere on PATH, and env.sh re-adds only WRANGLE_BIN_DIR (empty here).
-    PATH="/usr/bin:/bin" WRANGLE_BIN_DIR="$TMP/nobin" \
-        ARTIFACT_PATH="$TMP/a.tgz" RESOURCE_URI="pkg:npm/a@1" REPO="owner/repo" VSA_DIR="$VSAS" \
-        run "$SCRIPT"
-    [[ "$status" -eq 2 ]]
-    [[ "$output" == *"ampel not found"* ]]
 }
 
 @test "behavior: refuses an empty directory" {
@@ -268,12 +257,16 @@ EOF
     grep -q 'ARTIFACT_PATH: ${{ inputs.path }}' "$ACTION"
     grep -q 'RESOURCE_URI: ${{ inputs.resource-uri }}' "$ACTION"
     grep -q 'REPO: ${{ inputs.repo }}' "$ACTION"
+    # gh needs a token for the toolbox-image VSA gate.
+    grep -q 'GH_TOKEN: ${{ inputs.github-token }}' "$ACTION"
 }
 
-@test "structure: action.yml provisions Go, builds ampel from the tool manifest, and downloads the bundle via pinned steps" {
-    grep -Eq 'uses: actions/setup-go@[0-9a-f]{40}' "$ACTION"
-    grep -q 'go-version-file: ${{ github.action_path }}/../../tools/go.mod' "$ACTION"
-    grep -q 'install github.com/carabiner-dev/ampel/cmd/ampel' "$ACTION"
+@test "structure: ampel runs in the toolbox container and the bundle downloads via a pinned step" {
+    # No in-job Go install: ampel runs inside the curated attest-toolbox image
+    # via lib/toolbox_run.sh, so the action needs neither setup-go nor go install.
+    ! grep -Eq 'uses: actions/setup-go@' "$ACTION"
+    ! grep -q 'go install' "$ACTION"
+    grep -q 'toolbox_run.sh' "$SCRIPT"
     grep -Eq 'uses: actions/download-artifact@[0-9a-f]{40}' "$ACTION"
     grep -q 'pattern: "\*-metadata\*"' "$ACTION"
 }
@@ -305,7 +298,7 @@ EOF
     grep -q 'verify_vsa.sh' "$ACTION"
 }
 
-@test "structure: action.yml validates inputs before installing anything" {
+@test "structure: action.yml validates inputs before the bundle download" {
     first_run="$(grep -o 'run: .*\.sh"' "$ACTION" | head -1)"
     [[ "$first_run" == *validate_inputs.sh* ]]
 }

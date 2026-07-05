@@ -21,6 +21,12 @@ main() {
     local sbom_path="${metadata_dir}/sbom.spdx.json"
 
     docker buildx imagetools inspect "$image_ref" --format "{{ json .SBOM.SPDX }}" > "$sbom_path"
+    # The format yields literal `null` when the image carries no SBOM; refuse
+    # to manifest a non-SBOM for attestation.
+    if ! jq -e 'type == "object" and has("spdxVersion")' "$sbom_path" >/dev/null 2>&1; then
+        printf 'extract_sbom: no SPDX SBOM attached to %s (sbom: true missing from the build?)\n' "$image_ref" >&2
+        return 1
+    fi
     "$WRANGLE_ROOT/lib/write_attest_manifest.sh" \
         "$metadata_dir" "https://spdx.dev/Document" "sbom.spdx.json"
     printf 'sbom=%s\n' "$sbom_path" >> "$github_output"

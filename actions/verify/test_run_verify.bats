@@ -53,6 +53,9 @@ setup() {
     # at runtime; load it here so the direct-call emit tests have it too.
     # shellcheck source=../../lib/sanitize.sh
     source "$(cd "$(dirname "$BATS_TEST_FILENAME")/../../lib" && pwd)/sanitize.sh"
+    # Signing/verify always containerizes; make the toolbox path transparent so
+    # orchestration tests exercise their tool stubs. Recording-docker tests override.
+    wrangle_stub_toolbox_transparent
 }
 
 teardown() {
@@ -114,8 +117,7 @@ teardown() {
     # A relative policy path is resolved to an absolute path under the action's checkout.
     printf '%s\n' "${args[@]}" | grep -qE -- "^--policy=/.*/policies/release\.json$"
     printf '%s\n' "${args[@]}" | grep -qx -- "--exit-code=true"
-    # Workers must exceed the largest tier's tenet count (strict: 8) or ampel
-    # drops the signer-identity match on the overflow tenets.
+    # Required while the catalog attest-toolbox ships pre-#298-fix ampel (#563).
     printf '%s\n' "${args[@]}" | grep -qxE -- "--workers=(8|9|[1-9][0-9]+)"
     printf '%s\n' "${args[@]}" | grep -qx -- "--attest-results"
     printf '%s\n' "${args[@]}" | grep -qx -- "--attest-format=vsa"
@@ -820,12 +822,25 @@ _require_zip() {
     _install_gh_shim
     _stage_release_assets
     export BUILD_TYPE="python"
-    export GH_VIEW_SEQ="1"            # view fails (no release)
+    export GH_VIEW_SEQ="1 1"          # release absent before and after the failed create
     export GH_CREATE_CODE="1"        # create fails
     run "$SCRIPT" attach
     [[ "$status" -ne 0 ]]
     [[ "$output" == *"failed to create GitHub release"* ]]
     if grep -q "release upload" "$GH_LOG"; then return 1; fi
+}
+
+@test "run_verify attach: a create that loses the concurrent race still uploads" {
+    _require_zip
+    _install_gh_shim
+    _stage_release_assets
+    export BUILD_TYPE="python"
+    export GH_VIEW_SEQ="1 0"          # absent, then a peer job's release appears
+    export GH_CREATE_CODE="1"        # our create loses the race
+    run "$SCRIPT" attach
+    [[ "$status" -eq 0 ]]
+    grep -qx "release create v1.2.3 --generate-notes --title v1.2.3" "$GH_LOG"
+    grep -qx "release upload v1.2.3 $BUNDLE_OUT/a.tgz.intoto.jsonl --clobber" "$GH_LOG"
 }
 
 # The verify job has no checkout, so gh resolves the base repo from GH_REPO
@@ -905,7 +920,206 @@ SHIM
     [[ "$(wc -l < "$shim.calls")" -eq 2 ]]
 }
 
-@test "retry: ampel and bnd invocations both route through wrangle_retry_once" {
-    grep -q 'wrangle_retry_once "$report" ampel' "$SCRIPT"
-    grep -q 'wrangle_retry_once "$vsa" bnd' "$SCRIPT"
+# A digest-pinned curated toolbox image (wrangle namespace) for the gate tests.
+_toolbox_image="ghcr.io/tomhennen/wrangle/attest-toolbox@sha256:0000000000000000000000000000000000000000000000000000000000000000"
+
+# Write a stub catalog with the attest-toolbox grant ($1 = image; default the
+# pinned curated image; $2 = token grant, e.g. sigstore, when set) and export
+# WRANGLE_CATALOG at it.
+_stub_toolbox_catalog() {
+    local image="${1:-$_toolbox_image}" token="${2:-}" token_field=""
+    [[ -n "$token" ]] && token_field=",\"token\":\"$token\""
+    cat > "$TEST_DIR/catalog.json" <<JSON
+{"tools":{"attest-toolbox":{"kind":"attest","image":"$image","network":"egress"$token_field}}}
+JSON
+    export WRANGLE_CATALOG="$TEST_DIR/catalog.json"
+}
+
+# Shim curl so the sigstore-token mint returns a fixed JWT value without network.
+_stub_mint_curl() {
+    cat > "$TEST_DIR/curl" <<'EOF'
+#!/bin/bash
+printf '{"value":"MINTED-SIGSTORE-JWT"}\n'
+EOF
+    chmod +x "$TEST_DIR/curl"
+    export ACTIONS_ID_TOKEN_REQUEST_URL="https://oidc.example/token"
+    export ACTIONS_ID_TOKEN_REQUEST_TOKEN="request-bearer-secret"
+}
+
+# Install a docker shim that records its argv, and a gh shim whose attestation
+# verdict is PASSED (the real --format json shape) or, with GH_FAIL=1, FAILED.
+_install_toolbox_shims() {
+    cat > "$TEST_DIR/docker" <<EOF
+#!/bin/bash
+printf '%s\n' "\$*" > "$TEST_DIR/docker.args"
+# bnd statement (VSA signing) writes the signed statement to stdout; emit a
+# placeholder so the caller's non-empty-output guard (empty = fail closed) is met.
+case "\$*" in *"bnd statement"*) printf '{"signed":"vsa"}\n' ;; esac
+EOF
+    chmod +x "$TEST_DIR/docker"
+    cat > "$TEST_DIR/gh" <<EOF
+#!/bin/bash
+verdict=PASSED
+[[ -n "\${GH_FAIL:-}" ]] && verdict=FAILED
+cat <<JSON
+[{"verificationResult":{"statement":{"predicate":{"verificationResult":"\$verdict","resourceUri":"$_toolbox_image","verifiedLevels":["SLSA_BUILD_LEVEL_3"]}}}}]
+JSON
+EOF
+    chmod +x "$TEST_DIR/gh"
+}
+
+@test "wrangle_ampel: runs ampel verify in the VSA-gated toolbox image on the egress bridge" {
+    _install_toolbox_shims
+    _stub_toolbox_catalog
+    PATH="$TEST_DIR:$PATH" run wrangle_ampel verify --policy=p
+    [ "$status" -eq 0 ]
+    grep -q "toolbox-image VSA verified PASSED" <<< "$output"
+    grep -q -- "--network bridge" "$TEST_DIR/docker.args"
+    grep -q -- "$_toolbox_image ampel verify" "$TEST_DIR/docker.args"
+}
+
+@test "wrangle_ampel: a non-PASSED toolbox VSA fails closed (no docker)" {
+    _install_toolbox_shims
+    _stub_toolbox_catalog
+    PATH="$TEST_DIR:$PATH" GH_FAIL=1 run wrangle_ampel verify
+    [ "$status" -eq 2 ]
+    grep -q "verification failed" <<< "$output"
+    [ ! -f "$TEST_DIR/docker.args" ]
+}
+
+@test "wrangle_ampel: a missing catalog toolbox image fails closed (no docker)" {
+    _install_toolbox_shims
+    echo '{"tools":{}}' > "$TEST_DIR/catalog.json"
+    export WRANGLE_CATALOG="$TEST_DIR/catalog.json"
+    PATH="$TEST_DIR:$PATH" run wrangle_ampel verify
+    [ "$status" -eq 2 ]
+    grep -q "no attest-toolbox image" <<< "$output"
+    [ ! -f "$TEST_DIR/docker.args" ]
+}
+
+@test "wrangle_ampel: a non-digest-pinned catalog image is rejected (no docker)" {
+    _install_toolbox_shims
+    _stub_toolbox_catalog "ghcr.io/tomhennen/wrangle/attest-toolbox:latest"
+    PATH="$TEST_DIR:$PATH" run wrangle_ampel verify
+    [ "$status" -eq 2 ]
+    grep -q "digest-pinned" <<< "$output"
+    [ ! -f "$TEST_DIR/docker.args" ]
+}
+
+@test "wrangle_ampel: an OCI collector runs in-container with the job's registry auth" {
+    _install_toolbox_shims
+    _stub_toolbox_catalog
+    export GITHUB_TOKEN="registry-token" HOME="$TEST_DIR"
+    mkdir -p "$TEST_DIR/.docker"
+    PATH="$TEST_DIR:$PATH" COLLECTOR="oci:ghcr.io/x@sha256:abc" \
+        run wrangle_ampel verify --policy=p
+    [ "$status" -eq 0 ]
+    grep -q -- "$_toolbox_image ampel verify" "$TEST_DIR/docker.args"
+    # Registry read needs the job's ghcr login and token, no signing token.
+    grep -q -- "-e GITHUB_TOKEN" "$TEST_DIR/docker.args"
+    grep -q -- "-e DOCKER_CONFIG=/wrangle/docker-config" "$TEST_DIR/docker.args"
+    ! grep -q -- "-e SIGSTORE_ID_TOKEN" "$TEST_DIR/docker.args"
+}
+
+@test "wrangle_ampel: WRANGLE_VERIFY_TOOL_IMAGES=0 skips the VSA gate for a Sigstore outage" {
+    # The sole path that dispatches without verifying — gh must never be consulted.
+    cat > "$TEST_DIR/gh" <<EOF
+#!/bin/bash
+touch "$TEST_DIR/gh.called"
+EOF
+    chmod +x "$TEST_DIR/gh"
+    cat > "$TEST_DIR/docker" <<EOF
+#!/bin/bash
+printf '%s\n' "\$*" > "$TEST_DIR/docker.args"
+EOF
+    chmod +x "$TEST_DIR/docker"
+    _stub_toolbox_catalog
+    PATH="$TEST_DIR:$PATH" WRANGLE_VERIFY_TOOL_IMAGES=0 run wrangle_ampel verify --policy=p
+    [ "$status" -eq 0 ]
+    grep -q "verification disabled by configuration" <<< "$output"
+    [ ! -f "$TEST_DIR/gh.called" ]
+    grep -q -- "$_toolbox_image ampel verify" "$TEST_DIR/docker.args"
+}
+
+@test "retry: ampel and the VSA sign both route through wrangle_retry_once" {
+    grep -q 'wrangle_retry_once "$report" wrangle_ampel' "$SCRIPT"
+    grep -q 'wrangle_retry_once "$vsa" wrangle_toolbox_exec' "$SCRIPT"
+}
+
+# ---- containerized VSA signing (bnd statement) ----
+
+@test "wrangle_sign_vsa: signs in-container with a minted, name-threaded token" {
+    _install_toolbox_shims
+    _stub_toolbox_catalog "$_toolbox_image" sigstore
+    _stub_mint_curl
+    printf 'unsigned-vsa\n' > "$VSA"
+    PATH="$TEST_DIR:$PATH" GITHUB_TOKEN=registry-token run wrangle_sign_vsa "$VSA"
+    [ "$status" -eq 0 ]
+    # The VSA gate ran, then bnd statement inside the toolbox image.
+    grep -q "toolbox-image VSA verified PASSED" <<< "$output"
+    grep -q -- "$_toolbox_image bnd statement" "$TEST_DIR/docker.args"
+    # The sigstore token is threaded by NAME only; its value is never on argv.
+    grep -q -- "-e SIGSTORE_ID_TOKEN" "$TEST_DIR/docker.args"
+    ! grep -q "MINTED-SIGSTORE-JWT" "$TEST_DIR/docker.args"
+    # The mint-anything request vars NEVER enter the container.
+    ! grep -q "ACTIONS_ID_TOKEN_REQUEST" "$TEST_DIR/docker.args"
+    # Signing needs no registry login token.
+    ! grep -q -- "-e GITHUB_TOKEN" "$TEST_DIR/docker.args"
+}
+
+@test "wrangle_sign_vsa: a missing token: sigstore grant fails closed (no docker, no in-job bnd)" {
+    _install_toolbox_shims
+    _stub_toolbox_catalog   # no token grant
+    _stub_mint_curl
+    cat > "$TEST_DIR/bnd" <<EOF
+#!/bin/bash
+touch "$TEST_DIR/bnd.called"
+EOF
+    chmod +x "$TEST_DIR/bnd"
+    printf 'unsigned-vsa\n' > "$VSA"
+    PATH="$TEST_DIR:$PATH" GITHUB_TOKEN=registry-token run wrangle_sign_vsa "$VSA"
+    [ "$status" -ne 0 ]
+    grep -q "capability required to sign" <<< "$output"
+    [ ! -f "$TEST_DIR/docker.args" ]
+    [ ! -f "$TEST_DIR/bnd.called" ]
+}
+
+@test "wrangle_sign_vsa: a non-PASSED toolbox VSA fails closed (no docker)" {
+    _install_toolbox_shims
+    _stub_toolbox_catalog "$_toolbox_image" sigstore
+    _stub_mint_curl
+    printf 'unsigned-vsa\n' > "$VSA"
+    PATH="$TEST_DIR:$PATH" GH_FAIL=1 GITHUB_TOKEN=registry-token run wrangle_sign_vsa "$VSA"
+    [ "$status" -ne 0 ]
+    [ ! -f "$TEST_DIR/docker.args" ]
+}
+
+@test "wrangle_sign_vsa: a failed token mint fails closed (no docker, no in-job bnd)" {
+    _install_toolbox_shims
+    _stub_toolbox_catalog "$_toolbox_image" sigstore
+    # Grant present but the ambient OIDC request vars absent -> mint fails.
+    unset ACTIONS_ID_TOKEN_REQUEST_URL ACTIONS_ID_TOKEN_REQUEST_TOKEN SIGSTORE_ID_TOKEN
+    cat > "$TEST_DIR/bnd" <<EOF
+#!/bin/bash
+touch "$TEST_DIR/bnd.called"
+EOF
+    chmod +x "$TEST_DIR/bnd"
+    printf 'unsigned-vsa\n' > "$VSA"
+    PATH="$TEST_DIR:$PATH" GITHUB_TOKEN=registry-token run wrangle_sign_vsa "$VSA"
+    [ "$status" -ne 0 ]
+    grep -q "lacks id-token: write" <<< "$output"
+    [ ! -f "$TEST_DIR/docker.args" ]
+    [ ! -f "$TEST_DIR/bnd.called" ]
+}
+
+@test "run_verify: sign_vsa fails closed when bnd emits no output" {
+    # bnd can exit 0 yet write nothing; an empty signed VSA would silently append
+    # no VSA line to the bundle (jq -c on empty input yields nothing).
+    local stub="$TEST_DIR/stubbin"; mkdir -p "$stub"
+    printf '#!/bin/bash\nexit 0\n' > "$stub/bnd"   # exit 0, empty stdout
+    chmod +x "$stub/bnd"
+    printf '{"unsigned":"vsa"}' > "$VSA"
+    PATH="$stub:$PATH" run wrangle_sign_vsa "$VSA"
+    [ "$status" -ne 0 ]
+    [[ "$output" == *"produced no output"* ]]
 }

@@ -105,9 +105,9 @@ After building, compute SHA-256 hashes of all artifacts in `dist/` and output th
 
 Generate an SPDX SBOM from the project's resolved dependencies. Python has no built-in SBOM generator (unlike Docker BuildKit), so an external tool is used: `syft` (Anchore's SBOM tool, produces SPDX natively).
 
-Wrangle installs `syft` via `tools/syft/install.sh`, which performs Cosign keyless verification of `checksums.txt` (root of trust = Fulcio CA + Rekor transparency log) and then SHA-256 verifies the binary against the now-trusted checksums. No `curl | sh`, no installs to `/usr/local/bin` — `syft` lands in `$WRANGLE_BIN_DIR` per the install script contract. The python action installs Cosign first via `sigstore/cosign-installer` so the verification step has the tool it needs.
+Wrangle dispatches `syft` as the curated, VSA-gated container SBOM tool through `run.sh` (`lib/generate_sbom.sh`), fail-closed behind the tool-image attestation gate — see [`docs/tool_container_design.md`](../../../docs/tool_container_design.md).
 
-The SBOM is generated from the installed/resolved environment (not just the lockfile) to capture the exact versions used at build time — build-time SBOMs are more accurate than scan-time inference. Write to `metadata/python/<shortname>/sbom.spdx.json`. SPDX is used for consistency with the container build type.
+The SBOM is generated from the project source tree. Write to `metadata/python/<shortname>/sbom.spdx.json`. SPDX is used for consistency with the container build type.
 
 ### 7. Upload build artifacts
 

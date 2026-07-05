@@ -18,7 +18,70 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 # shellcheck source=lib/env.sh
 source "$SCRIPT_DIR/lib/env.sh"
 
+# Catalog reader: resolves a tool's curated entry (delivery, image, network,
+# secret) from tools/catalog.json. A tool with no entry runs the adapter path.
+# shellcheck source=lib/read_catalog.sh
+source "$SCRIPT_DIR/lib/read_catalog.sh"
+
+# Shared catalog validation constants (tool-name, image-digest, namespace).
+# shellcheck source=lib/catalog_rules.sh
+source "$SCRIPT_DIR/lib/catalog_rules.sh"
+
+# Catalog merger: merge_catalog builds the effective catalog when an adopter
+# supplies a custom-tools file.
+# shellcheck source=lib/merge_catalog.sh
+source "$SCRIPT_DIR/lib/merge_catalog.sh"
+
+# Pull-time VSA verification primitive: verify_image_vsa runs the fail-closed
+# attestation gate the curated-image policy below applies.
+# shellcheck source=lib/verify_image_vsa.sh
+source "$SCRIPT_DIR/lib/verify_image_vsa.sh"
+
+# Image-delivery runner: run_tool_image dispatches a curated image under the
+# contract sandbox. Expects CATALOG, src_dir, and ADAPTER_TIMEOUT in scope.
+# shellcheck source=lib/run_tool_image.sh
+source "$SCRIPT_DIR/lib/run_tool_image.sh"
+# shellcheck source=lib/write_tool_error_marker.sh
+source "$SCRIPT_DIR/lib/write_tool_error_marker.sh"
+
 TOOLS_DIR="${WRANGLE_TOOLS_DIR:-${SCRIPT_DIR}/tools}"
+# The catalog lives beside the tools it describes, so a WRANGLE_TOOLS_DIR
+# override (hermetic orchestrator tests) gets its own catalog — or none, in
+# which case every tool runs the adapter path.
+CATALOG="${WRANGLE_CATALOG:-${TOOLS_DIR}/catalog.json}"
+
+# Only wrangle-namespace images carry wrangle's VSA identity, so only these get
+# the wrangle-signer attestation gate; an adopter custom-tool image (other
+# namespace) is trusted under its own identity.
+CURATED_IMAGE_PREFIX="$CATALOG_CURATED_IMAGE_PREFIX"
+
+# Auto-discover a conventional .wrangle/tools.json at the workspace root and add
+# its net-new tools to the catalog. Absent -> the curated catalog, unchanged. The
+# resolved file must stay inside the workspace, so a symlink escaping it is
+# rejected; the effective catalog is a temp file removed on exit.
+custom_root="$(cd "${GITHUB_WORKSPACE:-$PWD}" 2>/dev/null && pwd -P)" || custom_root=""
+custom_tools="${custom_root:+${custom_root}/.wrangle/tools.json}"
+if [[ -n "$custom_tools" ]] && [[ -e "$custom_tools" ]]; then
+    if ! custom_file="$(realpath -e -- "$custom_tools" 2>/dev/null)"; then
+        printf 'wrangle: .wrangle/tools.json is unreadable: %s\n' "$custom_tools" >&2
+        exit 2
+    fi
+    if [[ "$custom_file" != "$custom_root"/* ]]; then
+        printf 'wrangle: .wrangle/tools.json resolves outside the workspace: %s\n' "$custom_file" >&2
+        exit 2
+    fi
+    effective_catalog="$(mktemp "${TMPDIR:-/tmp}/wrangle-catalog-XXXXXX.json")"
+    trap 'rm -f "$effective_catalog"' EXIT
+    if ! merge_catalog "$CATALOG" "$custom_file" > "$effective_catalog"; then
+        exit 2
+    fi
+    CATALOG="$effective_catalog"
+fi
+
+# is_image[$tool]=1 marks a catalog tool with delivery: image (the docker-run
+# path); absence means the adapter path. Resolved once per tool in the parse
+# loop so the dispatch loop branches on that single answer.
+declare -A is_image=()
 
 # Defaults
 src_dir="."
@@ -40,27 +103,46 @@ if [[ $# -eq 0 ]]; then
     exit 2
 fi
 
-# Parse tool specs: strip :policy suffixes, collect adapter-pattern tools.
-# Action-pattern tools (have a directory but no adapter.sh) are skipped.
-# Unknown tools (no directory at all) are rejected.
-TOOL_NAME_RE='^[a-z][a-z0-9_-]*$'
-declare -a adapter_tools=()
+# Parse tool specs: strip :policy suffixes, collect the tools run by run.sh —
+# adapter-pattern tools (have an adapter.sh) plus catalog image-delivery tools
+# (run via docker run). Action-pattern tools (have an action.yml) are invoked
+# via their uses: step, so run.sh skips them even when an adapter.sh is present
+# only as their image entrypoint. Unknown tools (no directory) are rejected.
+declare -a run_tools=()
 for spec in "$@"; do
     tool="${spec%%:*}"
-    if [[ ! "$tool" =~ $TOOL_NAME_RE ]]; then
-        printf 'wrangle: invalid tool name: %s (must match %s)\n' "$tool" "$TOOL_NAME_RE" >&2
+    if [[ ! "$tool" =~ $CATALOG_TOOL_NAME_RE ]]; then
+        printf 'wrangle: invalid tool name: %s (must match %s)\n' "$tool" "$CATALOG_TOOL_NAME_RE" >&2
         exit 2
     fi
-    if [[ ! -d "${TOOLS_DIR}/${tool}" ]]; then
-        printf 'wrangle: unknown tool: %s (no directory at %s/%s/)\n' "$tool" "$TOOLS_DIR" "$tool" >&2
+    # Resolve delivery once. Empty -> adapter path; "image" -> docker path; any
+    # other non-empty value is a catalog typo, not a silent adapter fallthrough.
+    delivery="$(read_catalog_field "$CATALOG" "$tool" delivery)"
+    case "$delivery" in
+        image) is_image[$tool]=1 ;;
+        ''|adapter) ;;
+        *)
+            printf 'wrangle: %s: unrecognized catalog delivery: %s\n' "$tool" "$delivery" >&2
+            exit 2 ;;
+    esac
+    if [[ -d "${TOOLS_DIR}/${tool}" ]]; then
+        # An action.yml means the tool runs via its uses: step; skip it here even
+        # if an adapter.sh exists (it is only the tool image's contract entrypoint).
+        if [[ -f "${TOOLS_DIR}/${tool}/action.yml" ]]; then
+            continue
+        fi
+    elif [[ -z "${is_image[$tool]:-}" ]]; then
+        # A catalog delivery: image tool is dispatched from its image, so it needs
+        # no local directory; anything else with no directory is unknown.
+        printf 'wrangle: unknown tool: %s (no directory at %s/%s/ and no catalog image entry)\n' "$tool" "$TOOLS_DIR" "$tool" >&2
         exit 2
     fi
-    if [[ -f "${TOOLS_DIR}/${tool}/adapter.sh" ]]; then
-        adapter_tools+=("$tool")
+    if [[ -n "${is_image[$tool]:-}" ]] || [[ -f "${TOOLS_DIR}/${tool}/adapter.sh" ]]; then
+        run_tools+=("$tool")
     fi
 done
 
-if [[ ${#adapter_tools[@]} -eq 0 ]]; then
+if [[ ${#run_tools[@]} -eq 0 ]]; then
     printf 'wrangle: no adapter-pattern tools to run\n'
     exit 0
 fi
@@ -74,125 +156,173 @@ overall_status=0
 INSTALL_TIMEOUT="${WRANGLE_INSTALL_TIMEOUT:-300}"
 ADAPTER_TIMEOUT="${WRANGLE_ADAPTER_TIMEOUT:-600}"
 
-# Build only the Go tools the requested adapters need: each adapter lists its
-# package(s) in tools/<tool>/go-tools, version-pinned in tools/go.mod (env.sh
-# pins GOPROXY/GOSUMDB; Dependabot keeps them fresh). A scan thus never compiles
-# the build/verify toolchain (cosign, ampel, bnd). Empty when no requested
-# adapter declares a Go tool (hermetic orchestrator tests point WRANGLE_TOOLS_DIR
-# at stub dirs with no go-tools file). Retried: go does not retry transient
-# proxy failures itself.
-declare -a go_pkgs=()
-for tool in "${adapter_tools[@]}"; do
-    go_tools_file="${TOOLS_DIR}/${tool}/go-tools"
-    [[ -f "$go_tools_file" ]] || continue
-    while IFS= read -r pkg || [[ -n "$pkg" ]]; do
-        [[ -z "$pkg" ]] && continue
-        go_pkgs+=("$pkg")
-    done < "$go_tools_file"
-done
-
-if [[ ${#go_pkgs[@]} -gt 0 ]]; then
-    if ! command -v go >/dev/null 2>&1; then
-        printf 'wrangle: go not on PATH (required for tools/go.mod tools)\n' >&2
-        exit 2
-    fi
-    mkdir -p "$WRANGLE_BIN_DIR"
-    printf 'wrangle: installing Go tools: %s\n' "${go_pkgs[*]}"
-    go_tools_exit=1
-    backoff=1
-    for attempt in 1 2 3; do
-        go_tools_exit=0
-        timeout "$INSTALL_TIMEOUT" env GOBIN="$(cd "$WRANGLE_BIN_DIR" && pwd)" \
-            go -C "$TOOLS_DIR" install "${go_pkgs[@]}" || go_tools_exit=$?
-        [[ "$go_tools_exit" -eq 0 ]] && break
-        if [[ "$attempt" -lt 3 ]]; then
-            printf 'wrangle: go install attempt %d/3 failed, retrying in %ds...\n' "$attempt" "$backoff" >&2
-            sleep "$backoff"
-            backoff=$((backoff * 2))
-        fi
-    done
-    if [[ "$go_tools_exit" -ne 0 ]]; then
-        printf 'wrangle: FATAL: installing Go tools failed\n' >&2
-        exit 2
-    fi
-fi
-
 # Summary tracking
 declare -a summary_tools=()
 declare -a summary_statuses=()
 
-for tool in "${adapter_tools[@]}"; do
+# verify_tool_image <tool> <image> — curated-image policy around the
+# verify_image_vsa primitive. Fail closed: a wrangle-published image must carry a
+# PASSED, SLSA-L3 wrangle VSA whose resourceUri is this image ref (matching
+# policies/wrangle-vsa-consumer-v1.hjson) before it runs. Returns 0 to proceed, 1
+# to refuse. Skips (returns 0) when verification is disabled or the image is not
+# wrangle-published (an adopter override is trusted under a different identity).
+verify_tool_image() {
+    local tool="$1" image="$2"
+
+    # Break-glass for a sustained Sigstore-TUF outage, which the gate hard-depends
+    # on every run; not a routine off-switch.
+    if [[ "${WRANGLE_VERIFY_TOOL_IMAGES:-1}" == "0" ]]; then
+        printf 'wrangle: %s: tool-image VSA verification disabled by configuration\n' "$tool" >&2
+        return 0
+    fi
+
+    if [[ "$image" != "${CURATED_IMAGE_PREFIX}"* ]]; then
+        printf 'wrangle: %s: non-wrangle image, not wrangle-identity-verified: %s\n' "$tool" "$image" >&2
+        return 0
+    fi
+
+    if verify_image_vsa "$image"; then
+        printf 'wrangle: %s: tool-image VSA verified PASSED\n' "$tool" >&2
+        return 0
+    fi
+    printf 'wrangle: %s: tool-image VSA verification failed (image not provably PASSED)\n' "$tool" >&2
+    return 1
+}
+
+# fail_tool_config <tool> <output_dir> <marker_msg> — record an errored tool that
+# returns early (catalog/config/install failure): set the fail-closed status,
+# note it for the summary, write the ${output_dir}/error marker check_results
+# reads, and close the log group. The marker lets the scan step run under
+# continue-on-error while check_results owns the gate — so an :info tool's error
+# stays informational, matching a :fail tool's error blocking. Caller returns.
+fail_tool_config() {
+    overall_status=2
+    summary_tools+=("$1")
+    summary_statuses+=("error")
+    wrangle_write_tool_error_marker "$2" "$3"
+    printf '::endgroup::\n'
+}
+
+# run_one_tool <tool> — run a single tool through its delivery path (image via
+# docker, otherwise the in-process adapter), map its exit to the 0/1/2 contract,
+# attest its recognized output files by name, and record the result. Updates
+# overall_status and the summary arrays.
+run_one_tool() {
+    local tool="$1"
     printf '::group::wrangle/%s\n' "$tool"
     printf 'wrangle: === %s ===\n' "$tool"
 
-    tool_status="pass"
-
-    # Step 1: Install — only tools with a bespoke install.sh (the escape
-    # hatch for tools no package manager ships); go.mod tools were all
-    # installed upfront.
-    install_exit=0
-    if [[ -f "${TOOLS_DIR}/${tool}/install.sh" ]]; then
-        printf 'wrangle: installing %s...\n' "$tool"
-        timeout "$INSTALL_TIMEOUT" "${TOOLS_DIR}/${tool}/install.sh" || install_exit=$?
-    fi
-
-    if [[ "$install_exit" -eq 124 ]]; then
-        printf 'wrangle: %s install timed out after %ds\n' "$tool" "$INSTALL_TIMEOUT" >&2
-    elif [[ "$install_exit" -ne 0 ]]; then
-        printf 'wrangle: install failed for %s (exit %d)\n' "$tool" "$install_exit" >&2
-    fi
-    if [[ "$install_exit" -ne 0 ]]; then
-        tool_status="error"
-        overall_status=2
-        summary_tools+=("$tool")
-        summary_statuses+=("$tool_status")
-        printf '::endgroup::\n'
-        continue
-    fi
-
-    # Step 2: Create output directory
-    tool_output_dir="${output_dir}/${tool}"
+    local tool_status="pass"
+    local adapter_exit=0
+    # tool_output_dir is the SAME ${output_dir}/${tool}/ both paths write to —
+    # the downstream collectors consume ${metadata}/${tool}/output.sarif.
+    local tool_output_dir="${output_dir}/${tool}"
     mkdir -p "$tool_output_dir"
 
-    # Step 3: Snapshot workspace for post-execution filesystem check
-    # Records file paths, sizes, and mtimes to detect additions, removals, and modifications
-    pre_snapshot="$(mktemp "${TMPDIR:-/tmp}/wrangle-pre-XXXXX")"
-    # Exclude output_dir from snapshot — when metadata dir is inside src_dir
-    # (workspace-relative), adapter writes there are expected, not rogue.
-    find "$src_dir" -not -path "${output_dir}/*" -type f -printf '%p %s %T@\n' 2>/dev/null | sort > "$pre_snapshot" || true
+    if [[ -n "${is_image[$tool]:-}" ]]; then
+        # Image-delivery: run the tool's pinned image under the contract
+        # sandbox (read-only /src, writable /output owned by the runner UID).
+        # The image's entrypoint IS the adapter, so it maps the same 0/1/2
+        # exit contract and writes its recognized output files into /output.
+        printf 'wrangle: running %s (image)...\n' "$tool"
 
-    # Step 4: Run adapter with isolated environment
-    printf 'wrangle: running %s...\n' "$tool"
-    adapter_exit=0
-
-    # Build restricted environment: only allowlisted variables + WRANGLE_EXTRA_*
-    adapter_env=(
-        "PATH=${PATH}"
-        "HOME=${HOME:-}"
-        "TMPDIR=${TMPDIR:-/tmp}"
-        "RUNNER_TEMP=${RUNNER_TEMP:-}"
-        "GITHUB_WORKSPACE=${GITHUB_WORKSPACE:-}"
-        "GITHUB_STEP_SUMMARY=${GITHUB_STEP_SUMMARY:-}"
-    )
-    # Forward WRANGLE_EXTRA_* variables with prefix stripped
-    while IFS='=' read -r key value; do
-        if [[ "$key" == WRANGLE_EXTRA_* ]]; then
-            stripped_key="${key#WRANGLE_EXTRA_}"
-            adapter_env+=("${stripped_key}=${value}")
+        local image
+        image="$(read_catalog_field "$CATALOG" "$tool" image)"
+        if [[ -z "$image" ]]; then
+            printf 'wrangle: %s: catalog declares delivery: image but no image\n' "$tool" >&2
+            fail_tool_config "$tool" "$tool_output_dir" "catalog declares delivery: image but no image"
+            return
         fi
-    done < <(env)
+        # Require an @sha256 digest pin (a tag alone is mutable); re-checked here
+        # even though merge_catalog validated custom entries, as defense in depth.
+        if [[ ! "$image" =~ $CATALOG_IMAGE_DIGEST_RE ]]; then
+            printf 'wrangle: %s: image not digest-pinned: %s\n' "$tool" "$image" >&2
+            fail_tool_config "$tool" "$tool_output_dir" "image not digest-pinned: $image"
+            return
+        fi
+        # A declared secret name must be a valid env-var stem before it is
+        # mapped into the container (config error, not a tool result).
+        local secret
+        secret="$(read_catalog_field "$CATALOG" "$tool" secret)"
+        if [[ -n "$secret" ]] && [[ ! "$secret" =~ ^[a-z][a-z0-9-]*$ ]]; then
+            printf 'wrangle: %s: invalid catalog secret name: %s\n' "$tool" "$secret" >&2
+            fail_tool_config "$tool" "$tool_output_dir" "invalid catalog secret name: $secret"
+            return
+        fi
 
-    timeout "$ADAPTER_TIMEOUT" env -i "${adapter_env[@]}" \
-        "${TOOLS_DIR}/${tool}/adapter.sh" "$src_dir" "$tool_output_dir" || adapter_exit=$?
+        # Fail closed: refuse to dispatch a curated image that cannot be proven
+        # to carry a PASSED wrangle VSA.
+        if ! verify_tool_image "$tool" "$image"; then
+            fail_tool_config "$tool" "$tool_output_dir" "tool image VSA verification failed"
+            return
+        fi
 
-    # Step 5: Post-execution filesystem check
-    post_snapshot="$(mktemp "${TMPDIR:-/tmp}/wrangle-post-XXXXX")"
-    find "$src_dir" -not -path "${output_dir}/*" -type f -printf '%p %s %T@\n' 2>/dev/null | sort > "$post_snapshot" || true
-    if ! diff -q "$pre_snapshot" "$post_snapshot" >/dev/null 2>&1; then
-        printf 'wrangle: WARNING: %s modified files outside its output directory\n' "$tool" >&2
+        run_tool_image "$tool" "$image" "$tool_output_dir" \
+            "$src_dir" "$CATALOG" "$ADAPTER_TIMEOUT" || adapter_exit=$?
+    else
+        # Adapter-pattern (in-process) path.
+
+        # Step 1: Install — only tools with a bespoke install.sh (the escape
+        # hatch for tools no package manager ships).
+        local install_exit=0
+        if [[ -f "${TOOLS_DIR}/${tool}/install.sh" ]]; then
+            printf 'wrangle: installing %s...\n' "$tool"
+            timeout "$INSTALL_TIMEOUT" "${TOOLS_DIR}/${tool}/install.sh" || install_exit=$?
+        fi
+
+        if [[ "$install_exit" -eq 124 ]]; then
+            printf 'wrangle: %s install timed out after %ds\n' "$tool" "$INSTALL_TIMEOUT" >&2
+        elif [[ "$install_exit" -ne 0 ]]; then
+            printf 'wrangle: install failed for %s (exit %d)\n' "$tool" "$install_exit" >&2
+        fi
+        if [[ "$install_exit" -ne 0 ]]; then
+            fail_tool_config "$tool" "$tool_output_dir" "install failed (exit $install_exit)"
+            return
+        fi
+
+        # Step 2: Snapshot workspace for post-execution filesystem check
+        # Records file paths, sizes, and mtimes to detect additions, removals, and modifications
+        local pre_snapshot post_snapshot
+        pre_snapshot="$(mktemp "${TMPDIR:-/tmp}/wrangle-pre-XXXXX")"
+        # Exclude output_dir from snapshot — when metadata dir is inside src_dir
+        # (workspace-relative), adapter writes there are expected, not rogue.
+        find "$src_dir" -not -path "${output_dir}/*" -type f -printf '%p %s %T@\n' 2>/dev/null | sort > "$pre_snapshot" || true
+
+        # Step 3: Run adapter with isolated environment
+        printf 'wrangle: running %s...\n' "$tool"
+
+        # Build restricted environment: only allowlisted variables + WRANGLE_EXTRA_*
+        local -a adapter_env=(
+            "PATH=${PATH}"
+            "HOME=${HOME:-}"
+            "TMPDIR=${TMPDIR:-/tmp}"
+            "RUNNER_TEMP=${RUNNER_TEMP:-}"
+            "GITHUB_WORKSPACE=${GITHUB_WORKSPACE:-}"
+            "GITHUB_STEP_SUMMARY=${GITHUB_STEP_SUMMARY:-}"
+        )
+        # Forward WRANGLE_EXTRA_* variables with prefix stripped
+        local key value stripped_key
+        while IFS='=' read -r key value; do
+            if [[ "$key" == WRANGLE_EXTRA_* ]]; then
+                stripped_key="${key#WRANGLE_EXTRA_}"
+                adapter_env+=("${stripped_key}=${value}")
+            fi
+        done < <(env)
+
+        timeout "$ADAPTER_TIMEOUT" env -i "${adapter_env[@]}" \
+            "${TOOLS_DIR}/${tool}/adapter.sh" "$src_dir" "$tool_output_dir" || adapter_exit=$?
+
+        # Step 4: Post-execution filesystem check
+        post_snapshot="$(mktemp "${TMPDIR:-/tmp}/wrangle-post-XXXXX")"
+        find "$src_dir" -not -path "${output_dir}/*" -type f -printf '%p %s %T@\n' 2>/dev/null | sort > "$post_snapshot" || true
+        if ! diff -q "$pre_snapshot" "$post_snapshot" >/dev/null 2>&1; then
+            printf 'wrangle: WARNING: %s modified files outside its output directory\n' "$tool" >&2
+        fi
+        rm -f "$pre_snapshot" "$post_snapshot"
     fi
-    rm -f "$pre_snapshot" "$post_snapshot"
 
+    # Uniform 0/1/2 exit contract across kinds; a tool's kind selects its
+    # input/stage, not this mapping.
     case "$adapter_exit" in
         0)
             tool_status="pass"
@@ -216,38 +346,51 @@ for tool in "${adapter_tools[@]}"; do
             ;;
     esac
 
-    # Generate human-readable output if the adapter didn't produce one.
-    # Only on successful runs — on error the SARIF may be missing or
-    # incomplete, and showing "No findings" would be misleading.
-    if [[ "$tool_status" != "error" ]] \
-        && [[ -f "${tool_output_dir}/output.sarif" ]] \
-        && [[ ! -s "${tool_output_dir}/output.md" ]] \
-        && [[ ! -s "${tool_output_dir}/output.txt" ]]; then
-        "$SCRIPT_DIR/lib/sarif_to_md.sh" "${tool_output_dir}/output.sarif" \
-            > "${tool_output_dir}/output.md" 2>/dev/null || true
-    fi
-
-    # Write the scan/v1 attestation manifest next to output.sarif so the
-    # trusted verify job's wrangle-attest engine wraps + signs it. Skip on
-    # error (an attestation must claim a real scan result); write_scan_manifest
-    # itself no-ops on a missing SARIF. The scanner name can differ from the
-    # orchestrator token (osv -> osv-scanner); keyed per tool, one line each.
+    # Filename-driven attestation of the tool's primary output. Skip on error —
+    # an attestation must claim a real result. A clean run that emits no
+    # recognized file is a no-op (green, no artifact, no manifest).
     if [[ "$tool_status" != "error" ]]; then
-        scanner_name=""
-        case "$tool" in
-            osv) scanner_name="osv-scanner" ;;
-            wrangle-lint) scanner_name="wrangle-lint" ;;
-        esac
-        if [[ -n "$scanner_name" ]]; then
-            "$SCRIPT_DIR/lib/write_scan_manifest.sh" "$scanner_name" \
-                "${tool_output_dir}/output.sarif" \
-                || printf 'wrangle: failed to write %s scan manifest\n' "$tool" >&2
+        if [[ -f "${tool_output_dir}/output.sarif" ]]; then
+            # Generate a human-readable summary if the adapter didn't.
+            if [[ ! -s "${tool_output_dir}/output.md" ]] \
+                && [[ ! -s "${tool_output_dir}/output.txt" ]]; then
+                "$SCRIPT_DIR/lib/sarif_to_md.sh" "${tool_output_dir}/output.sarif" \
+                    > "${tool_output_dir}/output.md" 2>/dev/null || true
+            fi
+            # Scan/v1 manifest, keyed per tool — the scanner name can differ from
+            # the orchestrator token (osv -> osv-scanner).
+            local scanner_name=""
+            case "$tool" in
+                osv) scanner_name="osv-scanner" ;;
+                wrangle-lint) scanner_name="wrangle-lint" ;;
+                zizmor) scanner_name="zizmor" ;;
+            esac
+            if [[ -n "$scanner_name" ]]; then
+                "$SCRIPT_DIR/lib/write_scan_manifest.sh" "$scanner_name" \
+                    "${tool_output_dir}/output.sarif" \
+                    || printf 'wrangle: failed to write %s scan manifest\n' "$tool" >&2
+            fi
+        elif [[ -f "${tool_output_dir}/sbom.spdx.json" ]]; then
+            # CycloneDX is future work: re-add it to this map alongside the
+            # wrangle-attest engine allowlist + a test when a tool emits it.
+            "$SCRIPT_DIR/lib/write_attest_manifest.sh" \
+                "$tool_output_dir" "https://spdx.dev/Document" "sbom.spdx.json" \
+                || printf 'wrangle: failed to write %s sbom manifest\n' "$tool" >&2
         fi
+    else
+        # An errored adapter run (timeout / nonzero exit): write the marker
+        # check_results reads, so an :info tool's error stays informational and
+        # the scan step can run under continue-on-error.
+        wrangle_write_tool_error_marker "$tool_output_dir" "adapter error (exit ${adapter_exit})"
     fi
 
     summary_tools+=("$tool")
     summary_statuses+=("$tool_status")
     printf '::endgroup::\n'
+}
+
+for tool in "${run_tools[@]}"; do
+    run_one_tool "$tool"
 done
 
 # Print summary table
