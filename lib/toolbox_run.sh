@@ -5,7 +5,6 @@
 #
 # Provides:
 #   wrangle_toolbox_image        — resolve, digest-pin-check, VSA-gate (memoized)
-#   wrangle_toolbox_network      — the catalog network as a docker --network
 #   wrangle_mint_sigstore_token  — mint aud=sigstore SIGSTORE_ID_TOKEN, step-local
 #   wrangle_toolbox_exec         — one hardened docker run of the toolbox image
 
@@ -20,14 +19,16 @@ source "$_TOOLBOX_RUN_DIR/verify_image_vsa.sh"
 
 WRANGLE_TOOLBOX_TOOL="attest-toolbox"
 
-# The catalog the grant is read from; a test/adopter run may override it.
+# Echo the catalog path: WRANGLE_CATALOG if a test/adopter set it, else the
+# in-repo default. Takes no arguments.
 _wrangle_toolbox_catalog() {
     printf '%s\n' "${WRANGLE_CATALOG:-$_TOOLBOX_RUN_DIR/../tools/catalog.json}"
 }
 
 # Resolve the toolbox image, assert it is @sha256:-digest-pinned, and VSA-gate it
-# before any container consumes it. Memoized so the network verify runs once per
-# step. Echoes the image; returns 2 (no docker) on a missing/unpinned image or a
+# before any container consumes it. Takes no arguments; reads the catalog and
+# WRANGLE_VERIFY_TOOL_IMAGES. Memoized so the network verify runs once per step.
+# Echoes the image; returns 2 (no docker) on a missing/unpinned image or a
 # non-PASSED VSA. WRANGLE_VERIFY_TOOL_IMAGES=0 skips the gate for a Sigstore outage.
 _WRANGLE_TOOLBOX_IMAGE_VERIFIED=""
 wrangle_toolbox_image() {
@@ -58,22 +59,15 @@ wrangle_toolbox_image() {
     printf '%s\n' "$image"
 }
 
-# "egress" -> docker's default bridge; anything else -> no network.
-wrangle_toolbox_network() {
-    case "$(read_catalog_field "$(_wrangle_toolbox_catalog)" "$WRANGLE_TOOLBOX_TOOL" network)" in
-        egress) printf 'bridge\n' ;;
-        *)      printf 'none\n' ;;
-    esac
-}
-
 # Mint an aud=sigstore SIGSTORE_ID_TOKEN into this process's env only (never
 # GITHUB_ENV, so it stays step-local); the in-container gitlab provider redeems it
 # verbatim while the request-URL vars stay on the host. Fails closed (2) if the
 # catalog lacks the token: sigstore grant or the job lacks id-token: write — there
 # is no in-job fallback.
 #
-# Cached for the step: once minted, SIGSTORE_ID_TOKEN is reused rather than
-# re-requested.
+# Takes no arguments; reads the ambient ACTIONS_ID_TOKEN_REQUEST_{URL,TOKEN} and
+# the catalog grant, and exports SIGSTORE_ID_TOKEN. Cached for the step: once
+# minted, SIGSTORE_ID_TOKEN is reused rather than re-requested.
 wrangle_mint_sigstore_token() {
     [[ -n "${SIGSTORE_ID_TOKEN:-}" ]] && return 0
     if [[ "$(read_catalog_field "$(_wrangle_toolbox_catalog)" "$WRANGLE_TOOLBOX_TOOL" token)" != "sigstore" ]]; then
@@ -122,8 +116,9 @@ wrangle_toolbox_add_mount() {
 # One hardened docker run of the VSA-gated toolbox image. The workspace ($PWD) and
 # RUNNER_TEMP are bind-mounted at their own paths and the working dir is set to
 # $PWD, so wrangle's relative METADATA_ROOT/SUBJECTS/command args resolve exactly
-# as in-job (bind mounts need absolute paths; wrangle passes relative). Flags
-# precede a `--`, then the in-container command:
+# as in-job (bind mounts need absolute paths; wrangle passes relative). The args
+# are the flags below, a `--`, then the in-container command (the tool and its
+# arguments):
 #   --sigstore         mint + thread a step-local SIGSTORE_ID_TOKEN by name (the
 #                      keyless signing token); fails closed if it cannot be minted
 #   --env <NAME>       thread host var NAME by name only, never its value on argv
@@ -153,7 +148,7 @@ wrangle_toolbox_exec() {
     done
     local image net
     image="$(wrangle_toolbox_image)" || return 2
-    net="$(wrangle_toolbox_network)"
+    net="$(catalog_docker_network "$(_wrangle_toolbox_catalog)" "$WRANGLE_TOOLBOX_TOOL")"
     docker run --rm --network "$net" \
         --cap-drop ALL --security-opt no-new-privileges \
         -u "$(id -u):$(id -g)" -w "$workdir" \
