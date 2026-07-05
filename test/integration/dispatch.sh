@@ -57,7 +57,6 @@ TAG_NAME="0.0.0-pr.${PR_NUMBER}.${WRANGLE_RUN_ID}"
 GENERATED_FILE=".github/workflows/test-wrangle.yml"
 CLEANUP_TAG=""
 
-# shellcheck disable=SC2317,SC2329 # invoked indirectly via trap
 cleanup() {
     if [[ -n "$CLEANUP_TAG" ]]; then
         printf 'Cleaning up: deleting tag %s from %s\n' "$CLEANUP_TAG" "$COMPANION_REPO"
@@ -207,7 +206,6 @@ printf 'Found run: %s\n' "$COMPANION_RUN_ID"
 printf 'Watching run %s...\n' "$COMPANION_RUN_ID"
 if gh run watch "$COMPANION_RUN_ID" --repo "$COMPANION_REPO" --exit-status; then
     printf 'Companion run succeeded.\n'
-    exit 0
 else
     printf 'Companion run failed.\n' >&2
     exit 1
