@@ -129,7 +129,7 @@ jobs:
       metadata-pre: ${{ steps.prep.outputs.metadata-pre }}
     steps:
       # TODO: replace with $/actions/prep when GitHub ships $/ syntax (#136)
-      - uses: TomHennen/wrangle/actions/prep@b631f580ca2ff137bd96ee62af40d97c333e3f4a # reconv738 2026-07-05
+      - uses: TomHennen/wrangle/actions/prep@1ab1d1cf0d0db0ec8cb7235c7ede216f39e09164 # priv-immutable-597-407 2026-07-05
         id: prep
         with:
           build-type: python
@@ -149,7 +149,7 @@ jobs:
       security-events: write
     steps:
       # TODO: replace with $/actions/scan when GitHub ships $/ syntax (#136)
-      - uses: TomHennen/wrangle/actions/scan@b631f580ca2ff137bd96ee62af40d97c333e3f4a # reconv738 2026-07-05
+      - uses: TomHennen/wrangle/actions/scan@1ab1d1cf0d0db0ec8cb7235c7ede216f39e09164 # priv-immutable-597-407 2026-07-05
         if: ${{ inputs.scan-tools != '' }}
         with:
           checkout: "true"
@@ -181,7 +181,7 @@ jobs:
           ref: ${{ inputs.ref || '' }}
 
       # TODO: replace with $/build/actions/python when GitHub ships $/ syntax (#136)
-      - uses: TomHennen/wrangle/build/actions/python@b631f580ca2ff137bd96ee62af40d97c333e3f4a # reconv738 2026-07-05
+      - uses: TomHennen/wrangle/build/actions/python@1ab1d1cf0d0db0ec8cb7235c7ede216f39e09164 # priv-immutable-597-407 2026-07-05
         id: build
         with:
           path: ${{ inputs.path }}
@@ -269,7 +269,7 @@ jobs:
       bundles-artifact-name: ${{ steps.attest.outputs.bundles-artifact-name }}
     steps:
       # TODO: replace with $/actions/attest_provenance when GitHub ships $/ syntax (#136)
-      - uses: TomHennen/wrangle/actions/attest_provenance@b631f580ca2ff137bd96ee62af40d97c333e3f4a # reconv738 2026-07-05
+      - uses: TomHennen/wrangle/actions/attest_provenance@1ab1d1cf0d0db0ec8cb7235c7ede216f39e09164 # priv-immutable-597-407 2026-07-05
         id: attest
         with:
           build-type: python
@@ -291,7 +291,7 @@ jobs:
       attestations: write   # post each VSA to the GitHub attestation store
     steps:
       # TODO: replace with $/actions/verify_release when GitHub ships $/ syntax (#136)
-      - uses: TomHennen/wrangle/actions/verify_release@b631f580ca2ff137bd96ee62af40d97c333e3f4a # reconv738 2026-07-05
+      - uses: TomHennen/wrangle/actions/verify_release@1ab1d1cf0d0db0ec8cb7235c7ede216f39e09164 # priv-immutable-597-407 2026-07-05
         with:
           build-type: python
           shortname: ${{ needs.prep.outputs.shortname }}
@@ -320,7 +320,7 @@ jobs:
       contents: write   # create the release if absent and upload the asset set
     steps:
       # TODO: replace with $/actions/publish_release when GitHub ships $/ syntax (#136)
-      - uses: TomHennen/wrangle/actions/publish_release@b631f580ca2ff137bd96ee62af40d97c333e3f4a # reconv738 2026-07-05
+      - uses: TomHennen/wrangle/actions/publish_release@1ab1d1cf0d0db0ec8cb7235c7ede216f39e09164 # priv-immutable-597-407 2026-07-05
         with:
           build-type: python
           shortname: ${{ needs.prep.outputs.shortname }}
