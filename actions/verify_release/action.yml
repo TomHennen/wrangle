@@ -87,7 +87,7 @@ runs:
         path: ${{ steps.names.outputs.metadata-dir }}/
 
     # TODO: replace with $/actions/verify when GitHub ships $/ syntax (#136)
-    - uses: TomHennen/wrangle/actions/verify@5596e0bab0ac67d0daa12f585b5492444e1c6579 # fix/remove-dead-gh-token-695 2026-07-05
+    - uses: TomHennen/wrangle/actions/verify@9da46fea14ceb81fc20e03173db0ab327109c65c # followup-toolbox-ampel-bump 2026-07-05
       with:
         dist-files: ${{ inputs.dist-files }}
         subjects: ${{ inputs.subjects }}
