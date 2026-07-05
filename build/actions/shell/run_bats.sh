@@ -20,13 +20,10 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 GUARD="$SCRIPT_DIR/../../../lib/stop_commands_guard.sh"
 VALIDATE_PATH="$SCRIPT_DIR/../../../lib/validate_path.sh"
 
-# WRANGLE_BATS_JOBS files run concurrently via GNU parallel (bats' --jobs
-# requires it); within-file order is always preserved so a file's setup
-# assumptions hold. Defaults to 1 (serial). Parallelism is opt-in — an adopter
-# suite may share cross-file state. Falls back to serial with a warning when
-# >1 is asked for but GNU parallel is absent. Unsets the variable afterwards —
-# it is plumbing, and bats would otherwise pass it into every test's
-# environment (BATS_* is bats-core's own namespace, hence the WRANGLE_ prefix).
+# Within-file order is always preserved (--no-parallelize-within-files) so a
+# file's setup assumptions hold. WRANGLE_ prefix: BATS_* is bats-core's own
+# namespace. Unset once read — bats would otherwise pass the plumbing into
+# every test's environment.
 compute_bats_opts() {
     BATS_OPTS=()
     local jobs="${WRANGLE_BATS_JOBS:-1}"
