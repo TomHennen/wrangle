@@ -162,6 +162,13 @@ wrangle_sign_vsa() {
     wrangle_retry_once "$vsa" wrangle_toolbox_exec \
         --sigstore -- bnd "${args[@]}" || rc=$?
     rm -f "$vsa.unsigned"
+    # bnd can exit 0 yet emit nothing; an empty output would silently append no
+    # VSA line to the bundle (jq -c on empty input yields nothing). Fail closed,
+    # matching the attest side (lib/sign_metadata.sh).
+    if [[ "$rc" -eq 0 && ! -s "$vsa" ]]; then
+        printf 'wrangle: VSA signing produced no output for %s\n' "$vsa" >&2
+        return 1
+    fi
     return "$rc"
 }
 
