@@ -193,12 +193,15 @@ old (possibly vulnerable) release; it raises the floor from any commit to any
 release. `--type` must be the full URI — cosign rejects the
 `slsaverificationsummary` alias.
 
-For container images the VSA is an OCI referrer on the image digest, not a
-`sha256-<digest>.att` tag, so `cosign verify-attestation` cannot find it. Pull
-the VSA referrer bundle with `cosign download attestation` (which lists each
-referrer bundle on its own line), select the VSA line, then bind it to the image
-digest with `cosign verify-blob-attestation --new-bundle-format` — a digest
-subject has no file blob, so pass `--digest`/`--digestAlg` in place of a path:
+For container images the VSA is an OCI 1.1 referrer on the image digest, not a
+`sha256-<digest>.att` tag. cosign v3's `cosign verify-attestation` resolves it
+directly by digest; the recipe below uses `cosign download attestation` +
+`cosign verify-blob-attestation --new-bundle-format` instead, because that one
+recipe also covers the combined workflow-artifact bundle (the npm/go/python
+delivery vehicle). Pull the VSA referrer bundle with `cosign download
+attestation` (which lists each referrer bundle on its own line), select the VSA
+line, then bind it to the image digest — a digest subject has no file blob, so
+pass `--digest`/`--digestAlg` in place of a path:
 
 ```bash
 imagename=<imagename>; digest=<digest>   # the sha256 hex, no "sha256:" prefix
