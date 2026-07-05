@@ -13,6 +13,26 @@
 # live run against the curated osv image; the FAILED case mutates only the
 # verdict, proving the jq — the sole verdict check — catches a non-PASSED VSA.
 
+# A shared clean bin of symlinks to every real tool on PATH except gh and docker
+# — the two the tests shim — built once per file so run.sh runs against a
+# controlled PATH without a per-test symlink farm.
+setup_file() {
+    SHARED_BIN="$BATS_FILE_TMPDIR/bin"
+    mkdir -p "$SHARED_BIN"
+    local dir f name
+    IFS=':' read -ra _path_dirs <<< "$PATH"
+    for dir in "${_path_dirs[@]}"; do
+        [[ -d "$dir" ]] || continue
+        for f in "$dir"/*; do
+            [[ -x "$f" && ! -d "$f" ]] || continue
+            name="${f##*/}"
+            [[ "$name" == gh || "$name" == docker ]] && continue
+            [[ -e "$SHARED_BIN/$name" ]] || ln -s "$f" "$SHARED_BIN/$name"
+        done
+    done
+    export SHARED_BIN
+}
+
 setup() {
     ORIG_DIR="$(cd "$(dirname "$BATS_TEST_FILENAME")/.." && pwd)"
     RUN_SH="$ORIG_DIR/run.sh"
@@ -28,21 +48,10 @@ setup() {
     : > "$GH_LOG"
     : > "$DOCKER_LOG"
 
-    # A clean PATH of symlinks to the real tools run.sh needs, with gh and docker
-    # excluded so neither a real binary nor the host's leaks in; the shims below
-    # are the only gh/docker on PATH. EMPTYBIN is WRANGLE_BIN_DIR (env.sh prepends
-    # it) so it cannot reintroduce a real gh.
-    local dir name
-    IFS=':' read -ra _path_dirs <<< "$PATH"
-    for dir in "${_path_dirs[@]}"; do
-        [[ -d "$dir" ]] || continue
-        for f in "$dir"/*; do
-            [[ -x "$f" && ! -d "$f" ]] || continue
-            name="${f##*/}"
-            [[ "$name" == gh || "$name" == docker ]] && continue
-            [[ -e "$CLEANBIN/$name" ]] || ln -s "$f" "$CLEANBIN/$name"
-        done
-    done
+    # Writable overlay ahead of the shared farm holds the gh and docker shims, so
+    # they are the only gh/docker on PATH. EMPTYBIN is WRANGLE_BIN_DIR (env.sh
+    # prepends it) so it cannot reintroduce a real gh.
+    CLEAN_PATH="$CLEANBIN:$SHARED_BIN"
 
     # docker shim: records its invocation and exits per DOCKER_SHIM_EXIT. A real
     # container never runs in the unit suite; dispatch is asserted by the log.
@@ -54,7 +63,7 @@ exit "${DOCKER_SHIM_EXIT:-0}"
 DOCKER
     chmod +x "$CLEANBIN/docker"
 
-    export ORIG_DIR RUN_SH TMP_DIR SRC OUT TOOLS CLEANBIN EMPTYBIN GH_LOG DOCKER_LOG
+    export ORIG_DIR RUN_SH TMP_DIR SRC OUT TOOLS CLEANBIN EMPTYBIN GH_LOG DOCKER_LOG CLEAN_PATH
 }
 
 teardown() {
@@ -96,7 +105,7 @@ JSON
 }
 
 _run_orch() {
-    PATH="$CLEANBIN" WRANGLE_BIN_DIR="$EMPTYBIN" \
+    PATH="$CLEAN_PATH" WRANGLE_BIN_DIR="$EMPTYBIN" \
         GH_SHIM_LOG="$GH_LOG" DOCKER_SHIM_LOG="$DOCKER_LOG" \
         WRANGLE_TOOLS_DIR="$TOOLS" \
         run "$RUN_SH" -s "$SRC" -o "$OUT" "$@"

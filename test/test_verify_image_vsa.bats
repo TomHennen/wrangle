@@ -12,6 +12,26 @@
 _osv_uri="ghcr.io/tomhennen/wrangle/osv@sha256:c8abda59e3a64520128c427d2fe9bd223c27e0a2056181ead1b9d3c6a5fb3b75"
 _image="ghcr.io/tomhennen/wrangle/imgtool@sha256:c8abda59e3a64520128c427d2fe9bd223c27e0a2056181ead1b9d3c6a5fb3b75"
 
+# A shared clean bin of symlinks to every real tool on PATH except gh and jq —
+# the two the per-test setup shims or drops — built once per file so the gate
+# runs against a controlled PATH without a per-test symlink farm.
+setup_file() {
+    SHARED_BIN="$BATS_FILE_TMPDIR/bin"
+    mkdir -p "$SHARED_BIN"
+    local dir f name
+    IFS=':' read -ra _dirs <<< "$PATH"
+    for dir in "${_dirs[@]}"; do
+        [[ -d "$dir" ]] || continue
+        for f in "$dir"/*; do
+            [[ -x "$f" && ! -d "$f" ]] || continue
+            name="${f##*/}"
+            [[ "$name" == gh || "$name" == jq ]] && continue
+            [[ -e "$SHARED_BIN/$name" ]] || ln -s "$f" "$SHARED_BIN/$name"
+        done
+    done
+    export SHARED_BIN
+}
+
 setup() {
     LIB="$(cd "$(dirname "$BATS_TEST_FILENAME")/.." && pwd)/lib/verify_image_vsa.sh"
     FIXTURES="$(cd "$(dirname "$BATS_TEST_FILENAME")/.." && pwd)/test/fixtures/tool-image-vsa"
@@ -21,28 +41,17 @@ setup() {
     mkdir -p "$BIN"
     : > "$COUNT"
 
-    # A clean bin of symlinks to the real tools the lib needs (mktemp, grep,
-    # sleep, printf, cat, jq, timeout), with gh excluded so only the shim below
-    # is ever on PATH. Per-test PATH overrides drop jq or the gh shim to probe
-    # the env-error paths.
-    local dir f name
-    IFS=':' read -ra _dirs <<< "$PATH"
-    for dir in "${_dirs[@]}"; do
-        [[ -d "$dir" ]] || continue
-        for f in "$dir"/*; do
-            [[ -x "$f" && ! -d "$f" ]] || continue
-            name="${f##*/}"
-            [[ "$name" == gh ]] && continue
-            [[ -e "$BIN/$name" ]] || ln -s "$f" "$BIN/$name"
-        done
-    done
+    # Writable overlay ahead of the shared farm: the gh shim and this jq symlink
+    # are what tests add or drop to probe the env-error paths.
+    ln -s "$(command -v jq)" "$BIN/jq"
+    CLEAN_PATH="$BIN:$SHARED_BIN"
 
     # shellcheck source=/dev/null
     source "$LIB"
     # The shim emits this as the VSA's resourceUri; matches $_image so the gate's
     # resourceUri binding is satisfied unless a test overrides it.
     GH_RESOURCE_URI="$_image"
-    export TMP_DIR BIN COUNT FIXTURES GH_RESOURCE_URI
+    export TMP_DIR BIN COUNT FIXTURES GH_RESOURCE_URI CLEAN_PATH
 }
 
 teardown() {
@@ -113,7 +122,7 @@ GH
 
 @test "verify: gh absent -> rc 2, clear message" {
     # BIN excludes gh and no shim is installed.
-    run env PATH="$BIN" bash -c "source '$LIB'; verify_image_vsa '$_image'"
+    run env PATH="$CLEAN_PATH" bash -c "source '$LIB'; verify_image_vsa '$_image'"
     [ "$status" -eq 2 ]
     [[ "$output" == *"gh not found"* ]]
 }
@@ -121,7 +130,7 @@ GH
 @test "verify: jq absent -> rc 2, clear message" {
     _install_gh_shim
     rm -f "$BIN/jq"
-    run env PATH="$BIN" GH_COUNT="$COUNT" GH_SEQ="passed" bash -c "source '$LIB'; verify_image_vsa '$_image'"
+    run env PATH="$CLEAN_PATH" GH_COUNT="$COUNT" GH_SEQ="passed" bash -c "source '$LIB'; verify_image_vsa '$_image'"
     [ "$status" -eq 2 ]
     [[ "$output" == *"jq not found"* ]]
 }
@@ -130,7 +139,7 @@ GH
 
 @test "verify: attested PASSED L3, resourceUri matches -> rc 0, one gh call" {
     _install_gh_shim
-    run env PATH="$BIN" GH_COUNT="$COUNT" GH_SEQ="passed" WRANGLE_RETRY_DELAY=0 \
+    run env PATH="$CLEAN_PATH" GH_COUNT="$COUNT" GH_SEQ="passed" WRANGLE_RETRY_DELAY=0 \
         bash -c "source '$LIB'; verify_image_vsa '$_image'"
     [ "$status" -eq 0 ]
     [ "$(wc -l < "$COUNT")" -eq 1 ]
@@ -138,7 +147,7 @@ GH
 
 @test "verify: PASSED L3 but resourceUri is a DIFFERENT image -> rc 1, not retried" {
     _install_gh_shim
-    run env PATH="$BIN" GH_COUNT="$COUNT" GH_SEQ="passed" WRANGLE_RETRY_DELAY=0 \
+    run env PATH="$CLEAN_PATH" GH_COUNT="$COUNT" GH_SEQ="passed" WRANGLE_RETRY_DELAY=0 \
         GH_RESOURCE_URI="ghcr.io/tomhennen/wrangle/other@sha256:dead" \
         bash -c "source '$LIB'; verify_image_vsa '$_image'"
     [ "$status" -eq 1 ]
@@ -148,7 +157,7 @@ GH
 
 @test "verify: gh rc 0 but FAILED verdict -> rc 1, not retried" {
     _install_gh_shim
-    run env PATH="$BIN" GH_COUNT="$COUNT" GH_SEQ="failed" WRANGLE_RETRY_DELAY=0 \
+    run env PATH="$CLEAN_PATH" GH_COUNT="$COUNT" GH_SEQ="failed" WRANGLE_RETRY_DELAY=0 \
         bash -c "source '$LIB'; verify_image_vsa '$_image'"
     [ "$status" -eq 1 ]
     [ "$(wc -l < "$COUNT")" -eq 1 ]
@@ -156,7 +165,7 @@ GH
 
 @test "verify: malformed gh JSON -> rc 1, fail closed, not retried" {
     _install_gh_shim
-    run env PATH="$BIN" GH_COUNT="$COUNT" GH_SEQ="malformed" WRANGLE_RETRY_DELAY=0 \
+    run env PATH="$CLEAN_PATH" GH_COUNT="$COUNT" GH_SEQ="malformed" WRANGLE_RETRY_DELAY=0 \
         bash -c "source '$LIB'; verify_image_vsa '$_image'"
     [ "$status" -eq 1 ]
     [ "$(wc -l < "$COUNT")" -eq 1 ]
@@ -166,7 +175,7 @@ GH
 
 @test "verify: no-attestation failure -> rc 1, retried once" {
     _install_gh_shim
-    run env PATH="$BIN" GH_COUNT="$COUNT" GH_SEQ="noattest" WRANGLE_RETRY_DELAY=0 \
+    run env PATH="$CLEAN_PATH" GH_COUNT="$COUNT" GH_SEQ="noattest" WRANGLE_RETRY_DELAY=0 \
         bash -c "source '$LIB'; verify_image_vsa '$_image'"
     [ "$status" -eq 1 ]
     [ "$(wc -l < "$COUNT")" -eq 2 ]
@@ -174,7 +183,7 @@ GH
 
 @test "verify: transient gh failure then success -> rc 0, two gh calls" {
     _install_gh_shim
-    run env PATH="$BIN" GH_COUNT="$COUNT" GH_SEQ="transient passed" WRANGLE_RETRY_DELAY=0 \
+    run env PATH="$CLEAN_PATH" GH_COUNT="$COUNT" GH_SEQ="transient passed" WRANGLE_RETRY_DELAY=0 \
         bash -c "source '$LIB'; verify_image_vsa '$_image'"
     [ "$status" -eq 0 ]
     [ "$(wc -l < "$COUNT")" -eq 2 ]
@@ -182,7 +191,7 @@ GH
 
 @test "verify: persistent gh failure -> rc 1, retried once then fails closed" {
     _install_gh_shim
-    run env PATH="$BIN" GH_COUNT="$COUNT" GH_SEQ="transient" WRANGLE_RETRY_DELAY=0 \
+    run env PATH="$CLEAN_PATH" GH_COUNT="$COUNT" GH_SEQ="transient" WRANGLE_RETRY_DELAY=0 \
         bash -c "source '$LIB'; verify_image_vsa '$_image'"
     [ "$status" -eq 1 ]
     [ "$(wc -l < "$COUNT")" -eq 2 ]
@@ -190,7 +199,7 @@ GH
 
 @test "verify: gh timeout then success -> rc 0 (timeout exit is retried)" {
     _install_gh_shim
-    run env PATH="$BIN" GH_COUNT="$COUNT" GH_SEQ="timeout passed" WRANGLE_RETRY_DELAY=0 \
+    run env PATH="$CLEAN_PATH" GH_COUNT="$COUNT" GH_SEQ="timeout passed" WRANGLE_RETRY_DELAY=0 \
         bash -c "source '$LIB'; verify_image_vsa '$_image'"
     [ "$status" -eq 0 ]
     [ "$(wc -l < "$COUNT")" -eq 2 ]
