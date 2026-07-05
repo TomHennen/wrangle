@@ -335,6 +335,9 @@ JSON
     run_orchestrator -s "$TEST_DIR/src" -o "$TEST_DIR/output" "imgtool"
     [ "$status" -eq 2 ]
     [[ "$output" == *"not digest-pinned"* ]]
+    # A config failure writes the error marker too, so an :info tool with a bad
+    # pin still blocks the check (check_results reads the marker).
+    [ -f "$TEST_DIR/output/imgtool/error" ]
 }
 
 @test "orchestrator: a delivery: image tool with no directory is admitted (not unknown)" {

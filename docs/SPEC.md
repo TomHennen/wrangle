@@ -392,32 +392,25 @@ PRECONDITIONS:
   jq is available
 
 ENVIRONMENT:
-  The orchestrator sets these WRANGLE_* variables for every tool image:
+  A tool image inherits nothing from the runner; the orchestrator passes only
+  these variables explicitly, via `docker run -e`:
     WRANGLE_KIND         the tool's kind (input/stage; see TOOL KIND above)
     WRANGLE_SOURCE_NAME  basename of the scanned source dir (the /src mount
                          hides its real path)
-    WRANGLE_EXTRA_<VAR>  the runner's WRANGLE_EXTRA_<VAR> reaches the tool as
-                         <VAR>, prefix stripped (see the WRANGLE_EXTRA_ rule below)
-
-  Adapters run with a restricted environment. Only the following variables
-  are passed through from the runner:
-    PATH, HOME, TMPDIR, RUNNER_TEMP, GITHUB_WORKSPACE, GITHUB_STEP_SUMMARY
-  Sensitive variables (GITHUB_TOKEN, ACTIONS_RUNTIME_TOKEN, etc.) are NOT
-  available to adapters by default. If a tool requires an additional
-  environment variable (e.g., a private vulnerability DB token), it can
-  be passed through by setting it in the composite action's `env:` block
-  with a `WRANGLE_EXTRA_` prefix. The orchestrator forwards any variable
-  matching `WRANGLE_EXTRA_*` to adapters with the prefix stripped.
-  Example: `WRANGLE_EXTRA_OSV_DB_TOKEN=xxx` becomes `OSV_DB_TOKEN=xxx`
-  in the adapter environment. This keeps the allowlist explicit without
-  requiring adapter forks for authenticated tools.
+    <VAR>                one catalog-declared secret: a tool whose entry names
+                         `secret: foo-bar` receives the runner's
+                         WRANGLE_EXTRA_FOO_BAR as FOO_BAR (uppercased, prefix
+                         stripped, forwarded by name). An undeclared
+                         WRANGLE_EXTRA_* is not forwarded.
+  Sensitive host variables (GITHUB_TOKEN, ACTIONS_RUNTIME_TOKEN, etc.) reach a
+  tool only when routed through that declared secret (e.g. zizmor's online audit
+  takes `secret: github-token`).
 
 SECURITY:
-  - Adapter scripts MUST NOT write files outside of output_dir.
-    The orchestrator performs a post-execution filesystem check to detect
-    unexpected modifications outside output_dir and flags violations.
-  - Adapter scripts MUST NOT make network requests beyond what the tool
-    requires for its scan (e.g., fetching vulnerability databases)
+  - The image cannot write outside its output: /src is mounted read-only and
+    only /output is writable — a fail-closed sandbox.
+  - A tool makes no network requests unless its catalog entry declares
+    `network: egress`; the default is `--network none`.
   - All output written to GITHUB_STEP_SUMMARY MUST be sanitized to
     prevent markdown/HTML injection
   - jq exit codes MUST be checked; malformed SARIF must not silently pass
@@ -630,8 +623,8 @@ INPUT VALIDATION:
   throughout the orchestrator and adapter scripts.
 
 ENVIRONMENT ISOLATION:
-  The orchestrator clears sensitive environment variables before invoking
-  adapters. See the adapter API ENVIRONMENT section for the allowlist.
+  A tool image inherits no runner environment; the orchestrator passes only the
+  variables in the adapter API ENVIRONMENT section explicitly, via `docker run -e`.
 
 NOTES:
   The orchestrator resolves its helper scripts and the catalog relative to its
@@ -890,7 +883,7 @@ Structure after a scan:
 
 The optional `error` file is the tool-error marker for action-pattern tools — see "Tool-error marker contract" under [Two Tool Patterns](#two-tool-patterns).
 
-The `.wrangle/` directory is in `.gitignore` to prevent accidental commits. The orchestrator's filesystem check (`run.sh`) excludes the metadata directory from its pre/post snapshots.
+The `.wrangle/` directory is in `.gitignore` to prevent accidental commits.
 
 **Future use:** The metadata directory is designed to become the source for signed attestations: "this commit was scanned by tools X, Y, Z with these results."
 
@@ -1096,8 +1089,7 @@ Action-pattern tools call these helpers from their own `action.yml`. The `format
 - Integrity verification (checksums + SLSA provenance) is the primary defense against malicious binaries
 - GitHub-hosted runners are ephemeral, limiting the blast radius of any compromise
 - For self-hosted runners, adopters should use [StepSecurity Harden-Runner](https://github.com/step-security/harden-runner) alongside wrangle for network monitoring
-- Post-execution filesystem check: the orchestrator snapshots the workspace file list before and after each adapter run, flagging any unexpected file modifications outside `output_dir`
-- Future versions may use lightweight sandboxing (bubblewrap, firejail) on Linux runners
+- Write confinement: each tool runs against a read-only `/src` mount with only `/output` writable, so it cannot modify the workspace it scans
 
 ### Protecting Wrangle Itself
 
