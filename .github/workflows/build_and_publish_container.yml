@@ -86,6 +86,13 @@ on:
         required: false
         type: string
         default: policies/wrangle-default-container-v1.hjson
+    secrets:
+      gh_token:
+        description: >
+          Deprecated no-op — no job consumes it; every job authenticates with
+          its own GITHUB_TOKEN. Kept optional so callers still passing it don't
+          break; stop passing it, it is slated for removal.
+        required: false
     outputs:
       digest:
         description: "Image digest pushed to the registry."

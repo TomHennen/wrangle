@@ -50,8 +50,10 @@ Multi-registry support is a planned extension. See "Known limitations" for the s
 
 ### Reusable workflow secrets
 
-None. Every job authenticates with its own `GITHUB_TOKEN` (each requests the
-`packages: write` / `id-token: write` it needs), so the caller passes no secrets.
+None required. Every job authenticates with its own `GITHUB_TOKEN` (each requests
+the `packages: write` / `id-token: write` it needs). A deprecated optional
+`gh_token` secret remains declared for callers still passing it (it is a no-op,
+slated for removal) — new callers pass no secrets.
 
 ### Reusable workflow outputs
 
