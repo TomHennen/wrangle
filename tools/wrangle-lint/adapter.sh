@@ -8,7 +8,7 @@ set -f  # disable globbing — adapter walks adopter-controlled paths
 # scanners, which check code/workflows rather than whether config is wired up.
 #
 # The wrangle-lint binary is a first-party Go tool (a tool directive in
-# tools/go.mod); run.sh installs it onto PATH via the upfront `go install tool`.
+# tools/go.mod), on PATH inside this tool's image.
 #
 # Usage: adapter.sh <src_dir> <output_dir>
 # Exit: 0 = no findings, 1 = findings found, 2 = tool error

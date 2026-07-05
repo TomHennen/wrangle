@@ -4,7 +4,7 @@
 # docs/tool_container_design.md §3.5): a tool whose catalog entry declares
 # delivery: image is run via `docker run` under the contract sandbox, writing
 # the SAME ${output_dir}/${tool}/output.sarif the downstream collectors consume,
-# with the 0/1/2 exit contract mapped. Adapter-path tools are unaffected.
+# with the 0/1/2 exit contract mapped.
 #
 # Needs docker, so it lives under test/image/ (outside the Makefile's unit
 # `bats` glob, which expands test/ non-recursively) and runs in the dogfooded
@@ -77,7 +77,7 @@ setup() {
     SRC="$TMP_DIR/src"
     OUT="$TMP_DIR/out"
     TOOLS="$TMP_DIR/tools"
-    mkdir -p "$SRC" "$OUT" "$TOOLS/mocktool" "$TOOLS/adaptertool"
+    mkdir -p "$SRC" "$OUT" "$TOOLS/mocktool"
 
     # MOCK_IMAGE is the local-registry digest pin from setup_file (a real,
     # engine-portable repo digest, which run.sh's digest-pin check requires).
@@ -88,16 +88,6 @@ setup() {
     cat > "$TOOLS/catalog.json" <<JSON
 {"tools":{"mocktool":{"kind":"scan","delivery":"image","image":"$MOCK_IMAGE"}}}
 JSON
-
-    # An adapter-path tool sharing the same run, to prove the adapter seam is
-    # untouched when a catalog image tool is present.
-    cat > "$TOOLS/adaptertool/adapter.sh" <<'ADAPT'
-#!/bin/bash
-set -euo pipefail
-printf '{"version":"2.1.0","runs":[{"tool":{"driver":{"name":"adaptertool"}},"results":[]}]}\n' > "$2/output.sarif"
-exit 0
-ADAPT
-    chmod +x "$TOOLS/adaptertool/adapter.sh"
 }
 
 teardown() {
@@ -153,27 +143,6 @@ _run_orch() {
     [ "$status" -eq 0 ]
     # /src is mounted read-only; confirm the source tree is untouched.
     [ "$(find "$SRC" -type f | wc -l | tr -d ' ')" -eq "$before" ]
-}
-
-@test "run.sh: adapter-path tool is unaffected alongside an image tool" {
-    printf 'clean' > "$SRC/MODE"
-    _run_orch mocktool adaptertool
-    [ "$status" -eq 0 ]
-    [ -f "$OUT/mocktool/output.sarif" ]
-    [ -f "$OUT/adaptertool/output.sarif" ]
-    grep -q '"name":"adaptertool"' "$OUT/adaptertool/output.sarif"
-}
-
-@test "run.sh: a delivery: adapter catalog entry still runs the adapter" {
-    # An entry that names the tool but declares delivery: adapter must NOT be
-    # dispatched via docker — it falls through to the in-process adapter.
-    cat > "$TOOLS/catalog.json" <<'JSON'
-{"tools":{"adaptertool":{"kind":"scan","delivery":"adapter"}}}
-JSON
-    _run_orch adaptertool
-    [ "$status" -eq 0 ]
-    [ -f "$OUT/adaptertool/output.sarif" ]
-    grep -q '"name":"adaptertool"' "$OUT/adaptertool/output.sarif"
 }
 
 @test "run.sh image dispatch: a declared secret reaches the container env" {

@@ -9,7 +9,7 @@ wrangle-specific policy (see [Scope](#scope)).
 | Property | Value |
 |----------|-------|
 | Pattern | Adapter (`tools/wrangle-lint/adapter.sh` + the first-party `wrangle-lint` Go binary) |
-| Integrity verification | First-party Go (`tool` directive in `tools/go.mod`), built by the orchestrator's upfront `go install tool`; dependency integrity via go.sum / sum.golang.org (DEP_MGMT branch 1) |
+| Integrity verification | First-party Go (`tool` directive in `tools/go.mod`), built into the tool's image at image-build time; dependency integrity via go.sum / sum.golang.org (DEP_MGMT branch 1) |
 | SARIF output | `$WRANGLE_METADATA_DIR/wrangle-lint/output.sarif` (written by the binary) |
 | SARIF upload | Wrangle uploads with category `wrangle/wrangle-lint` |
 | Default policy | `:fail` — config footguns block the check |

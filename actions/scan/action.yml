@@ -89,7 +89,6 @@ runs:
         WRANGLE_ROOT: ${{ github.action_path }}/../..
         WRANGLE_EXTRA_GITHUB_TOKEN: ${{ inputs.github-token }}
         GH_TOKEN: ${{ inputs.github-token }}
-        WRANGLE_INSTALL_TIMEOUT: "900"
       run: |
         # shellcheck source=../../lib/env.sh
         source "$WRANGLE_ROOT/lib/env.sh"
