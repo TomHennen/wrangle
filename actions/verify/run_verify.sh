@@ -85,7 +85,11 @@ wrangle_ampel_verify_args() {
     local args=(verify "$subject_arg"
         --collector="jsonl:$bundle")
     [[ -n "${COLLECTOR:-}" ]] && args+=(--collector="$COLLECTOR")
+    # The catalog attest-toolbox image still ships pre-#298-fix ampel (< v1.3.1),
+    # which drops identity matches on tenets beyond --workers; keep the flag
+    # until that image's digest is bumped to a v1.3.1 build (#563).
     args+=(--policy="$(wrangle_resolve_policy "$POLICY")"
+        --workers=32
         --exit-code="$FAIL"
         --attest-results
         --attest-format=vsa
@@ -158,6 +162,13 @@ wrangle_sign_vsa() {
     wrangle_retry_once "$vsa" wrangle_toolbox_exec \
         --sigstore -- bnd "${args[@]}" || rc=$?
     rm -f "$vsa.unsigned"
+    # bnd can exit 0 yet emit nothing; an empty output would silently append no
+    # VSA line to the bundle (jq -c on empty input yields nothing). Fail closed,
+    # matching the attest side (lib/sign_metadata.sh).
+    if [[ "$rc" -eq 0 && ! -s "$vsa" ]]; then
+        printf 'wrangle: VSA signing produced no output for %s\n' "$vsa" >&2
+        return 1
+    fi
     return "$rc"
 }
 

@@ -117,6 +117,8 @@ teardown() {
     # A relative policy path is resolved to an absolute path under the action's checkout.
     printf '%s\n' "${args[@]}" | grep -qE -- "^--policy=/.*/policies/release\.json$"
     printf '%s\n' "${args[@]}" | grep -qx -- "--exit-code=true"
+    # Required while the catalog attest-toolbox ships pre-#298-fix ampel (#563).
+    printf '%s\n' "${args[@]}" | grep -qxE -- "--workers=(8|9|[1-9][0-9]+)"
     printf '%s\n' "${args[@]}" | grep -qx -- "--attest-results"
     printf '%s\n' "${args[@]}" | grep -qx -- "--attest-format=vsa"
     printf '%s\n' "${args[@]}" | grep -qx -- "--results-path=$VSA"
@@ -960,6 +962,9 @@ _install_toolbox_shims() {
     cat > "$TEST_DIR/docker" <<EOF
 #!/bin/bash
 printf '%s\n' "\$*" > "$TEST_DIR/docker.args"
+# bnd statement (VSA signing) writes the signed statement to stdout; emit a
+# placeholder so the caller's non-empty-output guard (empty = fail closed) is met.
+case "\$*" in *"bnd statement"*) printf '{"signed":"vsa"}\n' ;; esac
 EOF
     chmod +x "$TEST_DIR/docker"
     cat > "$TEST_DIR/gh" <<EOF
@@ -1115,4 +1120,16 @@ EOF
     grep -q "lacks id-token: write" <<< "$output"
     [ ! -f "$TEST_DIR/docker.args" ]
     [ ! -f "$TEST_DIR/bnd.called" ]
+}
+
+@test "run_verify: sign_vsa fails closed when bnd emits no output" {
+    # bnd can exit 0 yet write nothing; an empty signed VSA would silently append
+    # no VSA line to the bundle (jq -c on empty input yields nothing).
+    local stub="$TEST_DIR/stubbin"; mkdir -p "$stub"
+    printf '#!/bin/bash\nexit 0\n' > "$stub/bnd"   # exit 0, empty stdout
+    chmod +x "$stub/bnd"
+    printf '{"unsigned":"vsa"}' > "$VSA"
+    PATH="$stub:$PATH" run wrangle_sign_vsa "$VSA"
+    [ "$status" -ne 0 ]
+    [[ "$output" == *"produced no output"* ]]
 }

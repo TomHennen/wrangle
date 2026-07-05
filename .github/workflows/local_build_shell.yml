@@ -13,6 +13,11 @@ on:
     branches: ["**"]
   workflow_dispatch:
 
+# Cancel superseded PR runs; the run_id fallback keeps each main/tag push in its own group (never cancelled).
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.run_id }}
+  cancel-in-progress: true
+
 jobs:
   build-shell:
     permissions:

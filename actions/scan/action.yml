@@ -112,7 +112,7 @@ runs:
     # TODO: replace with $/tools/scorecard when $/ syntax ships (#136, #137)
     - name: Scorecard
       if: always() && contains(inputs.tools, 'scorecard') && github.event_name != 'pull_request'
-      uses: TomHennen/wrangle/tools/scorecard@7ba366f9b9c2d29d2ca96943b4cf098e55af049c # followup-toolbox-ampel-bump 2026-07-05
+      uses: TomHennen/wrangle/tools/scorecard@7908aadf0476e392d5b7bb046845363ff8da2140 # fix/verify-empty-vsa-693 2026-07-05
 
     # Dependency Review is PR-only — the upstream action requires
     # github.event.pull_request.base.sha / head.sha to compute the diff.
@@ -124,7 +124,7 @@ runs:
     # The wrapper's inline defaults (fail-on-severity: high) still apply.
     - name: Dependency Review
       if: always() && contains(inputs.tools, 'dependency-review') && github.event_name == 'pull_request'
-      uses: TomHennen/wrangle/tools/dependency-review@7ba366f9b9c2d29d2ca96943b4cf098e55af049c # followup-toolbox-ampel-bump 2026-07-05
+      uses: TomHennen/wrangle/tools/dependency-review@7908aadf0476e392d5b7bb046845363ff8da2140 # fix/verify-empty-vsa-693 2026-07-05
 
     - name: Generate step summary
       if: always()
