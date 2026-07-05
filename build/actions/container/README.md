@@ -4,7 +4,7 @@ Wrangle builds a container image from your Dockerfile and publishes it to ghcr.i
 
 ## Quick start
 
-Copy [`build_and_publish_containers.yml`](../../../gh_workflow_examples/build_and_publish_containers.yml) into `.github/workflows/` and fill in three inputs (the example wires the permissions and `gh_token` secret):
+Copy [`build_and_publish_containers.yml`](../../../gh_workflow_examples/build_and_publish_containers.yml) into `.github/workflows/` and fill in three inputs (the example wires the permissions):
 
 | Input | Value |
 |-------|-------|

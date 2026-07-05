@@ -112,7 +112,7 @@ runs:
     # TODO: replace with $/tools/scorecard when $/ syntax ships (#136, #137)
     - name: Scorecard
       if: always() && contains(inputs.tools, 'scorecard') && github.event_name != 'pull_request'
-      uses: TomHennen/wrangle/tools/scorecard@67da09e58ee3f3a151beba4f0246c94fbc8b1da2 # fix/info-policy-markers-688 2026-07-05
+      uses: TomHennen/wrangle/tools/scorecard@5596e0bab0ac67d0daa12f585b5492444e1c6579 # fix/remove-dead-gh-token-695 2026-07-05
 
     # Dependency Review is PR-only — the upstream action requires
     # github.event.pull_request.base.sha / head.sha to compute the diff.
@@ -124,7 +124,7 @@ runs:
     # The wrapper's inline defaults (fail-on-severity: high) still apply.
     - name: Dependency Review
       if: always() && contains(inputs.tools, 'dependency-review') && github.event_name == 'pull_request'
-      uses: TomHennen/wrangle/tools/dependency-review@67da09e58ee3f3a151beba4f0246c94fbc8b1da2 # fix/info-policy-markers-688 2026-07-05
+      uses: TomHennen/wrangle/tools/dependency-review@5596e0bab0ac67d0daa12f585b5492444e1c6579 # fix/remove-dead-gh-token-695 2026-07-05
 
     - name: Generate step summary
       if: always()

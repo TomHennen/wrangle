@@ -83,8 +83,10 @@ published as a GitHub Release** — a bare `git tag`/`git push` creates
 only a loose tag with no release attestation. Two tag-immutability
 controls (below) are already configured on the repo.
 
-1. Update the pinned `uses:` version references in
-   `gh_workflow_examples/`.
+1. Update the pinned `uses: …@vX.Y.Z` version references — these live in
+   `gh_workflow_examples/` **and** across the adopter-facing docs and per-action
+   READMEs (the `cut-release` skill enumerates the full set), not just the
+   examples.
 2. Publish a Release on the target commit: GitHub's **Draft a new
    release** UI (pick the commit, type `vX.Y.Z`, publish), or
    `gh release create vX.Y.Z`. Never ship a bare `git tag && git push`

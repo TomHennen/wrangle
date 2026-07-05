@@ -29,5 +29,3 @@ jobs:
       path: PATH/TO/FOLDER/WITH/Dockerfile
       imagename: ghcr.io/${{ github.repository }}/YOUR_IMAGE_NAME
       registry: 'ghcr.io'
-    secrets:
-      gh_token: ${{ secrets.GITHUB_TOKEN }}
