@@ -35,6 +35,8 @@ jobs:
       # is stable.
       go-tools-dir: tools
       cache-setup-tools: enabled
+      # Cross-run layer cache for the tool images the setup script prebuilds.
+      image-cache: enabled
     # The integration bats include the pull-time VSA gate's real-gh test
     # (test/image/test_verify_tool_image_real_gh.bats); gh needs a token to
     # read the public attestation. The job's own read-only token suffices.

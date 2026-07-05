@@ -423,6 +423,13 @@ SECURITY:
   - jq exit codes MUST be checked; malformed SARIF must not silently pass
 ```
 
+**Setup-script image-cache contract (shell build type):** when the caller
+enables `build_shell.yml`'s `image-cache`, the setup-script MAY append docker
+image tags (one per line) to the file named by `$WRANGLE_IMAGE_CACHE_LIST` to
+have them cached across runs, and on a cache hit the check steps see
+`WRANGLE_TOOL_IMAGES_PREBUILT=1` — a test MAY skip building an image whose tag
+is already present.
+
 ### Install Script Interface
 
 Adapter tools are Go tools by default: a `tool` directive in `tools/go.mod`, which the orchestrator installs in one upfront `go install tool` (go.sum integrity, Dependabot freshness — DEP_MGMT branch 1). A tool that no package manager ships may instead carry a bespoke `tools/<name>/install.sh` (the escape hatch), downloading and verifying a binary per the integrity tiers below.
