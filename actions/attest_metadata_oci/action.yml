@@ -47,13 +47,6 @@ runs:
         name: ${{ steps.names.outputs.metadata-pre }}
         path: ${{ steps.names.outputs.metadata-dir }}/
 
-    # Build wrangle-attest (statements) + bnd (sign + store push) + cosign (OCI
-    # referrer push). attest does not run ampel — that verdict stays in verify.
-    - name: Install attest tools
-      shell: bash
-      run: |
-        "${{ github.action_path }}/install_tools.sh"
-
     - name: Sign metadata and assemble the per-artifact bundle
       shell: bash
       env:
