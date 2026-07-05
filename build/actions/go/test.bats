@@ -1,5 +1,8 @@
 #!/usr/bin/env bats
 
+# shared skip_or_fail: skips locally, fails in CI so coverage can't degrade unseen.
+load "../../../test/lib/bats_helpers"
+
 # Tests for the Go build composites (checks/, build/) and
 # the reusable workflow build_and_publish_go.yml.
 #
@@ -770,7 +773,7 @@ func main() {}
 # Helper: skip the calling test if Go is not on PATH.
 need_go() {
     if ! command -v go >/dev/null 2>&1; then
-        skip "go binary not on PATH (run via ./test.sh to use the Docker image)"
+        skip_or_fail "go binary not on PATH (run via ./test.sh to use the Docker image)"
     fi
 }
 
