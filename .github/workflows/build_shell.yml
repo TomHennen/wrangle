@@ -76,10 +76,13 @@ on:
         description: >
           Set to "enabled" to docker-save/load the images the tests build
           across runs (actions/cache, exact key on tools/**, lib/** and
-          Dockerfiles). The setup-script registers the tags to save by
-          appending them to $WRANGLE_IMAGE_CACHE_LIST; on a hit the images
-          are loaded and WRANGLE_TOOL_IMAGES_PREBUILT=1 lets tests skip
-          their own builds. Enable only if your image build inputs live
+          Dockerfiles). Worth enabling when your bats build docker images
+          and those rebuilds dominate the run: warm runs get the build
+          time back for ~200MB of cache quota. The setup-script registers
+          the tags to save by appending them to $WRANGLE_IMAGE_CACHE_LIST;
+          on a hit the images are loaded and WRANGLE_TOOL_IMAGES_PREBUILT=1
+          lets tests skip their own builds. Enable only if your image
+          build inputs live
           under tools/ and lib/ — inputs elsewhere aren't in the key, so
           their changes would restore stale images. Counts against the
           repo's Actions cache quota. Test/scan only: a hit restores
