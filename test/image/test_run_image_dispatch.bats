@@ -4,7 +4,7 @@
 # docs/tool_container_design.md §3.5): a tool whose catalog entry declares
 # delivery: image is run via `docker run` under the contract sandbox, writing
 # the SAME ${output_dir}/${tool}/output.sarif the downstream collectors consume,
-# with the 0/1/2 exit contract mapped. Adapter-path tools are unaffected.
+# with the 0/1/2 exit contract mapped.
 #
 # Needs docker, so it lives under test/image/ (outside the Makefile's unit
 # `bats` glob, which expands test/ non-recursively) and runs in the dogfooded
@@ -77,7 +77,7 @@ setup() {
     SRC="$TMP_DIR/src"
     OUT="$TMP_DIR/out"
     TOOLS="$TMP_DIR/tools"
-    mkdir -p "$SRC" "$OUT" "$TOOLS/mocktool" "$TOOLS/adaptertool"
+    mkdir -p "$SRC" "$OUT" "$TOOLS/mocktool"
 
     # MOCK_IMAGE is the local-registry digest pin from setup_file (a real,
     # engine-portable repo digest, which run.sh's digest-pin check requires).
@@ -88,16 +88,6 @@ setup() {
     cat > "$TOOLS/catalog.json" <<JSON
 {"tools":{"mocktool":{"kind":"scan","delivery":"image","image":"$MOCK_IMAGE"}}}
 JSON
-
-    # An adapter-path tool sharing the same run, to prove the adapter seam is
-    # untouched when a catalog image tool is present.
-    cat > "$TOOLS/adaptertool/adapter.sh" <<'ADAPT'
-#!/bin/bash
-set -euo pipefail
-printf '{"version":"2.1.0","runs":[{"tool":{"driver":{"name":"adaptertool"}},"results":[]}]}\n' > "$2/output.sarif"
-exit 0
-ADAPT
-    chmod +x "$TOOLS/adaptertool/adapter.sh"
 }
 
 teardown() {
@@ -124,10 +114,76 @@ _run_orch() {
     [ "$(jq '[.runs[].results[]] | length' "$OUT/mocktool/output.sarif")" -gt 0 ]
 }
 
-@test "run.sh image dispatch: tool error -> exit 2" {
+@test "run.sh image dispatch: tool error -> exit 2 and an error marker" {
     printf 'error' > "$SRC/MODE"
     _run_orch mocktool
     [ "$status" -eq 2 ]
+    # The marker lets check_results catch the failure even under continue-on-error
+    # (and honor an :info policy on the error).
+    [ -f "$OUT/mocktool/error" ]
+}
+
+@test "run.sh image dispatch: an errored tool among several -> exit 2" {
+    # Two tools, both erroring, in one run; overall status must reach 2 (an error
+    # is never downgraded).
+    printf 'error' > "$SRC/MODE"
+    cat > "$TOOLS/catalog.json" <<JSON
+{"tools":{"toola":{"kind":"scan","delivery":"image","image":"$MOCK_IMAGE"},"toolb":{"kind":"scan","delivery":"image","image":"$MOCK_IMAGE"}}}
+JSON
+    _run_orch toola toolb
+    [ "$status" -eq 2 ]
+}
+
+@test "run.sh image dispatch: run timeout -> exit 2" {
+    printf 'slow' > "$SRC/MODE"
+    WRANGLE_TOOLS_DIR="$TOOLS" WRANGLE_ADAPTER_TIMEOUT=1 \
+        run "$RUN_SH" -s "$SRC" -o "$OUT" mocktool
+    [ "$status" -eq 2 ]
+    [[ "$output" == *"timed out"* ]]
+}
+
+@test "run.sh image dispatch: two image tools land in distinct dirs without clobbering" {
+    printf 'clean' > "$SRC/MODE"
+    cat > "$TOOLS/catalog.json" <<JSON
+{"tools":{"toola":{"kind":"scan","delivery":"image","image":"$MOCK_IMAGE"},"toolb":{"kind":"scan","delivery":"image","image":"$MOCK_IMAGE"}}}
+JSON
+    _run_orch toola toolb
+    [ "$status" -eq 0 ]
+    [ -f "$OUT/toola/output.sarif" ]
+    [ -f "$OUT/toolb/output.sarif" ]
+}
+
+@test "run.sh image dispatch: writes the scan/v1 manifest for a wired tool token" {
+    # run.sh's shared post-run path writes the scan/v1 manifest for osv/wrangle-lint/
+    # zizmor tokens. Drive it deterministically with the mock image under the osv key.
+    printf 'clean' > "$SRC/MODE"
+    cat > "$TOOLS/catalog.json" <<JSON
+{"tools":{"osv":{"kind":"scan","delivery":"image","image":"$MOCK_IMAGE"}}}
+JSON
+    _run_orch osv
+    [ "$status" -eq 0 ]
+    local manifest="$OUT/osv/wrangle_attestation_metadata.json"
+    [ -f "$manifest" ]
+    [ "$(jq -r '."predicate-type"' "$manifest")" = "https://github.com/TomHennen/wrangle/attestation/scan/v1" ]
+    [ "$(jq -r '.tool.name' "$manifest")" = "osv-scanner" ]
+    [ "$(jq -r '.result' "$manifest")" = "clean" ]
+}
+
+@test "run.sh image dispatch: no scan manifest for an unwired tool token" {
+    printf 'clean' > "$SRC/MODE"
+    _run_orch mocktool
+    [ "$status" -eq 0 ]
+    [ ! -f "$OUT/mocktool/wrangle_attestation_metadata.json" ]
+}
+
+@test "run.sh image dispatch: an undeclared host GITHUB_TOKEN never reaches the container" {
+    # With no catalog secret:, docker gets only the -e flags run_tool_image builds;
+    # a host GITHUB_TOKEN must not be among them. The mock records what it saw.
+    printf 'secret' > "$SRC/MODE"
+    WRANGLE_TOOLS_DIR="$TOOLS" GITHUB_TOKEN="ghs_should_not_leak" \
+        run "$RUN_SH" -s "$SRC" -o "$OUT" mocktool
+    [ "$status" -eq 0 ]
+    [ -z "$(cat "$OUT/mocktool/github_token_seen")" ]
 }
 
 @test "run.sh image dispatch: writes output.sarif into output_dir/<tool>/" {
@@ -153,27 +209,6 @@ _run_orch() {
     [ "$status" -eq 0 ]
     # /src is mounted read-only; confirm the source tree is untouched.
     [ "$(find "$SRC" -type f | wc -l | tr -d ' ')" -eq "$before" ]
-}
-
-@test "run.sh: adapter-path tool is unaffected alongside an image tool" {
-    printf 'clean' > "$SRC/MODE"
-    _run_orch mocktool adaptertool
-    [ "$status" -eq 0 ]
-    [ -f "$OUT/mocktool/output.sarif" ]
-    [ -f "$OUT/adaptertool/output.sarif" ]
-    grep -q '"name":"adaptertool"' "$OUT/adaptertool/output.sarif"
-}
-
-@test "run.sh: a delivery: adapter catalog entry still runs the adapter" {
-    # An entry that names the tool but declares delivery: adapter must NOT be
-    # dispatched via docker — it falls through to the in-process adapter.
-    cat > "$TOOLS/catalog.json" <<'JSON'
-{"tools":{"adaptertool":{"kind":"scan","delivery":"adapter"}}}
-JSON
-    _run_orch adaptertool
-    [ "$status" -eq 0 ]
-    [ -f "$OUT/adaptertool/output.sarif" ]
-    grep -q '"name":"adaptertool"' "$OUT/adaptertool/output.sarif"
 }
 
 @test "run.sh image dispatch: a declared secret reaches the container env" {
@@ -324,4 +359,15 @@ JSON
     [ "$(jq -r '."predicate-type"' "$meta/wrangle_attestation_metadata.json")" = "https://spdx.dev/Document" ]
     [ "$(jq -r '."result-file"' "$meta/wrangle_attestation_metadata.json")" = "sbom.spdx.json" ]
     [ ! -d "$meta/mocktool" ]
+}
+
+@test "generate_sbom: fails closed when the dispatched tool errors" {
+    # The image errors and writes no SBOM (a failed VSA gate / tool error looks
+    # the same). run.sh returns 2; generate_sbom must propagate, not relocate.
+    _sbom_catalog
+    printf 'sbom-error' > "$SRC/MODE"
+    local meta="$TMP_DIR/meta"
+    WRANGLE_TOOLS_DIR="$TOOLS" run "$ORIG_DIR/lib/generate_sbom.sh" "$SRC" "$meta" mocktool
+    [ "$status" -ne 0 ]
+    [ ! -f "$meta/sbom.spdx.json" ]
 }

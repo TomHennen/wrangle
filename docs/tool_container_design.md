@@ -18,8 +18,7 @@ Wrangle's tool layer solves four problems at once, each only partially:
    (zizmor), and action wrappers. Coverage is uneven and drift is a recurring review finding
    (#264/#277/#286).
 2. **Speed.** Adapter tools are installed and compiled on every run: `run.sh` `go install`s
-   osv-scanner's dependency tree cold, which is slow enough that the scan action raises
-   `WRANGLE_INSTALL_TIMEOUT` from its 300 s default to 900 s. The Go build cache that would help is off
+   osv-scanner's dependency tree cold, a slow per-run cost. The Go build cache that would help is off
    by default on attested paths for SLSA-L3 reasons.
 3. **Supply-chain isolation.** A tool today is contained by a stripped environment, the adapter
    contract, and a post-run filesystem snapshot — not a real sandbox. Stronger isolation was deferred
@@ -73,14 +72,13 @@ docker run --rm --network <policy> -u <runner_uid>:<gid> \
 
 ### 3.2 Isolation
 
-`docker run` replaces `run.sh`'s in-process isolation, so each current mechanism is carried over
-deliberately:
+The container is the sandbox; each isolation property is enforced explicitly:
 
-| Today (`run.sh`) | Container equivalent |
+| Isolation property | Container mechanism |
 |---|---|
-| `env -i <allowlist>` — adapter sees only allowed env | bare `docker run` inherits nothing; allowed vars passed explicitly with `-e` |
+| adapter sees only allowed env | bare `docker run` inherits nothing; allowed vars passed explicitly with `-e` |
 | `WRANGLE_EXTRA_*` forwarding | explicit `-e WRANGLE_EXTRA_*` per declaring tool |
-| post-run filesystem snapshot (warn-only) | `/src:ro` + `/output`-only mount — fail-closed write confinement, an upgrade |
+| write confinement | `/src:ro` + `/output`-only mount — fail-closed |
 
 Signing (`attest`) containers additionally never receive the OIDC mint-request vars
 (`ACTIONS_ID_TOKEN_REQUEST_*`); the host mints the short-lived `SIGSTORE_ID_TOKEN` and passes only that
@@ -184,10 +182,10 @@ thing for the pin tooling to track and for adopters to read.
 
 The shipped catalog (`tools/catalog.json`) is parsed with `jq` (`lib/read_catalog.sh`) and has **two
 consumers**: the scan orchestrator dispatches entries the `tools:` selection names that carry
-`delivery: image` (the docker-run path; a tool not listed — or one with `delivery: adapter`/no `delivery`
-— takes the in-process adapter path), and the verify action resolves one **fixed key**
-(`attest-toolbox`) for its in-container `ampel verify`. An entry may therefore omit `delivery` to opt out
-of scan dispatch while still being a reviewable grant the verify path resolves; `check_catalog` pin- and
+`delivery: image` via `docker run` (a selected tool with no catalog image entry and no `action.yml` is
+rejected as unknown), and the verify action resolves one **fixed key** (`attest-toolbox`) for its
+in-container `ampel verify`. An entry the `tools:` selection never names is not scan-dispatched, yet
+remains a reviewable grant the verify path resolves by fixed key; `check_catalog` pin- and
 namespace-lints any entry naming an `image`, regardless of `delivery`. Capabilities default closed: an
 absent `network`/`secret` means none. The `kind` field is recorded but unused today; the
 `command:`/`args:`/`WRANGLE_KIND` passthrough and kind-based (scan vs sbom) dispatch land when a
@@ -263,8 +261,7 @@ Schema below is the proposed shape; exact field names and file locations are bik
 }
 ```
 
-(During migration a catalog entry may carry `delivery: adapter` to keep running the old in-process
-adapter for a tool not yet containerized; the default is `delivery: image`. See §10.)
+(Every catalog entry carries `delivery: image` — the only path the orchestrator dispatches.)
 
 As the `wrangle-lint`/`wrangle-attest` entries above show, an entry can carry an optional
 `command:`/`args:` so several tools share **one** image (a unified `wrangle` binary or a toolbox image),

@@ -1,209 +1,23 @@
 #!/usr/bin/env bats
 
-# Tests for run.sh (orchestrator)
-# Uses mock tool directories with mock install/adapter scripts.
+# Unit tests for run.sh (orchestrator): the docker-independent parse/selection
+# seam — tool-name validation, action-pattern skip, unknown-tool rejection,
+# digest-pin enforcement, and custom-tool (.wrangle/tools.json) discovery. These
+# assert what run.sh decides BEFORE it dispatches an image, so they need no
+# container. Actual image execution (0/1/2 mapping, manifest, error marker,
+# secret/network/uid) is covered against a real image in
+# test/image/test_run_image_dispatch.bats.
 
 setup() {
     TEST_DIR="$(mktemp -d)"
-    export TEST_DIR
     ORIG_DIR="$(pwd)"
-    export ORIG_DIR
-
-    # Forward the golden-SARIF fixtures dir to the mock osv adapter.
-    export WRANGLE_EXTRA_FIXTURES="$ORIG_DIR/test/fixtures"
-
-    # Create a mock tools directory structure that run.sh can find
-    export MOCK_TOOLS="$TEST_DIR/tools"
-
-    # Create a clean tool (exit 0)
-    mkdir -p "$MOCK_TOOLS/clean-tool"
-    cat > "$MOCK_TOOLS/clean-tool/install.sh" << 'INST'
-#!/bin/bash
-set -euo pipefail
-printf 'wrangle: installed clean-tool\n'
-exit 0
-INST
-    chmod +x "$MOCK_TOOLS/clean-tool/install.sh"
-
-    cat > "$MOCK_TOOLS/clean-tool/adapter.sh" << 'ADAPT'
-#!/bin/bash
-set -euo pipefail
-cat > "$2/output.sarif" << 'SARIF'
-{"version":"2.1.0","runs":[{"tool":{"driver":{"name":"clean-tool"}},"results":[]}]}
-SARIF
-exit 0
-ADAPT
-    chmod +x "$MOCK_TOOLS/clean-tool/adapter.sh"
-
-    # Create a findings tool (exit 1)
-    mkdir -p "$MOCK_TOOLS/findings-tool"
-    cat > "$MOCK_TOOLS/findings-tool/install.sh" << 'INST'
-#!/bin/bash
-set -euo pipefail
-printf 'wrangle: installed findings-tool\n'
-exit 0
-INST
-    chmod +x "$MOCK_TOOLS/findings-tool/install.sh"
-
-    cat > "$MOCK_TOOLS/findings-tool/adapter.sh" << 'ADAPT'
-#!/bin/bash
-set -euo pipefail
-cat > "$2/output.sarif" << 'SARIF'
-{"version":"2.1.0","runs":[{"tool":{"driver":{"name":"findings-tool"}},"results":[{"ruleId":"TEST-1","message":{"text":"found"}}]}]}
-SARIF
-exit 1
-ADAPT
-    chmod +x "$MOCK_TOOLS/findings-tool/adapter.sh"
-
-    # Create an error tool (exit 2)
-    mkdir -p "$MOCK_TOOLS/error-tool"
-    cat > "$MOCK_TOOLS/error-tool/install.sh" << 'INST'
-#!/bin/bash
-set -euo pipefail
-printf 'wrangle: installed error-tool\n'
-exit 0
-INST
-    chmod +x "$MOCK_TOOLS/error-tool/install.sh"
-
-    cat > "$MOCK_TOOLS/error-tool/adapter.sh" << 'ADAPT'
-#!/bin/bash
-set -euo pipefail
-exit 2
-ADAPT
-    chmod +x "$MOCK_TOOLS/error-tool/adapter.sh"
-
-    # Create a tool with failing install
-    mkdir -p "$MOCK_TOOLS/bad-install"
-    cat > "$MOCK_TOOLS/bad-install/install.sh" << 'INST'
-#!/bin/bash
-set -euo pipefail
-printf 'wrangle: install failed\n' >&2
-exit 1
-INST
-    chmod +x "$MOCK_TOOLS/bad-install/install.sh"
-
-    cat > "$MOCK_TOOLS/bad-install/adapter.sh" << 'ADAPT'
-#!/bin/bash
-exit 0
-ADAPT
-    chmod +x "$MOCK_TOOLS/bad-install/adapter.sh"
-
-    # Create a slow tool for timeout testing
-    mkdir -p "$MOCK_TOOLS/slow-tool"
-    cat > "$MOCK_TOOLS/slow-tool/install.sh" << 'INST'
-#!/bin/bash
-set -euo pipefail
-printf 'wrangle: installed slow-tool\n'
-exit 0
-INST
-    chmod +x "$MOCK_TOOLS/slow-tool/install.sh"
-
-    cat > "$MOCK_TOOLS/slow-tool/adapter.sh" << 'ADAPT'
-#!/bin/bash
-set -euo pipefail
-sleep 30
-exit 0
-ADAPT
-    chmod +x "$MOCK_TOOLS/slow-tool/adapter.sh"
-
-    # Create a tool with slow install for timeout testing
-    mkdir -p "$MOCK_TOOLS/slow-install"
-    cat > "$MOCK_TOOLS/slow-install/install.sh" << 'INST'
-#!/bin/bash
-set -euo pipefail
-sleep 30
-exit 0
-INST
-    chmod +x "$MOCK_TOOLS/slow-install/install.sh"
-
-    cat > "$MOCK_TOOLS/slow-install/adapter.sh" << 'ADAPT'
-#!/bin/bash
-exit 0
-ADAPT
-    chmod +x "$MOCK_TOOLS/slow-install/adapter.sh"
-
-    # Create a tool that checks its environment (for isolation tests)
-    mkdir -p "$MOCK_TOOLS/env-check"
-    cat > "$MOCK_TOOLS/env-check/install.sh" << 'INST'
-#!/bin/bash
-set -euo pipefail
-exit 0
-INST
-    chmod +x "$MOCK_TOOLS/env-check/install.sh"
-
-    cat > "$MOCK_TOOLS/env-check/adapter.sh" << 'ADAPT'
-#!/bin/bash
-set -euo pipefail
-# Dump environment to output for test inspection
-env | sort > "$2/env_dump.txt"
-cat > "$2/output.sarif" << 'SARIF'
-{"version":"2.1.0","runs":[{"tool":{"driver":{"name":"env-check"}},"results":[]}]}
-SARIF
-exit 0
-ADAPT
-    chmod +x "$MOCK_TOOLS/env-check/adapter.sh"
-
-    # Create a tool that writes outside its output directory (for filesystem check test)
-    mkdir -p "$MOCK_TOOLS/rogue-tool"
-    cat > "$MOCK_TOOLS/rogue-tool/install.sh" << 'INST'
-#!/bin/bash
-set -euo pipefail
-exit 0
-INST
-    chmod +x "$MOCK_TOOLS/rogue-tool/install.sh"
-
-    cat > "$MOCK_TOOLS/rogue-tool/adapter.sh" << 'ADAPT'
-#!/bin/bash
-set -euo pipefail
-# Write output normally
-cat > "$2/output.sarif" << 'SARIF'
-{"version":"2.1.0","runs":[{"tool":{"driver":{"name":"rogue-tool"}},"results":[]}]}
-SARIF
-# Also write outside output_dir (into src_dir) — should trigger warning
-echo "rogue file" > "$1/rogue_file.txt"
-exit 0
-ADAPT
-    chmod +x "$MOCK_TOOLS/rogue-tool/adapter.sh"
-
-    # Mock osv tool: run.sh writes a scan/v1 manifest for the osv token.
-    # Copies a golden SARIF (findings/empty) per WRANGLE_EXTRA_RESULTS, with the
-    # fixtures dir forwarded as WRANGLE_EXTRA_FIXTURES (run.sh strips env but
-    # forwards WRANGLE_EXTRA_*); tool name/version come from the golden driver.
-    mkdir -p "$MOCK_TOOLS/osv"
-    cat > "$MOCK_TOOLS/osv/install.sh" << 'INST'
-#!/bin/bash
-set -euo pipefail
-exit 0
-INST
-    chmod +x "$MOCK_TOOLS/osv/install.sh"
-
-    cat > "$MOCK_TOOLS/osv/adapter.sh" << 'ADAPT'
-#!/bin/bash
-set -euo pipefail
-if [[ "${RESULTS:-}" == "findings" ]]; then
-    cp "${FIXTURES}/findings.sarif" "$2/output.sarif"
-    exit 1
-fi
-cp "${FIXTURES}/empty.sarif" "$2/output.sarif"
-exit 0
-ADAPT
-    chmod +x "$MOCK_TOOLS/osv/adapter.sh"
-
-    # Mock wrangle-lint adapter: like osv, run.sh writes a scan/v1 manifest for
-    # the wrangle-lint token. Its SARIF driver name is wrangle-lint.
-    mkdir -p "$MOCK_TOOLS/wrangle-lint"
-    cat > "$MOCK_TOOLS/wrangle-lint/adapter.sh" << 'ADAPT'
-#!/bin/bash
-set -euo pipefail
-cat > "$2/output.sarif" << 'SARIF'
-{"version":"2.1.0","runs":[{"tool":{"driver":{"name":"wrangle-lint","version":"1.2.3"}},"results":[]}]}
-SARIF
-exit 0
-ADAPT
-    chmod +x "$MOCK_TOOLS/wrangle-lint/adapter.sh"
-
-    # Create test source and output directories
-    mkdir -p "$TEST_DIR/src" "$TEST_DIR/output"
+    export TEST_DIR ORIG_DIR
+    MOCK_TOOLS="$TEST_DIR/tools"
+    mkdir -p "$MOCK_TOOLS" "$TEST_DIR/src" "$TEST_DIR/output"
+    command -v jq >/dev/null 2>&1 || { printf 'jq not on PATH\n' >&2; return 1; }
+    # No real image is dispatched here, so the VSA gate (which needs Sigstore) is
+    # off; each test asserts the decision run.sh prints before `docker run`.
+    export WRANGLE_VERIFY_TOOL_IMAGES=0
 }
 
 teardown() {
@@ -211,374 +25,141 @@ teardown() {
     rm -rf "$TEST_DIR"
 }
 
-# Helper: run the orchestrator with WRANGLE_TOOLS_DIR pointing to our mocks
+# _image_tool <tool> [kind] — declare <tool> as a delivery: image tool in the
+# mock catalog, digest-pinned on the curated namespace.
+_image_tool() {
+    local tool="$1" kind="${2:-scan}" cat="$MOCK_TOOLS/catalog.json" tmp digest
+    digest="sha256:$(printf '0%.0s' {1..64})"
+    [[ -f "$cat" ]] || printf '{"tools":{}}' > "$cat"
+    tmp="$(mktemp)"
+    jq --arg t "$tool" --arg k "$kind" --arg img "ghcr.io/tomhennen/wrangle/$tool@$digest" \
+        '.tools[$t] = {kind:$k, delivery:"image", image:$img}' "$cat" > "$tmp"
+    mv "$tmp" "$cat"
+}
+
 run_orchestrator() {
     WRANGLE_TOOLS_DIR="$MOCK_TOOLS" run "$ORIG_DIR/run.sh" "$@"
 }
 
-# --- Input validation tests ---
+# --- Tool-name validation ---
 
 @test "orchestrator: rejects tool name with path traversal" {
     run_orchestrator -s "$TEST_DIR/src" -o "$TEST_DIR/output" "../etc/passwd"
-
     [ "$status" -eq 2 ]
     [[ "$output" == *"invalid tool name"* ]]
 }
 
 @test "orchestrator: rejects tool name with semicolon" {
     run_orchestrator -s "$TEST_DIR/src" -o "$TEST_DIR/output" "foo;curl"
-
     [ "$status" -eq 2 ]
     [[ "$output" == *"invalid tool name"* ]]
 }
 
 @test "orchestrator: rejects tool name with uppercase" {
     run_orchestrator -s "$TEST_DIR/src" -o "$TEST_DIR/output" "FooBar"
-
     [ "$status" -eq 2 ]
     [[ "$output" == *"invalid tool name"* ]]
 }
 
 @test "orchestrator: rejects tool name starting with number" {
     run_orchestrator -s "$TEST_DIR/src" -o "$TEST_DIR/output" "1tool"
-
     [ "$status" -eq 2 ]
     [[ "$output" == *"invalid tool name"* ]]
 }
 
-@test "orchestrator: accepts valid tool names" {
-    # Valid: lowercase, starts with letter, may contain digits/hyphens/underscores
-    run_orchestrator -s "$TEST_DIR/src" -o "$TEST_DIR/output" "clean-tool"
-
-    [ "$status" -eq 0 ]
+@test "orchestrator: no tools provided prints usage" {
+    run_orchestrator
+    [ "$status" -eq 2 ]
+    [[ "$output" == *"Usage"* ]] || [[ "$output" == *"usage"* ]]
 }
 
-@test "orchestrator: rejects unknown tool (no directory)" {
-    run_orchestrator -s "$TEST_DIR/src" -o "$TEST_DIR/output" "nonexistent"
+# --- Selection: unknown-tool rejection & action-pattern skip ---
 
+@test "orchestrator: rejects unknown tool (no directory, no catalog entry)" {
+    run_orchestrator -s "$TEST_DIR/src" -o "$TEST_DIR/output" "nonexistent"
     [ "$status" -eq 2 ]
     [[ "$output" == *"unknown tool"* ]]
 }
 
 @test "orchestrator: skips action-pattern tool (directory exists, no adapter.sh)" {
-    # Create a tool directory with action.yml but no adapter.sh
     mkdir -p "$MOCK_TOOLS/action-tool"
     echo "name: test" > "$MOCK_TOOLS/action-tool/action.yml"
-
     run_orchestrator -s "$TEST_DIR/src" -o "$TEST_DIR/output" "action-tool"
-
     [ "$status" -eq 0 ]
+    [[ "$output" == *"no tools to run"* ]]
 }
 
 @test "orchestrator: skips action-pattern tool even when an adapter.sh is present" {
     # A tool with an action.yml runs via its uses: step; an adapter.sh present
-    # only as its image entrypoint must not pull it onto the in-process path.
+    # only as its image entrypoint must not pull it onto the dispatch path.
     mkdir -p "$MOCK_TOOLS/action-img-tool"
     echo "name: test" > "$MOCK_TOOLS/action-img-tool/action.yml"
-    cat > "$MOCK_TOOLS/action-img-tool/adapter.sh" << 'ADAPT'
-#!/bin/bash
-exit 2
-ADAPT
+    printf '#!/bin/bash\nexit 2\n' > "$MOCK_TOOLS/action-img-tool/adapter.sh"
     chmod +x "$MOCK_TOOLS/action-img-tool/adapter.sh"
-
     run_orchestrator -s "$TEST_DIR/src" -o "$TEST_DIR/output" "action-img-tool"
-
     [ "$status" -eq 0 ]
-    [ ! -f "$TEST_DIR/output/action-img-tool/output.sarif" ]
+    [ ! -d "$TEST_DIR/output/action-img-tool" ]
 }
 
-@test "orchestrator: strips policy suffix from tool names" {
-    run_orchestrator -s "$TEST_DIR/src" -o "$TEST_DIR/output" "clean-tool:fail"
-
-    [ "$status" -eq 0 ]
-    [ -f "$TEST_DIR/output/clean-tool/output.sarif" ]
-}
-
-@test "orchestrator: skips action-pattern tools in mixed list" {
+@test "orchestrator: skips the action-pattern tool in a mixed list, dispatches the image tool" {
+    _image_tool osv
     mkdir -p "$MOCK_TOOLS/action-tool"
     echo "name: test" > "$MOCK_TOOLS/action-tool/action.yml"
-
-    run_orchestrator -s "$TEST_DIR/src" -o "$TEST_DIR/output" "clean-tool" "action-tool:info"
-
-    [ "$status" -eq 0 ]
-    [ -f "$TEST_DIR/output/clean-tool/output.sarif" ]
+    run_orchestrator -s "$TEST_DIR/src" -o "$TEST_DIR/output" "osv" "action-tool:info"
+    # osv reaches image dispatch; action-tool is skipped (no dir, never dispatched).
+    [[ "$output" == *"running osv (image)"* ]]
+    [ ! -d "$TEST_DIR/output/action-tool" ]
 }
 
-# --- Execution tests ---
-
-@test "orchestrator: runs clean tool (exit 0)" {
-    run_orchestrator -s "$TEST_DIR/src" -o "$TEST_DIR/output" "clean-tool"
-
-    [ "$status" -eq 0 ]
-    [ -f "$TEST_DIR/output/clean-tool/output.sarif" ]
+@test "orchestrator: strips the :policy suffix before resolving the tool" {
+    _image_tool osv
+    run_orchestrator -s "$TEST_DIR/src" -o "$TEST_DIR/output" "osv:info"
+    # The suffix is stripped, so osv (not "osv:info") resolves to the image path.
+    [[ "$output" == *"running osv (image)"* ]]
+    [[ "$output" != *"invalid tool name"* ]]
 }
 
-@test "orchestrator: runs findings tool (exit 1)" {
-    run_orchestrator -s "$TEST_DIR/src" -o "$TEST_DIR/output" "findings-tool"
-
-    [ "$status" -eq 1 ]
-    [ -f "$TEST_DIR/output/findings-tool/output.sarif" ]
-}
-
-@test "orchestrator: runs error tool (exit 2)" {
-    run_orchestrator -s "$TEST_DIR/src" -o "$TEST_DIR/output" "error-tool"
-
-    [ "$status" -eq 2 ]
-    # An error marker is written so check_results catches the failure even when
-    # the scan step runs under continue-on-error (and honors :info on the error).
-    [ -f "$TEST_DIR/output/error-tool/error" ]
-}
-
-@test "orchestrator: handles install failure (exit 2)" {
-    run_orchestrator -s "$TEST_DIR/src" -o "$TEST_DIR/output" "bad-install"
-
-    [ "$status" -eq 2 ]
-    [ -f "$TEST_DIR/output/bad-install/error" ]
-}
-
-@test "orchestrator: runs multiple tools" {
-    run_orchestrator -s "$TEST_DIR/src" -o "$TEST_DIR/output" "clean-tool" "findings-tool"
-
-    # Findings from one tool means exit 1
-    [ "$status" -eq 1 ]
-    [ -f "$TEST_DIR/output/clean-tool/output.sarif" ]
-    [ -f "$TEST_DIR/output/findings-tool/output.sarif" ]
-}
-
-@test "orchestrator: multiple tools land in distinct scan/<tool> dirs without clobbering" {
-    # The build workflows fold this output into the unified metadata's scan/.
-    # If a future change collapsed the per-tool subdir, the second tool would
-    # overwrite the first's output.sarif and the merge would silently become a
-    # clobber. Run two tools and assert both survive AND keep their own content.
-    for t in osv zizmor; do
-        mkdir -p "$MOCK_TOOLS/$t"
-        printf '#!/bin/bash\nexit 0\n' > "$MOCK_TOOLS/$t/install.sh"
-        chmod +x "$MOCK_TOOLS/$t/install.sh"
-        cat > "$MOCK_TOOLS/$t/adapter.sh" << ADAPT
-#!/bin/bash
-set -euo pipefail
-printf '{"version":"2.1.0","runs":[{"tool":{"driver":{"name":"$t"}},"results":[]}]}\n' > "\$2/output.sarif"
-exit 0
-ADAPT
-        chmod +x "$MOCK_TOOLS/$t/adapter.sh"
-    done
-
-    run_orchestrator -s "$TEST_DIR/src" -o "$TEST_DIR/output" "osv" "zizmor"
-    [ "$status" -eq 0 ]
-    [ -f "$TEST_DIR/output/osv/output.sarif" ]
-    [ -f "$TEST_DIR/output/zizmor/output.sarif" ]
-    # Each subdir kept its own tool's SARIF — no cross-tool overwrite.
-    grep -q '"name":"osv"' "$TEST_DIR/output/osv/output.sarif"
-    grep -q '"name":"zizmor"' "$TEST_DIR/output/zizmor/output.sarif"
-}
-
-@test "orchestrator: error takes precedence over findings" {
-    run_orchestrator -s "$TEST_DIR/src" -o "$TEST_DIR/output" "clean-tool" "error-tool"
-
-    [ "$status" -eq 2 ]
-}
-
-@test "orchestrator: prints summary table" {
-    run_orchestrator -s "$TEST_DIR/src" -o "$TEST_DIR/output" "clean-tool"
-
-    [[ "$output" == *"clean-tool"* ]]
-}
-
-# --- Default options tests ---
-
-@test "orchestrator: uses default src_dir and output_dir" {
-    cd "$TEST_DIR/src"
-    mkdir -p metadata
-    WRANGLE_TOOLS_DIR="$MOCK_TOOLS" run "$ORIG_DIR/run.sh" "clean-tool"
-
-    [ "$status" -eq 0 ]
-}
-
-@test "orchestrator: no tools provided prints usage" {
-    run_orchestrator
-
-    [ "$status" -eq 2 ]
-    [[ "$output" == *"Usage"* ]] || [[ "$output" == *"usage"* ]]
-}
-
-# --- Path resolution tests ---
-
-# --- Timeout tests ---
-
-@test "orchestrator: adapter timeout produces exit 2" {
-    WRANGLE_TOOLS_DIR="$MOCK_TOOLS" WRANGLE_ADAPTER_TIMEOUT=1 \
-        run "$ORIG_DIR/run.sh" -s "$TEST_DIR/src" -o "$TEST_DIR/output" "slow-tool"
-
-    [ "$status" -eq 2 ]
-    [[ "$output" == *"timed out"* ]]
-}
-
-@test "orchestrator: install timeout produces exit 2" {
-    WRANGLE_TOOLS_DIR="$MOCK_TOOLS" WRANGLE_INSTALL_TIMEOUT=1 \
-        run "$ORIG_DIR/run.sh" -s "$TEST_DIR/src" -o "$TEST_DIR/output" "slow-install"
-
-    [ "$status" -eq 2 ]
-    [[ "$output" == *"timed out"* ]]
-}
-
-# --- Path resolution tests ---
-
-# --- Environment isolation tests ---
-
-@test "orchestrator: strips GITHUB_TOKEN from adapter environment" {
-    export GITHUB_TOKEN="secret-token-value"
-    WRANGLE_TOOLS_DIR="$MOCK_TOOLS" run "$ORIG_DIR/run.sh" -s "$TEST_DIR/src" -o "$TEST_DIR/output" "env-check"
-
-    [ "$status" -eq 0 ]
-    [ -f "$TEST_DIR/output/env-check/env_dump.txt" ]
-    # GITHUB_TOKEN must not be in the adapter's environment
-    ! grep -q "GITHUB_TOKEN" "$TEST_DIR/output/env-check/env_dump.txt"
-}
-
-@test "orchestrator: forwards WRANGLE_EXTRA_ vars with prefix stripped" {
-    export WRANGLE_EXTRA_MY_VAR="test-value"
-    WRANGLE_TOOLS_DIR="$MOCK_TOOLS" run "$ORIG_DIR/run.sh" -s "$TEST_DIR/src" -o "$TEST_DIR/output" "env-check"
-
-    [ "$status" -eq 0 ]
-    [ -f "$TEST_DIR/output/env-check/env_dump.txt" ]
-    # MY_VAR (without prefix) should be present
-    grep -q "MY_VAR=test-value" "$TEST_DIR/output/env-check/env_dump.txt"
-}
-
-@test "orchestrator: detects filesystem modifications outside output_dir" {
-    WRANGLE_TOOLS_DIR="$MOCK_TOOLS" run "$ORIG_DIR/run.sh" -s "$TEST_DIR/src" -o "$TEST_DIR/output" "rogue-tool"
-
-    [ "$status" -eq 0 ]
-    [[ "$output" == *"WARNING"* ]]
-    [[ "$output" == *"modified files"* ]]
-}
-
-@test "orchestrator: PATH is available to adapter" {
-    WRANGLE_TOOLS_DIR="$MOCK_TOOLS" run "$ORIG_DIR/run.sh" -s "$TEST_DIR/src" -o "$TEST_DIR/output" "env-check"
-
-    [ "$status" -eq 0 ]
-    grep -q "^PATH=" "$TEST_DIR/output/env-check/env_dump.txt"
-}
-
-# --- Path resolution tests ---
-
-@test "orchestrator: resolves tool paths relative to script, not cwd" {
-    # Run from a different directory than the script
-    cd "$TEST_DIR"
-    WRANGLE_TOOLS_DIR="$MOCK_TOOLS" run "$ORIG_DIR/run.sh" -s "$TEST_DIR/src" -o "$TEST_DIR/output" "clean-tool"
-
-    [ "$status" -eq 0 ]
-}
-
-# --- scan/v1 attestation manifest (issue #420) ---
-
-@test "orchestrator: writes an osv scan/v1 manifest next to output.sarif (clean)" {
-    run_orchestrator -s "$TEST_DIR/src" -o "$TEST_DIR/output" "osv"
-    [ "$status" -eq 0 ]
-    manifest="$TEST_DIR/output/osv/wrangle_attestation_metadata.json"
-    [ -f "$manifest" ]
-    run jq -r '."predicate-type"' "$manifest"
-    [[ "$output" == "https://github.com/TomHennen/wrangle/attestation/scan/v1" ]]
-    run jq -r '.tool.name' "$manifest"
-    [[ "$output" == "osv-scanner" ]]
-    run jq -r '.tool.version' "$manifest"
-    [[ "$output" == "1.0.0" ]]
-    run jq -r '.result' "$manifest"
-    [[ "$output" == "clean" ]]
-    run jq -r '."result-file"' "$manifest"
-    [[ "$output" == "output.sarif" ]]
-}
-
-@test "orchestrator: osv manifest records result=findings when osv reports findings" {
-    WRANGLE_EXTRA_RESULTS=findings run_orchestrator \
-        -s "$TEST_DIR/src" -o "$TEST_DIR/output" "osv"
-    [ "$status" -eq 1 ]
-    run jq -r '.result' "$TEST_DIR/output/osv/wrangle_attestation_metadata.json"
-    [[ "$output" == "findings" ]]
-}
-
-@test "orchestrator: writes a wrangle-lint scan/v1 manifest next to output.sarif" {
-    run_orchestrator -s "$TEST_DIR/src" -o "$TEST_DIR/output" "wrangle-lint"
-    [ "$status" -eq 0 ]
-    manifest="$TEST_DIR/output/wrangle-lint/wrangle_attestation_metadata.json"
-    [ -f "$manifest" ]
-    run jq -r '.tool.name' "$manifest"
-    [[ "$output" == "wrangle-lint" ]]
-    run jq -r '.tool.version' "$manifest"
-    [[ "$output" == "1.2.3" ]]
-    run jq -r '.result' "$manifest"
-    [[ "$output" == "clean" ]]
-}
-
-@test "orchestrator: writes no scan manifest for an unwired adapter" {
-    run_orchestrator -s "$TEST_DIR/src" -o "$TEST_DIR/output" "clean-tool"
-    [ "$status" -eq 0 ]
-    [ ! -f "$TEST_DIR/output/clean-tool/wrangle_attestation_metadata.json" ]
-}
-
-# --- image delivery: digest-pin enforcement (no docker; regex runs first) ---
-
-# Drive run.sh's image-ref validation directly: the @sha256 check rejects a
-# tag-only image before any docker call, and accepts a registry host:port pin.
-_image_catalog() {
-    # An image tool is "known" by its directory (no adapter.sh — the image is
-    # the adapter); the catalog marks delivery: image.
-    mkdir -p "$TEST_DIR/src" "$MOCK_TOOLS/imgtool"
-    cat > "$MOCK_TOOLS/catalog.json" <<JSON
-{"tools":{"imgtool":{"kind":"scan","delivery":"image","image":"$1"}}}
-JSON
-}
+# --- Digest-pin enforcement (regex runs before any docker) ---
 
 @test "orchestrator: image delivery rejects a tag-only (non-digest-pinned) image" {
-    _image_catalog "registry.internal:5000/osv:latest"
+    cat > "$MOCK_TOOLS/catalog.json" <<JSON
+{"tools":{"imgtool":{"kind":"scan","delivery":"image","image":"registry.internal:5000/osv:latest"}}}
+JSON
     run_orchestrator -s "$TEST_DIR/src" -o "$TEST_DIR/output" "imgtool"
     [ "$status" -eq 2 ]
     [[ "$output" == *"not digest-pinned"* ]]
+    # A config failure writes the error marker too, so an :info tool with a bad
+    # pin still blocks the check (check_results reads the marker).
+    [ -f "$TEST_DIR/output/imgtool/error" ]
 }
-
-@test "orchestrator: image delivery accepts a registry host:port digest pin" {
-    digest="sha256:0000000000000000000000000000000000000000000000000000000000000000"
-    _image_catalog "registry.internal:5000/wrangle-osv@$digest"
-    run_orchestrator -s "$TEST_DIR/src" -o "$TEST_DIR/output" "imgtool"
-    # The pin passes validation, so the digest-pin error never fires; the run
-    # then fails at docker (image absent / docker may be unavailable here).
-    [[ "$output" != *"not digest-pinned"* ]]
-}
-
-# --- catalog-only image tool: admitted with no local tools/<name>/ dir ---
 
 @test "orchestrator: a delivery: image tool with no directory is admitted (not unknown)" {
-    digest="sha256:0000000000000000000000000000000000000000000000000000000000000000"
-    mkdir -p "$TEST_DIR/src"
-    # No $MOCK_TOOLS/byotool directory; the catalog alone defines it.
-    cat > "$MOCK_TOOLS/catalog.json" <<JSON
-{"tools":{"byotool":{"kind":"sbom","delivery":"image","image":"registry.internal:5000/byo@$digest"}}}
-JSON
+    _image_tool byotool sbom
     run_orchestrator -s "$TEST_DIR/src" -o "$TEST_DIR/output" "byotool"
-    # Reaches the image path rather than the "unknown tool" gate; docker then
-    # fails (image absent / docker may be unavailable), which is not our concern.
     [[ "$output" != *"unknown tool"* ]]
     [[ "$output" == *"running byotool (image)"* ]]
 }
 
-@test "orchestrator: a tool with no directory and no catalog image entry is unknown" {
-    run_orchestrator -s "$TEST_DIR/src" -o "$TEST_DIR/output" "nodir"
-    [ "$status" -eq 2 ]
-    [[ "$output" == *"unknown tool"* ]]
+@test "orchestrator: resolves its libs and tools relative to the script, not cwd" {
+    # run.sh sources lib/*.sh and finds the catalog via SCRIPT_DIR; invoked from an
+    # unrelated cwd it must still resolve osv to the image path (not fail to load).
+    _image_tool osv
+    cd "$TEST_DIR"
+    WRANGLE_TOOLS_DIR="$MOCK_TOOLS" run "$ORIG_DIR/run.sh" -s "$TEST_DIR/src" -o "$TEST_DIR/output" "osv"
+    [[ "$output" == *"running osv (image)"* ]]
 }
 
 @test "orchestrator: the curated sbom key dispatches as a catalog-only image tool" {
     # The default SBOM path (sbom-tool: sbom) has no tools/sbom/ dir, so it relies
-    # on the dir-gate resolving the real catalog's sbom entry to the image path.
+    # on the parse loop resolving the real catalog's sbom entry to the image path.
     [ ! -d "$ORIG_DIR/tools/sbom" ]
-    mkdir -p "$TEST_DIR/src"
-    WRANGLE_TOOLS_DIR="$ORIG_DIR/tools" WRANGLE_VERIFY_TOOL_IMAGES=0 \
+    WRANGLE_TOOLS_DIR="$ORIG_DIR/tools" \
         run "$ORIG_DIR/run.sh" -s "$TEST_DIR/src" -o "$TEST_DIR/output" sbom
     [[ "$output" != *"unknown tool"* ]]
     [[ "$output" == *"running sbom (image)"* ]]
 }
 
-# --- custom tools: auto-discovered .wrangle/tools.json at the workspace root ---
+# --- Custom tools: auto-discovered .wrangle/tools.json at the workspace root ---
 
 _byo_digest="sha256:0000000000000000000000000000000000000000000000000000000000000000"
 
@@ -596,11 +177,12 @@ _write_custom_tools() {
 }
 
 @test "orchestrator: no .wrangle/tools.json leaves the default catalog untouched" {
+    _image_tool osv
     mkdir -p "$TEST_DIR/ws" "$TEST_DIR/src"
     GITHUB_WORKSPACE="$TEST_DIR/ws" \
-        run_orchestrator -s "$TEST_DIR/src" -o "$TEST_DIR/output" "clean-tool"
-    [ "$status" -eq 0 ]
-    [ -f "$TEST_DIR/output/clean-tool/output.sarif" ]
+        run_orchestrator -s "$TEST_DIR/src" -o "$TEST_DIR/output" "osv"
+    # osv resolves from the curated catalog, unaffected by the absent custom file.
+    [[ "$output" == *"running osv (image)"* ]]
 }
 
 @test "orchestrator: a .wrangle/tools.json symlink resolving outside the workspace is rejected" {
@@ -608,7 +190,7 @@ _write_custom_tools() {
     printf '{"tools":{}}' > "$TEST_DIR/outside.json"
     ln -s "$TEST_DIR/outside.json" "$TEST_DIR/ws/.wrangle/tools.json"
     GITHUB_WORKSPACE="$TEST_DIR/ws" \
-        run_orchestrator -s "$TEST_DIR/src" -o "$TEST_DIR/output" "clean-tool"
+        run_orchestrator -s "$TEST_DIR/src" -o "$TEST_DIR/output" "osv"
     [ "$status" -eq 2 ]
     [[ "$output" == *"resolves outside the workspace"* ]]
 }
@@ -622,13 +204,13 @@ _write_custom_tools() {
 }
 
 @test "orchestrator: a custom tool defined but NOT selected is never dispatched" {
-    # Selection gates execution: an injected .wrangle/tools.json entry that the
-    # selection does not name must stay defined-but-never-run (the property that
-    # makes auto-discovery safe under pull_request_target).
+    # Selection gates execution: an injected .wrangle/tools.json entry the
+    # selection does not name stays defined-but-never-run (the property that makes
+    # auto-discovery safe under pull_request_target).
+    _image_tool osv
     _write_custom_tools "{\"tools\":{\"injected\":{\"kind\":\"sbom\",\"delivery\":\"image\",\"image\":\"registry.internal:5000/evil@$_byo_digest\"}}}"
     GITHUB_WORKSPACE="$TEST_DIR/ws" \
-        run_orchestrator -s "$TEST_DIR/src" -o "$TEST_DIR/output" "clean-tool"
-    [ "$status" -eq 0 ]
+        run_orchestrator -s "$TEST_DIR/src" -o "$TEST_DIR/output" "osv"
     [[ "$output" != *"injected"* ]]
     [ ! -d "$TEST_DIR/output/injected" ]
 }

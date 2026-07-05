@@ -64,7 +64,7 @@ All shell conventions — preamble form, quoting, `printf` over `echo`, `[[ ]]` 
 
 Tools live in `tools/<name>/`, in one of three patterns:
 
-- **adapter** — `adapter.sh` + `test.bats`; binary from a tools/go.mod `tool` directive or a bespoke `install.sh` for tools no package manager ships; wired into `actions/scan/action.yml`.
+- **adapter** — `adapter.sh` (the tool image's entrypoint) + `test.bats`; binary built into the tool's image from a tools/go.mod `tool` directive, or a bespoke `install.sh` run at image-build time for tools no package manager ships; run.sh dispatches the image, wired into `actions/scan/action.yml`.
 - **action** — `action.yml` + `test.bats`, for tools with official GitHub Actions.
 - **developer tooling** — whatever it needs + `test.bats`, for things used only during development, not by adopters (e.g. `bump_action_pins`, `wrangle-shell-lint`).
 
