@@ -28,8 +28,8 @@ teardown() {
 # _image_tool <tool> [kind] — declare <tool> as a delivery: image tool in the
 # mock catalog, digest-pinned on the curated namespace.
 _image_tool() {
-    local tool="$1" kind="${2:-scan}" cat="$MOCK_TOOLS/catalog.json" tmp
-    local digest="sha256:$(printf '0%.0s' {1..64})"
+    local tool="$1" kind="${2:-scan}" cat="$MOCK_TOOLS/catalog.json" tmp digest
+    digest="sha256:$(printf '0%.0s' {1..64})"
     [[ -f "$cat" ]] || printf '{"tools":{}}' > "$cat"
     tmp="$(mktemp)"
     jq --arg t "$tool" --arg k "$kind" --arg img "ghcr.io/tomhennen/wrangle/$tool@$digest" \
