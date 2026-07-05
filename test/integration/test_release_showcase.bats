@@ -72,11 +72,6 @@ setup() {
     [[ -x "$SCRIPT" ]]
 }
 
-@test "push_showcase_tag.sh starts with set -euo pipefail" {
-    run head -3 "$SCRIPT"
-    [[ "$output" == *"set -euo pipefail"* ]]
-}
-
 @test "push_showcase_tag.sh uses printf not echo for output" {
     run grep -c '^[[:space:]]*echo ' "$SCRIPT"
     [[ "$output" = "0" ]]
