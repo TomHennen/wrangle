@@ -5,13 +5,11 @@ Wrangle aims to provide _both_:
 1. Reusable workflows that other projects can easily call to achieve their goals.
 2. Minimal _example_ workflows that other projects can adopt themselves to use Wrangle workflows and actions.
 
-Wrangle also has it's own workflows that it uses to mange itself.
-Wrangle's own workflows all have filenames that start with `local_`.
-
-## TODO:
-
-- Provide example workflows.
-- Provide reuable workflow for code change...
+Wrangle also has its own workflows that it uses to manage itself. Its dogfooding
+callers are prefixed `local_` (e.g. `local_build_shell.yml`,
+`local_publish_images.yml`); other internal workflows (`test.yml`,
+`integration-test.yml`, `release-showcase.yml`, the catalog-freshness checks) are
+not. Adopter-facing example workflows live in [`../../gh_workflow_examples/`](../../gh_workflow_examples/).
 
 ## build_and_publish_*.yml
 

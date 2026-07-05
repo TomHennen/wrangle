@@ -17,7 +17,9 @@ wrangle_resolve_checksums() {
         printf 'resolve_subjects: checksums file %s not found\n' "$checksums" >&2
         return 1
     fi
-    while read -r _ file; do
+    # `|| [[ -n "$file" ]]` processes a final line with no trailing newline,
+    # which sha256sum does not always emit — otherwise the last artifact drops.
+    while read -r _ file || [[ -n "$file" ]]; do
         [[ -z "$file" ]] && continue
         WRANGLE_RESOLVED+=("$dist_dir/$file")
     done < "$checksums"
@@ -34,8 +36,13 @@ wrangle_resolve_glob() {
         # shellcheck disable=SC2086 # intentional glob expansion of the pattern in $1
         printf '%s\n' $1
     )"
+    # An `if` (not `[[ … ]] && …`): as the loop body's last command, a false
+    # test would make the loop — and this function — return 1 under set -e when
+    # the last glob match is a non-file (e.g. a subdirectory sorting last).
     while IFS= read -r f; do
-        [[ -f "$f" ]] && WRANGLE_RESOLVED+=("$f")
+        if [[ -f "$f" ]]; then
+            WRANGLE_RESOLVED+=("$f")
+        fi
     done <<< "$matched"
 }
 
