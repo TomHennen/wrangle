@@ -102,14 +102,6 @@ on:
         required: false
         type: string
         default: "osv zizmor scorecard:info dependency-review wrangle-lint"
-      go-cache:
-        description: >
-          Deprecated no-op. The source-scan tools now ship as curated,
-          digest-pinned images and no longer build from source, so this
-          caches nothing. Retained so callers that still set it don't fail.
-        required: false
-        type: string
-        default: ""
       policy:
         description: |
           wrangle PolicySet the release is verified against (path under
@@ -162,7 +154,7 @@ jobs:
       metadata-pre: ${{ steps.prep.outputs.metadata-pre }}
     steps:
       # TODO: replace with $/actions/prep when GitHub ships $/ syntax (#136)
-      - uses: TomHennen/wrangle/actions/prep@79152fb56af0da37b98e326d7c80d1c3711dda04 # claude/trim-redundant-unit-tests 2026-07-05
+      - uses: TomHennen/wrangle/actions/prep@e90123e37b0c0807ca24a1a30a3e51d3956773d3 # followup-toolbox-ampel-bump 2026-07-05
         id: prep
         with:
           build-type: go
@@ -181,7 +173,7 @@ jobs:
       security-events: write
     steps:
       # TODO: replace with $/actions/scan when GitHub ships $/ syntax (#136)
-      - uses: TomHennen/wrangle/actions/scan@79152fb56af0da37b98e326d7c80d1c3711dda04 # claude/trim-redundant-unit-tests 2026-07-05
+      - uses: TomHennen/wrangle/actions/scan@e90123e37b0c0807ca24a1a30a3e51d3956773d3 # followup-toolbox-ampel-bump 2026-07-05
         if: ${{ inputs.scan-tools != '' }}
         with:
           checkout: "true"
@@ -213,7 +205,7 @@ jobs:
       # TODO: replace with $/build/actions/go/checks when GitHub ships $/ syntax (#136)
       # Self-pinned to PR HEAD until merge — bump-self-refs follow-up
       # repoints to the squashed merge SHA after this lands.
-      - uses: TomHennen/wrangle/build/actions/go/checks@79152fb56af0da37b98e326d7c80d1c3711dda04 # claude/trim-redundant-unit-tests 2026-07-05
+      - uses: TomHennen/wrangle/build/actions/go/checks@e90123e37b0c0807ca24a1a30a3e51d3956773d3 # followup-toolbox-ampel-bump 2026-07-05
         id: checks
         with:
           path: ${{ inputs.path }}
@@ -276,7 +268,7 @@ jobs:
 
       # TODO: replace with $/build/actions/go/build when GitHub ships $/ syntax (#136)
       # Self-pinned to PR HEAD until merge.
-      - uses: TomHennen/wrangle/build/actions/go/build@79152fb56af0da37b98e326d7c80d1c3711dda04 # claude/trim-redundant-unit-tests 2026-07-05
+      - uses: TomHennen/wrangle/build/actions/go/build@e90123e37b0c0807ca24a1a30a3e51d3956773d3 # followup-toolbox-ampel-bump 2026-07-05
         id: release
         with:
           path: ${{ inputs.path }}
@@ -368,7 +360,7 @@ jobs:
       # writes non-artifact bookkeeping into dist/ that is not released. This is
       # the same canonical subject set the VSA binds to.
       # TODO: replace with $/actions/attest_provenance when GitHub ships $/ syntax (#136)
-      - uses: TomHennen/wrangle/actions/attest_provenance@79152fb56af0da37b98e326d7c80d1c3711dda04 # claude/trim-redundant-unit-tests 2026-07-05
+      - uses: TomHennen/wrangle/actions/attest_provenance@e90123e37b0c0807ca24a1a30a3e51d3956773d3 # followup-toolbox-ampel-bump 2026-07-05
         id: attest
         with:
           build-type: go
@@ -394,7 +386,7 @@ jobs:
       contents: write       # create the release if absent and upload the attested archives + checksums + bundles
     steps:
       # TODO: replace with $/actions/verify_release when GitHub ships $/ syntax (#136)
-      - uses: TomHennen/wrangle/actions/verify_release@79152fb56af0da37b98e326d7c80d1c3711dda04 # claude/trim-redundant-unit-tests 2026-07-05
+      - uses: TomHennen/wrangle/actions/verify_release@e90123e37b0c0807ca24a1a30a3e51d3956773d3 # followup-toolbox-ampel-bump 2026-07-05
         with:
           build-type: go
           shortname: ${{ needs.prep.outputs.shortname }}
