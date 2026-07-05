@@ -13,8 +13,7 @@ _osv_uri="ghcr.io/tomhennen/wrangle/osv@sha256:c8abda59e3a64520128c427d2fe9bd223
 _image="ghcr.io/tomhennen/wrangle/imgtool@sha256:c8abda59e3a64520128c427d2fe9bd223c27e0a2056181ead1b9d3c6a5fb3b75"
 
 # A shared clean bin of symlinks to every real tool on PATH except gh and jq —
-# the two the per-test setup shims or drops — built once per file so the gate
-# runs against a controlled PATH without a per-test symlink farm.
+# the two the per-test setup shims or drops.
 setup_file() {
     SHARED_BIN="$BATS_FILE_TMPDIR/bin"
     mkdir -p "$SHARED_BIN"

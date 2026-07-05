@@ -14,8 +14,7 @@
 # verdict, proving the jq — the sole verdict check — catches a non-PASSED VSA.
 
 # A shared clean bin of symlinks to every real tool on PATH except gh and docker
-# — the two the tests shim — built once per file so run.sh runs against a
-# controlled PATH without a per-test symlink farm.
+# — the two the tests shim.
 setup_file() {
     SHARED_BIN="$BATS_FILE_TMPDIR/bin"
     mkdir -p "$SHARED_BIN"
