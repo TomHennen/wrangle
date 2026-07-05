@@ -72,6 +72,22 @@ SHIM
     [[ "$output" == *"bump_catalog_digest.sh osv $DIGEST_B"* ]]
 }
 
+@test "check_catalog_freshness: a kind:attest image entry (the signing toolbox) is covered, not skipped" {
+    # Regression for #689: the toolbox image the signing path depends on must be
+    # freshness-checked like any curated image. The filter keys on
+    # delivery: image, not kind — so a kind: attest entry drifts loudly, not
+    # silently. (A stale, validly-attested toolbox digest is the one risk the
+    # pull-time VSA gate cannot catch.)
+    install_curl
+    printf '%s\n' \
+        '{"tools":{"attest-toolbox":{"kind":"attest","delivery":"image","image":"ghcr.io/tomhennen/wrangle/attest-toolbox@'"$DIGEST_A"'","network":"egress","token":"sigstore"}}}' \
+        > "$CATALOG"
+    SHIM_DIGEST="$DIGEST_B" run "$SCRIPT"
+    [ "$status" -eq 1 ]
+    [[ "$output" == *"behind :latest"* ]]
+    [[ "$output" == *"attest-toolbox"* ]]
+}
+
 @test "check_catalog_freshness: registry unreachable is an env error (exit 2)" {
     install_curl
     SHIM_TOKEN_FAIL=1 run "$SCRIPT"

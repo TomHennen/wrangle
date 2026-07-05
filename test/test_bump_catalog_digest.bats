@@ -45,6 +45,18 @@ image_of() { jq -r '.tools.osv.image' "$CATALOG"; }
     [[ "$output" == *"not an image-delivery tool"* ]]
 }
 
+@test "bump_catalog_digest: a kind:attest image entry (the toolbox) is bumpable, not rejected" {
+    # Regression for #689: the signing toolbox is a curated image entry; the
+    # manual digest-bump remediation must accept it — the check keys on
+    # delivery: image, not kind.
+    printf '%s\n' \
+        '{"tools":{"attest-toolbox":{"kind":"attest","delivery":"image","image":"ghcr.io/tomhennen/wrangle/attest-toolbox@'"$DIGEST_A"'","network":"egress","token":"sigstore"}}}' \
+        > "$CATALOG"
+    run "$SCRIPT" attest-toolbox "$DIGEST_B"
+    [ "$status" -eq 0 ]
+    [ "$(jq -r '.tools["attest-toolbox"].image' "$CATALOG")" = "ghcr.io/tomhennen/wrangle/attest-toolbox@$DIGEST_B" ]
+}
+
 @test "bump_catalog_digest: idempotent re-run leaves the file byte-identical" {
     run "$SCRIPT" osv "$DIGEST_B"
     [ "$status" -eq 0 ]
