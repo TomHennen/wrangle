@@ -105,8 +105,13 @@ All three must hold before you ask the owner to cut. Do not shortcut.
    `showcase` concurrency group; cancel a hung job (releases persist) to free the queue.
 2. **Explicit owner sign-off on release contents.** Present exactly what's in the release
    (the milestone, the diff highlights) and get an explicit yes — separate from "cut it".
-   Also confirm the curated tool-image catalog is fresh — no entry is behind its
-   published `:latest` (the §11 release precondition):
+   Also confirm the curated tool-image catalog is fresh (the §11 release precondition):
+   dispatch the **Catalog Release Gate** workflow (`.github/workflows/catalog_release_gate.yml`,
+   `workflow_dispatch`) on the release commit and require a green run — it runs both freshness
+   checks below fail-closed (any non-zero, including exit 2 registry-unreachable, blocks). The
+   commands below are the same checks, for reading the failure and driving remediation locally.
+
+   Adoption lag — no entry is behind its published `:latest`:
 
    ```bash
    ./tools/check_catalog_freshness.sh   # exit 0 in-sync; 1 drift (bump per its remediation); 2 registry unreachable
