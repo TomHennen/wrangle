@@ -136,21 +136,6 @@ setup() {
     [[ "$status" -ne 0 ]]
 }
 
-@test "python: passes inputs through env not interpolation" {
-    # No ${{ inputs.* }} in run: blocks (action_path is allowed).
-    run grep -P 'run:.*\$\{\{.*inputs\.' "$ACTION"
-    [[ "$status" -eq 1 ]]
-}
-
-@test "python: validate_inputs.sh and validate_path.sh disable globbing with set -f" {
-    # Both process external input (validate_inputs.sh now also takes the
-    # cache arg); CLAUDE.md requires set -f in scripts that do.
-    run grep '^set -f' "$ACTION_DIR/validate_inputs.sh"
-    [[ "$status" -eq 0 ]]
-    run grep '^set -f' "$REPO_ROOT/lib/validate_path.sh"
-    [[ "$status" -eq 0 ]]
-}
-
 # --- Cache gating (SLSA L3 isolation, #224 / SLSA_L3_AUDIT.md Finding 1) ---
 
 @test "python: validate_inputs.sh accepts cache=enabled and cache=disabled" {

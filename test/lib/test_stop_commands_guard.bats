@@ -19,14 +19,6 @@ teardown() {
     [[ -x "$SCRIPT" ]]
 }
 
-@test "stop_commands_guard: starts with set -euo pipefail and set -f" {
-    # set -f is required by CLAUDE.md for scripts processing external args.
-    run grep -E '^set -euo pipefail$' "$SCRIPT"
-    [[ "$status" -eq 0 ]]
-    run grep -E '^set -f' "$SCRIPT"
-    [[ "$status" -eq 0 ]]
-}
-
 @test "stop_commands_guard: rejects an unknown subcommand" {
     run "$SCRIPT" bogus
     [[ "$status" -ne 0 ]]

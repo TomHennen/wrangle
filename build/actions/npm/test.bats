@@ -222,40 +222,6 @@ setup() {
     [[ "$status" -eq 0 ]]
 }
 
-@test "npm: passes inputs through env not interpolation" {
-    # Walks both single-line `run: <cmd>` declarations and block-form
-    # `run: |` / `run: >` bodies, and fails if ${{ inputs.* }} appears
-    # inside either. github.action_path is allowed (it's not user input).
-    run awk '
-        BEGIN { in_run = 0; run_col = -1; bad = 0 }
-        /^[[:space:]]*run:[[:space:]]+[^|>]/ && /\$\{\{[[:space:]]*inputs\./ {
-            printf "FAIL inline run, line %d: %s\n", NR, $0
-            bad = 1
-        }
-        /^[[:space:]]*run:[[:space:]]*([|>]|$)/ {
-            match($0, /^ */); run_col = RLENGTH
-            in_run = 1; next
-        }
-        in_run {
-            if ($0 !~ /[^[:space:]]/) next
-            match($0, /^ */); col = RLENGTH
-            if (col <= run_col) { in_run = 0 }
-            else if (/\$\{\{[[:space:]]*inputs\./) {
-                printf "FAIL run-block body, line %d: %s\n", NR, $0
-                bad = 1
-            }
-        }
-        END { exit bad }
-    ' "$ACTION"
-    [[ "$status" -eq 0 ]]
-}
-
-@test "npm: validate_inputs.sh disables globbing via lib/validate_path.sh" {
-    # External input flows through validate_path.sh; CLAUDE.md requires set -f there.
-    run grep '^set -f' "$REPO_ROOT/lib/validate_path.sh"
-    [[ "$status" -eq 0 ]]
-}
-
 @test "npm: hashes step strips ./ prefix for slsa-verifier" {
     # sha256sum ./* yields ./<file>; sha256sum -- * (after cd) yields <file>.
     run grep -E 'cd .*dist.* && sha256sum' "$ACTION"

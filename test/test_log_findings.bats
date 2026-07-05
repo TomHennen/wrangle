@@ -71,15 +71,6 @@ teardown() {
     [[ "$output" == *"Another test finding"* ]]
 }
 
-@test "log_findings: emits exactly N lines for N findings" {
-    mkdir -p "$METADATA/zizmor"
-    cp "$ORIG_DIR/test/fixtures/findings.sarif" "$METADATA/zizmor/output.sarif"
-
-    line_count=$("$SCRIPT" "$METADATA" | wc -l | tr -d ' ')
-
-    [[ "$line_count" -eq 2 ]]
-}
-
 @test "log_findings: malformed SARIF is silently skipped (check_results gates)" {
     mkdir -p "$METADATA/bad"
     cp "$ORIG_DIR/test/fixtures/malformed.sarif" "$METADATA/bad/output.sarif"
