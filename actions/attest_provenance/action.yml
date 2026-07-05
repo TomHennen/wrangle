@@ -92,13 +92,6 @@ runs:
         name: ${{ steps.names.outputs.metadata-pre }}
         path: ${{ steps.names.outputs.metadata-dir }}/
 
-    # Build only bnd (sign) + wrangle-attest (build the statements); attest does
-    # not run ampel or cosign.
-    - name: Install attest tools
-      shell: bash
-      run: |
-        "${{ github.action_path }}/install_tools.sh"
-
     # Resolve the dist files to self-digest — the SAME subjects verify binds the
     # VSA to, so attest-signed metadata and the VSA share the sha256 digest.
     - name: Resolve metadata subjects

@@ -20,18 +20,22 @@ set -f
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 # shellcheck source=validate_inputs.sh
 source "$SCRIPT_DIR/validate_inputs.sh"
-# shellcheck source=../../lib/env.sh
-source "$SCRIPT_DIR/../../lib/env.sh"
+# Toolbox dispatch (image resolution + VSA gate + hardened docker run), so ampel
+# runs inside the curated attest-toolbox image.
+# shellcheck source=../../lib/toolbox_run.sh
+source "$SCRIPT_DIR/../../lib/toolbox_run.sh"
 
+# Canonical: only this leaf dir is bind-mounted, so a "../.." path won't resolve in-container.
+POLICY_DIR="$(cd "$SCRIPT_DIR/../../policies" && pwd)"
 # Ships with this action, so its content is pinned by the action ref the
 # caller chose — never fetched at verify time.
-POLICY="$SCRIPT_DIR/../../policies/wrangle-vsa-consumer-v1.hjson"
+POLICY="$POLICY_DIR/wrangle-vsa-consumer-v1.hjson"
 # Internal dogfood only: wrangle's own @main showcase builds aren't release-tag
 # signed, so they can't satisfy the strict consumer policy's tag ref-anchor.
 # This swaps in a policy that accepts any wrangle build ref. Adopters never set
 # this — it stays unset, keeping the strict tag requirement.
 if [[ "${WRANGLE_VSA_NON_STRICT:-}" == "1" ]]; then
-    POLICY="$SCRIPT_DIR/../../policies/wrangle-vsa-consumer-nonstrict-v1.hjson"
+    POLICY="$POLICY_DIR/wrangle-vsa-consumer-nonstrict-v1.hjson"
 fi
 
 die_verify() {
@@ -44,7 +48,9 @@ die_verify() {
 # policy when none matches — so the missing-VSA case is fail-closed.
 verify_one() {
     local file="$1" bundle="$2"
-    ampel verify --subject "$file" \
+    # The policy ships outside the workspace/temp mounts, so bind its directory.
+    wrangle_toolbox_exec --mount "$(dirname "$POLICY")" -- \
+        ampel verify --subject "$file" \
         --policy "$POLICY" \
         --collector "jsonl:$bundle" \
         --context "sourceRepo:https://github.com/${REPO}" \
@@ -56,8 +62,6 @@ main() {
     validate_inputs
     [[ -d "${VSA_DIR:-}" ]] \
         || die_input "VSA_DIR is not a directory: ${VSA_DIR:-<empty>} (did the bundle download fail?)"
-    command -v ampel >/dev/null 2>&1 \
-        || die_input "ampel not found on PATH (did the install step run?)"
 
     # Concatenate every downloaded bundle into one JSONL so ampel can self-select
     # the VSA for any subject. Enumerate via a temp file, not a process
@@ -68,7 +72,8 @@ main() {
         rm -f "$bundle_listing"
         die_input "failed to enumerate bundles under $VSA_DIR"
     fi
-    combined="$(mktemp)"
+    # Under RUNNER_TEMP so it lands inside a toolbox mount and ampel reads it.
+    combined="$(mktemp "${RUNNER_TEMP:-/tmp}/wrangle-vsa-combined.XXXXXX")"
     while IFS= read -r -d '' bundle_file; do cat "$bundle_file" >> "$combined"; done < "$bundle_listing"
     rm -f "$bundle_listing"
     [[ -s "$combined" ]] \

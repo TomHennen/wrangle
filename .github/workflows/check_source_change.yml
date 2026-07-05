@@ -10,11 +10,9 @@ on:
         default: "osv zizmor scorecard:info dependency-review wrangle-lint"
       go-cache:
         description: >
-          Set to "enabled" to cache the Go module + build caches the
-          scan tools build from source (osv-scanner et al. — #343).
-          Default off: the cache is ~1.5–3 GB against this repo's
-          Actions cache quota. Source scanning produces no provenance,
-          so caching is L3-safe here regardless.
+          Deprecated no-op. The source-scan tools now ship as curated,
+          digest-pinned images and no longer build from source, so this
+          caches nothing. Retained so callers that still set it don't fail.
         required: false
         type: string
         default: ""
@@ -28,7 +26,7 @@ jobs:
     permissions: {}    # guard reads env only — no workspace, no API, no secrets
     steps:
       # TODO: replace with $/actions/prep when GitHub ships $/ syntax (#136)
-      - uses: TomHennen/wrangle/actions/prep@ad159e9af4ea588258d6fe7020f05478f8d73613 # feat/phase3-container-signing 2026-07-05
+      - uses: TomHennen/wrangle/actions/prep@f0ff9b1c2611878e51834b543c65c228f17f7409 # feat/containerize-verify-vsa-cleanup 2026-07-05
 
   check-change:
     needs: [prep]
@@ -46,9 +44,8 @@ jobs:
       # empty and the name is just "scan".
       # TODO: replace with $/actions/scan when GitHub ships $/ syntax (#136)
       - name: Source scan
-        uses: TomHennen/wrangle/actions/scan@ad159e9af4ea588258d6fe7020f05478f8d73613 # feat/phase3-container-signing 2026-07-05
+        uses: TomHennen/wrangle/actions/scan@f0ff9b1c2611878e51834b543c65c228f17f7409 # feat/containerize-verify-vsa-cleanup 2026-07-05
         with:
           checkout: "true"
           tools: ${{ inputs.tools }}
           artifact-name: scan
-          go-cache: ${{ inputs.go-cache }}

@@ -236,17 +236,9 @@ teardown() {
     [[ "$status" -eq 0 ]]
 }
 
-@test "container: scan job needs prep so go-cache can read should-release" {
+@test "container: scan job needs prep for the metadata artifact name" {
     local wf="$REPO_ROOT/.github/workflows/build_and_publish_container.yml"
     run bash -c "sed -n '/^  scan:/,/^  [a-z]/p' \"$wf\" | grep -E 'needs:.*prep'"
-    [[ "$status" -eq 0 ]]
-}
-
-@test "container: scan job forces go-cache off on release" {
-    # The scan gates the attested build; its Go tool cache must build cold on
-    # release so a poisoned cache cannot forge a passing scan.
-    local wf="$REPO_ROOT/.github/workflows/build_and_publish_container.yml"
-    run bash -c "sed -n '/^  scan:/,/^  [a-z]/p' \"$wf\" | grep -E \"go-cache:.*should-release != 'true' && inputs.go-cache\""
     [[ "$status" -eq 0 ]]
 }
 

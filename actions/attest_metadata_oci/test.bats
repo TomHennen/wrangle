@@ -21,9 +21,7 @@ setup() {
     [ "$status" -eq 0 ]
 }
 
-@test "attest_metadata_oci: installs the tools and signs the metadata" {
-    run grep -F 'install_tools.sh' "$ACTION"
-    [ "$status" -eq 0 ]
+@test "attest_metadata_oci: signs the metadata" {
     run grep -F 'sign_metadata.sh' "$ACTION"
     [ "$status" -eq 0 ]
 }
