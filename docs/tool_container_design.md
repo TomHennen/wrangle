@@ -181,12 +181,12 @@ thing for the pin tooling to track and for adopters to read.
   a lint warning on a stale pin) but cannot vouch for an image it does not control.
 
 The shipped catalog (`tools/catalog.json`) is parsed with `jq` (`lib/read_catalog.sh`) and has **two
-consumers**: the scan orchestrator dispatches entries the `tools:` selection names that carry
-`delivery: image` via `docker run` (a selected tool with no catalog image entry and no `action.yml` is
+consumers**: the scan orchestrator dispatches entries the `tools:` selection names that name an
+`image` via `docker run` (a selected tool with no catalog image entry and no `action.yml` is
 rejected as unknown), and the verify action resolves one **fixed key** (`attest-toolbox`) for its
 in-container `ampel verify`. An entry the `tools:` selection never names is not scan-dispatched, yet
-remains a reviewable grant the verify path resolves by fixed key; `check_catalog` pin- and
-namespace-lints any entry naming an `image`, regardless of `delivery`. Capabilities default closed: an
+remains a reviewable grant the verify path resolves by fixed key; every entry must name an `image`,
+which `check_catalog` pin- and namespace-lints. Capabilities default closed: an
 absent `network`/`secret` means none. The `kind` field is recorded but unused today; the
 `command:`/`args:`/`WRANGLE_KIND` passthrough and kind-based (scan vs sbom) dispatch land when a
 command-shared or sbom tool does. `osv` carries `network: egress` because it refreshes its advisory DB
@@ -261,7 +261,7 @@ Schema below is the proposed shape; exact field names and file locations are bik
 }
 ```
 
-(Every catalog entry carries `delivery: image` — the only path the orchestrator dispatches.)
+(Every catalog entry names an `image` — the only path the orchestrator dispatches.)
 
 As the `wrangle-lint`/`wrangle-attest` entries above show, an entry can carry an optional
 `command:`/`args:` so several tools share **one** image (a unified `wrangle` binary or a toolbox image),
@@ -271,9 +271,9 @@ apply per entry; the cost is a larger per-entry surface to validate (§8).
 
 > **Deferral note.** The unified `wrangle` image above (one image shared by `wrangle-lint` and
 > `wrangle-attest`, selected by `command:`) is a proposed shape, deferred to #642; neither image exists
-> today. The shipped `tools/catalog.json` diverges: `wrangle-lint` is on its own image, signing runs in a
-> separate `attest-toolbox` entry (`kind: attest`, `token: sigstore`), and every entry carries an explicit
-> `delivery: image`. Read `tools/catalog.json` for the current shape.
+> today. The shipped `tools/catalog.json` diverges: `wrangle-lint` is on its own image, and signing runs
+> in a separate `attest-toolbox` entry (`kind: attest`, `token: sigstore`). Read `tools/catalog.json` for
+> the current shape.
 
 **Adopter — selecting tools** (pin wrangle, choose which to run):
 
@@ -402,7 +402,7 @@ not a meaningful per-delivery signal.)
   mechanism regression is recovered by pinning an earlier wrangle version.
   **Status (#596 Track 2):** the toolbox image (`tools/attest-toolbox/`, all four binaries from
   `tools/go.mod`) is built and published like the scan images. Under the curated catalog's
-  `attest-toolbox` grant (`delivery: image`, digest-pinned, `network: egress`, `token: sigstore`) all
+  `attest-toolbox` grant (digest-pinned image, `network: egress`, `token: sigstore`) all
   three sign sites run in it: the verify job's VSA sign (`bnd statement`) and referrer pushes,
   `attest_provenance`'s `wrangle-attest --sign` + store push, and `attest_metadata_oci`'s sign + `cosign`
   OCI push/download — plus the `oci:` collector verify path (registry auth threaded in-container). The
@@ -454,8 +454,7 @@ model. Still open:
 4. **Make the catalog digest-aware** (§6) — the parallel `check_catalog*` / `bump_catalog_digest` checks;
    required before any image is consumed in a production wrangle workflow.
 5. **Go all-in for the `scan` kind.** Rather than a long mixed-mode tail, migrate the scan adapter tools
-   together once the prototype proves out; the catalog's `delivery:` field covers the brief cutover (and
-   any tool that stays adapter/action-pattern). osv, then zizmor, behind the curated catalog.
+   together once the prototype proves out. osv, then zizmor, behind the curated catalog.
 6. **Extend to `sbom`** — syft as the reference implementation and the first adopter-substitutable
    contract test.
 7. **Track 2 — signing in a container** (consume-the-pin, §7/#619): the attest/verify toolbox (with its

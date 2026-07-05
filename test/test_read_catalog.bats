@@ -18,19 +18,16 @@ setup() {
   "tools": {
     "osv": {
       "kind": "scan",
-      "delivery": "image",
       "image": "ghcr.io/tomhennen/wrangle/osv@sha256:abc123",
       "network": "egress"
     },
     "syft": {
       "kind": "sbom",
-      "delivery": "image",
       "image": "ghcr.io/tomhennen/wrangle/syft@sha256:def456",
       "format": "spdx-json"
     },
     "legacy": {
-      "kind": "scan",
-      "delivery": "adapter"
+      "kind": "scan"
     }
   }
 }
@@ -79,11 +76,6 @@ teardown() {
     [ -z "$output" ]
 }
 
-@test "read_catalog: delivery: adapter is read as adapter" {
-    run "$READER" "$CATALOG" legacy delivery
-    [ "$output" = "adapter" ]
-}
-
 @test "read_catalog: a missing catalog file yields nothing, exit 0" {
     run "$READER" "$TMP_DIR/none.json" osv kind
     [ "$status" -eq 0 ]
@@ -102,9 +94,7 @@ teardown() {
     [[ "$output" == *"Usage"* ]]
 }
 
-@test "read_catalog: the shipped catalog resolves osv as a delivery: image scan tool" {
-    run "$READER" "$ORIG_DIR/tools/catalog.json" osv delivery
-    [ "$output" = "image" ]
+@test "read_catalog: the shipped catalog resolves osv as an image scan tool" {
     run "$READER" "$ORIG_DIR/tools/catalog.json" osv kind
     [ "$output" = "scan" ]
     run "$READER" "$ORIG_DIR/tools/catalog.json" osv image
@@ -114,8 +104,6 @@ teardown() {
 }
 
 @test "read_catalog: the shipped catalog resolves zizmor as a digest-pinned image with egress + github-token" {
-    run "$READER" "$ORIG_DIR/tools/catalog.json" zizmor delivery
-    [ "$output" = "image" ]
     run "$READER" "$ORIG_DIR/tools/catalog.json" zizmor kind
     [ "$output" = "scan" ]
     run "$READER" "$ORIG_DIR/tools/catalog.json" zizmor image
@@ -127,8 +115,6 @@ teardown() {
 }
 
 @test "read_catalog: the shipped catalog resolves wrangle-lint as a digest-pinned image, no network or secret" {
-    run "$READER" "$ORIG_DIR/tools/catalog.json" wrangle-lint delivery
-    [ "$output" = "image" ]
     run "$READER" "$ORIG_DIR/tools/catalog.json" wrangle-lint kind
     [ "$output" = "scan" ]
     run "$READER" "$ORIG_DIR/tools/catalog.json" wrangle-lint image

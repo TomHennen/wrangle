@@ -45,7 +45,7 @@ merge_catalog() {
         return 1
     fi
 
-    local rc=0 tool kind delivery image network secret token
+    local rc=0 tool kind image network secret token
     while IFS= read -r tool; do
         [[ -z "$tool" ]] && continue
         if [[ ! "$tool" =~ $CATALOG_TOOL_NAME_RE ]]; then
@@ -79,18 +79,12 @@ merge_catalog() {
             rc=1
         fi
 
-        # A custom tool is always net-new and image-delivered.
-        delivery="$(read_catalog_field "$custom" "$tool" delivery)"
-        if [[ "$delivery" != "image" ]]; then
-            printf 'wrangle: custom-tools: %s: must declare delivery: image\n' "$tool" >&2
-            rc=1
-        fi
-
-        # The image must be digest-pinned and OUTSIDE the wrangle namespace: a
-        # custom tool is adopter-trusted and cannot borrow a wrangle VSA identity.
+        # A custom tool is always net-new: it must name a digest-pinned image
+        # OUTSIDE the wrangle namespace — adopter-trusted, it cannot borrow a
+        # wrangle VSA identity.
         image="$(read_catalog_field "$custom" "$tool" image)"
         if [[ -z "$image" ]]; then
-            printf 'wrangle: custom-tools: %s: must declare a digest-pinned image\n' "$tool" >&2
+            printf 'wrangle: custom-tools: %s: must name a digest-pinned image\n' "$tool" >&2
             rc=1
         elif [[ ! "$image" =~ $CATALOG_IMAGE_DIGEST_RE ]]; then
             printf 'wrangle: custom-tools: %s: image must be digest-pinned (name@sha256:<64hex>): %s\n' "$tool" "$image" >&2

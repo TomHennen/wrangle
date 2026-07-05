@@ -2,7 +2,7 @@
 
 # Tests for tools/zizmor/ (image pattern).
 #
-# zizmor ships as a contract image (catalog delivery: image); adapter.sh is its
+# zizmor ships as a contract image (catalog image entry); adapter.sh is its
 # ENTRYPOINT, mapping `zizmor --format sarif` to the 0/1/2 exit contract. These
 # cover that mapping through a PATH shim (the invalid-SARIF / tool-error / no-
 # inputs branches a real scanner won't emit on demand), the requirements pin +

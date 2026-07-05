@@ -99,7 +99,7 @@ _adopter_image="ghcr.io/adopter/imgtool@sha256:c8abda59e3a64520128c427d2fe9bd223
 
 _catalog() {
     cat > "$TOOLS/catalog.json" <<JSON
-{"tools":{"imgtool":{"kind":"scan","delivery":"image","image":"$1"}}}
+{"tools":{"imgtool":{"kind":"scan","image":"$1"}}}
 JSON
 }
 

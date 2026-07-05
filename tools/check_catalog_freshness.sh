@@ -3,7 +3,7 @@ set -euo pipefail
 set -f  # disable globbing — handles external tool names
 
 # tools/check_catalog_freshness.sh — adoption-lag freshness check for the curated
-# image entries in tools/catalog.json. For each curated `delivery: image` entry on
+# image entries in tools/catalog.json. For each curated image entry on
 # the registry namespace ghcr.io/tomhennen/wrangle/*, it resolves the registry
 # digest of the tool's moving `:latest` tag and compares it to the catalog's
 # pinned @sha256: digest. A mismatch means wrangle published a newer tool image
@@ -43,7 +43,7 @@ source "$SCRIPT_DIR/../lib/registry.sh"
 # check_freshness <catalog_file> — returns 0 in sync, 1 drift, 2 backend error.
 check_freshness() {
     local file="$1" rc=0 drift=0 backend_err=0
-    local tool delivery image imagename pinned resolved checked=0
+    local tool image imagename pinned resolved checked=0
 
     if [[ ! -f "$file" ]]; then
         printf 'check_catalog_freshness: catalog not found: %s\n' "$file" >&2
@@ -56,9 +56,8 @@ check_freshness() {
 
     while IFS= read -r tool; do
         [[ -z "$tool" ]] && continue
-        delivery="$(read_catalog_field "$file" "$tool" delivery)"
-        [[ "$delivery" == "image" ]] || continue
         image="$(read_catalog_field "$file" "$tool" image)"
+        [[ -n "$image" ]] || continue
         imagename="${image%@sha256:*}"
         pinned="${image##*@}"
 

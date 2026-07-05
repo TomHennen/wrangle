@@ -21,15 +21,15 @@ teardown() {
     [[ -n "${TMP_DIR:-}" ]] && rm -rf "$TMP_DIR"
 }
 
-@test "catalog_image_dirs: selects every entry naming an image, delivery or not" {
-    # An image-bearing entry is selected regardless of its delivery field —
-    # the check_catalog.sh posture.
+@test "catalog_image_dirs: selects every entry naming an image, skips an imageless one" {
+    # An image-bearing entry is selected; an entry with no image is not — the
+    # check_catalog.sh posture.
     cat > "$TMP_DIR/catalog.json" <<'JSON'
 {"tools":{
-  "osv":{"delivery":"image","image":"ghcr.io/tomhennen/wrangle/osv@sha256:abc"},
-  "sbom":{"delivery":"image","image":"ghcr.io/tomhennen/wrangle/syft@sha256:def"},
+  "osv":{"image":"ghcr.io/tomhennen/wrangle/osv@sha256:abc"},
+  "sbom":{"image":"ghcr.io/tomhennen/wrangle/syft@sha256:def"},
   "attest-toolbox":{"kind":"attest","image":"ghcr.io/tomhennen/wrangle/attest-toolbox@sha256:123"},
-  "legacy":{"delivery":"adapter"}
+  "legacy":{"kind":"scan"}
 }}
 JSON
     run catalog_image_dirs "$TMP_DIR/catalog.json"

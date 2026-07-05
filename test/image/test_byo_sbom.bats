@@ -68,7 +68,7 @@ setup() {
     printf 'sbom-real' > "$SRC/MODE"
 
     cat > "$WS/.wrangle/tools.json" <<JSON
-{"tools":{"my-sbom":{"kind":"sbom","delivery":"image","image":"$BYO_IMAGE"}}}
+{"tools":{"my-sbom":{"kind":"sbom","image":"$BYO_IMAGE"}}}
 JSON
     export ORIG_DIR RUN_SH TMP_DIR WS SRC OUT TOOLS
 }

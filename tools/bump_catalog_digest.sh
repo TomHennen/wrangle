@@ -12,7 +12,7 @@ set -f
 # Usage: bump_catalog_digest.sh <tool> <digest>      # digest: sha256:<64 hex>
 #
 # Exit: 0 written (or already current — idempotent), 2 bad usage / unknown tool /
-#       non-image tool / bad digest / unreadable catalog.
+#       non-image entry / bad digest / unreadable catalog.
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 # shellcheck source=../lib/read_catalog.sh
@@ -34,15 +34,15 @@ bump_catalog_digest() {
         return 2
     fi
 
-    local delivery image
-    delivery="$(read_catalog_field "$file" "$tool" delivery)"
+    local kind image
+    kind="$(read_catalog_field "$file" "$tool" kind)"
     image="$(read_catalog_field "$file" "$tool" image)"
-    if [[ -z "$delivery" && -z "$image" ]]; then
+    if [[ -z "$kind" && -z "$image" ]]; then
         printf 'bump_catalog_digest: unknown tool: %s\n' "$tool" >&2
         return 2
     fi
-    if [[ "$delivery" != "image" || -z "$image" ]]; then
-        printf 'bump_catalog_digest: %s is not an image-delivery tool\n' "$tool" >&2
+    if [[ -z "$image" ]]; then
+        printf 'bump_catalog_digest: %s is not an image tool\n' "$tool" >&2
         return 2
     fi
 

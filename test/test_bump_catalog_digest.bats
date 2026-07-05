@@ -12,7 +12,7 @@ setup() {
     export WRANGLE_CATALOG="$CATALOG"
     command -v jq >/dev/null 2>&1 || { printf 'jq not on PATH\n' >&2; return 1; }
     printf '%s\n' \
-        '{"tools":{"osv":{"kind":"scan","delivery":"image","image":"ghcr.io/tomhennen/wrangle/osv@'"$DIGEST_A"'","network":"egress"}}}' \
+        '{"tools":{"osv":{"kind":"scan","image":"ghcr.io/tomhennen/wrangle/osv@'"$DIGEST_A"'","network":"egress"}}}' \
         > "$CATALOG"
 }
 
@@ -39,18 +39,18 @@ image_of() { jq -r '.tools.osv.image' "$CATALOG"; }
 }
 
 @test "bump_catalog_digest: non-image tool is rejected (exit 2)" {
-    printf '%s\n' '{"tools":{"foo":{"kind":"scan","delivery":"adapter"}}}' > "$CATALOG"
+    printf '%s\n' '{"tools":{"foo":{"kind":"scan"}}}' > "$CATALOG"
     run "$SCRIPT" foo "$DIGEST_B"
     [ "$status" -eq 2 ]
-    [[ "$output" == *"not an image-delivery tool"* ]]
+    [[ "$output" == *"not an image tool"* ]]
 }
 
 @test "bump_catalog_digest: a kind:attest image entry (the toolbox) is bumpable, not rejected" {
     # Regression for #689: the signing toolbox is a curated image entry; the
-    # manual digest-bump remediation must accept it — the check keys on
-    # delivery: image, not kind.
+    # manual digest-bump remediation must accept it — the check keys on the
+    # named image, not kind.
     printf '%s\n' \
-        '{"tools":{"attest-toolbox":{"kind":"attest","delivery":"image","image":"ghcr.io/tomhennen/wrangle/attest-toolbox@'"$DIGEST_A"'","network":"egress","token":"sigstore"}}}' \
+        '{"tools":{"attest-toolbox":{"kind":"attest","image":"ghcr.io/tomhennen/wrangle/attest-toolbox@'"$DIGEST_A"'","network":"egress","token":"sigstore"}}}' \
         > "$CATALOG"
     run "$SCRIPT" attest-toolbox "$DIGEST_B"
     [ "$status" -eq 0 ]

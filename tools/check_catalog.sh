@@ -8,11 +8,10 @@ set -f  # disable globbing — handles external tool/field names
 # off-namespace image reference can't pass CI green.
 #
 # For every tool it asserts: the file is valid JSON, a `kind` is declared, the
-# `delivery` (if set) is one run.sh recognizes, a declared `network`/`secret`
-# is from the allowed, default-closed set, and a `token` grant is `sigstore` and
-# only on a `kind: attest` entry. A `delivery: image` entry must also name
-# an image. Any entry naming an `image` (image-delivery or not) must be digest-pinned
-# (@sha256: + 64 hex, never a bare tag / :latest / @latest) on the curated namespace
+# entry names an `image`, a declared `network`/`secret` is from the allowed,
+# default-closed set, and a `token` grant is `sigstore` and only on a
+# `kind: attest` entry. The `image` must be digest-pinned (@sha256: + 64 hex,
+# never a bare tag / :latest / @latest) on the curated namespace
 # ghcr.io/tomhennen/wrangle/<tool> — adopter overrides never live in this in-repo
 # catalog (§3.6), so a different host or namespace is a violation.
 #
@@ -46,7 +45,7 @@ validate_catalog() {
         return 1
     fi
 
-    local tool kind delivery image network secret token
+    local tool kind image network secret token
     while IFS= read -r tool; do
         [[ -z "$tool" ]] && continue
 
@@ -85,36 +84,20 @@ validate_catalog() {
             fi
         fi
 
-        # Same allowlist run.sh enforces: empty/adapter/image. A typo'd value must
-        # not skip image enforcement and pass green.
-        delivery="$(read_catalog_field "$file" "$tool" delivery)"
-        case "$delivery" in
-            ''|adapter|image) ;;
-            *)
-                printf 'check_catalog: %s: unrecognized delivery: %s\n' "$tool" "$delivery" >&2
-                rc=1 ;;
-        esac
-
-        if [[ "$delivery" == "image" ]]; then
-            image="$(read_catalog_field "$file" "$tool" image)"
-            if [[ -z "$image" ]]; then
-                printf 'check_catalog: %s: delivery: image but no image\n' "$tool" >&2
-                rc=1
-            fi
-        fi
-
-        # Any entry naming an image, with or without delivery: image.
+        # Every curated entry names an image; that image must be digest-pinned on
+        # the curated namespace.
         image="$(read_catalog_field "$file" "$tool" image)"
-        if [[ -n "$image" ]]; then
-            if [[ "$image" =~ $IMAGE_STRICT_RE ]]; then
-                : # curated, digest-pinned — ok
-            elif [[ "$image" == "$CURATED_PREFIX"* ]]; then
-                printf 'check_catalog: %s: image not digest-pinned (needs ghcr.io/tomhennen/wrangle/<tool>@sha256:<64hex>): %s\n' "$tool" "$image" >&2
-                rc=1
-            else
-                printf 'check_catalog: %s: image off the curated namespace ghcr.io/tomhennen/wrangle/: %s\n' "$tool" "$image" >&2
-                rc=1
-            fi
+        if [[ -z "$image" ]]; then
+            printf 'check_catalog: %s: no image\n' "$tool" >&2
+            rc=1
+        elif [[ "$image" =~ $IMAGE_STRICT_RE ]]; then
+            : # curated, digest-pinned — ok
+        elif [[ "$image" == "$CURATED_PREFIX"* ]]; then
+            printf 'check_catalog: %s: image not digest-pinned (needs ghcr.io/tomhennen/wrangle/<tool>@sha256:<64hex>): %s\n' "$tool" "$image" >&2
+            rc=1
+        else
+            printf 'check_catalog: %s: image off the curated namespace ghcr.io/tomhennen/wrangle/: %s\n' "$tool" "$image" >&2
+            rc=1
         fi
     done < <(jq -r '.tools // {} | keys[]' "$file")
 

@@ -581,7 +581,7 @@ BEHAVIOR:
     3. Skip if tools/<tool>/action.yml exists (action-pattern — handled by
        uses: steps in the scan action; any adapter.sh present is only the
        tool image's entrypoint)
-    4. Resolve the tool's tools/catalog.json entry: a `delivery: image` entry
+    4. Resolve the tool's tools/catalog.json entry: an entry naming an `image`
        runs the tool's pinned image via `docker run` (read-only /src, writable
        /output owned by the runner UID, --network none unless the entry
        declares `network: egress`, a `secret:` passed via -e). A tool with no
@@ -649,7 +649,6 @@ select an injected tool.
   "tools": {
     "my-sbom": {                                  // a tool wrangle doesn't ship — full definition
       "kind": "sbom",
-      "delivery": "image",
       "image": "ghcr.io/myorg/my-sbom@sha256:<64hex>"
     }
   }
@@ -662,7 +661,7 @@ under a new name and deselect the curated one via `tools:` / `sbom-tool:`. Each 
 capabilities standalone; nothing inherits from any curated entry.
 
 **Per-entry validation** (any failure fails closed, aborting the run): tool name matches
-`^[a-z][a-z0-9_-]*$`; `kind` ∈ {`scan`, `sbom`, `attest`}; `delivery` is `image`; `image` is digest-pinned
+`^[a-z][a-z0-9_-]*$`; `kind` ∈ {`scan`, `sbom`, `attest`}; `image` is digest-pinned
 (`name@sha256:<64hex>`) **and outside the wrangle namespace** (`ghcr.io/tomhennen/wrangle/*` is rejected —
 a custom tool cannot borrow a wrangle VSA identity); a declared `network` ∈ {`none`, `egress`} and `secret`
 matches `^[a-z][a-z0-9-]*$`. The value rules are shared with the curated-catalog linter via
@@ -840,7 +839,7 @@ The install scripts include OS/arch detection (`linux/darwin`, `amd64/arm64`) as
    - `adapter.sh` — the image entrypoint; follows the adapter contract above
    - `install.sh` — uses `lib/download_verify.sh` for download and verification when no package manager ships the tool (run at image-build time)
    - `test.bats` — tests using mock binaries (fast, deterministic)
-2. Build and publish the tool's image and add its digest-pinned `delivery: image` entry to `tools/catalog.json` (see [Tool containerization](tool_container_design.md))
+2. Build and publish the tool's image and add its digest-pinned image entry to `tools/catalog.json` (see [Tool containerization](tool_container_design.md))
 3. Add `foo` to the orchestrator's default tool list in `actions/scan/action.yml`
 
 **Action pattern** (wraps upstream GitHub Action):
@@ -850,7 +849,7 @@ The install scripts include OS/arch detection (`linux/darwin`, `amd64/arm64`) as
    - `test.bats` — structural tests (action.yml exists, SHA pinned, etc.)
 2. Add a `uses: ./tools/foo` step in `actions/scan/action.yml`
 
-Everything for one tool lives in one directory, with no workflow changes for adopters. Most tools deliver as a downloaded binary or a wrapped action; a tool that needs a container delivers as one via the catalog (`delivery: image`, see Design Decisions below).
+Everything for one tool lives in one directory, with no workflow changes for adopters. Most tools deliver as a downloaded binary or a wrapped action; a tool that needs a container delivers as one via the catalog (a digest-pinned `image` entry, see Design Decisions below).
 
 ### Tool Sub-specifications
 
@@ -893,7 +892,7 @@ The `.wrangle/` directory is in `.gitignore` to prevent accidental commits.
 
 ### Tool delivery: container images per tool
 
-Each adapter-pattern tool runs as a **digest-pinned OCI image** resolved through the catalog (`delivery: image` with a digest-pinned `image:`); the orchestrator dispatches it via `docker run` under the adapter contract sandbox — the container is the unit of both distribution and isolation. Tools with a well-maintained official GitHub Action stay action-pattern (wrapped via `uses:`) instead. Rationale and the packaging model are in [docs/tool_container_design.md](tool_container_design.md).
+Each adapter-pattern tool runs as a **digest-pinned OCI image** resolved through the catalog (a digest-pinned `image:` entry); the orchestrator dispatches it via `docker run` under the adapter contract sandbox — the container is the unit of both distribution and isolation. Tools with a well-maintained official GitHub Action stay action-pattern (wrapped via `uses:`) instead. Rationale and the packaging model are in [docs/tool_container_design.md](tool_container_design.md).
 
 The container *build/publish* workflow (for building adopters' Docker images) is a separate concern and remains unchanged.
 
