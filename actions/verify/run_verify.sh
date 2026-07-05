@@ -85,6 +85,7 @@ wrangle_ampel_verify_args() {
     local args=(verify "$subject_arg"
         --collector="jsonl:$bundle")
     [[ -n "${COLLECTOR:-}" ]] && args+=(--collector="$COLLECTOR")
+    # shellcheck disable=SC2153 # env-var inputs; the sourced validate script's lowercase locals trip the misspelling heuristic
     args+=(--policy="$(wrangle_resolve_policy "$POLICY")"
         --exit-code="$FAIL"
         --attest-results
