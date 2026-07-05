@@ -151,10 +151,10 @@ jobs:
       - name: Run shell build
         # TODO: replace with $/build/actions/shell when GitHub ships $/ syntax (#136)
         # Bootstrap pin (docs/e2e_testing.md): the composite gained the
-        # setup-script input and multi-path bats — the main-pinned version
-        # would ignore setup-script and fail the dogfooded integration bats.
+        # bats-jobs input — the main-pinned version would ignore it and run
+        # bats serially, so the dogfood run wouldn't exercise the fan-out.
         # Bump to main post-merge via tools/bump_action_pins.sh.
-        uses: TomHennen/wrangle/build/actions/shell@ad159e9af4ea588258d6fe7020f05478f8d73613 # feat/phase3-container-signing 2026-07-05
+        uses: TomHennen/wrangle/build/actions/shell@a7a5e215c9e1104c3508693ea9f6dc378594bb76 # worktree-claude-parallel-bats
         with:
           scan-path: ${{ inputs.scan-path }}
           bats-path: ${{ inputs.bats-path }}
