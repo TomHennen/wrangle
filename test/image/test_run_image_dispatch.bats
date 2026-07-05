@@ -114,10 +114,76 @@ _run_orch() {
     [ "$(jq '[.runs[].results[]] | length' "$OUT/mocktool/output.sarif")" -gt 0 ]
 }
 
-@test "run.sh image dispatch: tool error -> exit 2" {
+@test "run.sh image dispatch: tool error -> exit 2 and an error marker" {
     printf 'error' > "$SRC/MODE"
     _run_orch mocktool
     [ "$status" -eq 2 ]
+    # The marker lets check_results catch the failure even under continue-on-error
+    # (and honor an :info policy on the error).
+    [ -f "$OUT/mocktool/error" ]
+}
+
+@test "run.sh image dispatch: an errored tool among several -> exit 2" {
+    # Two tools, both erroring, in one run; overall status must reach 2 (an error
+    # is never downgraded).
+    printf 'error' > "$SRC/MODE"
+    cat > "$TOOLS/catalog.json" <<JSON
+{"tools":{"toola":{"kind":"scan","delivery":"image","image":"$MOCK_IMAGE"},"toolb":{"kind":"scan","delivery":"image","image":"$MOCK_IMAGE"}}}
+JSON
+    _run_orch toola toolb
+    [ "$status" -eq 2 ]
+}
+
+@test "run.sh image dispatch: run timeout -> exit 2" {
+    printf 'slow' > "$SRC/MODE"
+    WRANGLE_TOOLS_DIR="$TOOLS" WRANGLE_ADAPTER_TIMEOUT=1 \
+        run "$RUN_SH" -s "$SRC" -o "$OUT" mocktool
+    [ "$status" -eq 2 ]
+    [[ "$output" == *"timed out"* ]]
+}
+
+@test "run.sh image dispatch: two image tools land in distinct dirs without clobbering" {
+    printf 'clean' > "$SRC/MODE"
+    cat > "$TOOLS/catalog.json" <<JSON
+{"tools":{"toola":{"kind":"scan","delivery":"image","image":"$MOCK_IMAGE"},"toolb":{"kind":"scan","delivery":"image","image":"$MOCK_IMAGE"}}}
+JSON
+    _run_orch toola toolb
+    [ "$status" -eq 0 ]
+    [ -f "$OUT/toola/output.sarif" ]
+    [ -f "$OUT/toolb/output.sarif" ]
+}
+
+@test "run.sh image dispatch: writes the scan/v1 manifest for a wired tool token" {
+    # run.sh's shared post-run path writes the scan/v1 manifest for osv/wrangle-lint/
+    # zizmor tokens. Drive it deterministically with the mock image under the osv key.
+    printf 'clean' > "$SRC/MODE"
+    cat > "$TOOLS/catalog.json" <<JSON
+{"tools":{"osv":{"kind":"scan","delivery":"image","image":"$MOCK_IMAGE"}}}
+JSON
+    _run_orch osv
+    [ "$status" -eq 0 ]
+    local manifest="$OUT/osv/wrangle_attestation_metadata.json"
+    [ -f "$manifest" ]
+    [ "$(jq -r '."predicate-type"' "$manifest")" = "https://github.com/TomHennen/wrangle/attestation/scan/v1" ]
+    [ "$(jq -r '.tool.name' "$manifest")" = "osv-scanner" ]
+    [ "$(jq -r '.result' "$manifest")" = "clean" ]
+}
+
+@test "run.sh image dispatch: no scan manifest for an unwired tool token" {
+    printf 'clean' > "$SRC/MODE"
+    _run_orch mocktool
+    [ "$status" -eq 0 ]
+    [ ! -f "$OUT/mocktool/wrangle_attestation_metadata.json" ]
+}
+
+@test "run.sh image dispatch: an undeclared host GITHUB_TOKEN never reaches the container" {
+    # With no catalog secret:, docker gets only the -e flags run_tool_image builds;
+    # a host GITHUB_TOKEN must not be among them. The mock records what it saw.
+    printf 'secret' > "$SRC/MODE"
+    WRANGLE_TOOLS_DIR="$TOOLS" GITHUB_TOKEN="ghs_should_not_leak" \
+        run "$RUN_SH" -s "$SRC" -o "$OUT" mocktool
+    [ "$status" -eq 0 ]
+    [ -z "$(cat "$OUT/mocktool/github_token_seen")" ]
 }
 
 @test "run.sh image dispatch: writes output.sarif into output_dir/<tool>/" {
@@ -293,4 +359,15 @@ JSON
     [ "$(jq -r '."predicate-type"' "$meta/wrangle_attestation_metadata.json")" = "https://spdx.dev/Document" ]
     [ "$(jq -r '."result-file"' "$meta/wrangle_attestation_metadata.json")" = "sbom.spdx.json" ]
     [ ! -d "$meta/mocktool" ]
+}
+
+@test "generate_sbom: fails closed when the dispatched tool errors" {
+    # The image errors and writes no SBOM (a failed VSA gate / tool error looks
+    # the same). run.sh returns 2; generate_sbom must propagate, not relocate.
+    _sbom_catalog
+    printf 'sbom-error' > "$SRC/MODE"
+    local meta="$TMP_DIR/meta"
+    WRANGLE_TOOLS_DIR="$TOOLS" run "$ORIG_DIR/lib/generate_sbom.sh" "$SRC" "$meta" mocktool
+    [ "$status" -ne 0 ]
+    [ ! -f "$meta/sbom.spdx.json" ]
 }

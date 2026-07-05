@@ -18,6 +18,11 @@ case "$mode" in
     error)
         printf 'mock: simulated tool error\n' >&2
         exit 2 ;;
+    slow)
+        # Outlast a short WRANGLE_ADAPTER_TIMEOUT so the timeout->exit-2 mapping
+        # can be driven.
+        sleep 30
+        exit 0 ;;
     malformed)
         printf 'not valid json{' > "$out/output.sarif"
         exit 0 ;;
