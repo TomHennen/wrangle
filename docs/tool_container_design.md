@@ -82,6 +82,10 @@ deliberately:
 | `WRANGLE_EXTRA_*` forwarding | explicit `-e WRANGLE_EXTRA_*` per declaring tool |
 | post-run filesystem snapshot (warn-only) | `/src:ro` + `/output`-only mount — fail-closed write confinement, an upgrade |
 
+Signing (`attest`) containers additionally never receive the OIDC mint-request vars
+(`ACTIONS_ID_TOKEN_REQUEST_*`); the host mints the short-lived `SIGSTORE_ID_TOKEN` and passes only that
+by name (§7).
+
 SPEC's Adapter Script Interface (environment/security sections) is updated in the same change.
 
 ### 3.3 Tool kinds
