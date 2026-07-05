@@ -75,6 +75,11 @@ runs:
     # run.sh strips :policy suffixes and skips action-pattern tools.
     - name: Run adapter-pattern tools
       shell: bash
+      # continue-on-error: run.sh exits 1 on findings and 2 on a tool error, but
+      # the Check results step owns the gate per each tool's :fail/:info policy
+      # (findings via SARIF, errors via the marker run.sh writes) — so this step
+      # must not fail on either, or an :info tool's findings/error would block.
+      continue-on-error: true
       # tools input passed via env var to prevent expression injection.
       # ${{ github.action_path }} is safe to interpolate in run: blocks —
       # it is set by GitHub when fetching the composite action and is not
@@ -107,7 +112,7 @@ runs:
     # TODO: replace with $/tools/scorecard when $/ syntax ships (#136, #137)
     - name: Scorecard
       if: always() && contains(inputs.tools, 'scorecard') && github.event_name != 'pull_request'
-      uses: TomHennen/wrangle/tools/scorecard@6e565bc9524fc6c1f99190930af9ccbdbace76eb # main 2026-07-05
+      uses: TomHennen/wrangle/tools/scorecard@67da09e58ee3f3a151beba4f0246c94fbc8b1da2 # fix/info-policy-markers-688 2026-07-05
 
     # Dependency Review is PR-only — the upstream action requires
     # github.event.pull_request.base.sha / head.sha to compute the diff.
@@ -119,7 +124,7 @@ runs:
     # The wrapper's inline defaults (fail-on-severity: high) still apply.
     - name: Dependency Review
       if: always() && contains(inputs.tools, 'dependency-review') && github.event_name == 'pull_request'
-      uses: TomHennen/wrangle/tools/dependency-review@6e565bc9524fc6c1f99190930af9ccbdbace76eb # main 2026-07-05
+      uses: TomHennen/wrangle/tools/dependency-review@67da09e58ee3f3a151beba4f0246c94fbc8b1da2 # fix/info-policy-markers-688 2026-07-05
 
     - name: Generate step summary
       if: always()

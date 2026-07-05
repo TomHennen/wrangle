@@ -197,3 +197,14 @@ setup() {
     run grep 'dependency-review-comment-summary-in-pr' "$ACTION_DIR/action.yml"
     [ "$status" -ne 0 ]
 }
+
+# --- :info policy gate (#688): run step must not fail on findings/errors -------
+
+@test "scan: adapter-tool step runs under continue-on-error (Check results owns the gate)" {
+    # run.sh exits 1 on findings / 2 on error; the step must continue so the
+    # Check results step can apply each tool's :fail/:info policy (findings via
+    # SARIF, errors via the marker run.sh writes).
+    run awk '/- name: Run adapter-pattern tools/{f=1} f&&/^      continue-on-error: true/{print;exit} f&&/^    - name:/&&!/Run adapter/{exit}' "$ACTION_DIR/action.yml"
+    [[ "$output" == *"continue-on-error: true"* ]]
+}
+
