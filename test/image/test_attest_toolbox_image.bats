@@ -45,7 +45,7 @@ wrangle_ampel_verify_in_image() {
         --collector="jsonl:$results/bundle.jsonl" \
         --policy="$ROOT/policies/wrangle-vsa-consumer-nonstrict-v1.hjson" \
         --context "$VSA_CONTEXT" \
-        --workers=32 --exit-code=true --attest-results --attest-format=vsa \
+        --exit-code=true --attest-results --attest-format=vsa \
         --results-path="$results/vsa.json" --format=html
 }
 
