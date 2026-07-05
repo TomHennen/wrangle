@@ -664,16 +664,9 @@ func main() {}
     grep -qE "if:.*inputs\\.scan-tools != ''" <<<"$section"
 }
 
-@test "go: scan job needs prep so go-cache can read should-release" {
+@test "go: scan job needs prep for the metadata artifact name" {
     section="$(awk '/^  [a-z][a-z_-]*:$/ { in_section = ($0 == "  scan:") } in_section' "$WORKFLOW")"
     grep -qE 'needs:.*prep' <<<"$section"
-}
-
-@test "go: scan job forces go-cache off on release" {
-    # The scan gates the attested release; its Go tool cache must build cold
-    # on release so a poisoned cache cannot forge a passing scan.
-    section="$(awk '/^  [a-z][a-z_-]*:$/ { in_section = ($0 == "  scan:") } in_section' "$WORKFLOW")"
-    grep -qE "go-cache:.*should-release != 'true' && inputs.go-cache" <<<"$section"
 }
 
 @test "go: workflow release job needs scan (load-bearing finding blocks publish)" {

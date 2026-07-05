@@ -43,11 +43,9 @@ on:
         default: "osv zizmor scorecard:info dependency-review wrangle-lint"
       go-cache:
         description: >
-          Set to "enabled" to cache the Go module + build caches the
-          scan tools build from source (osv-scanner et al. — #343).
-          Default off: the cache is ~1.5–3 GB against this repo's
-          Actions cache quota. Source scanning produces no provenance,
-          so caching is L3-safe here regardless.
+          Deprecated no-op. The source-scan tools now ship as curated,
+          digest-pinned images and no longer build from source, so this
+          caches nothing. Retained so callers that still set it don't fail.
         required: false
         type: string
         default: ""
@@ -58,7 +56,7 @@ on:
           shell-build job caches the Go module + build caches keyed on
           that go.sum, so those tools aren't recompiled from source every
           run. The cache counts against your repo's Actions quota. Empty
-          (default) disables it. To cache the scan tools, use go-cache.
+          (default) disables it.
         required: false
         type: string
         default: ""
@@ -92,7 +90,7 @@ jobs:
     permissions: {}    # guard reads env only — no workspace, no API, no secrets
     steps:
       # TODO: replace with $/actions/prep when GitHub ships $/ syntax (#136)
-      - uses: TomHennen/wrangle/actions/prep@ad159e9af4ea588258d6fe7020f05478f8d73613 # feat/phase3-container-signing 2026-07-05
+      - uses: TomHennen/wrangle/actions/prep@f0ff9b1c2611878e51834b543c65c228f17f7409 # feat/containerize-verify-vsa-cleanup 2026-07-05
 
   # Source scan. A load-bearing (:fail) finding fails the run alongside
   # the shell build/test (there is no artifact to gate publishing of).
@@ -105,12 +103,11 @@ jobs:
       security-events: write
     steps:
       # TODO: replace with $/actions/scan when GitHub ships $/ syntax (#136)
-      - uses: TomHennen/wrangle/actions/scan@ad159e9af4ea588258d6fe7020f05478f8d73613 # feat/phase3-container-signing 2026-07-05
+      - uses: TomHennen/wrangle/actions/scan@f0ff9b1c2611878e51834b543c65c228f17f7409 # feat/containerize-verify-vsa-cleanup 2026-07-05
         if: ${{ inputs.scan-tools != '' }}
         with:
           checkout: "true"
           tools: ${{ inputs.scan-tools }}
-          go-cache: ${{ inputs.go-cache }}
 
   shell-build:
     needs: [prep]

@@ -1,6 +1,4 @@
-# ampel and bnd are built from tools/go.mod (`go install`); cosign too, but only
-# for the container (oci-target) build. The runner needs a Go toolchain. The
-# PolicySet mandates the signer identities of every input attestation
+# The PolicySet mandates the signer identities of every input attestation
 # (common.identities), so verification is fail-closed with no --signer flag to
 # forget. bnd signs each VSA keyless via the CALLING workflow's OIDC identity;
 # consumers verify with cosign --certificate-identity-regexp.
@@ -112,16 +110,6 @@ inputs:
 runs:
   using: composite
   steps:
-    # Build the verify tools into WRANGLE_BIN_DIR. Downstream steps re-source
-    # lib/env.sh to find them on PATH, so there is no write to $GITHUB_PATH.
-    # cosign is built only for the container (oci-target) build — see the script.
-    - name: Install verify tools
-      shell: bash
-      env:
-        OCI_TARGET: ${{ inputs.oci-target }}
-      run: |
-        "${{ github.action_path }}/install_tools.sh"
-
     # Pass through subjects, or expand the dist-files JSON array into them.
     - name: Resolve subjects
       id: subjects
