@@ -111,7 +111,9 @@ wrangle_seed_bundle() {
         # Keep only the SLSA provenance envelopes (download emits all referrers,
         # including prior VSAs); a jq decode failure must fail, not seed empty.
         downloaded="$(mktemp "${RUNNER_TEMP:-/tmp}/seed.XXXXXX")"
-        wrangle_toolbox_exec --docker-config --env GITHUB_TOKEN -- cosign "${args[@]}" > "$downloaded"
+        # Retry once like the toolbox's sibling downloads above: a transient
+        # blip on the seed download must not fail the whole attest job.
+        wrangle_retry_once "$downloaded" wrangle_toolbox_exec --docker-config --env GITHUB_TOKEN -- cosign "${args[@]}"
         if ! jq -ce "select((.dsseEnvelope.payload | @base64d | fromjson | .predicateType) == \"$WRANGLE_PROVENANCE_PREDICATE\")" \
             "$downloaded" > "$seed"; then
             rm -f "$downloaded"
