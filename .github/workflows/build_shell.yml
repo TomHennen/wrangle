@@ -109,7 +109,7 @@ jobs:
     permissions: {}    # guard reads env only — no workspace, no API, no secrets
     steps:
       # TODO: replace with $/actions/prep when GitHub ships $/ syntax (#136)
-      - uses: TomHennen/wrangle/actions/prep@73dc4c973115eb7f8c622030640f984af7ef6592 # claude/trim-redundant-unit-tests 2026-07-05
+      - uses: TomHennen/wrangle/actions/prep@79152fb56af0da37b98e326d7c80d1c3711dda04 # claude/trim-redundant-unit-tests 2026-07-05
 
   # Source scan. A load-bearing (:fail) finding fails the run alongside
   # the shell build/test (there is no artifact to gate publishing of).
@@ -122,7 +122,7 @@ jobs:
       security-events: write
     steps:
       # TODO: replace with $/actions/scan when GitHub ships $/ syntax (#136)
-      - uses: TomHennen/wrangle/actions/scan@73dc4c973115eb7f8c622030640f984af7ef6592 # claude/trim-redundant-unit-tests 2026-07-05
+      - uses: TomHennen/wrangle/actions/scan@79152fb56af0da37b98e326d7c80d1c3711dda04 # claude/trim-redundant-unit-tests 2026-07-05
         if: ${{ inputs.scan-tools != '' }}
         with:
           checkout: "true"
@@ -198,7 +198,7 @@ jobs:
         # bats-jobs input — the main-pinned version would ignore it and run
         # bats serially, so the dogfood run wouldn't exercise the fan-out.
         # Bump to main post-merge via tools/bump_action_pins.sh.
-        uses: TomHennen/wrangle/build/actions/shell@73dc4c973115eb7f8c622030640f984af7ef6592 # claude/trim-redundant-unit-tests 2026-07-05
+        uses: TomHennen/wrangle/build/actions/shell@79152fb56af0da37b98e326d7c80d1c3711dda04 # claude/trim-redundant-unit-tests 2026-07-05
         with:
           scan-path: ${{ inputs.scan-path }}
           bats-path: ${{ inputs.bats-path }}
