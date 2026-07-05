@@ -83,14 +83,6 @@ on:
         required: false
         type: string
         default: "osv zizmor scorecard:info dependency-review wrangle-lint"
-      go-cache:
-        description: >
-          Deprecated no-op. The source-scan tools now ship as curated,
-          digest-pinned images and no longer build from source, so this
-          caches nothing. Retained so callers that still set it don't fail.
-        required: false
-        type: string
-        default: ""
       policy:
         description: |
           wrangle PolicySet the release is verified against (path under
@@ -150,7 +142,7 @@ jobs:
       metadata-pre: ${{ steps.prep.outputs.metadata-pre }}
     steps:
       # TODO: replace with $/actions/prep when GitHub ships $/ syntax (#136)
-      - uses: TomHennen/wrangle/actions/prep@c868e1c2c4d0d9d41173347591d5690dd8e544b1 # fix/dockerfile-ubuntu-2604-608 2026-07-05
+      - uses: TomHennen/wrangle/actions/prep@e90123e37b0c0807ca24a1a30a3e51d3956773d3 # followup-toolbox-ampel-bump 2026-07-05
         id: prep
         with:
           build-type: npm
@@ -169,7 +161,7 @@ jobs:
       security-events: write
     steps:
       # TODO: replace with $/actions/scan when GitHub ships $/ syntax (#136)
-      - uses: TomHennen/wrangle/actions/scan@c868e1c2c4d0d9d41173347591d5690dd8e544b1 # fix/dockerfile-ubuntu-2604-608 2026-07-05
+      - uses: TomHennen/wrangle/actions/scan@e90123e37b0c0807ca24a1a30a3e51d3956773d3 # followup-toolbox-ampel-bump 2026-07-05
         if: ${{ inputs.scan-tools != '' }}
         with:
           checkout: "true"
@@ -203,7 +195,7 @@ jobs:
           ref: ${{ inputs.ref || '' }}
 
       # TODO: replace with $/build/actions/npm when GitHub ships $/ syntax (#136)
-      - uses: TomHennen/wrangle/build/actions/npm@c868e1c2c4d0d9d41173347591d5690dd8e544b1 # fix/dockerfile-ubuntu-2604-608 2026-07-05
+      - uses: TomHennen/wrangle/build/actions/npm@e90123e37b0c0807ca24a1a30a3e51d3956773d3 # followup-toolbox-ampel-bump 2026-07-05
         id: build
         with:
           path: ${{ inputs.path }}
@@ -282,7 +274,7 @@ jobs:
       bundles-artifact-name: ${{ steps.attest.outputs.bundles-artifact-name }}
     steps:
       # TODO: replace with $/actions/attest_provenance when GitHub ships $/ syntax (#136)
-      - uses: TomHennen/wrangle/actions/attest_provenance@c868e1c2c4d0d9d41173347591d5690dd8e544b1 # fix/dockerfile-ubuntu-2604-608 2026-07-05
+      - uses: TomHennen/wrangle/actions/attest_provenance@e90123e37b0c0807ca24a1a30a3e51d3956773d3 # followup-toolbox-ampel-bump 2026-07-05
         id: attest
         with:
           build-type: npm
@@ -305,7 +297,7 @@ jobs:
       contents: write       # create the release if absent and attach the bundle on tag pushes
     steps:
       # TODO: replace with $/actions/verify_release when GitHub ships $/ syntax (#136)
-      - uses: TomHennen/wrangle/actions/verify_release@c868e1c2c4d0d9d41173347591d5690dd8e544b1 # fix/dockerfile-ubuntu-2604-608 2026-07-05
+      - uses: TomHennen/wrangle/actions/verify_release@e90123e37b0c0807ca24a1a30a3e51d3956773d3 # followup-toolbox-ampel-bump 2026-07-05
         with:
           build-type: npm
           shortname: ${{ needs.prep.outputs.shortname }}
