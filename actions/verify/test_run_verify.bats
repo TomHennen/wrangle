@@ -674,6 +674,9 @@ case "$1 $2" in
     exit "${GH_EDIT_CODE:-0}" ;;
   "release upload")
     [[ -n "${GH_KEEP_ZIP:-}" && "$4" == *.zip ]] && cp "$4" "$GH_KEEP_ZIP"
+    # GH_ZIP_UPLOAD_CODE fails only the metadata-zip upload, leaving dist/bundle
+    # uploads green — isolates the last-asset failure that must abort the flip.
+    [[ "$4" == *.zip ]] && exit "${GH_ZIP_UPLOAD_CODE:-0}"
     exit "${GH_UPLOAD_CODE:-0}" ;;
 esac
 exit 0
@@ -915,6 +918,24 @@ SHIM
     [[ "$last" == *"release edit v1.2.3 --draft=false"* ]]
 }
 
+@test "run_verify attach: a failed metadata-zip upload fails closed before the publish flip" {
+    # The metadata zip is the last asset; its upload failure MUST abort the attach
+    # before wrangle_publish_release flips the draft — else an incomplete release
+    # freezes as published on immutable. Regression guard: the helper runs on the
+    # left of `||`, so set -e is disabled in its body and a swallowed failure
+    # would let the flip proceed.
+    _require_zip
+    _install_gh_shim
+    _stage_release_assets
+    export BUILD_TYPE="python"
+    export GH_VIEW_SEQ="0"
+    export GH_ZIP_UPLOAD_CODE=1      # only the metadata-zip upload fails
+    run "$SCRIPT" attach
+    [[ "$status" -ne 0 ]]
+    # The draft must NOT have been published.
+    if grep -q "release edit v1.2.3 --draft=false" "$GH_LOG"; then return 1; fi
+}
+
 @test "run_verify: ensure_release creates a draft when the release is absent" {
     _install_gh_shim
     export GH_VIEW_SEQ="1 1"          # absent, and the post-create re-check is not reached
@@ -1124,6 +1145,17 @@ _stage_unattested_assets() {
     [[ "$status" -eq 0 ]]
     grep -q "release edit v1.2.3 --notes" "$GH_LOG"
     grep -q "issues/600" "$GH_NOTES"
+}
+
+@test "run_verify attach-unattested: a failed metadata-zip upload fails closed before the publish flip" {
+    _require_zip
+    _install_gh_shim
+    _stage_unattested_assets
+    export GH_VIEW_SEQ="0"
+    export GH_ZIP_UPLOAD_CODE=1      # only the metadata-zip upload fails
+    run "$SCRIPT" attach-unattested
+    [[ "$status" -ne 0 ]]
+    if grep -q "release edit v1.2.3 --draft=false" "$GH_LOG"; then return 1; fi
 }
 
 @test "run_verify attach-unattested: fails closed when dist has no artifacts" {

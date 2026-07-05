@@ -333,12 +333,16 @@ wrangle_attach_release() {
 # Zip the metadata dir (sbom + scan/ + bundles) and attach it once per build as
 # <type>-metadata-<sn>.zip. The SBOM rides inside this zip, not as a flat asset.
 wrangle_attach_metadata_zip() {
-    local ref="$1" zip
+    local ref="$1" zip rc=0
     zip="${RUNNER_TEMP:-/tmp}/$METADATA_ZIP_NAME"
     rm -f "$zip"
-    ( cd "$METADATA_ROOT" && zip -r -q "$zip" . )
-    gh release upload "$ref" "$zip" --clobber
+    # Capture each step's rc explicitly: this runs on the left of `||`, so set -e
+    # is disabled throughout the body — a swallowed zip-build or upload failure
+    # would let the caller flip the draft to published with an incomplete release.
+    ( cd "$METADATA_ROOT" && zip -r -q "$zip" . ) || rc=1
+    [[ "$rc" -eq 0 ]] && { gh release upload "$ref" "$zip" --clobber || rc=1; }
     rm -f "$zip"
+    return "$rc"
 }
 
 # The marker appended to an unattested release body, and a substring unique to
