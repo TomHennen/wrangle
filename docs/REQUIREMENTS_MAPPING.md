@@ -270,13 +270,14 @@ valid VSA and must be treated as untrusted.
 Only **release** builds produce attested artifacts, so only release behavior
 bears on L3: a release build must not consume a shared cache that isn't
 re-verified on use. (PR builds may cache freely; they produce no provenance.)
-Note that the Go and scan-job **build** caches are *not* re-verified on hit —
-which is why they're forced cold on release; npm is the one surface that keeps a
-cache on release, relying on `npm ci`.
+Note that the Go **build** cache is *not* re-verified on hit — which is why it's
+forced cold on release; npm is the one surface that keeps a cache on release,
+relying on `npm ci`. The scan tools no longer build from source — they ship as
+digest-pinned images — so there is no scan-job build cache to isolate.
 
 | Surface | On release | Re-verified on hit? | Verdict |
 |---|---|---|---|
-| Scan-job Go / tool-build cache | Cold (forced off when `should-release`) | n/a | MEETS — scan output gates the build but isn't an attested artifact |
+| Scan-job tool image | No build cache — scan tools ship as digest-pinned images, not built from source | n/a | MEETS — no build cache to poison; scan output gates the build but isn't an attested artifact |
 | Go build (`setup-go`) | Cold (`cache: false`) | n/a | MEETS |
 | Python uv | Cold (`enable-cache: false`) | n/a | MEETS |
 | Python pip | No cache, ever | n/a | MEETS |

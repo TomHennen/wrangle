@@ -29,8 +29,8 @@ inputs:
     default: ${{ github.repository }}
   github-token:
     description: >
-      Token for the pull-time VSA gate that verifies the curated attest-toolbox
-      image before ampel runs inside it. Defaults to the workflow token.
+      Token wrangle uses to verify its own tool image before running it. Leave
+      unset to use the job's default token.
     required: false
     default: ${{ github.token }}
 
