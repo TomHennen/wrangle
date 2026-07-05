@@ -61,8 +61,6 @@ jobs:
       imagename: ${{ matrix.imagename }}
       registry: ghcr.io
       release-events: main-and-tags
-    secrets:
-      gh_token: ${{ secrets.GITHUB_TOKEN }}
 
   # Open (never auto-merge) a catalog bump PR for the just-published digests.
   # main-only, on the trusted push trigger (no pull_request_target).

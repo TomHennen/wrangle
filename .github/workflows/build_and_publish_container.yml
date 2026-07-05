@@ -86,10 +86,6 @@ on:
         required: false
         type: string
         default: policies/wrangle-default-container-v1.hjson
-    secrets:
-      gh_token:
-        description: "GitHub token with write access"
-        required: true
     outputs:
       digest:
         description: "Image digest pushed to the registry."
@@ -273,9 +269,7 @@ jobs:
           # Must match the cosign built from tools/go.mod — the version the suite tests.
           cosign-release: v3.0.6
 
-      # Use the job's own GITHUB_TOKEN (packages: write above), like the build
-      # job — not the passed gh_token, which zizmor's secrets-outside-env flags
-      # for use without a dedicated environment.
+      # Use the job's own GITHUB_TOKEN (packages: write above), like the build job.
       - name: Log in to ghcr for the VSA referrer push
         uses: docker/login-action@650006c6eb7dba73a995cc03b0b2d7f5ca915bee # v4.2.0
         with:

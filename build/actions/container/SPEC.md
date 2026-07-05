@@ -50,9 +50,8 @@ Multi-registry support is a planned extension. See "Known limitations" for the s
 
 ### Reusable workflow secrets
 
-| Secret | Required | Description |
-|--------|----------|-------------|
-| `gh_token` | yes | GitHub token, used by the composite action and by the attest/verify jobs for GHCR operations (registry login, pushing the attestation and VSA referrers) |
+None. Every job authenticates with its own `GITHUB_TOKEN` (each requests the
+`packages: write` / `id-token: write` it needs), so the caller passes no secrets.
 
 ### Reusable workflow outputs
 

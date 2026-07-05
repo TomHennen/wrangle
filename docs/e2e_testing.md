@@ -18,7 +18,7 @@ wrangle's reusable workflows call wrangle's own composite actions by SHA-pinned 
 This needs no special handling and is what nearly every PR does. A change to a self-referenced action that is backward-compatible just leaves the nested pins alone: the integration test exercises the main-pinned (old) action, which still passes; the change itself is covered by the action's own bats and by the post-merge showcase. After merge, routine `tools/bump_action_pins.sh <main-sha>` rolls every pin forward to the new code. The only thing you give up is pre-merge integration coverage *of that one action change* — an accepted gap.
 
 ### Bootstrap pin: only when the main-pinned action would fail
-You need a bootstrap pin only when leaving the pin at main would make the integration test fail on code the PR didn't ship — i.e. the workflow now depends on something not yet on main: a **new** policy file the action reads, a new required behavior, or a change that makes the old action incompatible with the new wiring. (Example: the PR that introduced `policies/wrangle-provenance-v1.hjson` plus `actions/verify`'s policy-path resolution — main had neither, so the integration test couldn't pass without pointing at the branch.)
+You need a bootstrap pin only when leaving the pin at main would make the integration test fail on code the PR didn't ship — i.e. the workflow now depends on something not yet on main: a **new** policy file the action reads, a new required behavior, or a change that makes the old action incompatible with the new wiring. (Example: the PR that introduced `policies/wrangle-provenance-go-v1.hjson` plus `actions/verify`'s policy-path resolution — main had neither, so the integration test couldn't pass without pointing at the branch.)
 
 In that case, for the duration of the PR:
 
@@ -27,7 +27,7 @@ In that case, for the duration of the PR:
 3. Note the bootstrap pin in the PR description.
 
 ### Merge however you like — the check tells you when to bump
-A branch SHA can't become a main SHA until the code is on main, so a bootstrap pin is always bumped post-merge. You don't have to manage the merge method to make this safe — `tools/check_pin_ancestry.sh` (in the `integration` CI job, `fetch-depth: 0`) is the control. It resolves every wrangle self-ref pin at its pinned SHA — following the pins nested inside each composite at that SHA, not just the working-tree copy — and asserts each is reachable from `HEAD`: green on the PR (the branch SHA is an ancestor of the branch), and after merge:
+A branch SHA can't become a main SHA until the code is on main, so a bootstrap pin is always bumped post-merge. You don't have to manage the merge method to make this safe — `tools/check_pin_ancestry.sh` (in the `pin-ancestry` CI job, `fetch-depth: 0`) is the control. It resolves every wrangle self-ref pin at its pinned SHA — following the pins nested inside each composite at that SHA, not just the working-tree copy — and asserts each is reachable from `HEAD`: green on the PR (the branch SHA is an ancestor of the branch), and after merge:
 
 - **Red on main** → a pin is unreachable (you squashed a bootstrap pin, or forgot a bump). Run `tools/bump_action_pins.sh <main-sha>` and push. Until you do, main is red and the unattended showcase can't resolve that action.
 - **Green** → every pin resolves; bump at leisure (it just refreshes the SHA and the `# main` label).
