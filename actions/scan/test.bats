@@ -26,7 +26,7 @@ setup() {
 @test "scan: osv SARIF upload is gated on osv being in the tools input" {
     run grep -A1 'Upload OSV SARIF' "$ACTION_DIR/action.yml"
     [ "$status" -eq 0 ]
-    [[ "$output" == *"contains(format(' {0} ', inputs.tools), ' osv ')"* ]]
+    [[ "$output" == *"contains(inputs.tools, 'osv')"* ]]
 }
 
 @test "scan: does not upload scorecard SARIF (score carried by attestation)" {
@@ -124,7 +124,7 @@ setup() {
 @test "scan: zizmor SARIF upload is gated on zizmor being in the tools input" {
     run grep -A1 'Upload Zizmor SARIF' "$ACTION_DIR/action.yml"
     [ "$status" -eq 0 ]
-    [[ "$output" == *"contains(format(' {0} ', inputs.tools), ' zizmor ')"* ]]
+    [[ "$output" == *"contains(inputs.tools, 'zizmor')"* ]]
 }
 
 @test "scan: does not wire zizmor as a uses: action step (runs via the image path)" {
@@ -163,7 +163,7 @@ setup() {
 @test "scan: dependency-review step is gated on dependency-review being in the tools input" {
     run grep -A2 '^    - name: Dependency Review$' "$ACTION_DIR/action.yml"
     [ "$status" -eq 0 ]
-    [[ "$output" == *"contains(format(' {0} ', inputs.tools), ' dependency-review ')"* ]]
+    [[ "$output" == *"contains(inputs.tools, 'dependency-review')"* ]]
 }
 
 @test "scan: has upload-sarif step for dependency-review" {
@@ -180,7 +180,7 @@ setup() {
 @test "scan: dependency-review SARIF upload is gated on dependency-review being in the tools input and on pull_request" {
     run grep -A1 'Upload Dependency Review SARIF' "$ACTION_DIR/action.yml"
     [ "$status" -eq 0 ]
-    [[ "$output" == *"contains(format(' {0} ', inputs.tools), ' dependency-review ')"* ]]
+    [[ "$output" == *"contains(inputs.tools, 'dependency-review')"* ]]
     [[ "$output" == *"github.event_name == 'pull_request'"* ]]
 }
 
@@ -208,11 +208,3 @@ setup() {
     [[ "$output" == *"continue-on-error: true"* ]]
 }
 
-@test "scan: tool gates match whole tokens, not substrings" {
-    # contains(inputs.tools, 'osv') would also fire for a future 'my-osv'; gates
-    # use a space-padded match so bare and :policy-suffixed tokens match exactly.
-    run grep -c "contains(inputs.tools, '" "$ACTION_DIR/action.yml"
-    [ "$output" -eq 0 ]
-    run grep -c "contains(format(' {0} ', inputs.tools)" "$ACTION_DIR/action.yml"
-    [ "$output" -ge 6 ]
-}

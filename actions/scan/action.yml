@@ -111,7 +111,7 @@ runs:
     # $GITHUB_WORKSPACE. Skipping on PRs avoids guaranteed failures.
     # TODO: replace with $/tools/scorecard when $/ syntax ships (#136, #137)
     - name: Scorecard
-      if: always() && (contains(format(' {0} ', inputs.tools), ' scorecard ') || contains(format(' {0} ', inputs.tools), ' scorecard:')) && github.event_name != 'pull_request'
+      if: always() && contains(inputs.tools, 'scorecard') && github.event_name != 'pull_request'
       uses: TomHennen/wrangle/tools/scorecard@a3be5989730a37d02f01182607e3744cc6268fc7 # fix/info-policy-markers-688 2026-07-05
 
     # Dependency Review is PR-only — the upstream action requires
@@ -123,7 +123,7 @@ runs:
     # .github/dependency-review-config.yml when the scanned repo has one.
     # The wrapper's inline defaults (fail-on-severity: high) still apply.
     - name: Dependency Review
-      if: always() && (contains(format(' {0} ', inputs.tools), ' dependency-review ') || contains(format(' {0} ', inputs.tools), ' dependency-review:')) && github.event_name == 'pull_request'
+      if: always() && contains(inputs.tools, 'dependency-review') && github.event_name == 'pull_request'
       uses: TomHennen/wrangle/tools/dependency-review@a3be5989730a37d02f01182607e3744cc6268fc7 # fix/info-policy-markers-688 2026-07-05
 
     - name: Generate step summary
@@ -175,7 +175,7 @@ runs:
     # corresponding metadata/<tool>/output.sarif file was never
     # produced — see issue #189.
     - name: Upload OSV SARIF
-      if: always() && (contains(format(' {0} ', inputs.tools), ' osv ') || contains(format(' {0} ', inputs.tools), ' osv:'))
+      if: always() && contains(inputs.tools, 'osv')
       uses: github/codeql-action/upload-sarif@8aad20d150bbac5944a9f9d289da16a4b0d87c1e # v4.36.2
       continue-on-error: true
       with:
@@ -183,7 +183,7 @@ runs:
         category: wrangle/osv
 
     - name: Upload wrangle-lint SARIF
-      if: always() && (contains(format(' {0} ', inputs.tools), ' wrangle-lint ') || contains(format(' {0} ', inputs.tools), ' wrangle-lint:'))
+      if: always() && contains(inputs.tools, 'wrangle-lint')
       uses: github/codeql-action/upload-sarif@8aad20d150bbac5944a9f9d289da16a4b0d87c1e # v4.36.2
       continue-on-error: true
       with:
@@ -191,7 +191,7 @@ runs:
         category: wrangle/wrangle-lint
 
     - name: Upload Zizmor SARIF
-      if: always() && (contains(format(' {0} ', inputs.tools), ' zizmor ') || contains(format(' {0} ', inputs.tools), ' zizmor:'))
+      if: always() && contains(inputs.tools, 'zizmor')
       uses: github/codeql-action/upload-sarif@8aad20d150bbac5944a9f9d289da16a4b0d87c1e # v4.36.2
       continue-on-error: true
       with:
@@ -210,7 +210,7 @@ runs:
     # `results: []`, silently scrubbing real findings on a transient API
     # failure. Gating on the marker preserves the prior valid state.
     - name: Upload Dependency Review SARIF
-      if: always() && (contains(format(' {0} ', inputs.tools), ' dependency-review ') || contains(format(' {0} ', inputs.tools), ' dependency-review:')) && github.event_name == 'pull_request' && hashFiles('.wrangle/metadata/dependency-review/error') == ''
+      if: always() && contains(inputs.tools, 'dependency-review') && github.event_name == 'pull_request' && hashFiles('.wrangle/metadata/dependency-review/error') == ''
       uses: github/codeql-action/upload-sarif@8aad20d150bbac5944a9f9d289da16a4b0d87c1e # v4.36.2
       continue-on-error: true
       with:
