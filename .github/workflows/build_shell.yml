@@ -154,7 +154,7 @@ jobs:
         # bats-jobs input — the main-pinned version would ignore it and run
         # bats serially, so the dogfood run wouldn't exercise the fan-out.
         # Bump to main post-merge via tools/bump_action_pins.sh.
-        uses: TomHennen/wrangle/build/actions/shell@a7a5e215c9e1104c3508693ea9f6dc378594bb76 # worktree-claude-parallel-bats
+        uses: TomHennen/wrangle/build/actions/shell@d790f84d457bae94c4f91a4d0683b765ce6f7635 # worktree-claude-parallel-bats
         with:
           scan-path: ${{ inputs.scan-path }}
           bats-path: ${{ inputs.bats-path }}
