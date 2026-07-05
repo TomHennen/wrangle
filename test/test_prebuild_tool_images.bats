@@ -54,6 +54,17 @@ JSON
     [ "$(prebuild_image_tag wrangle-lint)" = "wrangle-lint:test" ]
 }
 
+@test "list: prints one bats tag per catalog image" {
+    run "$SCRIPT" list
+    [ "$status" -eq 0 ]
+    [ -n "$output" ]
+    local line
+    while IFS= read -r line; do
+        [[ "$line" == wrangle-*:test ]]
+    done <<< "$output"
+    [[ "$output" == *"wrangle-attest-toolbox:test"* ]]
+}
+
 @test "real catalog: selection is non-empty and covers exactly the tool Dockerfiles" {
     local selected dockerfiles
     selected="$(catalog_image_dirs "$ORIG_DIR/tools/catalog.json" | sort -u)"

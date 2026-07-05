@@ -82,8 +82,15 @@ if ! "$WWL_VENV/bin/python3" -c 'import yaml' >/dev/null 2>&1; then
     fi
 fi
 
-# Pre-build the tool images so the image bats' setup builds are cache hits.
-"$SCRIPT_DIR/prebuild_tool_images.sh"
+# Image-cache mode (build_shell.yml's image-cache input): register the tags
+# for the workflow's save step; on a cache miss the parallel bats lanes build
+# in-lane, which overlaps builds with other lanes — a synchronous prebuild
+# here would serialize them. Otherwise pre-build so serial bats hit the cache.
+if [[ -n "${WRANGLE_IMAGE_CACHE_LIST:-}" ]]; then
+    "$SCRIPT_DIR/prebuild_tool_images.sh" list >> "$WRANGLE_IMAGE_CACHE_LIST"
+else
+    "$SCRIPT_DIR/prebuild_tool_images.sh"
+fi
 
 # Later workflow steps (the shell build's bats step) run in fresh shells;
 # the env.sh PATH export above only covers this process.

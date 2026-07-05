@@ -2,10 +2,11 @@
 set -euo pipefail
 set -f
 
-# test/prebuild_tool_images.sh — concurrently build every catalog tool image
-# under the tag its test/image bats file expects, so those per-file setup
-# builds become cache hits. No-op without a docker daemon; each build is
-# best-effort (a failure leaves that image cold and its bats build as before).
+# test/prebuild_tool_images.sh — the catalog-derived tool-image set, under the
+# tags the test/image bats expect. `list` prints the tags (the image-cache
+# save list); no argument concurrently builds them so serial bats runs hit the
+# layer cache. No-op without a docker daemon; each build is best-effort (a
+# failure leaves that image cold and its bats build as before).
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
@@ -40,20 +41,16 @@ _prebuild_one() {
         return 0
     fi
     tag="$(prebuild_image_tag "$dir")"
-    # WRANGLE_IMAGE_CACHE=gha (build_shell.yml's image-cache input): build via
-    # the buildx docker-container builder against the cross-run gha layer
-    # cache; on any failure fall back to a plain daemon build.
-    if [[ "${WRANGLE_IMAGE_CACHE:-}" == "gha" ]]; then
-        if docker buildx build -q -f "$dockerfile" -t "$tag" --load \
-            --cache-from "type=gha,scope=wrangle-img-$dir" \
-            --cache-to "type=gha,scope=wrangle-img-$dir,mode=max" \
-            "$REPO_ROOT" >/dev/null 2>&1; then
-            return 0
-        fi
-        printf 'prebuild_tool_images: gha-cache build failed for %s, using plain build\n' "$dir" >&2
-    fi
     docker build -q -f "$dockerfile" -t "$tag" "$REPO_ROOT" >/dev/null 2>&1 \
         || printf 'prebuild_tool_images: build failed for %s (cache not warmed)\n' "$dir" >&2
+}
+
+# list_tool_image_tags — one tag per catalog image, the image-cache save list.
+list_tool_image_tags() {
+    local dir
+    while IFS= read -r dir; do
+        prebuild_image_tag "$dir"
+    done < <(catalog_image_dirs "$CATALOG")
 }
 
 prebuild_tool_images() {
@@ -78,5 +75,12 @@ prebuild_tool_images() {
 }
 
 if [[ "${BASH_SOURCE[0]}" == "${0}" ]]; then
-    prebuild_tool_images
+    case "${1:-}" in
+        '')   prebuild_tool_images ;;
+        list) list_tool_image_tags ;;
+        *)
+            printf 'Usage: %s [list]\n' "${0##*/}" >&2
+            exit 2
+            ;;
+    esac
 fi
