@@ -119,11 +119,9 @@ setup() {
     [[ "$status" -eq 0 ]]
     run grep -F '"$GUARD" run bats "${BATS_OPTS[@]}" "${bats_files[@]}"' "$ACTION_DIR/run_bats.sh"
     [[ "$status" -eq 0 ]]
-    # Bare `bats "${bats_paths[@]}"` / `bats "${bats_files[@]}"` (no guard)
-    # must not creep back.
-    run grep -E '^[[:space:]]+bats[[:space:]]+"\$\{bats_paths\[@\]}"[[:space:]]*$' "$ACTION_DIR/run_bats.sh"
-    [[ "$status" -ne 0 ]]
-    run grep -E '^[[:space:]]+bats[[:space:]]+"\$\{bats_files\[@\]}"[[:space:]]*$' "$ACTION_DIR/run_bats.sh"
+    # No bats invocation may bypass the guard: a line starting with a bare
+    # `bats ` command must not exist, whatever its arguments.
+    run grep -E '^[[:space:]]*bats[[:space:]]' "$ACTION_DIR/run_bats.sh"
     [[ "$status" -ne 0 ]]
 }
 
@@ -229,6 +227,8 @@ setup() {
 @test "shell: compute_bats_opts fans out when bats-jobs > 1 and parallel is present" {
     local bin="$BATS_TEST_TMPDIR/par-bin"
     mkdir -p "$bin"
+    # Shim: compute_bats_opts only probes for existence, and a real GNU
+    # parallel isn't guaranteed on the host.
     printf '#!/bin/bash\ntrue\n' > "$bin/parallel"
     chmod +x "$bin/parallel"
     run bash -c 'source "$1"; PATH="$2:$PATH"; WRANGLE_BATS_JOBS=4 compute_bats_opts; printf "%s" "${BATS_OPTS[*]}"' _ "$ACTION_DIR/run_bats.sh" "$bin"
