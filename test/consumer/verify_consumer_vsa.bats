@@ -75,6 +75,16 @@ setup() {
 
 teardown() { rm -rf "$TMP"; }
 
+# verify_vsa.sh runs ampel in the toolbox image; the stub docker execs the
+# in-container command on the host, so the symlinked real ampel verifies the real
+# fixtures while the image VSA gate is faked.
+gate_toolbox_transparent() {
+    local stub="$TMP/toolbox-bin"
+    mkdir -p "$stub"
+    ln -sf "$AMPEL_BIN" "$stub/ampel"
+    wrangle_stub_toolbox_transparent "$stub"
+}
+
 # Sigstore reachability decides the local skip only. In CI the verification
 # command itself is the arbiter — a one-shot probe blip must not fail a job
 # the real tool (with its own retries and TUF cache) would pass.
@@ -270,7 +280,7 @@ require_sigstore() {
     mkdir -p "$TMP/dist" "$TMP/vsas"
     cp "$BLOB" "$TMP/dist/npm-package.tgz"
     cp "$VSA" "$TMP/vsas/npm-package.tgz.intoto.jsonl"
-    PATH="$(dirname "$AMPEL_BIN"):$PATH" \
+    gate_toolbox_transparent
         ARTIFACT_PATH="$TMP/dist" RESOURCE_URI="$RESOURCE_URI" REPO="$SIGNER_REPO" VSA_DIR="$TMP/vsas" \
         run "$REPO_ROOT/actions/verify-vsa/verify_vsa.sh"
     [[ "$status" -eq 0 ]]
@@ -285,7 +295,7 @@ require_sigstore() {
     mkdir -p "$TMP/dist" "$TMP/vsas"
     cp "$NONTAG_BLOB" "$TMP/dist/npm-package.tgz"
     cp "$NONTAG_VSA" "$TMP/vsas/npm-package.tgz.intoto.jsonl"
-    PATH="$(dirname "$AMPEL_BIN"):$PATH" \
+    gate_toolbox_transparent
         ARTIFACT_PATH="$TMP/dist" RESOURCE_URI="$NONTAG_URI" REPO="$SIGNER_REPO" VSA_DIR="$TMP/vsas" \
         run "$REPO_ROOT/actions/verify-vsa/verify_vsa.sh"
     [[ "$status" -eq 1 ]]
@@ -303,7 +313,7 @@ require_sigstore() {
     mkdir -p "$TMP/dist" "$TMP/vsas"
     cp "$NONTAG_BLOB" "$TMP/dist/npm-package.tgz"
     cp "$NONTAG_VSA" "$TMP/vsas/npm-package.tgz.intoto.jsonl"
-    PATH="$(dirname "$AMPEL_BIN"):$PATH" \
+    gate_toolbox_transparent
         WRANGLE_VSA_NON_STRICT=1 \
         ARTIFACT_PATH="$TMP/dist" RESOURCE_URI="$NONTAG_URI" REPO="$SIGNER_REPO" VSA_DIR="$TMP/vsas" \
         run "$REPO_ROOT/actions/verify-vsa/verify_vsa.sh"
@@ -321,7 +331,7 @@ require_sigstore() {
     mkdir -p "$TMP/dist" "$TMP/vsas"
     cp "$BLOB" "$TMP/dist/npm-package.tgz"
     cp "$VSA" "$TMP/vsas/npm-package.tgz.intoto.jsonl"
-    PATH="$(dirname "$AMPEL_BIN"):$PATH" \
+    gate_toolbox_transparent
         ARTIFACT_PATH="$TMP/dist" RESOURCE_URI="$RESOURCE_URI" REPO="attacker/evil-repo" VSA_DIR="$TMP/vsas" \
         run "$REPO_ROOT/actions/verify-vsa/verify_vsa.sh"
     [[ "$status" -eq 1 ]]
@@ -339,7 +349,7 @@ require_sigstore() {
     cp "$BLOB" "$TMP/dist/npm-package.tgz"
     printf 'tamper' >> "$TMP/dist/npm-package.tgz"   # one extra byte -> different sha256
     cp "$VSA" "$TMP/vsas/npm-package.tgz.intoto.jsonl"
-    PATH="$(dirname "$AMPEL_BIN"):$PATH" \
+    gate_toolbox_transparent
         ARTIFACT_PATH="$TMP/dist" RESOURCE_URI="$RESOURCE_URI" REPO="$SIGNER_REPO" VSA_DIR="$TMP/vsas" \
         run "$REPO_ROOT/actions/verify-vsa/verify_vsa.sh"
     [[ "$status" -eq 1 ]]
@@ -423,7 +433,7 @@ _make_multiline_bundle() {
     # One bundle per artifact, the production layout; the gate concatenates them.
     jq -c . "$VSA" > "$TMP/vsas/npm-package.tgz.intoto.jsonl"
     jq -c . "$PY_VSA" > "$TMP/vsas/py-package.whl.intoto.jsonl"
-    PATH="$(dirname "$AMPEL_BIN"):$PATH" \
+    gate_toolbox_transparent
         ARTIFACT_PATH="$TMP/dist" RESOURCE_URI="$RESOURCE_URI" REPO="$SIGNER_REPO" VSA_DIR="$TMP/vsas" \
         run "$REPO_ROOT/actions/verify-vsa/verify_vsa.sh"
     [[ "$status" -eq 0 ]]
@@ -440,7 +450,7 @@ _make_multiline_bundle() {
     printf 'bytes no VSA covers' > "$TMP/dist/uncovered.tgz"
     jq -c . "$VSA" > "$TMP/vsas/npm-package.tgz.intoto.jsonl"
     jq -c . "$PY_VSA" > "$TMP/vsas/py-package.whl.intoto.jsonl"
-    PATH="$(dirname "$AMPEL_BIN"):$PATH" \
+    gate_toolbox_transparent
         ARTIFACT_PATH="$TMP/dist" RESOURCE_URI="$RESOURCE_URI" REPO="$SIGNER_REPO" VSA_DIR="$TMP/vsas" \
         run "$REPO_ROOT/actions/verify-vsa/verify_vsa.sh"
     [[ "$status" -eq 1 ]]
