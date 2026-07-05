@@ -81,6 +81,9 @@ jobs:
       - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
         with:
           persist-credentials: false
+          # Full history: open_catalog_bump_pr.sh converges the self-ref pins,
+          # which resolves each pinned sha's tree — a shallow clone lacks them.
+          fetch-depth: 0
 
       # Resolve each curated `:latest` and rewrite drifted catalog entries. A
       # registry backend error (exit 2) is advisory — any resolvable entry is

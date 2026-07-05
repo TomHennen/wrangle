@@ -118,6 +118,12 @@ All three must hold before you ask the owner to cut. Do not shortcut.
    (registry unreachable) means the precondition is UNVERIFIED — do not proceed.**
    Retry until the result is 0 or 1; a visible exit-2 is not a satisfied gate.
 
+   After any catalog digest bump lands on `main`, re-run **Phase 1's**
+   `tools/converge_action_pins.sh`: freshness folds `tools/catalog.json` into every
+   pin's scope, so the bump stales the consumers until the pins are re-bumped onto
+   it. Same Phase 1 caveats — merge-commit-not-squash, and run so the labels land
+   `# main`. A stale-catalog release ships pins that resolve the *old* digest.
+
    Then confirm each digest was built from the **current** tool source (the
    stronger §11 guarantee the adoption-lag check does not prove — and the gate
    for the containerized signing path, #633). Run on a full-history checkout

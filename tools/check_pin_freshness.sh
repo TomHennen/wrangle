@@ -56,6 +56,13 @@ pin_re="${escaped_prefix}/[^@[:space:]]+@[0-9a-f]{40}"
 # surviving nested pin's own freshness is checked as the BFS descends. -G/-S
 # can't express "only these lines changed", so we diff with no context and scan
 # the +/- body lines.
+#
+# tools/catalog.json and lib/ are folded into every pin's diff scope: consumers
+# resolve the pinned action's own catalog and lib helpers, so a catalog-only or
+# lib-only change must stale the pins that carry it to main. Both are pin-free
+# (JSON / shell with no self-ref refs), so any change hits the not-a-pin drift
+# branch. catalog is scoped to that one file — tools/ also holds go.mod/go.sum/
+# scripts that churn independently of the pins; lib/ is scoped whole.
 path_content_stale() {
     local sha="$1" subpath="$2" line body norm
     local -a minus=() plus=()
@@ -79,7 +86,7 @@ path_content_stale() {
             '-') minus+=("$norm") ;;
             '+') plus+=("$norm") ;;
         esac
-    done < <(git -C "$repo_root" diff --unified=0 "$sha" HEAD -- "$subpath" 2>/dev/null)
+    done < <(git -C "$repo_root" diff --unified=0 "$sha" HEAD -- "$subpath" tools/catalog.json lib/ 2>/dev/null)
     # The pin changes are a pure sha bump iff the sha/comment-stripped multisets
     # match; any difference is a retargeted or added/removed pin = drift.
     local m p
