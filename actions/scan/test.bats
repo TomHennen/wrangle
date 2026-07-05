@@ -197,30 +197,3 @@ setup() {
     run grep 'dependency-review-comment-summary-in-pr' "$ACTION_DIR/action.yml"
     [ "$status" -ne 0 ]
 }
-
-@test "scan: go-cache defaults off so adopters pay no surprise cache quota" {
-    run grep -c '^  go-cache:' "$ACTION_DIR/action.yml"
-    [[ "$output" == "1" ]]
-    # The first default: after the go-cache: key is its own (go-cache is the
-    # last input). Empty string = caching off unless a caller opts in.
-    run bash -c "grep -A20 '^  go-cache:' '$ACTION_DIR/action.yml' | grep -m1 'default:'"
-    [ "$status" -eq 0 ]
-    [[ "$output" == *'default: ""'* ]]
-}
-
-@test "scan: Go cache steps are gated on go-cache (no staging/setup by default)" {
-    # Ungated, these would stage a file + cache ~3GB on every run.
-    run grep -A1 'Stage Go cache key' "$ACTION_DIR/action.yml"
-    [[ "$output" == *"inputs.go-cache == 'enabled'"* ]]
-    run grep -A1 'Set up Go with module' "$ACTION_DIR/action.yml"
-    [[ "$output" == *"inputs.go-cache == 'enabled'"* ]]
-}
-
-@test "scan: Go cache key file is not a lockfile name (osv scans the workspace)" {
-    # A file named go.sum/go.mod here would be scanned as the adopter's own,
-    # reporting wrangle's tool deps as their findings.
-    run grep 'cache-dependency-path:' "$ACTION_DIR/action.yml"
-    [ "$status" -eq 0 ]
-    [[ "$output" != *"go.sum"* ]]
-    [[ "$output" != *"go.mod"* ]]
-}

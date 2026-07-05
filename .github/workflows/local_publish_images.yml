@@ -43,10 +43,9 @@ jobs:
           - path: tools/osv
             imagename: ghcr.io/tomhennen/wrangle/osv
           # The attest/verify toolbox (ampel + bnd + cosign + wrangle-attest in
-          # one image). Built like the scan images, but it is not a sandboxed
-          # adapter — it is the SLSA-L3 signing path that needs network + the
-          # OIDC token at run time. Publishing the image here is inert; wiring a
-          # signing job to RUN it is a separate, flagged step (#596).
+          # one image). Built like the scan images, but it is the SLSA-L3 signing
+          # path that needs network + the OIDC token at run time, consumed under
+          # the pinned catalog digest by the containerized signing.
           - path: tools/attest-toolbox
             imagename: ghcr.io/tomhennen/wrangle/attest-toolbox
           - path: tools/wrangle-lint

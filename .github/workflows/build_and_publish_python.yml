@@ -65,13 +65,9 @@ on:
         default: "osv zizmor scorecard:info dependency-review wrangle-lint"
       go-cache:
         description: >
-          Set to "enabled" to cache the Go module + build caches the
-          source-scan tools build from source (osv-scanner et al. —
-          #343) on PR / non-release runs. Release builds always run
-          cache-free regardless: the scan gates an attested release, so
-          its tools build cold and a poisoned cache cannot forge a
-          passing scan (docs/SLSA_L3_AUDIT.md). Default off — the cache
-          is ~1.5–3 GB against this repo's Actions cache quota.
+          Deprecated no-op. The source-scan tools now ship as curated,
+          digest-pinned images and no longer build from source, so this
+          caches nothing. Retained so callers that still set it don't fail.
         required: false
         type: string
         default: ""
@@ -131,7 +127,7 @@ jobs:
       metadata-pre: ${{ steps.prep.outputs.metadata-pre }}
     steps:
       # TODO: replace with $/actions/prep when GitHub ships $/ syntax (#136)
-      - uses: TomHennen/wrangle/actions/prep@164092de47bcea7375105b01ca361a260d30696d # fix/scorecard-table-safety-697 2026-07-04
+      - uses: TomHennen/wrangle/actions/prep@f0ff9b1c2611878e51834b543c65c228f17f7409 # feat/containerize-verify-vsa-cleanup 2026-07-05
         id: prep
         with:
           build-type: python
@@ -150,7 +146,7 @@ jobs:
       security-events: write
     steps:
       # TODO: replace with $/actions/scan when GitHub ships $/ syntax (#136)
-      - uses: TomHennen/wrangle/actions/scan@164092de47bcea7375105b01ca361a260d30696d # fix/scorecard-table-safety-697 2026-07-04
+      - uses: TomHennen/wrangle/actions/scan@f0ff9b1c2611878e51834b543c65c228f17f7409 # feat/containerize-verify-vsa-cleanup 2026-07-05
         if: ${{ inputs.scan-tools != '' }}
         with:
           checkout: "true"
@@ -159,9 +155,6 @@ jobs:
           # The build job folds this into the unified python-metadata.
           artifact-name: ${{ needs.prep.outputs.scan }}
           retention-days: 1
-          # Cold on release: the scan gates an attested build, so a
-          # poisoned tool cache must not be able to forge a passing scan.
-          go-cache: ${{ needs.prep.outputs.should-release != 'true' && inputs.go-cache || '' }}
 
   build:
     # needs `scan` so the untrusted scan job's output can be folded into the
@@ -185,7 +178,7 @@ jobs:
           ref: ${{ inputs.ref || '' }}
 
       # TODO: replace with $/build/actions/python when GitHub ships $/ syntax (#136)
-      - uses: TomHennen/wrangle/build/actions/python@164092de47bcea7375105b01ca361a260d30696d # fix/scorecard-table-safety-697 2026-07-04
+      - uses: TomHennen/wrangle/build/actions/python@f0ff9b1c2611878e51834b543c65c228f17f7409 # feat/containerize-verify-vsa-cleanup 2026-07-05
         id: build
         with:
           path: ${{ inputs.path }}
@@ -276,7 +269,7 @@ jobs:
       bundles-artifact-name: ${{ steps.attest.outputs.bundles-artifact-name }}
     steps:
       # TODO: replace with $/actions/attest_provenance when GitHub ships $/ syntax (#136)
-      - uses: TomHennen/wrangle/actions/attest_provenance@164092de47bcea7375105b01ca361a260d30696d # fix/scorecard-table-safety-697 2026-07-04
+      - uses: TomHennen/wrangle/actions/attest_provenance@f0ff9b1c2611878e51834b543c65c228f17f7409 # feat/containerize-verify-vsa-cleanup 2026-07-05
         id: attest
         with:
           build-type: python
@@ -299,7 +292,7 @@ jobs:
       contents: write       # create the release if absent and attach the bundle on tag pushes
     steps:
       # TODO: replace with $/actions/verify_release when GitHub ships $/ syntax (#136)
-      - uses: TomHennen/wrangle/actions/verify_release@164092de47bcea7375105b01ca361a260d30696d # fix/scorecard-table-safety-697 2026-07-04
+      - uses: TomHennen/wrangle/actions/verify_release@f0ff9b1c2611878e51834b543c65c228f17f7409 # feat/containerize-verify-vsa-cleanup 2026-07-05
         with:
           build-type: python
           shortname: ${{ needs.prep.outputs.shortname }}

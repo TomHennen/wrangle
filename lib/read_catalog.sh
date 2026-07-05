@@ -23,6 +23,16 @@ read_catalog_field() {
         '.tools[$t][$f] // empty' "$file"
 }
 
+# catalog_docker_network <catalog_file> <tool> — echo the tool's catalog network
+# as a docker --network value: "egress" gets the default bridge; anything else,
+# including an absent field, gets none (a closed network).
+catalog_docker_network() {
+    case "$(read_catalog_field "$1" "$2" network)" in
+        egress) printf 'bridge\n' ;;
+        *)      printf 'none\n' ;;
+    esac
+}
+
 if [[ "${BASH_SOURCE[0]}" == "${0}" ]]; then
     if [[ "$#" -ne 3 ]]; then
         printf 'Usage: %s <catalog_file> <tool> <field>\n' "${0##*/}" >&2

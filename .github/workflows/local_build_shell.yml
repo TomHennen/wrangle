@@ -27,11 +27,12 @@ jobs:
       # the tree — unit and integration suites alike — with their tool
       # dependencies installed by the setup script.
       setup-script: test/setup_integration.sh
+      # Fan the bats suite out across the runner's cores (ubuntu-latest: 4).
+      bats-jobs: "4"
       # Cache the Go tools built from source: go-tools-dir for the
-      # setup-script's tools in the shell-build job, go-cache for the
-      # scan job's osv-scanner et al. cache-setup-tools also caches the
-      # linked tool binaries so they aren't relinked when go.sum is stable.
-      go-cache: enabled
+      # setup-script's tools in the shell-build job. cache-setup-tools also
+      # caches the linked tool binaries so they aren't relinked when go.sum
+      # is stable.
       go-tools-dir: tools
       cache-setup-tools: enabled
     # The integration bats include the pull-time VSA gate's real-gh test

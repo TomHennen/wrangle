@@ -78,7 +78,7 @@ fi
 
 # is_image[$tool]=1 marks a catalog tool with delivery: image (the docker-run
 # path); absence means the adapter path. Resolved once per tool in the parse
-# loop so the go-install and dispatch loops branch on the same single answer.
+# loop so the dispatch loop branches on that single answer.
 declare -A is_image=()
 
 # Defaults
@@ -153,51 +153,6 @@ overall_status=0
 # Timeout defaults (seconds)
 INSTALL_TIMEOUT="${WRANGLE_INSTALL_TIMEOUT:-300}"
 ADAPTER_TIMEOUT="${WRANGLE_ADAPTER_TIMEOUT:-600}"
-
-# Build only the Go tools the requested adapters need: each adapter lists its
-# package(s) in tools/<tool>/go-tools, version-pinned in tools/go.mod (env.sh
-# pins GOPROXY/GOSUMDB; Dependabot keeps them fresh). A scan thus never compiles
-# the build/verify toolchain (cosign, ampel, bnd). Empty when no requested
-# adapter declares a Go tool (hermetic orchestrator tests point WRANGLE_TOOLS_DIR
-# at stub dirs with no go-tools file). Retried: go does not retry transient
-# proxy failures itself.
-declare -a go_pkgs=()
-for tool in "${run_tools[@]}"; do
-    # Image-delivery tools ship prebuilt in their image — never go-install them.
-    [[ -n "${is_image[$tool]:-}" ]] && continue
-    go_tools_file="${TOOLS_DIR}/${tool}/go-tools"
-    [[ -f "$go_tools_file" ]] || continue
-    while IFS= read -r pkg || [[ -n "$pkg" ]]; do
-        [[ -z "$pkg" ]] && continue
-        go_pkgs+=("$pkg")
-    done < "$go_tools_file"
-done
-
-if [[ ${#go_pkgs[@]} -gt 0 ]]; then
-    if ! command -v go >/dev/null 2>&1; then
-        printf 'wrangle: go not on PATH (required for tools/go.mod tools)\n' >&2
-        exit 2
-    fi
-    mkdir -p "$WRANGLE_BIN_DIR"
-    printf 'wrangle: installing Go tools: %s\n' "${go_pkgs[*]}"
-    go_tools_exit=1
-    backoff=1
-    for attempt in 1 2 3; do
-        go_tools_exit=0
-        timeout "$INSTALL_TIMEOUT" env GOBIN="$(cd "$WRANGLE_BIN_DIR" && pwd)" \
-            go -C "$TOOLS_DIR" install "${go_pkgs[@]}" || go_tools_exit=$?
-        [[ "$go_tools_exit" -eq 0 ]] && break
-        if [[ "$attempt" -lt 3 ]]; then
-            printf 'wrangle: go install attempt %d/3 failed, retrying in %ds...\n' "$attempt" "$backoff" >&2
-            sleep "$backoff"
-            backoff=$((backoff * 2))
-        fi
-    done
-    if [[ "$go_tools_exit" -ne 0 ]]; then
-        printf 'wrangle: FATAL: installing Go tools failed\n' >&2
-        exit 2
-    fi
-fi
 
 # Summary tracking
 declare -a summary_tools=()
@@ -308,8 +263,7 @@ run_one_tool() {
         # Adapter-pattern (in-process) path.
 
         # Step 1: Install — only tools with a bespoke install.sh (the escape
-        # hatch for tools no package manager ships); go.mod tools were all
-        # installed upfront.
+        # hatch for tools no package manager ships).
         local install_exit=0
         if [[ -f "${TOOLS_DIR}/${tool}/install.sh" ]]; then
             printf 'wrangle: installing %s...\n' "$tool"

@@ -28,8 +28,10 @@
     },
     "attest-toolbox": {
       "kind": "attest",
-      "image": "ghcr.io/tomhennen/wrangle/attest-toolbox@sha256:638972885a6ebb3966aaa47954bad5d10ab4bf009288818a3abd4bdb641b270b",
-      "network": "egress"
+      "delivery": "image",
+      "image": "ghcr.io/tomhennen/wrangle/attest-toolbox@sha256:3995f05ad0584c77ca5d46af64a4b6bd3728c1bd1be18963fd3d3f88844f0b8c",
+      "network": "egress",
+      "token": "sigstore"
     }
   }
 }
