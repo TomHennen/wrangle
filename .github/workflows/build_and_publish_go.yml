@@ -154,7 +154,7 @@ jobs:
       metadata-pre: ${{ steps.prep.outputs.metadata-pre }}
     steps:
       # TODO: replace with $/actions/prep when GitHub ships $/ syntax (#136)
-      - uses: TomHennen/wrangle/actions/prep@b631f580ca2ff137bd96ee62af40d97c333e3f4a # reconv738 2026-07-05
+      - uses: TomHennen/wrangle/actions/prep@08acbc66f65c6397aa2ce935fef4ea376e3de647 # fix742 2026-07-05
         id: prep
         with:
           build-type: go
@@ -173,7 +173,7 @@ jobs:
       security-events: write
     steps:
       # TODO: replace with $/actions/scan when GitHub ships $/ syntax (#136)
-      - uses: TomHennen/wrangle/actions/scan@b631f580ca2ff137bd96ee62af40d97c333e3f4a # reconv738 2026-07-05
+      - uses: TomHennen/wrangle/actions/scan@08acbc66f65c6397aa2ce935fef4ea376e3de647 # fix742 2026-07-05
         if: ${{ inputs.scan-tools != '' }}
         with:
           checkout: "true"
@@ -205,7 +205,7 @@ jobs:
       # TODO: replace with $/build/actions/go/checks when GitHub ships $/ syntax (#136)
       # Self-pinned to PR HEAD until merge — bump-self-refs follow-up
       # repoints to the squashed merge SHA after this lands.
-      - uses: TomHennen/wrangle/build/actions/go/checks@b631f580ca2ff137bd96ee62af40d97c333e3f4a # reconv738 2026-07-05
+      - uses: TomHennen/wrangle/build/actions/go/checks@08acbc66f65c6397aa2ce935fef4ea376e3de647 # fix742 2026-07-05
         id: checks
         with:
           path: ${{ inputs.path }}
@@ -268,7 +268,7 @@ jobs:
 
       # TODO: replace with $/build/actions/go/build when GitHub ships $/ syntax (#136)
       # Self-pinned to PR HEAD until merge.
-      - uses: TomHennen/wrangle/build/actions/go/build@b631f580ca2ff137bd96ee62af40d97c333e3f4a # reconv738 2026-07-05
+      - uses: TomHennen/wrangle/build/actions/go/build@08acbc66f65c6397aa2ce935fef4ea376e3de647 # fix742 2026-07-05
         id: release
         with:
           path: ${{ inputs.path }}
@@ -360,7 +360,7 @@ jobs:
       # writes non-artifact bookkeeping into dist/ that is not released. This is
       # the same canonical subject set the VSA binds to.
       # TODO: replace with $/actions/attest_provenance when GitHub ships $/ syntax (#136)
-      - uses: TomHennen/wrangle/actions/attest_provenance@b631f580ca2ff137bd96ee62af40d97c333e3f4a # reconv738 2026-07-05
+      - uses: TomHennen/wrangle/actions/attest_provenance@08acbc66f65c6397aa2ce935fef4ea376e3de647 # fix742 2026-07-05
         id: attest
         with:
           build-type: go
@@ -386,7 +386,7 @@ jobs:
       contents: write       # create the release if absent and upload the attested archives + checksums + bundles
     steps:
       # TODO: replace with $/actions/verify_release when GitHub ships $/ syntax (#136)
-      - uses: TomHennen/wrangle/actions/verify_release@b631f580ca2ff137bd96ee62af40d97c333e3f4a # reconv738 2026-07-05
+      - uses: TomHennen/wrangle/actions/verify_release@08acbc66f65c6397aa2ce935fef4ea376e3de647 # fix742 2026-07-05
         with:
           build-type: go
           shortname: ${{ needs.prep.outputs.shortname }}
