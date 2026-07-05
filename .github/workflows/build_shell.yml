@@ -26,6 +26,13 @@ on:
         required: false
         type: string
         default: ""
+      bats-jobs:
+        description: >
+          Number of bats test files to run concurrently. 1 (default) is
+          serial; raise it only when the suite shares no cross-file state.
+        required: false
+        type: string
+        default: "1"
       scan-tools:
         description: |
           Space-separated source-scan tools (suffix :info for
@@ -141,11 +148,12 @@ jobs:
       - name: Run shell build
         # TODO: replace with $/build/actions/shell when GitHub ships $/ syntax (#136)
         # Bootstrap pin (docs/e2e_testing.md): the composite gained the
-        # setup-script input and multi-path bats — the main-pinned version
-        # would ignore setup-script and fail the dogfooded integration bats.
+        # bats-jobs input — the main-pinned version would ignore it and run
+        # bats serially, so the dogfood run wouldn't exercise the fan-out.
         # Bump to main post-merge via tools/bump_action_pins.sh.
-        uses: TomHennen/wrangle/build/actions/shell@f0ff9b1c2611878e51834b543c65c228f17f7409 # feat/containerize-verify-vsa-cleanup 2026-07-05
+        uses: TomHennen/wrangle/build/actions/shell@634aaf52ddd78e8d629f49adb9a73b07e9f408d6 # worktree-claude-parallel-bats
         with:
           scan-path: ${{ inputs.scan-path }}
           bats-path: ${{ inputs.bats-path }}
           setup-script: ${{ inputs.setup-script }}
+          bats-jobs: ${{ inputs.bats-jobs }}
