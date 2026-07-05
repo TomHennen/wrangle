@@ -5,6 +5,8 @@ set -f
 _SIGN_METADATA_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 # shellcheck source=lib/retry.sh
 source "$_SIGN_METADATA_DIR/retry.sh"
+# shellcheck source=lib/toolbox_run.sh
+source "$_SIGN_METADATA_DIR/toolbox_run.sh"
 
 # lib/sign_metadata.sh — Shared build-metadata signing primitives.
 #
@@ -54,7 +56,8 @@ wrangle_sign_metadata_statements() {
     fi
     local args
     mapfile -t args < <(wrangle_attest_args "$subject_arg" "$stmts")
-    wrangle_retry_once /dev/null wrangle-attest "${args[@]}"
+    wrangle_retry_once /dev/null wrangle_toolbox_exec \
+        --sigstore -- wrangle-attest "${args[@]}"
 }
 
 # Post the signed statement at $1 to the GitHub attestation store. Fails closed:
@@ -62,7 +65,8 @@ wrangle_sign_metadata_statements() {
 wrangle_push_store() {
     local args
     mapfile -t args < <(wrangle_bnd_push_args "$GITHUB_REPOSITORY" "$1")
-    wrangle_retry_once /dev/null bnd "${args[@]}"
+    wrangle_retry_once /dev/null wrangle_toolbox_exec \
+        --env GITHUB_TOKEN -- bnd "${args[@]}"
 }
 
 # Build the cosign arg vector that pushes a single signed statement as an OCI
@@ -82,7 +86,8 @@ wrangle_push_oci_referrer() {
     [[ -z "${OCI_TARGET:-}" ]] && return 0
     local args
     mapfile -t args < <(wrangle_cosign_attach_args "$1" "$OCI_TARGET")
-    wrangle_retry_once /dev/null cosign "${args[@]}"
+    wrangle_retry_once /dev/null wrangle_toolbox_exec \
+        --docker-config --env GITHUB_TOKEN -- cosign "${args[@]}"
 }
 
 # Build the cosign arg vector that downloads an image's attestation referrers as
@@ -106,9 +111,9 @@ wrangle_seed_bundle() {
         # Keep only the SLSA provenance envelopes (download emits all referrers,
         # including prior VSAs); a jq decode failure must fail, not seed empty.
         downloaded="$(mktemp "${RUNNER_TEMP:-/tmp}/seed.XXXXXX")"
-        # Retry once like every other registry call here: a transient blip on
-        # the seed download must not fail the whole attest job.
-        wrangle_retry_once "$downloaded" cosign "${args[@]}"
+        # Retry once like the toolbox's sibling downloads above: a transient
+        # blip on the seed download must not fail the whole attest job.
+        wrangle_retry_once "$downloaded" wrangle_toolbox_exec --docker-config --env GITHUB_TOKEN -- cosign "${args[@]}"
         if ! jq -ce "select((.dsseEnvelope.payload | @base64d | fromjson | .predicateType) == \"$WRANGLE_PROVENANCE_PREDICATE\")" \
             "$downloaded" > "$seed"; then
             rm -f "$downloaded"

@@ -11,9 +11,7 @@ run_tool_image() {
     local tool="$1" image="$2" tool_out="$3" src_dir="$4" catalog="$5" timeout_s="$6"
     local net kind secret secret_var extra_var src_abs out_abs
 
-    # egress -> docker's default bridge network; absent -> none (closed).
-    net="none"
-    [[ "$(read_catalog_field "$catalog" "$tool" network)" == "egress" ]] && net="bridge"
+    net="$(catalog_docker_network "$catalog" "$tool")"
 
     # docker -v needs absolute paths.
     src_abs="$(cd "$src_dir" && pwd)"
