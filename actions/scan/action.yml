@@ -111,7 +111,7 @@ runs:
     # TODO: replace with $/tools/scorecard when $/ syntax ships (#136, #137)
     - name: Scorecard
       if: always() && contains(inputs.tools, 'scorecard') && github.event_name != 'pull_request'
-      uses: TomHennen/wrangle/tools/scorecard@aee8252078795be5a89efb1706ac66deaabe450b # priv-immutable-597-407 2026-07-05
+      uses: TomHennen/wrangle/tools/scorecard@20d803c1ed777610511c5d798d9df3a69e4426bf # priv-immutable-597-407 2026-07-05
 
     # Dependency Review is PR-only — the upstream action requires
     # github.event.pull_request.base.sha / head.sha to compute the diff.
@@ -123,7 +123,7 @@ runs:
     # The wrapper's inline defaults (fail-on-severity: high) still apply.
     - name: Dependency Review
       if: always() && contains(inputs.tools, 'dependency-review') && github.event_name == 'pull_request'
-      uses: TomHennen/wrangle/tools/dependency-review@aee8252078795be5a89efb1706ac66deaabe450b # priv-immutable-597-407 2026-07-05
+      uses: TomHennen/wrangle/tools/dependency-review@20d803c1ed777610511c5d798d9df3a69e4426bf # priv-immutable-597-407 2026-07-05
 
     - name: Generate step summary
       if: always()
