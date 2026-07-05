@@ -15,9 +15,7 @@ set -f
 #
 # The convergence step is required: check_pin_freshness folds tools/catalog.json
 # into every pin's scope, so a catalog-only commit stales the consumers until the
-# pins are re-bumped onto it. Converging in-PR carries fresh pins so the bump PR
-# passes the blocking freshness gate. Pins get # <branch> labels here (the branch
-# isn't on main yet); cut-release Phase 1's main-converge relabels them # main.
+# pins are re-bumped onto it.
 #
 # Setup requirement: the repository must have "Allow GitHub Actions to create and
 # approve pull requests" enabled, or `gh pr create` with GITHUB_TOKEN fails.

@@ -126,6 +126,22 @@ run_fresh() { run bash -c "cd '$REPO' && '$SCRIPT'"; }
     [[ "$output" == *"STALE: actions/release"* ]]
 }
 
+@test "check_pin_freshness: lib/ and tools/catalog.json carry no self-ref pin refs (pin-free-scope invariant)" {
+    # Folding lib/ + tools/catalog.json into every pin's diff scope is only sound
+    # because they hold NO self-ref pin reference: any change to them then always
+    # hits the not-a-pin drift branch. Enforce that mechanically with the same pin
+    # regex the script builds — loose TomHennen/wrangle strings without an
+    # @<40-hex> ref (e.g. in lib/verify_image_vsa.sh) correctly do not match.
+    local root; root="$(cd "$(dirname "$BATS_TEST_FILENAME")/.." && pwd)"
+    local prefix escaped_prefix pin_re
+    prefix="${WRANGLE_PINS_REPO:-TomHennen/wrangle}"
+    escaped_prefix="$(printf '%s' "$prefix" | sed 's/\./\\./g')"
+    pin_re="${escaped_prefix}/[^@[:space:]]+@[0-9a-f]{40}"
+    run grep -rnE "$pin_re" "$root/lib" "$root/tools/catalog.json"
+    [ "$status" -ne 0 ]
+    [ -z "$output" ]
+}
+
 @test "check_pin_freshness: FAILS when tools/catalog.json changes after the pin (catalog consumer staleness)" {
     # Catalog consumers read the pinned action's own tools/catalog.json, so a
     # catalog-only digest bump must stale the pins that carry it. verify itself is
