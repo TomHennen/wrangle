@@ -79,10 +79,12 @@ on:
           Dockerfiles). The setup-script registers the tags to save by
           appending them to $WRANGLE_IMAGE_CACHE_LIST; on a hit the images
           are loaded and WRANGLE_TOOL_IMAGES_PREBUILT=1 lets tests skip
-          their own builds. Counts against the repo's Actions cache quota.
-          Test/scan only: a hit restores prebuilt images without rebuilding
-          their inputs — never enable on a release build. Empty (default)
-          disables it.
+          their own builds. Enable only if your image build inputs live
+          under tools/ and lib/ — inputs elsewhere aren't in the key, so
+          their changes would restore stale images. Counts against the
+          repo's Actions cache quota. Test/scan only: a hit restores
+          prebuilt images without rebuilding their inputs — never enable
+          on a release build. Empty (default) disables it.
         required: false
         type: string
         default: ""
@@ -172,20 +174,18 @@ jobs:
           path: ${{ runner.temp }}/wrangle-tool-images.tar
           key: tool-images-${{ runner.os }}-${{ hashFiles('tools/**', 'lib/**', '**/Dockerfile*') }}
 
-      - name: Enable the tool image cache
+      # The list registration must happen on hit AND miss (the save path
+      # reads it), so only the load is gated on the cache hit.
+      - name: Load cached tool images
         if: ${{ inputs.image-cache == 'enabled' }}
         env:
+          IMAGE_TAR: ${{ runner.temp }}/wrangle-tool-images.tar
           LIST_PATH: ${{ runner.temp }}/wrangle-image-cache-list
+          CACHE_HIT: ${{ steps.tool-image-cache.outputs.cache-hit }}
         run: |
           set -euo pipefail
           printf 'WRANGLE_IMAGE_CACHE_LIST=%s\n' "$LIST_PATH" >> "$GITHUB_ENV"
-
-      - name: Load cached tool images
-        if: ${{ inputs.image-cache == 'enabled' && steps.tool-image-cache.outputs.cache-hit == 'true' }}
-        env:
-          IMAGE_TAR: ${{ runner.temp }}/wrangle-tool-images.tar
-        run: |
-          set -euo pipefail
+          [[ "$CACHE_HIT" == "true" ]] || exit 0
           docker load -i "$IMAGE_TAR" >/dev/null
           printf 'WRANGLE_TOOL_IMAGES_PREBUILT=1\n' >> "$GITHUB_ENV"
 
