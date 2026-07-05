@@ -7,7 +7,9 @@
 # $SHIM_PR_EXISTS so both the create and the update branches are covered.
 
 setup() {
-    SCRIPT="$(cd "$(dirname "$BATS_TEST_FILENAME")/.." && pwd)/tools/open_catalog_bump_pr.sh"
+    TOOLS_DIR="$(cd "$(dirname "$BATS_TEST_FILENAME")/.." && pwd)/tools"
+    SCRIPT="$TOOLS_DIR/open_catalog_bump_pr.sh"
+    FRESHNESS="$TOOLS_DIR/check_pin_freshness.sh"
     BIN_DIR="$BATS_TEST_TMPDIR/bin"
     WORK="$BATS_TEST_TMPDIR/work"
     REMOTE="$BATS_TEST_TMPDIR/remote.git"
@@ -27,10 +29,22 @@ setup() {
     git -C "$WORK" config user.name t
     git -C "$WORK" config user.email t@example.com
     git -C "$WORK" config commit.gpgsign false
-    mkdir -p "$WORK/tools"
+    # The repo must carry a converged self-ref pin: open_catalog_bump_pr.sh now
+    # converges the pins after the catalog commit, and converge errors on a repo
+    # with no pins at all. A workflow pins a verify action at the sha where its
+    # tree first appears, so the chain is fresh until the catalog moves.
+    mkdir -p "$WORK/tools" "$WORK/actions/verify" "$WORK/.github/workflows" "$WORK/lib"
     printf '{"tools":{}}\n' > "$WORK/tools/catalog.json"
+    printf 'name: verify\n' > "$WORK/actions/verify/action.yml"
+    printf 'echo hi\n' > "$WORK/actions/verify/run.sh"
+    printf 'echo lib\n' > "$WORK/lib/helper.sh"
     git -C "$WORK" add -A
-    git -C "$WORK" commit -qm init
+    git -C "$WORK" commit -qm 'init: catalog + verify action + lib'
+    local vsha; vsha="$(git -C "$WORK" rev-parse HEAD)"
+    printf '      - uses: TomHennen/wrangle/actions/verify@%s # main\n' "$vsha" \
+        > "$WORK/.github/workflows/x.yml"
+    git -C "$WORK" add -A
+    git -C "$WORK" commit -qm 'pin verify'
     git -C "$WORK" branch -M main
     git -C "$WORK" remote add origin "$REMOTE"
     git -C "$WORK" push -q origin main
@@ -70,6 +84,21 @@ SHIM
     grep -q 'pr create' "$GH_LOG"
     grep -q -- '--base main' "$GH_LOG"
     grep -q -- '--head bot/catalog-autobump' "$GH_LOG"
+}
+
+@test "open_catalog_bump_pr: converges the pins so the bump branch passes freshness" {
+    # The catalog commit stales the consuming pin (freshness folds catalog into
+    # scope); the script must converge so the PR is not born red.
+    printf '{"tools":{"osv":{"image":"x@sha256:new"}}}\n' > "$WORK/tools/catalog.json"
+    run "$SCRIPT"
+    [ "$status" -eq 0 ]
+    # The pushed branch resolves current content: freshness passes on its HEAD.
+    git -C "$WORK" checkout -q bot/catalog-autobump
+    run bash -c "cd '$WORK' && '$FRESHNESS'"
+    [ "$status" -eq 0 ]
+    # Catalog commit + at least one convergence commit landed on the branch.
+    run git -C "$WORK" rev-list --count main..bot/catalog-autobump
+    [ "$output" -ge 2 ]
 }
 
 @test "open_catalog_bump_pr: an already-open PR is refreshed, not recreated" {

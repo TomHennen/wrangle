@@ -150,7 +150,7 @@ jobs:
       metadata-pre: ${{ steps.prep.outputs.metadata-pre }}
     steps:
       # TODO: replace with $/actions/prep when GitHub ships $/ syntax (#136)
-      - uses: TomHennen/wrangle/actions/prep@dbdd33f523e0d07f50035eb65f0095bcccfa0f75 # fix/info-policy-markers-688 2026-07-05
+      - uses: TomHennen/wrangle/actions/prep@6e565bc9524fc6c1f99190930af9ccbdbace76eb # main 2026-07-05
         id: prep
         with:
           build-type: npm
@@ -169,7 +169,7 @@ jobs:
       security-events: write
     steps:
       # TODO: replace with $/actions/scan when GitHub ships $/ syntax (#136)
-      - uses: TomHennen/wrangle/actions/scan@dbdd33f523e0d07f50035eb65f0095bcccfa0f75 # fix/info-policy-markers-688 2026-07-05
+      - uses: TomHennen/wrangle/actions/scan@6e565bc9524fc6c1f99190930af9ccbdbace76eb # main 2026-07-05
         if: ${{ inputs.scan-tools != '' }}
         with:
           checkout: "true"
@@ -203,7 +203,7 @@ jobs:
           ref: ${{ inputs.ref || '' }}
 
       # TODO: replace with $/build/actions/npm when GitHub ships $/ syntax (#136)
-      - uses: TomHennen/wrangle/build/actions/npm@dbdd33f523e0d07f50035eb65f0095bcccfa0f75 # fix/info-policy-markers-688 2026-07-05
+      - uses: TomHennen/wrangle/build/actions/npm@6e565bc9524fc6c1f99190930af9ccbdbace76eb # main 2026-07-05
         id: build
         with:
           path: ${{ inputs.path }}
@@ -282,7 +282,7 @@ jobs:
       bundles-artifact-name: ${{ steps.attest.outputs.bundles-artifact-name }}
     steps:
       # TODO: replace with $/actions/attest_provenance when GitHub ships $/ syntax (#136)
-      - uses: TomHennen/wrangle/actions/attest_provenance@dbdd33f523e0d07f50035eb65f0095bcccfa0f75 # fix/info-policy-markers-688 2026-07-05
+      - uses: TomHennen/wrangle/actions/attest_provenance@6e565bc9524fc6c1f99190930af9ccbdbace76eb # main 2026-07-05
         id: attest
         with:
           build-type: npm
@@ -305,7 +305,7 @@ jobs:
       contents: write       # create the release if absent and attach the bundle on tag pushes
     steps:
       # TODO: replace with $/actions/verify_release when GitHub ships $/ syntax (#136)
-      - uses: TomHennen/wrangle/actions/verify_release@dbdd33f523e0d07f50035eb65f0095bcccfa0f75 # fix/info-policy-markers-688 2026-07-05
+      - uses: TomHennen/wrangle/actions/verify_release@6e565bc9524fc6c1f99190930af9ccbdbace76eb # main 2026-07-05
         with:
           build-type: npm
           shortname: ${{ needs.prep.outputs.shortname }}
