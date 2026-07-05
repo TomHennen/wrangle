@@ -20,14 +20,17 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 GUARD="$SCRIPT_DIR/../../../lib/stop_commands_guard.sh"
 VALIDATE_PATH="$SCRIPT_DIR/../../../lib/validate_path.sh"
 
-# BATS_JOBS files run concurrently via GNU parallel (bats' --jobs requires
-# it); within-file order is always preserved so a file's setup assumptions
-# hold. Defaults to 1 (serial). Parallelism is opt-in — an adopter suite may
-# share cross-file state. Falls back to serial with a warning when >1 is asked
-# for but GNU parallel is absent.
+# WRANGLE_BATS_JOBS files run concurrently via GNU parallel (bats' --jobs
+# requires it); within-file order is always preserved so a file's setup
+# assumptions hold. Defaults to 1 (serial). Parallelism is opt-in — an adopter
+# suite may share cross-file state. Falls back to serial with a warning when
+# >1 is asked for but GNU parallel is absent. Unsets the variable afterwards —
+# it is plumbing, and bats would otherwise pass it into every test's
+# environment (BATS_* is bats-core's own namespace, hence the WRANGLE_ prefix).
 compute_bats_opts() {
     BATS_OPTS=()
-    local jobs="${BATS_JOBS:-1}"
+    local jobs="${WRANGLE_BATS_JOBS:-1}"
+    unset WRANGLE_BATS_JOBS
     if [[ ! "$jobs" =~ ^[1-9][0-9]*$ ]]; then
         printf 'run_bats.sh: bats-jobs must be a positive integer, got %q\n' "$jobs" >&2
         exit 1

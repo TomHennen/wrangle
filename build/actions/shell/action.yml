@@ -108,7 +108,7 @@ runs:
       env:
         BATS_PATH: ${{ inputs.bats-path }}
         SCAN_PATH: ${{ inputs.scan-path }}
-        BATS_JOBS: ${{ inputs.bats-jobs }}
+        WRANGLE_BATS_JOBS: ${{ inputs.bats-jobs }}
       run: |
         set -euo pipefail
         "${{ github.action_path }}/run_bats.sh" "$BATS_PATH" "$SCAN_PATH"

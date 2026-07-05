@@ -231,13 +231,21 @@ setup() {
     mkdir -p "$bin"
     printf '#!/bin/bash\ntrue\n' > "$bin/parallel"
     chmod +x "$bin/parallel"
-    run bash -c 'source "$1"; PATH="$2:$PATH"; BATS_JOBS=4 compute_bats_opts; printf "%s" "${BATS_OPTS[*]}"' _ "$ACTION_DIR/run_bats.sh" "$bin"
+    run bash -c 'source "$1"; PATH="$2:$PATH"; WRANGLE_BATS_JOBS=4 compute_bats_opts; printf "%s" "${BATS_OPTS[*]}"' _ "$ACTION_DIR/run_bats.sh" "$bin"
     [ "$status" -eq 0 ]
     [[ "$output" == "--jobs 4 --no-parallelize-within-files" ]]
 }
 
 @test "shell: compute_bats_opts is serial by default (bats-jobs unset)" {
-    run bash -c 'source "$1"; compute_bats_opts; printf "[%s]" "${BATS_OPTS[*]}"' _ "$ACTION_DIR/run_bats.sh"
+    # Explicit unset: when this suite itself runs under the shell build with
+    # bats-jobs > 1, the variable would otherwise be inherited from that run.
+    run bash -c 'unset WRANGLE_BATS_JOBS; source "$1"; compute_bats_opts; printf "[%s]" "${BATS_OPTS[*]}"' _ "$ACTION_DIR/run_bats.sh"
+    [ "$status" -eq 0 ]
+    [[ "$output" == "[]" ]]
+}
+
+@test "shell: compute_bats_opts unsets WRANGLE_BATS_JOBS so it can't leak into tests" {
+    run bash -c 'source "$1"; WRANGLE_BATS_JOBS=1; compute_bats_opts; printf "[%s]" "${WRANGLE_BATS_JOBS:-}"' _ "$ACTION_DIR/run_bats.sh"
     [ "$status" -eq 0 ]
     [[ "$output" == "[]" ]]
 }
@@ -245,14 +253,14 @@ setup() {
 @test "shell: compute_bats_opts falls back to serial when parallel is absent" {
     # Empty PATH after sourcing hides any real parallel; the fan-out is
     # requested but must degrade to serial rather than fail.
-    run bash -c 'source "$1"; PATH=""; BATS_JOBS=4 compute_bats_opts; printf "[%s]" "${BATS_OPTS[*]}"' _ "$ACTION_DIR/run_bats.sh"
+    run bash -c 'source "$1"; PATH=""; WRANGLE_BATS_JOBS=4 compute_bats_opts; printf "[%s]" "${BATS_OPTS[*]}"' _ "$ACTION_DIR/run_bats.sh"
     [ "$status" -eq 0 ]
     [[ "$output" == *"running serially"* ]]
     [[ "$output" == *"[]" ]]
 }
 
 @test "shell: compute_bats_opts rejects a non-integer bats-jobs" {
-    run bash -c 'source "$1"; BATS_JOBS=abc compute_bats_opts' _ "$ACTION_DIR/run_bats.sh"
+    run bash -c 'source "$1"; WRANGLE_BATS_JOBS=abc compute_bats_opts' _ "$ACTION_DIR/run_bats.sh"
     [ "$status" -eq 1 ]
     [[ "$output" == *"positive integer"* ]]
 }
