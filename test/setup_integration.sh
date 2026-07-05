@@ -82,8 +82,7 @@ if ! "$WWL_VENV/bin/python3" -c 'import yaml' >/dev/null 2>&1; then
     fi
 fi
 
-# Warm the docker layer cache for the curated tool images concurrently, so the
-# image bats' per-file builds hit the cache instead of recompiling from source.
+# Pre-build the tool images so the image bats' setup builds are cache hits.
 "$SCRIPT_DIR/prebuild_tool_images.sh"
 
 # Later workflow steps (the shell build's bats step) run in fresh shells;

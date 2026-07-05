@@ -3,8 +3,9 @@
 # Tests for test/prebuild_tool_images.sh — the concurrent, catalog-driven
 # docker-build cache warmer the integration setup runs before the image bats.
 # The build itself needs a docker daemon (an integration concern the image bats
-# under test/image/ cover); these unit tests pin the catalog-to-directory
-# mapping that keeps the prebuilt set from drifting off tools/catalog.json.
+# under test/image/ cover); these unit tests pin the catalog-to-directory and
+# directory-to-tag mappings that keep the prebuilt set from drifting off
+# tools/catalog.json and the tags the bats files build.
 
 load "lib/bats_helpers"
 
@@ -22,11 +23,14 @@ teardown() {
     [[ -n "${TMP_DIR:-}" ]] && rm -rf "$TMP_DIR"
 }
 
-@test "catalog_image_dirs: derives the tools/ dir from each image ref, skipping adapters" {
+@test "catalog_image_dirs: selects every entry naming an image, delivery or not" {
+    # An image-bearing entry is selected regardless of its delivery field —
+    # the check_catalog.sh posture.
     cat > "$TMP_DIR/catalog.json" <<'JSON'
 {"tools":{
   "osv":{"delivery":"image","image":"ghcr.io/tomhennen/wrangle/osv@sha256:abc"},
   "sbom":{"delivery":"image","image":"ghcr.io/tomhennen/wrangle/syft@sha256:def"},
+  "attest-toolbox":{"kind":"attest","image":"ghcr.io/tomhennen/wrangle/attest-toolbox@sha256:123"},
   "legacy":{"delivery":"adapter"}
 }}
 JSON
@@ -34,6 +38,7 @@ JSON
     [ "$status" -eq 0 ]
     [[ "$output" == *"osv"* ]]
     [[ "$output" == *"syft"* ]]
+    [[ "$output" == *"attest-toolbox"* ]]
     [[ "$output" != *"legacy"* ]]
 }
 
@@ -43,9 +48,17 @@ JSON
     [ -z "$output" ]
 }
 
-@test "every catalog image dir maps to a real Dockerfile (drift guard)" {
-    local dir
-    while IFS= read -r dir; do
-        [ -f "$ORIG_DIR/tools/$dir/Dockerfile" ]
-    done < <(catalog_image_dirs "$ORIG_DIR/tools/catalog.json")
+@test "prebuild_image_tag: maps dirs to the tags the image bats build" {
+    [ "$(prebuild_image_tag osv)" = "wrangle-osv:test" ]
+    [ "$(prebuild_image_tag attest-toolbox)" = "wrangle-attest-toolbox:test" ]
+    [ "$(prebuild_image_tag wrangle-lint)" = "wrangle-lint:test" ]
+}
+
+@test "real catalog: selection is non-empty and covers exactly the tool Dockerfiles" {
+    local selected dockerfiles
+    selected="$(catalog_image_dirs "$ORIG_DIR/tools/catalog.json" | sort -u)"
+    [ -n "$selected" ]
+    dockerfiles="$( (cd "$ORIG_DIR/tools" && set +f && ls -d ./*/Dockerfile) \
+        | xargs -n1 dirname | xargs -n1 basename | sort -u)"
+    [ "$selected" = "$dockerfiles" ]
 }
