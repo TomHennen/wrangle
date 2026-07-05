@@ -42,13 +42,18 @@ tools/converge_action_pins.sh          # bump → commit → repeat until reacha
   Land them via a PR merged as a **merge commit — never a squash** (direct pushes to
   `main` are blocked by branch protection), or the intermediate branch-SHA pins re-orphan
   and `main` goes red.
-- **Footgun — pin labels.** `bump_action_pins.sh` writes `# main` only when the target
-  SHA is an ancestor of local `main`; otherwise it writes the *current branch name*. So
-  bump/converge **after** the content is on `main` (or run detached at `origin/main`) to
-  get `# main` labels. A pin labelled `# some-branch` is the tell that this was skipped.
-- **`check_pin_freshness` is content-based** — it ignores pin-SHA-only diffs, so CI can
-  be green while the pin SHAs/labels are stale. Green CI does **not** prove pins are on
-  `main`. Confirm by eye:
+- **Finalize onto the merge commit.** A merge-commit converge leaves the pins on the
+  merge's second-parent line, not on `main`'s first-parent history — `check_pin_main_history`
+  fails until you run `tools/bump_action_pins.sh <merge-sha>` (a one-line PR) to roll them
+  onto the first-parent merge commit as `# main`.
+- **Pin labels.** `bump_action_pins.sh` prefers `origin/main` over the local branch, so it
+  writes `# main` whenever the target SHA is reachable from `origin/main` — even from a
+  feature branch. A pin labelled `# some-branch` means its target wasn't on `origin/main`
+  when written (an un-finalized converge).
+- **`check_pin_freshness` is content-based** — it ignores pin-SHA-only diffs. Reachability
+  and freshness can both be green while pins sit frozen on a branch; `check_pin_main_history`
+  is the check that proves the declared pins are on `main`'s first-parent history. Confirm by
+  eye too:
 
 ```bash
 # subshell keeps self_ref_pin_paths.sh's `set -euo pipefail`/`set -f` out of your shell
