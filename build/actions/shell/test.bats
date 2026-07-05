@@ -115,15 +115,13 @@ setup() {
     # and auto-detected file list) must run under the guard.
     run grep -F 'GUARD="$SCRIPT_DIR/../../../lib/stop_commands_guard.sh"' "$ACTION_DIR/run_bats.sh"
     [[ "$status" -eq 0 ]]
-    run grep -F '"$GUARD" run bats "${bats_paths[@]}"' "$ACTION_DIR/run_bats.sh"
+    run grep -F '"$GUARD" run bats "${BATS_OPTS[@]}" "${bats_paths[@]}"' "$ACTION_DIR/run_bats.sh"
     [[ "$status" -eq 0 ]]
-    run grep -F '"$GUARD" run bats "${bats_files[@]}"' "$ACTION_DIR/run_bats.sh"
+    run grep -F '"$GUARD" run bats "${BATS_OPTS[@]}" "${bats_files[@]}"' "$ACTION_DIR/run_bats.sh"
     [[ "$status" -eq 0 ]]
-    # Bare `bats "${bats_paths[@]}"` / `bats "${bats_files[@]}"` (no guard)
-    # must not creep back.
-    run grep -E '^[[:space:]]+bats[[:space:]]+"\$\{bats_paths\[@\]}"[[:space:]]*$' "$ACTION_DIR/run_bats.sh"
-    [[ "$status" -ne 0 ]]
-    run grep -E '^[[:space:]]+bats[[:space:]]+"\$\{bats_files\[@\]}"[[:space:]]*$' "$ACTION_DIR/run_bats.sh"
+    # No bats invocation may bypass the guard: a line starting with a bare
+    # `bats ` command must not exist, whatever its arguments.
+    run grep -E '^[[:space:]]*bats[[:space:]]' "$ACTION_DIR/run_bats.sh"
     [[ "$status" -ne 0 ]]
 }
 
@@ -210,6 +208,61 @@ setup() {
     run "$ACTION_DIR/run_bats.sh" "only-one"
     [ "$status" -eq 1 ]
     [[ "$output" == *"Usage:"* ]]
+}
+
+# --- Parallel-vs-serial bats fan-out -----------------------------------------
+
+@test "shell: action.yml accepts bats-jobs input" {
+    run grep -E '^  bats-jobs:' "$ACTION_DIR/action.yml"
+    [[ "$status" -eq 0 ]]
+}
+
+@test "shell: action.yml installs GNU parallel only when bats-jobs > 1" {
+    run grep -E 'install -y -qq parallel' "$ACTION_DIR/action.yml"
+    [[ "$status" -eq 0 ]]
+    run grep -F "if: inputs.bats-jobs != '1'" "$ACTION_DIR/action.yml"
+    [[ "$status" -eq 0 ]]
+}
+
+@test "shell: compute_bats_opts fans out when bats-jobs > 1 and parallel is present" {
+    local bin="$BATS_TEST_TMPDIR/par-bin"
+    mkdir -p "$bin"
+    # Shim: compute_bats_opts only probes for existence, and a real GNU
+    # parallel isn't guaranteed on the host.
+    printf '#!/bin/bash\ntrue\n' > "$bin/parallel"
+    chmod +x "$bin/parallel"
+    run bash -c 'source "$1"; PATH="$2:$PATH"; WRANGLE_BATS_JOBS=4 compute_bats_opts; printf "%s" "${BATS_OPTS[*]}"' _ "$ACTION_DIR/run_bats.sh" "$bin"
+    [ "$status" -eq 0 ]
+    [[ "$output" == "--jobs 4 --no-parallelize-within-files" ]]
+}
+
+@test "shell: compute_bats_opts is serial by default (bats-jobs unset)" {
+    # Explicit unset: when this suite itself runs under the shell build with
+    # bats-jobs > 1, the variable would otherwise be inherited from that run.
+    run bash -c 'unset WRANGLE_BATS_JOBS; source "$1"; compute_bats_opts; printf "[%s]" "${BATS_OPTS[*]}"' _ "$ACTION_DIR/run_bats.sh"
+    [ "$status" -eq 0 ]
+    [[ "$output" == "[]" ]]
+}
+
+@test "shell: compute_bats_opts unsets WRANGLE_BATS_JOBS so it can't leak into tests" {
+    run bash -c 'source "$1"; WRANGLE_BATS_JOBS=1; compute_bats_opts; printf "[%s]" "${WRANGLE_BATS_JOBS:-}"' _ "$ACTION_DIR/run_bats.sh"
+    [ "$status" -eq 0 ]
+    [[ "$output" == "[]" ]]
+}
+
+@test "shell: compute_bats_opts falls back to serial when parallel is absent" {
+    # Empty PATH after sourcing hides any real parallel; the fan-out is
+    # requested but must degrade to serial rather than fail.
+    run bash -c 'source "$1"; PATH=""; WRANGLE_BATS_JOBS=4 compute_bats_opts; printf "[%s]" "${BATS_OPTS[*]}"' _ "$ACTION_DIR/run_bats.sh"
+    [ "$status" -eq 0 ]
+    [[ "$output" == *"running serially"* ]]
+    [[ "$output" == *"[]" ]]
+}
+
+@test "shell: compute_bats_opts rejects a non-integer bats-jobs" {
+    run bash -c 'source "$1"; WRANGLE_BATS_JOBS=abc compute_bats_opts' _ "$ACTION_DIR/run_bats.sh"
+    [ "$status" -eq 1 ]
+    [[ "$output" == *"positive integer"* ]]
 }
 
 @test "shell: run_setup.sh is a no-op when setup-script is empty" {

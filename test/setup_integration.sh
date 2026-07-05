@@ -82,6 +82,11 @@ if ! "$WWL_VENV/bin/python3" -c 'import yaml' >/dev/null 2>&1; then
     fi
 fi
 
+# Register the tool images for build_shell.yml's image-cache save step.
+if [[ -n "${WRANGLE_IMAGE_CACHE_LIST:-}" ]]; then
+    "$SCRIPT_DIR/tool_image_tags.sh" >> "$WRANGLE_IMAGE_CACHE_LIST"
+fi
+
 # Later workflow steps (the shell build's bats step) run in fresh shells;
 # the env.sh PATH export above only covers this process.
 if [[ -n "${GITHUB_PATH:-}" ]]; then

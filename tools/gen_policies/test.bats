@@ -46,6 +46,22 @@ setup() {
     [ "$status" -ne 0 ]
 }
 
+@test "gen_policies: scorecard tenet is spliced literally (CEL && and \\. survive)" {
+    # A gsub-based splice would reinterpret & (whole-match) and backslashes in
+    # the tenet; run a copy of the generator against a fixture carrying both.
+    local gendir="$BATS_TEST_TMPDIR/gendir" out="$BATS_TEST_TMPDIR/out"
+    mkdir -p "$gendir" "$out"
+    cp "$GEN_DIR/gen.sh" "$GEN_DIR/policy.hjson.in" "$gendir/"
+    printf '%s\n' \
+        '        {' \
+        '            code: "score >= 7.0 && matches(id, \"v[0-9]\\.[0-9]\")"' \
+        '        }' > "$gendir/scorecard-tenet.hjson.in"
+    "$gendir/gen.sh" "$out"
+    run grep -F 'code: "score >= 7.0 && matches(id, \"v[0-9]\\.[0-9]\")"' \
+        "$out/wrangle-strict-go-v1.hjson"
+    [ "$status" -eq 0 ]
+}
+
 @test "gen_policies: every generated PolicySet keeps the identity-binding markers" {
     "$GEN_DIR/gen.sh" "$BATS_TEST_TMPDIR"
     for eco in "${ECOS[@]}"; do

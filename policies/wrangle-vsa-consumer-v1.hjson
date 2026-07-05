@@ -3,7 +3,7 @@
     // the consumer expects, built in the repo the consumer expects, at SLSA
     // Build L3. Requires ampel >= v1.3.0 (sourceRepositoryUriMatch). Run with:
     //   ampel verify --subject <artifact-digest> \
-    //     --policy <this> --attestation <vsa>.intoto.jsonl \
+    //     --policy <this> --collector jsonl:<vsa>.intoto.jsonl \
     //     --context expectedResourceUri:<purl-or-oci-ref> \
     //     --context sourceRepo:https://github.com/<org>/<repo>
     id: "wrangle-vsa-consumer-v1"

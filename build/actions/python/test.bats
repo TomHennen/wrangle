@@ -39,7 +39,10 @@ if [[ "${1:-}" == "-m" && "${2:-}" == "pip" && "${3:-}" == "install" ]]; then
         n=$(($(cat "$counter" 2>/dev/null || echo 0) + 1))
         printf '%d' "$n" > "$counter" 2>/dev/null || true
         fails=",${WRANGLE_TEST_PIP_FAILS:-},"
-        if [[ "$fails" == *",$n,"* ]]; then exit 1; fi
+        if [[ "$fails" == *",$n,"* ]]; then
+            printf 'pip-shim: simulated failure of install %d\n' "$n" >&2
+            exit 1
+        fi
     fi
 fi
 exit 0
@@ -362,6 +365,9 @@ write_pyproject() {
     grep -qE '^python -m pip install -e \.\[dev\]$' <<<"$output"
     [[ "$output" == *"Installed with [dev] extra"* ]]
     ! grep -qE '^python -m pip install -e \.$' <<<"$output"
+    # The fallthrough is announced and the failing install's stderr surfaces.
+    [[ "$output" == *"WARNING: install with [test] extra failed"* ]]
+    [[ "$output" == *"pip-shim: simulated failure of install 1"* ]]
 }
 
 @test "python: install_deps.sh falls all the way through to bare install when both extras fail" {
@@ -378,6 +384,8 @@ write_pyproject() {
     grep -qE '^python -m pip install -e \.\[dev\]$' <<<"$output"
     grep -qE '^python -m pip install -e \.$' <<<"$output"
     [[ "$output" == *"Installed without test extras"* ]]
+    [[ "$output" == *"WARNING: install with [dev] extra failed"* ]]
+    [[ "$output" == *"pip-shim: simulated failure of install 2"* ]]
 }
 
 @test "python: install_deps.sh usage error with wrong arg count" {
@@ -426,15 +434,8 @@ write_pyproject() {
     [[ "$status" -eq 0 ]]
 }
 
-@test "python: scan job needs prep so go-cache can read should-release" {
+@test "python: scan job needs prep for the metadata artifact name" {
     run bash -c "sed -n '/^  scan:/,/^  [a-z]/p' \"$WORKFLOW\" | grep -E 'needs:.*prep'"
-    [[ "$status" -eq 0 ]]
-}
-
-@test "python: scan job forces go-cache off on release" {
-    # The scan gates the attested release; its Go tool cache must build cold
-    # on release so a poisoned cache cannot forge a passing scan.
-    run bash -c "sed -n '/^  scan:/,/^  [a-z]/p' \"$WORKFLOW\" | grep -E \"go-cache:.*should-release != 'true' && inputs.go-cache\""
     [[ "$status" -eq 0 ]]
 }
 

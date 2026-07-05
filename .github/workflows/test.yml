@@ -61,6 +61,11 @@ jobs:
   # produces a valid Fulcio/Rekor-backed Sigstore bundle with ambient GitHub
   # OIDC. Tag-gated so it never runs in the hermetic unit suite.
   keyless-attest:
+    # Fork-PR runs are never issued OIDC tokens, and the test hard-fails
+    # (not skips) without one — so gate to contexts that can mint the token.
+    if: >-
+      github.event_name != 'pull_request'
+      || github.event.pull_request.head.repo.full_name == github.repository
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -79,11 +84,11 @@ jobs:
         run: ./test/keyless_attest.sh
 
   # End-to-end exercise of the verify-vsa composite action itself (the
-  # script's logic is bats-covered; this covers the composite wiring: the
-  # Go-built ampel install, the bundle artifact download by pattern, and the
-  # verify step) against the real consumer fixtures — including the
-  # fail-closed paths: tampered bytes and a wrong origin repo must fail the
-  # action.
+  # script's logic is bats-covered; this covers the composite wiring: ampel
+  # running in the attest-toolbox container, the bundle artifact download by
+  # pattern, and the verify step) against the real consumer fixtures —
+  # including the fail-closed paths: tampered bytes and a wrong origin repo
+  # must fail the action.
   verify-vsa-action:
     runs-on: ubuntu-latest
     permissions:

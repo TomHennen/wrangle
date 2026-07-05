@@ -48,9 +48,12 @@ source "$LIB_DIR/sign_metadata.sh"
 source "$LIB_DIR/read_catalog.sh"
 # shellcheck source=../../lib/verify_image_vsa.sh
 source "$LIB_DIR/verify_image_vsa.sh"
+# Toolbox dispatch (image resolution + VSA gate + hardened docker run + token
+# mint), shared with the attest job's signer helpers.
+# shellcheck source=../../lib/toolbox_run.sh
+source "$LIB_DIR/toolbox_run.sh"
 
 WRANGLE_CATALOG="${WRANGLE_CATALOG:-$REPO_ROOT/tools/catalog.json}"
-WRANGLE_VERIFY_TOOLBOX_TOOL="attest-toolbox"
 
 # Emit the ampel subject flag for one subject, one arg per line. A digest-form
 # subject (algo:hex, e.g. a container) passes through; a file subject is hashed
@@ -82,7 +85,11 @@ wrangle_ampel_verify_args() {
     local args=(verify "$subject_arg"
         --collector="jsonl:$bundle")
     [[ -n "${COLLECTOR:-}" ]] && args+=(--collector="$COLLECTOR")
+    # The catalog attest-toolbox image still ships pre-#298-fix ampel (< v1.3.1),
+    # which drops identity matches on tenets beyond --workers; keep the flag
+    # until that image's digest is bumped to a v1.3.1 build (#563).
     args+=(--policy="$(wrangle_resolve_policy "$POLICY")"
+        --workers=32
         --exit-code="$FAIL"
         --attest-results
         --attest-format=vsa
@@ -98,65 +105,21 @@ wrangle_bnd_sign_args() {
     printf '%s\n' statement "$1"
 }
 
-# "egress" -> docker's default bridge; anything else -> no network.
-wrangle_toolbox_network() {
-    case "$(read_catalog_field "$WRANGLE_CATALOG" "$WRANGLE_VERIFY_TOOLBOX_TOOL" network)" in
-        egress) printf 'bridge\n' ;;
-        *)      printf 'none\n' ;;
-    esac
-}
-
-# Dispatch ampel: the in-job binary, or — when WRANGLE_VERIFY_AMPEL_TOOLBOX is
-# 1/true — the catalog's attest-toolbox image, verified host-side before it runs
-# (the host is the verifier, never the container). No token enters the container.
+# Run ampel verify in the VSA-gated toolbox image. The bundle, results path, and
+# (relative) BUNDLE_OUT ride the workspace/temp mounts; only the policy dir needs
+# an extra mount — a disk policy resolves under the action checkout, outside the
+# workspace (a *://* locator is fetched, not read). An oci: collector reads
+# attestations from ghcr, so it also gets the job's registry login and token.
 wrangle_ampel() {
-    case "${WRANGLE_VERIFY_AMPEL_TOOLBOX:-}" in
-        1|true) ;;
-        *) ampel "$@"; return ;;
-    esac
-    # An oci: collector needs in-container registry auth, which is deferred.
-    if [[ -n "${COLLECTOR:-}" ]]; then
-        printf 'wrangle: in-container ampel verify does not support an oci collector (%s); leave WRANGLE_VERIFY_AMPEL_TOOLBOX unset for the container build type\n' "$COLLECTOR" >&2
-        return 2
-    fi
-    local image
-    image="$(read_catalog_field "$WRANGLE_CATALOG" "$WRANGLE_VERIFY_TOOLBOX_TOOL" image)"
-    if [[ -z "$image" ]]; then
-        printf 'wrangle: WRANGLE_VERIFY_AMPEL_TOOLBOX set but catalog %s has no %s image\n' "$WRANGLE_CATALOG" "$WRANGLE_VERIFY_TOOLBOX_TOOL" >&2
-        return 2
-    fi
-    if [[ ! "$image" =~ @sha256:[0-9a-f]{64}$ ]]; then
-        printf 'wrangle: toolbox image must be @sha256:-digest-pinned (got %s)\n' "$image" >&2
-        return 2
-    fi
-    # WRANGLE_VERIFY_TOOL_IMAGES=0 is the break-glass for a sustained Sigstore outage.
-    if [[ "${WRANGLE_VERIFY_TOOL_IMAGES:-1}" == "0" ]]; then
-        printf 'wrangle: toolbox-image VSA verification disabled by configuration\n' >&2
-    elif verify_image_vsa "$image"; then
-        printf 'wrangle: toolbox-image VSA verified PASSED\n' >&2
-    else
-        printf 'wrangle: toolbox-image VSA verification failed (image not provably PASSED)\n' >&2
-        return 2
-    fi
-    local results_dir policy policy_mount net
-    results_dir="$(cd "$(dirname "${WRANGLE_AMPEL_RESULTS:?wrangle_ampel needs WRANGLE_AMPEL_RESULTS set}")" && pwd)"
-    # Mount the resolved policy's actual parent, not a hardcoded policies/: a
-    # relative policy resolves to $REPO_ROOT/<policy>, which may sit elsewhere. A
-    # network locator (*://*) is fetched, not read from disk, so it needs no mount.
+    local policy
     policy="$(wrangle_resolve_policy "$POLICY")"
+    local -a extra=()
     case "$policy" in
-        *://*) policy_mount=() ;;
-        *)     policy_mount=(-v "$(dirname "$policy")":"$(dirname "$policy")":ro) ;;
+        *://*) ;;
+        *)     extra+=(--mount "$(dirname "$policy")") ;;
     esac
-    net="$(wrangle_toolbox_network)"
-    # No token env; non-root so the in-job step can read the VSA; no dist mount
-    # (subjects are pre-hashed in-job).
-    docker run --rm --network "$net" -u "$(id -u):$(id -g)" \
-        -v "$BUNDLE_OUT":"$BUNDLE_OUT":ro \
-        "${policy_mount[@]}" \
-        -v "$results_dir":"$results_dir" \
-        -e HOME=/tmp \
-        "$image" ampel "$@"
+    [[ -n "${COLLECTOR:-}" ]] && extra+=(--docker-config --env GITHUB_TOKEN)
+    wrangle_toolbox_exec "${extra[@]}" -- ampel "$@"
 }
 
 # ampel verify one subject -> unsigned VSA at $2, streaming the report to the
@@ -177,8 +140,6 @@ wrangle_verify_emit_vsa() {
     # the policy verdict, and piping straight into the truncating sanitizer could
     # SIGPIPE ampel and flip a PASS into a blocked release.
     report="$(mktemp)"
-    # The container ampel path (opt-in) mounts the dir holding the unsigned VSA.
-    local WRANGLE_AMPEL_RESULTS="$results_path"
     wrangle_retry_once "$report" wrangle_ampel "${args[@]}" || rc=$?
     wrangle_sanitize_output < "$report" >> "$GITHUB_STEP_SUMMARY"
     # The step summary is easy to miss, so echo a failed report to the job log.
@@ -190,14 +151,18 @@ wrangle_verify_emit_vsa() {
     return "$rc"
 }
 
-# bnd-sign the unsigned VSA at $1 in place; the signed statement lands at $1.
+# bnd-sign the unsigned VSA at $1 in place (in the toolbox container, minting a
+# step-local SIGSTORE_ID_TOKEN threaded by name); the signed statement lands at $1.
 wrangle_sign_vsa() {
     local vsa="$1"
     local args
     mapfile -t args < <(wrangle_bnd_sign_args "$vsa.unsigned")
     mv "$vsa" "$vsa.unsigned"
-    wrangle_retry_once "$vsa" bnd "${args[@]}"
+    local rc=0
+    wrangle_retry_once "$vsa" wrangle_toolbox_exec \
+        --sigstore -- bnd "${args[@]}" || rc=$?
     rm -f "$vsa.unsigned"
+    return "$rc"
 }
 
 # Push the signed VSA at $1 as its own OCI referrer (container only). Fails

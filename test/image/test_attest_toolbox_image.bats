@@ -8,7 +8,9 @@
 
 setup_file() {
     load "../lib/bats_helpers"
+    load "../lib/image_test_harness.sh"
     command -v docker >/dev/null 2>&1 && docker info >/dev/null 2>&1 || return 0
+    if wrangle_prebuilt_image wrangle-attest-toolbox:test; then return 0; fi
     local root
     root="$(cd "$(dirname "$BATS_TEST_FILENAME")/../.." && pwd)"
     # Build context is the repo root (the Dockerfile builds from tools/go.mod).
@@ -43,7 +45,7 @@ wrangle_ampel_verify_in_image() {
         --collector="jsonl:$results/bundle.jsonl" \
         --policy="$ROOT/policies/wrangle-vsa-consumer-nonstrict-v1.hjson" \
         --context "$VSA_CONTEXT" \
-        --exit-code=true --attest-results --attest-format=vsa \
+        --workers=32 --exit-code=true --attest-results --attest-format=vsa \
         --results-path="$results/vsa.json" --format=html
 }
 

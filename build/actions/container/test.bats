@@ -63,6 +63,14 @@ teardown() {
     grep -q '^shortname=pkg_foo$' "$GITHUB_OUTPUT"
 }
 
+@test "container: validate_inputs.sh accepts a mixed-case owner and lowercases it" {
+    # github.repository preserves owner case; the example passes
+    # ghcr.io/${{ github.repository }}/img, so TomHennen/... must be accepted.
+    run "$ACTION_DIR/validate_inputs.sh" "pkg/foo" "ghcr.io" "ghcr.io/TomHennen/Img" "enabled"
+    [[ "$status" -eq 0 ]]
+    grep -q '^imagename=ghcr.io/tomhennen/img$' "$GITHUB_OUTPUT"
+}
+
 @test "container: validate_inputs.sh at root '.' emits an empty shortname (clean names)" {
     run "$ACTION_DIR/validate_inputs.sh" "." "ghcr.io" "ghcr.io/owner/img" "enabled"
     [[ "$status" -eq 0 ]]
@@ -228,17 +236,9 @@ teardown() {
     [[ "$status" -eq 0 ]]
 }
 
-@test "container: scan job needs prep so go-cache can read should-release" {
+@test "container: scan job needs prep for the metadata artifact name" {
     local wf="$REPO_ROOT/.github/workflows/build_and_publish_container.yml"
     run bash -c "sed -n '/^  scan:/,/^  [a-z]/p' \"$wf\" | grep -E 'needs:.*prep'"
-    [[ "$status" -eq 0 ]]
-}
-
-@test "container: scan job forces go-cache off on release" {
-    # The scan gates the attested build; its Go tool cache must build cold on
-    # release so a poisoned cache cannot forge a passing scan.
-    local wf="$REPO_ROOT/.github/workflows/build_and_publish_container.yml"
-    run bash -c "sed -n '/^  scan:/,/^  [a-z]/p' \"$wf\" | grep -E \"go-cache:.*should-release != 'true' && inputs.go-cache\""
     [[ "$status" -eq 0 ]]
 }
 
@@ -387,6 +387,24 @@ FAKE
     run jq -r '."result-file"' "$meta/wrangle_attestation_metadata.json"
     [[ "$output" == "sbom.spdx.json" ]]
     grep -Fq "sbom=$meta/sbom.spdx.json" "$out"
+    rm -rf "$fakebin" "$meta" "$out"
+}
+
+@test "container: extract_sbom.sh fails when the image carries no SBOM (null) and writes no manifest" {
+    # buildx's --format yields literal `null` for an SBOM-less image.
+    fakebin="$(mktemp -d)"
+    cat > "$fakebin/docker" << 'FAKE'
+#!/usr/bin/env bash
+printf 'null\n'
+FAKE
+    chmod +x "$fakebin/docker"
+    meta="$(mktemp -d)"
+    out="$(mktemp)"
+    PATH="$fakebin:$PATH" run "$ACTION_DIR/extract_sbom.sh" "img@sha256:abc" "$meta" "$out"
+    [[ "$status" -ne 0 ]]
+    [[ "$output" == *"no SPDX SBOM attached"* ]]
+    [[ ! -f "$meta/wrangle_attestation_metadata.json" ]]
+    [[ ! -s "$out" ]]
     rm -rf "$fakebin" "$meta" "$out"
 }
 

@@ -24,21 +24,36 @@ ECOS=(go npm python container)
 # for strict, and write policies/wrangle-<tier>-<eco>-v1.hjson.
 emit() {
     local tier="$1" eco="$2"
-    local scorecard_tenet="" strict_doc="" strict_desc=""
+    local scorecard_file="" strict_doc="" strict_desc=""
     if [[ "$tier" == "strict" ]]; then
-        scorecard_tenet="$(cat "$SCORECARD")"
+        scorecard_file="$SCORECARD"
         strict_doc=" It also requires an OpenSSF Scorecard aggregate score >= 7.0."
         strict_desc=" plus OpenSSF Scorecard >= 7.0"
     fi
+    # The scorecard tenet is spliced literally (getline + index/substr), never via
+    # gsub — CEL `&&` and `\.`-escaped regexes would otherwise be reinterpreted as
+    # gsub replacement metacharacters. The other tokens are fixed and gsub-safe.
     awk -v tier="$tier" -v eco="$eco" \
-        -v scorecard="$scorecard_tenet" \
+        -v scorecard_file="$scorecard_file" \
         -v strict_doc="$strict_doc" -v strict_desc="$strict_desc" '
+        BEGIN {
+            scorecard = ""
+            first = 1
+            while (scorecard_file != "" && (getline line < scorecard_file) > 0) {
+                if (first) { scorecard = line; first = 0 }
+                else { scorecard = scorecard "\n" line }
+            }
+            if (scorecard_file != "") close(scorecard_file)
+            tok = "@SCORECARD_TENET@"
+        }
         {
             gsub(/@TIER@/, tier)
             gsub(/@ECO@/, eco)
             gsub(/@STRICT_DOC@/, strict_doc)
             gsub(/@STRICT_DESC@/, strict_desc)
-            gsub(/@SCORECARD_TENET@/, scorecard)
+            while ((p = index($0, tok)) > 0) {
+                $0 = substr($0, 1, p - 1) scorecard substr($0, p + length(tok))
+            }
             print
         }
     ' "$TEMPLATE" > "$OUT_DIR/wrangle-$tier-$eco-v1.hjson"

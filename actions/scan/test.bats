@@ -198,29 +198,13 @@ setup() {
     [ "$status" -ne 0 ]
 }
 
-@test "scan: go-cache defaults off so adopters pay no surprise cache quota" {
-    run grep -c '^  go-cache:' "$ACTION_DIR/action.yml"
-    [[ "$output" == "1" ]]
-    # The first default: after the go-cache: key is its own (go-cache is the
-    # last input). Empty string = caching off unless a caller opts in.
-    run bash -c "grep -A20 '^  go-cache:' '$ACTION_DIR/action.yml' | grep -m1 'default:'"
-    [ "$status" -eq 0 ]
-    [[ "$output" == *'default: ""'* ]]
+# --- :info policy gate (#688): run step must not fail on findings/errors -------
+
+@test "scan: adapter-tool step runs under continue-on-error (Check results owns the gate)" {
+    # run.sh exits 1 on findings / 2 on error; the step must continue so the
+    # Check results step can apply each tool's :fail/:info policy (findings via
+    # SARIF, errors via the marker run.sh writes).
+    run awk '/- name: Run adapter-pattern tools/{f=1} f&&/^      continue-on-error: true/{print;exit} f&&/^    - name:/&&!/Run adapter/{exit}' "$ACTION_DIR/action.yml"
+    [[ "$output" == *"continue-on-error: true"* ]]
 }
 
-@test "scan: Go cache steps are gated on go-cache (no staging/setup by default)" {
-    # Ungated, these would stage a file + cache ~3GB on every run.
-    run grep -A1 'Stage Go cache key' "$ACTION_DIR/action.yml"
-    [[ "$output" == *"inputs.go-cache == 'enabled'"* ]]
-    run grep -A1 'Set up Go with module' "$ACTION_DIR/action.yml"
-    [[ "$output" == *"inputs.go-cache == 'enabled'"* ]]
-}
-
-@test "scan: Go cache key file is not a lockfile name (osv scans the workspace)" {
-    # A file named go.sum/go.mod here would be scanned as the adopter's own,
-    # reporting wrangle's tool deps as their findings.
-    run grep 'cache-dependency-path:' "$ACTION_DIR/action.yml"
-    [ "$status" -eq 0 ]
-    [[ "$output" != *"go.sum"* ]]
-    [[ "$output" != *"go.mod"* ]]
-}

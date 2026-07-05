@@ -10,11 +10,9 @@ on:
         default: "osv zizmor scorecard:info dependency-review wrangle-lint"
       go-cache:
         description: >
-          Set to "enabled" to cache the Go module + build caches the
-          scan tools build from source (osv-scanner et al. — #343).
-          Default off: the cache is ~1.5–3 GB against this repo's
-          Actions cache quota. Source scanning produces no provenance,
-          so caching is L3-safe here regardless.
+          Deprecated no-op. The source-scan tools now ship as curated,
+          digest-pinned images and no longer build from source, so this
+          caches nothing. Retained so callers that still set it don't fail.
         required: false
         type: string
         default: ""
@@ -28,7 +26,7 @@ jobs:
     permissions: {}    # guard reads env only — no workspace, no API, no secrets
     steps:
       # TODO: replace with $/actions/prep when GitHub ships $/ syntax (#136)
-      - uses: TomHennen/wrangle/actions/prep@5e8587d11a086a9681f445ad789f115f57f5cc62 # followup-toolbox-ampel-bump 2026-07-04
+      - uses: TomHennen/wrangle/actions/prep@5596e0bab0ac67d0daa12f585b5492444e1c6579 # fix/remove-dead-gh-token-695 2026-07-05
 
   check-change:
     needs: [prep]
@@ -46,9 +44,8 @@ jobs:
       # empty and the name is just "scan".
       # TODO: replace with $/actions/scan when GitHub ships $/ syntax (#136)
       - name: Source scan
-        uses: TomHennen/wrangle/actions/scan@5e8587d11a086a9681f445ad789f115f57f5cc62 # followup-toolbox-ampel-bump 2026-07-04
+        uses: TomHennen/wrangle/actions/scan@5596e0bab0ac67d0daa12f585b5492444e1c6579 # fix/remove-dead-gh-token-695 2026-07-05
         with:
           checkout: "true"
           tools: ${{ inputs.tools }}
           artifact-name: scan
-          go-cache: ${{ inputs.go-cache }}

@@ -121,6 +121,33 @@ updates:
 			notWant: "WL004",
 		},
 		{
+			name: "WL004 not fired for a single-star glob covering the composite",
+			files: map[string]string{
+				".github/dependabot.yml": `version: 2
+updates:
+  - package-ecosystem: "github-actions"
+    directories:
+      - "/*"
+    cooldown:
+      default-days: 7
+`,
+				"myaction/action.yml": "name: x\nruns:\n  using: composite\n  steps: []\n",
+			},
+			notWant: "WL004",
+		},
+		{
+			name: "WL003 not fired for a single-star glob (only ** is flagged)",
+			files: map[string]string{".github/dependabot.yml": `version: 2
+updates:
+  - package-ecosystem: "github-actions"
+    directories:
+      - "/*"
+    cooldown:
+      default-days: 7
+`},
+			notWant: "WL003",
+		},
+		{
 			name: "WL005 missing cooldown",
 			files: map[string]string{".github/dependabot.yml": `version: 2
 updates:

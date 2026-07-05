@@ -104,13 +104,9 @@ on:
         default: "osv zizmor scorecard:info dependency-review wrangle-lint"
       go-cache:
         description: >
-          Set to "enabled" to cache the Go module + build caches the
-          source-scan tools build from source (osv-scanner et al. —
-          #343) on PR / non-release runs. Release builds always run
-          cache-free regardless: the scan gates an attested release, so
-          its tools build cold and a poisoned cache cannot forge a
-          passing scan (docs/SLSA_L3_AUDIT.md). Default off — the cache
-          is ~1.5–3 GB against this repo's Actions cache quota.
+          Deprecated no-op. The source-scan tools now ship as curated,
+          digest-pinned images and no longer build from source, so this
+          caches nothing. Retained so callers that still set it don't fail.
         required: false
         type: string
         default: ""
@@ -166,7 +162,7 @@ jobs:
       metadata-pre: ${{ steps.prep.outputs.metadata-pre }}
     steps:
       # TODO: replace with $/actions/prep when GitHub ships $/ syntax (#136)
-      - uses: TomHennen/wrangle/actions/prep@5e8587d11a086a9681f445ad789f115f57f5cc62 # followup-toolbox-ampel-bump 2026-07-04
+      - uses: TomHennen/wrangle/actions/prep@5596e0bab0ac67d0daa12f585b5492444e1c6579 # fix/remove-dead-gh-token-695 2026-07-05
         id: prep
         with:
           build-type: go
@@ -185,7 +181,7 @@ jobs:
       security-events: write
     steps:
       # TODO: replace with $/actions/scan when GitHub ships $/ syntax (#136)
-      - uses: TomHennen/wrangle/actions/scan@5e8587d11a086a9681f445ad789f115f57f5cc62 # followup-toolbox-ampel-bump 2026-07-04
+      - uses: TomHennen/wrangle/actions/scan@5596e0bab0ac67d0daa12f585b5492444e1c6579 # fix/remove-dead-gh-token-695 2026-07-05
         if: ${{ inputs.scan-tools != '' }}
         with:
           checkout: "true"
@@ -194,9 +190,6 @@ jobs:
           # The release job folds this into the unified go-metadata.
           artifact-name: ${{ needs.prep.outputs.scan }}
           retention-days: 1
-          # Cold on release: the scan gates an attested build, so a
-          # poisoned tool cache must not be able to forge a passing scan.
-          go-cache: ${{ needs.prep.outputs.should-release != 'true' && inputs.go-cache || '' }}
 
   # Quality gates with `contents: read` only. `go test` executes
   # arbitrary adopter test code; the minimum-permissions posture
@@ -220,7 +213,7 @@ jobs:
       # TODO: replace with $/build/actions/go/checks when GitHub ships $/ syntax (#136)
       # Self-pinned to PR HEAD until merge — bump-self-refs follow-up
       # repoints to the squashed merge SHA after this lands.
-      - uses: TomHennen/wrangle/build/actions/go/checks@5e8587d11a086a9681f445ad789f115f57f5cc62 # followup-toolbox-ampel-bump 2026-07-04
+      - uses: TomHennen/wrangle/build/actions/go/checks@5596e0bab0ac67d0daa12f585b5492444e1c6579 # fix/remove-dead-gh-token-695 2026-07-05
         id: checks
         with:
           path: ${{ inputs.path }}
@@ -283,7 +276,7 @@ jobs:
 
       # TODO: replace with $/build/actions/go/build when GitHub ships $/ syntax (#136)
       # Self-pinned to PR HEAD until merge.
-      - uses: TomHennen/wrangle/build/actions/go/build@5e8587d11a086a9681f445ad789f115f57f5cc62 # followup-toolbox-ampel-bump 2026-07-04
+      - uses: TomHennen/wrangle/build/actions/go/build@5596e0bab0ac67d0daa12f585b5492444e1c6579 # fix/remove-dead-gh-token-695 2026-07-05
         id: release
         with:
           path: ${{ inputs.path }}
@@ -375,7 +368,7 @@ jobs:
       # writes non-artifact bookkeeping into dist/ that is not released. This is
       # the same canonical subject set the VSA binds to.
       # TODO: replace with $/actions/attest_provenance when GitHub ships $/ syntax (#136)
-      - uses: TomHennen/wrangle/actions/attest_provenance@5e8587d11a086a9681f445ad789f115f57f5cc62 # followup-toolbox-ampel-bump 2026-07-04
+      - uses: TomHennen/wrangle/actions/attest_provenance@5596e0bab0ac67d0daa12f585b5492444e1c6579 # fix/remove-dead-gh-token-695 2026-07-05
         id: attest
         with:
           build-type: go
@@ -401,7 +394,7 @@ jobs:
       contents: write       # create the release if absent and upload the attested archives + checksums + bundles
     steps:
       # TODO: replace with $/actions/verify_release when GitHub ships $/ syntax (#136)
-      - uses: TomHennen/wrangle/actions/verify_release@5e8587d11a086a9681f445ad789f115f57f5cc62 # followup-toolbox-ampel-bump 2026-07-04
+      - uses: TomHennen/wrangle/actions/verify_release@5596e0bab0ac67d0daa12f585b5492444e1c6579 # fix/remove-dead-gh-token-695 2026-07-05
         with:
           build-type: go
           shortname: ${{ needs.prep.outputs.shortname }}

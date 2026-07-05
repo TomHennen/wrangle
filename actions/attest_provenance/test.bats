@@ -68,9 +68,7 @@ setup() {
     [ "$status" -eq 0 ]
 }
 
-@test "attest_provenance: installs the attest tools and signs the metadata" {
-    run grep -F 'install_tools.sh' "$ACTION"
-    [ "$status" -eq 0 ]
+@test "attest_provenance: resolves subjects and signs the metadata" {
     run grep -F 'resolve_subjects.sh' "$ACTION"
     [ "$status" -eq 0 ]
     run grep -F 'sign_metadata.sh' "$ACTION"

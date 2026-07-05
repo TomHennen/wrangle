@@ -107,6 +107,33 @@ write_catalog() { printf '%s\n' "$1" > "$CATALOG"; }
     [[ "$output" == *"curated namespace"* ]]
 }
 
+@test "check_catalog: token: sigstore on the attest toolbox passes" {
+    write_catalog '{"tools":{"attest-toolbox":{"kind":"attest","image":"ghcr.io/tomhennen/wrangle/attest-toolbox@sha256:'"$(printf 'a%.0s' {1..64})"'","network":"egress","token":"sigstore"}}}'
+    run "$SCRIPT"
+    [ "$status" -eq 0 ]
+}
+
+@test "check_catalog: an unrecognized token value fails" {
+    write_catalog '{"tools":{"attest-toolbox":{"kind":"attest","image":"ghcr.io/tomhennen/wrangle/attest-toolbox@sha256:'"$(printf 'a%.0s' {1..64})"'","token":"github"}}}'
+    run "$SCRIPT"
+    [ "$status" -eq 1 ]
+    [[ "$output" == *"invalid token value"* ]]
+}
+
+@test "check_catalog: token grant on a scan entry is forbidden" {
+    write_catalog '{"tools":{"osv":{"kind":"scan","delivery":"image","image":"ghcr.io/tomhennen/wrangle/osv@sha256:'"$(printf 'a%.0s' {1..64})"'","token":"sigstore"}}}'
+    run "$SCRIPT"
+    [ "$status" -eq 1 ]
+    [[ "$output" == *"token grant forbidden"* ]]
+}
+
+@test "check_catalog: token grant on an sbom entry is forbidden" {
+    write_catalog '{"tools":{"sbom":{"kind":"sbom","delivery":"image","image":"ghcr.io/tomhennen/wrangle/syft@sha256:'"$(printf 'a%.0s' {1..64})"'","token":"sigstore"}}}'
+    run "$SCRIPT"
+    [ "$status" -eq 1 ]
+    [[ "$output" == *"token grant forbidden"* ]]
+}
+
 @test "check_catalog: extra argument is a usage error (exit 2)" {
     write_catalog '{"tools":{}}'
     run "$SCRIPT" unexpected

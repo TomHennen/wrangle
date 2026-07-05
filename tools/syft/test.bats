@@ -34,6 +34,18 @@ MOCK
     [[ "$output" == *"already installed"* ]]
 }
 
+@test "syft install: a version that only shares a prefix is not treated as installed" {
+    # 1.42.40 must not satisfy a request for 1.42.4 (substring match bug).
+    cat > "$WRANGLE_BIN_DIR/syft" << 'MOCK'
+#!/bin/bash
+printf '{"application":"syft","version":"1.42.40","buildDate":""}'
+MOCK
+    chmod +x "$WRANGLE_BIN_DIR/syft"
+
+    run "$ORIG_DIR/tools/syft/install.sh" "1.42.4"
+    [[ "$output" != *"already installed"* ]]
+}
+
 @test "syft install: fails fast if cosign is not on PATH" {
     # Mock curl to return any content (so download succeeds), then ensure
     # cosign is not findable. install.sh must abort before tarball download.

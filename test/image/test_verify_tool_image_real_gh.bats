@@ -8,9 +8,6 @@
 # network (ghcr referrers + the Sigstore trust root), so it lives under
 # test/image/ and skip_or_fails (never silently skips in CI) when unavailable.
 
-# The catalog's pinned, attested osv digest (tools/catalog.json). The gate must
-# PASS here.
-ATTESTED_OSV="ghcr.io/tomhennen/wrangle/osv@sha256:c8abda59e3a64520128c427d2fe9bd223c27e0a2056181ead1b9d3c6a5fb3b75"
 # A real, public, digest-pinned image carrying no wrangle VSA. The gate must
 # FAIL closed (no attestation found).
 UNATTESTED_IMAGE="docker.io/library/registry:2@sha256:a3d8aaa63ed8681a604f1dea0aa03f100d5895b6a58ace528858a7b332415373"
@@ -19,6 +16,11 @@ setup_file() {
     load "../lib/bats_helpers"
     ROOT="$(cd "$(dirname "$BATS_TEST_FILENAME")/../.." && pwd)"
     export ROOT
+    # The catalog's pinned, attested osv digest, read live so a digest bump
+    # can't leave this gate green-lighting a superseded image. The gate must
+    # PASS against it.
+    ATTESTED_OSV="$(jq -r '.tools.osv.image // empty' "$ROOT/tools/catalog.json")"
+    export ATTESTED_OSV
     # The gate's own identity/issuer/predicate constants drive the negatives, so
     # a mutated copy is provably the only difference from the passing call.
     # shellcheck source=/dev/null

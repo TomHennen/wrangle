@@ -48,12 +48,24 @@ escaped_prefix="$(printf '%s' "$REPO_PREFIX" | sed 's/\./\\./g')"
 pin_re="${escaped_prefix}/[^@[:space:]]+@[0-9a-f]{40}"
 
 # path_content_stale <sha> <subpath> — true (0) iff <subpath>'s tree at <sha>
-# differs from HEAD's in a line that is NOT a self-ref pin reference. Pin-SHA-only
-# differences are ignored here; each nested pin's own freshness is checked as the
-# BFS descends. -G/-S can't express "only these lines changed", so we diff with
-# no context and scan the +/- body lines.
+# differs from HEAD's in a line that is NOT a pure self-ref pin SHA bump. A
+# non-pin change is drift. A pin line is a bump ONLY when just its sha (and the
+# trailing branch/date comment) moved; a retargeted pin (the ref PATH changed,
+# e.g. actions/inner -> actions/other) or an added/removed nested pin IS drift,
+# because the pinned parent then resolves different wiring than HEAD. Each
+# surviving nested pin's own freshness is checked as the BFS descends. -G/-S
+# can't express "only these lines changed", so we diff with no context and scan
+# the +/- body lines.
+#
+# tools/catalog.json and lib/ are folded into every pin's diff scope: consumers
+# resolve the pinned action's own catalog and lib helpers, so a catalog-only or
+# lib-only change must stale the pins that carry it to main. Both are pin-free
+# (JSON / shell with no self-ref refs), so any change hits the not-a-pin drift
+# branch. catalog is scoped to that one file — tools/ also holds go.mod/go.sum/
+# scripts that churn independently of the pins; lib/ is scoped whole.
 path_content_stale() {
-    local sha="$1" subpath="$2" line
+    local sha="$1" subpath="$2" line body norm
+    local -a minus=() plus=()
     while IFS= read -r line; do
         # Skip diff headers (+++/---) and hunk markers; inspect only body changes.
         case "$line" in
@@ -61,11 +73,26 @@ path_content_stale() {
             '+'* | '-'*) ;;
             *) continue ;;
         esac
+        body="${line:1}"
         # A changed line that isn't a self-ref pin reference = real content drift.
-        if ! printf '%s' "${line:1}" | grep -qE "$pin_re"; then
+        if ! printf '%s' "$body" | grep -qE "$pin_re"; then
             return 0
         fi
-    done < <(git -C "$repo_root" diff --unified=0 "$sha" HEAD -- "$subpath" 2>/dev/null)
+        # Pin line: normalize away the sha and the trailing bump comment (both
+        # move on every re-bump) so what remains is the ref path. Retarget/add/
+        # remove then shows as a normalized-set mismatch below.
+        norm="$(printf '%s' "$body" | sed -E 's/@[0-9a-f]{40}/@SHA/g; s/[[:space:]]*#.*$//')"
+        case "${line:0:1}" in
+            '-') minus+=("$norm") ;;
+            '+') plus+=("$norm") ;;
+        esac
+    done < <(git -C "$repo_root" diff --unified=0 "$sha" HEAD -- "$subpath" tools/catalog.json lib/ 2>/dev/null)
+    # The pin changes are a pure sha bump iff the sha/comment-stripped multisets
+    # match; any difference is a retargeted or added/removed pin = drift.
+    local m p
+    m="$(printf '%s\n' ${minus[@]+"${minus[@]}"} | sort)"
+    p="$(printf '%s\n' ${plus[@]+"${plus[@]}"} | sort)"
+    [[ "$m" != "$p" ]] && return 0
     return 1
 }
 

@@ -207,8 +207,6 @@ jobs:
       path: container
       imagename: ghcr.io/tomhennen/wrangle-test-staging
       registry: ghcr.io
-    secrets:
-      gh_token: ${{ secrets.GITHUB_TOKEN }}
 
   test-scan:
     uses: TomHennen/wrangle/.github/workflows/check_source_change.yml@__WRANGLE_SHA__

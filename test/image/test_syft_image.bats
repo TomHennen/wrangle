@@ -12,7 +12,9 @@
 
 setup_file() {
     load "../lib/bats_helpers"
+    load "../lib/image_test_harness.sh"
     command -v docker >/dev/null 2>&1 && docker info >/dev/null 2>&1 || return 0
+    if wrangle_prebuilt_image wrangle-syft:test; then return 0; fi
     local root
     root="$(cd "$(dirname "$BATS_TEST_FILENAME")/../.." && pwd)"
     docker build -q -f "$root/tools/syft/Dockerfile" \

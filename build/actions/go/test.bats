@@ -1,5 +1,8 @@
 #!/usr/bin/env bats
 
+# shared skip_or_fail: skips locally, fails in CI so coverage can't degrade unseen.
+load "../../../test/lib/bats_helpers"
+
 # Tests for the Go build composites (checks/, build/) and
 # the reusable workflow build_and_publish_go.yml.
 #
@@ -664,16 +667,9 @@ func main() {}
     grep -qE "if:.*inputs\\.scan-tools != ''" <<<"$section"
 }
 
-@test "go: scan job needs prep so go-cache can read should-release" {
+@test "go: scan job needs prep for the metadata artifact name" {
     section="$(awk '/^  [a-z][a-z_-]*:$/ { in_section = ($0 == "  scan:") } in_section' "$WORKFLOW")"
     grep -qE 'needs:.*prep' <<<"$section"
-}
-
-@test "go: scan job forces go-cache off on release" {
-    # The scan gates the attested release; its Go tool cache must build cold
-    # on release so a poisoned cache cannot forge a passing scan.
-    section="$(awk '/^  [a-z][a-z_-]*:$/ { in_section = ($0 == "  scan:") } in_section' "$WORKFLOW")"
-    grep -qE "go-cache:.*should-release != 'true' && inputs.go-cache" <<<"$section"
 }
 
 @test "go: workflow release job needs scan (load-bearing finding blocks publish)" {
@@ -777,7 +773,7 @@ func main() {}
 # Helper: skip the calling test if Go is not on PATH.
 need_go() {
     if ! command -v go >/dev/null 2>&1; then
-        skip "go binary not on PATH (run via ./test.sh to use the Docker image)"
+        skip_or_fail "go binary not on PATH (run via ./test.sh to use the Docker image)"
     fi
 }
 

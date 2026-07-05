@@ -43,10 +43,9 @@ jobs:
           - path: tools/osv
             imagename: ghcr.io/tomhennen/wrangle/osv
           # The attest/verify toolbox (ampel + bnd + cosign + wrangle-attest in
-          # one image). Built like the scan images, but it is not a sandboxed
-          # adapter — it is the SLSA-L3 signing path that needs network + the
-          # OIDC token at run time. Publishing the image here is inert; wiring a
-          # signing job to RUN it is a separate, flagged step (#596).
+          # one image). Built like the scan images, but it is the SLSA-L3 signing
+          # path that needs network + the OIDC token at run time, consumed under
+          # the pinned catalog digest by the containerized signing.
           - path: tools/attest-toolbox
             imagename: ghcr.io/tomhennen/wrangle/attest-toolbox
           - path: tools/wrangle-lint
@@ -62,8 +61,6 @@ jobs:
       imagename: ${{ matrix.imagename }}
       registry: ghcr.io
       release-events: main-and-tags
-    secrets:
-      gh_token: ${{ secrets.GITHUB_TOKEN }}
 
   # Open (never auto-merge) a catalog bump PR for the just-published digests.
   # main-only, on the trusted push trigger (no pull_request_target).
@@ -82,6 +79,9 @@ jobs:
       - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
         with:
           persist-credentials: false
+          # Full history: open_catalog_bump_pr.sh converges the self-ref pins,
+          # which resolves each pinned sha's tree — a shallow clone lacks them.
+          fetch-depth: 0
 
       # Resolve each curated `:latest` and rewrite drifted catalog entries. A
       # registry backend error (exit 2) is advisory — any resolvable entry is

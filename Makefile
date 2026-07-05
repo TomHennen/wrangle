@@ -45,11 +45,15 @@ shellcheck:
 # Run bats tests. Fan out across files with GNU parallel (#530); within-file
 # order is preserved so a file's setup assumptions hold. Falls back to serial
 # when parallel is absent, so a host without it still runs the suite.
+# test/consumer/ is NOT here: those suites need real ampel/cosign, so they are
+# integration tests (in INTEGRATION_BATS + the dogfooded shell-build auto-detect)
+# — kept out of this hermetic suite, which can't provide the tools and would
+# silently skip them (the container test job can't see it's in CI to fail-hard).
 BATS_JOBS ?= $(shell nproc 2>/dev/null || sysctl -n hw.ncpu 2>/dev/null || echo 4)
 BATS_PARALLEL ?= $(if $(filter-out 0 1,$(BATS_JOBS)),$(if $(shell command -v parallel 2>/dev/null),--jobs $(BATS_JOBS) --no-parallelize-within-files))
 bats:
 	@echo "=== bats ==="
-	@bats $(BATS_PARALLEL) test/ test/lib/ test/consumer/ test/integration/ tools/*/test.bats actions/*/*.bats build/actions/*/test.bats
+	@bats $(BATS_PARALLEL) test/ test/lib/ test/integration/ tools/*/test.bats actions/*/*.bats build/actions/*/test.bats
 
 # Non-hermetic: installs real tools (network, registries, Sigstore) via
 # test/setup_integration.sh, then runs the integration bats suites. NOT in

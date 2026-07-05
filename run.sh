@@ -41,6 +41,8 @@ source "$SCRIPT_DIR/lib/verify_image_vsa.sh"
 # contract sandbox. Expects CATALOG, src_dir, and ADAPTER_TIMEOUT in scope.
 # shellcheck source=lib/run_tool_image.sh
 source "$SCRIPT_DIR/lib/run_tool_image.sh"
+# shellcheck source=lib/write_tool_error_marker.sh
+source "$SCRIPT_DIR/lib/write_tool_error_marker.sh"
 
 TOOLS_DIR="${WRANGLE_TOOLS_DIR:-${SCRIPT_DIR}/tools}"
 # The catalog lives beside the tools it describes, so a WRANGLE_TOOLS_DIR
@@ -78,7 +80,7 @@ fi
 
 # is_image[$tool]=1 marks a catalog tool with delivery: image (the docker-run
 # path); absence means the adapter path. Resolved once per tool in the parse
-# loop so the go-install and dispatch loops branch on the same single answer.
+# loop so the dispatch loop branches on that single answer.
 declare -A is_image=()
 
 # Defaults
@@ -154,51 +156,6 @@ overall_status=0
 INSTALL_TIMEOUT="${WRANGLE_INSTALL_TIMEOUT:-300}"
 ADAPTER_TIMEOUT="${WRANGLE_ADAPTER_TIMEOUT:-600}"
 
-# Build only the Go tools the requested adapters need: each adapter lists its
-# package(s) in tools/<tool>/go-tools, version-pinned in tools/go.mod (env.sh
-# pins GOPROXY/GOSUMDB; Dependabot keeps them fresh). A scan thus never compiles
-# the build/verify toolchain (cosign, ampel, bnd). Empty when no requested
-# adapter declares a Go tool (hermetic orchestrator tests point WRANGLE_TOOLS_DIR
-# at stub dirs with no go-tools file). Retried: go does not retry transient
-# proxy failures itself.
-declare -a go_pkgs=()
-for tool in "${run_tools[@]}"; do
-    # Image-delivery tools ship prebuilt in their image — never go-install them.
-    [[ -n "${is_image[$tool]:-}" ]] && continue
-    go_tools_file="${TOOLS_DIR}/${tool}/go-tools"
-    [[ -f "$go_tools_file" ]] || continue
-    while IFS= read -r pkg || [[ -n "$pkg" ]]; do
-        [[ -z "$pkg" ]] && continue
-        go_pkgs+=("$pkg")
-    done < "$go_tools_file"
-done
-
-if [[ ${#go_pkgs[@]} -gt 0 ]]; then
-    if ! command -v go >/dev/null 2>&1; then
-        printf 'wrangle: go not on PATH (required for tools/go.mod tools)\n' >&2
-        exit 2
-    fi
-    mkdir -p "$WRANGLE_BIN_DIR"
-    printf 'wrangle: installing Go tools: %s\n' "${go_pkgs[*]}"
-    go_tools_exit=1
-    backoff=1
-    for attempt in 1 2 3; do
-        go_tools_exit=0
-        timeout "$INSTALL_TIMEOUT" env GOBIN="$(cd "$WRANGLE_BIN_DIR" && pwd)" \
-            go -C "$TOOLS_DIR" install "${go_pkgs[@]}" || go_tools_exit=$?
-        [[ "$go_tools_exit" -eq 0 ]] && break
-        if [[ "$attempt" -lt 3 ]]; then
-            printf 'wrangle: go install attempt %d/3 failed, retrying in %ds...\n' "$attempt" "$backoff" >&2
-            sleep "$backoff"
-            backoff=$((backoff * 2))
-        fi
-    done
-    if [[ "$go_tools_exit" -ne 0 ]]; then
-        printf 'wrangle: FATAL: installing Go tools failed\n' >&2
-        exit 2
-    fi
-fi
-
 # Summary tracking
 declare -a summary_tools=()
 declare -a summary_statuses=()
@@ -232,6 +189,20 @@ verify_tool_image() {
     return 1
 }
 
+# fail_tool_config <tool> <output_dir> <marker_msg> — record an errored tool that
+# returns early (catalog/config/install failure): set the fail-closed status,
+# note it for the summary, write the ${output_dir}/error marker check_results
+# reads, and close the log group. The marker lets the scan step run under
+# continue-on-error while check_results owns the gate — so an :info tool's error
+# stays informational, matching a :fail tool's error blocking. Caller returns.
+fail_tool_config() {
+    overall_status=2
+    summary_tools+=("$1")
+    summary_statuses+=("error")
+    wrangle_write_tool_error_marker "$2" "$3"
+    printf '::endgroup::\n'
+}
+
 # run_one_tool <tool> — run a single tool through its delivery path (image via
 # docker, otherwise the in-process adapter), map its exit to the 0/1/2 contract,
 # attest its recognized output files by name, and record the result. Updates
@@ -259,22 +230,14 @@ run_one_tool() {
         image="$(read_catalog_field "$CATALOG" "$tool" image)"
         if [[ -z "$image" ]]; then
             printf 'wrangle: %s: catalog declares delivery: image but no image\n' "$tool" >&2
-            tool_status="error"
-            overall_status=2
-            summary_tools+=("$tool")
-            summary_statuses+=("$tool_status")
-            printf '::endgroup::\n'
+            fail_tool_config "$tool" "$tool_output_dir" "catalog declares delivery: image but no image"
             return
         fi
         # Require an @sha256 digest pin (a tag alone is mutable); re-checked here
         # even though merge_catalog validated custom entries, as defense in depth.
         if [[ ! "$image" =~ $CATALOG_IMAGE_DIGEST_RE ]]; then
             printf 'wrangle: %s: image not digest-pinned: %s\n' "$tool" "$image" >&2
-            tool_status="error"
-            overall_status=2
-            summary_tools+=("$tool")
-            summary_statuses+=("$tool_status")
-            printf '::endgroup::\n'
+            fail_tool_config "$tool" "$tool_output_dir" "image not digest-pinned: $image"
             return
         fi
         # A declared secret name must be a valid env-var stem before it is
@@ -283,22 +246,14 @@ run_one_tool() {
         secret="$(read_catalog_field "$CATALOG" "$tool" secret)"
         if [[ -n "$secret" ]] && [[ ! "$secret" =~ ^[a-z][a-z0-9-]*$ ]]; then
             printf 'wrangle: %s: invalid catalog secret name: %s\n' "$tool" "$secret" >&2
-            tool_status="error"
-            overall_status=2
-            summary_tools+=("$tool")
-            summary_statuses+=("$tool_status")
-            printf '::endgroup::\n'
+            fail_tool_config "$tool" "$tool_output_dir" "invalid catalog secret name: $secret"
             return
         fi
 
         # Fail closed: refuse to dispatch a curated image that cannot be proven
         # to carry a PASSED wrangle VSA.
         if ! verify_tool_image "$tool" "$image"; then
-            tool_status="error"
-            overall_status=2
-            summary_tools+=("$tool")
-            summary_statuses+=("$tool_status")
-            printf '::endgroup::\n'
+            fail_tool_config "$tool" "$tool_output_dir" "tool image VSA verification failed"
             return
         fi
 
@@ -308,8 +263,7 @@ run_one_tool() {
         # Adapter-pattern (in-process) path.
 
         # Step 1: Install — only tools with a bespoke install.sh (the escape
-        # hatch for tools no package manager ships); go.mod tools were all
-        # installed upfront.
+        # hatch for tools no package manager ships).
         local install_exit=0
         if [[ -f "${TOOLS_DIR}/${tool}/install.sh" ]]; then
             printf 'wrangle: installing %s...\n' "$tool"
@@ -322,11 +276,7 @@ run_one_tool() {
             printf 'wrangle: install failed for %s (exit %d)\n' "$tool" "$install_exit" >&2
         fi
         if [[ "$install_exit" -ne 0 ]]; then
-            tool_status="error"
-            overall_status=2
-            summary_tools+=("$tool")
-            summary_statuses+=("$tool_status")
-            printf '::endgroup::\n'
+            fail_tool_config "$tool" "$tool_output_dir" "install failed (exit $install_exit)"
             return
         fi
 
@@ -427,6 +377,11 @@ run_one_tool() {
                 "$tool_output_dir" "https://spdx.dev/Document" "sbom.spdx.json" \
                 || printf 'wrangle: failed to write %s sbom manifest\n' "$tool" >&2
         fi
+    else
+        # An errored adapter run (timeout / nonzero exit): write the marker
+        # check_results reads, so an :info tool's error stays informational and
+        # the scan step can run under continue-on-error.
+        wrangle_write_tool_error_marker "$tool_output_dir" "adapter error (exit ${adapter_exit})"
     fi
 
     summary_tools+=("$tool")

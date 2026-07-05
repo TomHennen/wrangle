@@ -26,12 +26,19 @@ if [[ "$USE_UV" == "true" ]]; then
     exit 0
 fi
 
+# Fallthrough is announced and stderr is never suppressed: a real install
+# failure (network, resolution) must be visible, not reclassified as a
+# missing extra.
 python -m pip install --upgrade pip
-if python -m pip install -e ".[test]" 2>/dev/null; then
+if python -m pip install -e ".[test]"; then
     printf 'Installed with [test] extra\n'
-elif python -m pip install -e ".[dev]" 2>/dev/null; then
-    printf 'Installed with [dev] extra\n'
 else
-    python -m pip install -e .
-    printf 'Installed without test extras\n'
+    printf 'WARNING: install with [test] extra failed; trying [dev]\n' >&2
+    if python -m pip install -e ".[dev]"; then
+        printf 'Installed with [dev] extra\n'
+    else
+        printf 'WARNING: install with [dev] extra failed; trying bare install\n' >&2
+        python -m pip install -e .
+        printf 'Installed without test extras\n'
+    fi
 fi

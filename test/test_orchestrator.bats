@@ -324,12 +324,16 @@ ADAPT
     run_orchestrator -s "$TEST_DIR/src" -o "$TEST_DIR/output" "error-tool"
 
     [ "$status" -eq 2 ]
+    # An error marker is written so check_results catches the failure even when
+    # the scan step runs under continue-on-error (and honors :info on the error).
+    [ -f "$TEST_DIR/output/error-tool/error" ]
 }
 
 @test "orchestrator: handles install failure (exit 2)" {
     run_orchestrator -s "$TEST_DIR/src" -o "$TEST_DIR/output" "bad-install"
 
     [ "$status" -eq 2 ]
+    [ -f "$TEST_DIR/output/bad-install/error" ]
 }
 
 @test "orchestrator: runs multiple tools" {
@@ -464,69 +468,6 @@ ADAPT
     WRANGLE_TOOLS_DIR="$MOCK_TOOLS" run "$ORIG_DIR/run.sh" -s "$TEST_DIR/src" -o "$TEST_DIR/output" "clean-tool"
 
     [ "$status" -eq 0 ]
-}
-
-# --- Selective Go-tool install tests ---
-
-# Build two mock adapters that each declare a distinct Go package in go-tools,
-# plus a fake `go` that records the packages it was asked to install. Lets us
-# assert run.sh builds only the requested adapter's package, never the others'.
-setup_go_tools_mocks() {
-    for t in gotool-a gotool-b; do
-        mkdir -p "$MOCK_TOOLS/$t"
-        printf '#!/bin/bash\nset -euo pipefail\nexit 0\n' > "$MOCK_TOOLS/$t/adapter.sh"
-        chmod +x "$MOCK_TOOLS/$t/adapter.sh"
-    done
-    printf 'example.com/pkg/a\n' > "$MOCK_TOOLS/gotool-a/go-tools"
-    printf 'example.com/pkg/b\n' > "$MOCK_TOOLS/gotool-b/go-tools"
-
-    export GO_RECORD="$TEST_DIR/go-install-record"
-    : > "$GO_RECORD"
-    export FAKE_BIN="$TEST_DIR/fakebin"
-    mkdir -p "$FAKE_BIN"
-
-    # run.sh creates this to hold installed Go binaries (GOBIN). env.sh's
-    # default is CWD-relative, which is unwritable under the read-only repo
-    # mount the unit container runs in — point it at the writable test dir.
-    export WRANGLE_BIN_DIR="$TEST_DIR/bin"
-    cat > "$FAKE_BIN/go" << 'FAKEGO'
-#!/usr/bin/env bash
-set -euo pipefail
-pkgs=()
-seen_install=0
-while [ $# -gt 0 ]; do
-    case "$1" in
-        -C) shift 2; continue ;;
-        install) seen_install=1; shift; continue ;;
-        *) [ "$seen_install" -eq 1 ] && pkgs+=("$1"); shift ;;
-    esac
-done
-[ "${#pkgs[@]}" -gt 0 ] && printf '%s\n' "${pkgs[@]}" >> "$GO_RECORD"
-exit 0
-FAKEGO
-    chmod +x "$FAKE_BIN/go"
-}
-
-@test "orchestrator: installs only the Go package the requested adapter declares" {
-    setup_go_tools_mocks
-
-    PATH="$FAKE_BIN:$PATH" WRANGLE_TOOLS_DIR="$MOCK_TOOLS" \
-        run "$ORIG_DIR/run.sh" -s "$TEST_DIR/src" -o "$TEST_DIR/output" "gotool-a"
-
-    [ "$status" -eq 0 ]
-    grep -Fxq "example.com/pkg/a" "$GO_RECORD"
-    ! grep -Fxq "example.com/pkg/b" "$GO_RECORD"
-}
-
-@test "orchestrator: skips the Go install entirely when no adapter declares a tool" {
-    setup_go_tools_mocks
-
-    # clean-tool has no go-tools file, so the fake go must never be invoked.
-    PATH="$FAKE_BIN:$PATH" WRANGLE_TOOLS_DIR="$MOCK_TOOLS" \
-        run "$ORIG_DIR/run.sh" -s "$TEST_DIR/src" -o "$TEST_DIR/output" "clean-tool"
-
-    [ "$status" -eq 0 ]
-    [ ! -s "$GO_RECORD" ]
 }
 
 # --- scan/v1 attestation manifest (issue #420) ---
