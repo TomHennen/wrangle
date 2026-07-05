@@ -56,9 +56,8 @@ wrangle_sign_metadata_statements() {
     fi
     local args
     mapfile -t args < <(wrangle_attest_args "$subject_arg" "$stmts")
-    wrangle_mint_sigstore_token || return 1
     wrangle_retry_once /dev/null wrangle_toolbox_exec \
-        --env SIGSTORE_ID_TOKEN -- wrangle-attest "${args[@]}"
+        --sigstore -- wrangle-attest "${args[@]}"
 }
 
 # Post the signed statement at $1 to the GitHub attestation store. Fails closed:

@@ -159,12 +159,8 @@ wrangle_sign_vsa() {
     mapfile -t args < <(wrangle_bnd_sign_args "$vsa.unsigned")
     mv "$vsa" "$vsa.unsigned"
     local rc=0
-    if wrangle_mint_sigstore_token; then
-        wrangle_retry_once "$vsa" wrangle_toolbox_exec \
-            --env SIGSTORE_ID_TOKEN -- bnd "${args[@]}" || rc=$?
-    else
-        rc=1
-    fi
+    wrangle_retry_once "$vsa" wrangle_toolbox_exec \
+        --sigstore -- bnd "${args[@]}" || rc=$?
     rm -f "$vsa.unsigned"
     return "$rc"
 }

@@ -1086,7 +1086,7 @@ EOF
     printf 'unsigned-vsa\n' > "$VSA"
     PATH="$TEST_DIR:$PATH" GITHUB_TOKEN=registry-token run wrangle_sign_vsa "$VSA"
     [ "$status" -ne 0 ]
-    grep -q "lacks the token: sigstore grant" <<< "$output"
+    grep -q "capability required to sign" <<< "$output"
     [ ! -f "$TEST_DIR/docker.args" ]
     [ ! -f "$TEST_DIR/bnd.called" ]
 }

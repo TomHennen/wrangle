@@ -318,7 +318,7 @@ JSON
     # The workspace and RUNNER_TEMP are mounted and the working dir is set, so the
     # same (relative-in-prod) metadata/subject/out paths resolve as they do in-job.
     grep -q -- "-w $PWD" "$TEST_DIR/docker.args"
-    grep -q -- "-v $RUNNER_TEMP:$RUNNER_TEMP" "$TEST_DIR/docker.args"
+    grep -q -- "--mount type=bind,source=$RUNNER_TEMP,target=$RUNNER_TEMP" "$TEST_DIR/docker.args"
 }
 
 @test "sign_metadata: store push runs in-container with the registry token, no sigstore token" {
@@ -362,25 +362,25 @@ EOF
     local sha; sha="$(printf '0%.0s' {1..64})"
     run wrangle_sign_metadata_statements "sha256:$sha" "$TEST_DIR/out.jsonl"
     [ "$status" -ne 0 ]
-    grep -q "lacks the token: sigstore grant" <<< "$output"
+    grep -q "capability required to sign" <<< "$output"
     [ ! -f "$TEST_DIR/docker.args" ]
     [ ! -f "$TEST_DIR/attest.called" ]
 }
 
-@test "sign_metadata: relative METADATA_ROOT never becomes an invalid relative -v (blocker guard)" {
+@test "sign_metadata: relative METADATA_ROOT never becomes an invalid relative bind mount (blocker guard)" {
     _stub_toolbox_container
-    # wrangle sets METADATA_ROOT/SUBJECTS relative; docker -v requires absolute, so
-    # the signer must mount the workspace + set -w, never a relative -v.
+    # wrangle sets METADATA_ROOT/SUBJECTS relative; a bind mount source must be
+    # absolute, so the signer mounts the workspace + sets -w, never a relative source.
     cd "$TEST_DIR"
     mkdir -p metadata; printf '{}' > metadata/wrangle_attestation_metadata.json
     export METADATA_ROOT="metadata" COMMIT="abc123"
     local sha; sha="$(printf '0%.0s' {1..64})"
     wrangle_sign_metadata_statements "sha256:$sha" "out.jsonl"
-    # Every -v is an absolute host path (starts with /); none is relative.
-    ! grep -qE -- '-v [^/]' "$TEST_DIR/docker.args"
+    # Every bind mount source is an absolute host path (starts with /); none is relative.
+    ! grep -qE -- 'source=[^/]' "$TEST_DIR/docker.args"
     # The workspace is mounted and set as the container working dir instead.
     grep -q -- "-w $TEST_DIR" "$TEST_DIR/docker.args"
-    grep -q -- "-v $TEST_DIR:$TEST_DIR" "$TEST_DIR/docker.args"
+    grep -q -- "--mount type=bind,source=$TEST_DIR,target=$TEST_DIR" "$TEST_DIR/docker.args"
 }
 
 @test "sign_metadata: metadata signing fails closed on a token-mint failure (no docker, no in-job fallback)" {
