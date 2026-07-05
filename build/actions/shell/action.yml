@@ -29,6 +29,14 @@ inputs:
       bash, so it executes under the same workflow-command guard as bats.
     required: false
     default: ""
+  bats-jobs:
+    description: >
+      Number of bats test files to run concurrently. 1 (default) runs
+      serially; a higher value fans files out with GNU parallel, keeping
+      within-file order intact. Only raise it if the suite shares no
+      cross-file state (ports, temp paths, $HOME writes).
+    required: false
+    default: "1"
 
 runs:
   using: "composite"
@@ -54,6 +62,17 @@ runs:
           sudo apt-get update -qq && sudo apt-get install -y -qq bats
         fi
         printf 'bats version: %s\n' "$(bats --version)"
+
+    # bats' --jobs fan-out needs GNU parallel, which the runner image lacks.
+    # Install it only when parallel fan-out is requested (bats-jobs > 1).
+    - name: Install parallel
+      if: inputs.bats-jobs != '1'
+      shell: bash
+      run: |
+        set -euo pipefail
+        if ! command -v parallel >/dev/null 2>&1; then
+          sudo apt-get update -qq && sudo apt-get install -y -qq parallel
+        fi
 
     # The setup-script is arbitrary adopter bash and its install hooks print
     # tool-controlled output, so it runs under stop_commands_guard.sh (#225 /
@@ -89,6 +108,7 @@ runs:
       env:
         BATS_PATH: ${{ inputs.bats-path }}
         SCAN_PATH: ${{ inputs.scan-path }}
+        BATS_JOBS: ${{ inputs.bats-jobs }}
       run: |
         set -euo pipefail
         "${{ github.action_path }}/run_bats.sh" "$BATS_PATH" "$SCAN_PATH"

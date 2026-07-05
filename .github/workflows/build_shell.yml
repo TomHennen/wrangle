@@ -26,6 +26,13 @@ on:
         required: false
         type: string
         default: ""
+      bats-jobs:
+        description: >
+          Number of bats test files to run concurrently. 1 (default) is
+          serial; raise it only when the suite shares no cross-file state.
+        required: false
+        type: string
+        default: "1"
       scan-tools:
         description: |
           Space-separated source-scan tools (suffix :info for
@@ -152,3 +159,4 @@ jobs:
           scan-path: ${{ inputs.scan-path }}
           bats-path: ${{ inputs.bats-path }}
           setup-script: ${{ inputs.setup-script }}
+          bats-jobs: ${{ inputs.bats-jobs }}
