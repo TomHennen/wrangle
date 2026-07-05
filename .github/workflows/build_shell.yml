@@ -83,7 +83,7 @@ jobs:
     permissions: {}    # guard reads env only — no workspace, no API, no secrets
     steps:
       # TODO: replace with $/actions/prep when GitHub ships $/ syntax (#136)
-      - uses: TomHennen/wrangle/actions/prep@ad159e9af4ea588258d6fe7020f05478f8d73613 # feat/phase3-container-signing 2026-07-05
+      - uses: TomHennen/wrangle/actions/prep@b035d68be4f56f4717f996fd6f7a4d403cbcaf48 # feat/containerize-verify-vsa-cleanup 2026-07-05
 
   # Source scan. A load-bearing (:fail) finding fails the run alongside
   # the shell build/test (there is no artifact to gate publishing of).
@@ -96,7 +96,7 @@ jobs:
       security-events: write
     steps:
       # TODO: replace with $/actions/scan when GitHub ships $/ syntax (#136)
-      - uses: TomHennen/wrangle/actions/scan@ad159e9af4ea588258d6fe7020f05478f8d73613 # feat/phase3-container-signing 2026-07-05
+      - uses: TomHennen/wrangle/actions/scan@b035d68be4f56f4717f996fd6f7a4d403cbcaf48 # feat/containerize-verify-vsa-cleanup 2026-07-05
         if: ${{ inputs.scan-tools != '' }}
         with:
           checkout: "true"
@@ -144,7 +144,7 @@ jobs:
         # setup-script input and multi-path bats — the main-pinned version
         # would ignore setup-script and fail the dogfooded integration bats.
         # Bump to main post-merge via tools/bump_action_pins.sh.
-        uses: TomHennen/wrangle/build/actions/shell@ad159e9af4ea588258d6fe7020f05478f8d73613 # feat/phase3-container-signing 2026-07-05
+        uses: TomHennen/wrangle/build/actions/shell@b035d68be4f56f4717f996fd6f7a4d403cbcaf48 # feat/containerize-verify-vsa-cleanup 2026-07-05
         with:
           scan-path: ${{ inputs.scan-path }}
           bats-path: ${{ inputs.bats-path }}
