@@ -1,11 +1,11 @@
 name: Wrangle Publish Release
 description: >
   Create the tag's GitHub release as a draft, upload the rationalized asset set,
-  then publish it. attest-and-verify: required attaches the verify job's signed
-  bundles + dist + metadata zip; disabled attaches dist + metadata (no
-  bundles/VSAs) and marks the body unattested. The draft -> attach -> publish
-  order keeps the flow immutable-release safe. The signing-free publish step:
-  this is the only job holding contents: write.
+  then finalize it (mark it non-draft). attest-and-verify: enabled attaches the
+  verify job's signed bundles + dist + metadata zip; disabled attaches dist +
+  metadata (no bundles/VSAs) and marks the body unattested. The draft -> attach
+  -> finalize order keeps the flow immutable-release safe. The signing-free
+  publish step: this is the only job holding contents: write.
 
 inputs:
   build-type:
@@ -16,9 +16,9 @@ inputs:
     required: false
     default: ""
   attest-and-verify:
-    description: "required attaches the verify job's signed bundles; disabled publishes an unattested release."
+    description: "enabled attaches the verify job's signed bundles; disabled publishes an unattested release."
     required: false
-    default: required
+    default: enabled
 
 runs:
   using: composite
@@ -58,6 +58,9 @@ runs:
         # No checkout in this job, so gh has no remote to infer the base repo from.
         GH_REPO: ${{ github.repository }}
         GITHUB_REF_NAME: ${{ github.ref_name }}
+      # run_verify.sh drives the whole draft -> attach -> finalize lifecycle: it
+      # creates the release as a draft, uploads the assets, and finalizes it by
+      # flipping --draft=false (wrangle_publish_release) as its last step.
       run: |
         if [[ "$ATTESTATION" == "disabled" ]]; then
             "$WRANGLE_ROOT/actions/verify/run_verify.sh" attach-unattested

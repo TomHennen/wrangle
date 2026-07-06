@@ -63,6 +63,11 @@ source "$LIB_DIR/verify_image_vsa.sh"
 # shellcheck source=../../lib/toolbox_run.sh
 source "$LIB_DIR/toolbox_run.sh"
 
+# Shared dist-artifact resolution (checksums manifest / glob) into WRANGLE_RESOLVED,
+# the same resolvers the attest and verify jobs use to derive subjects.
+# shellcheck source=../../lib/resolve_subjects.sh
+source "$LIB_DIR/resolve_subjects.sh"
+
 WRANGLE_CATALOG="${WRANGLE_CATALOG:-$REPO_ROOT/tools/catalog.json}"
 
 # Emit the ampel subject flag for one subject, one arg per line. A digest-form
@@ -376,37 +381,31 @@ wrangle_attach_unattested() {
     local ref="$GITHUB_REF_NAME"
     wrangle_ensure_release "$ref" || return 1
     wrangle_mark_release_unattested "$ref" || return 1
-    local dist_dir="${DIST_DIR:-dist}" checksums="${DIST_DIR:-dist}/checksums.txt" listing dist rc=0
-    listing="$(mktemp "${RUNNER_TEMP:-/tmp}/dist.XXXXXX")"
+    local dist_dir="${DIST_DIR:-dist}" checksums="${DIST_DIR:-dist}/checksums.txt" dist
+    # Reuse the attest/verify subject resolvers (lib/resolve_subjects.sh): a
+    # checksums manifest names exactly the released artifacts — excluding any
+    # build-tool bookkeeping dropped into dist/ (e.g. goreleaser's config.yaml) —
+    # and add the manifest itself; without one (npm/python) every regular dist
+    # file is an artifact.
+    local -a WRANGLE_RESOLVED=()
     if [[ -f "$checksums" ]]; then
-        # A checksums manifest enumerates exactly the released artifacts, so scope
-        # the upload to it + the manifest — excluding any build-tool bookkeeping
-        # dropped into dist/ (e.g. goreleaser's config.yaml, artifacts.json).
-        local name
-        while IFS= read -r name; do
-            [[ -n "$name" ]] && printf '%s\0' "$dist_dir/$name"
-        done < <(awk '{ print $2 }' "$checksums") > "$listing"
-        printf '%s\0' "$checksums" >> "$listing"
-    elif ! find "$dist_dir" -maxdepth 1 -type f -print0 | sort -z > "$listing"; then
-        rm -f "$listing"
-        printf 'wrangle: failed to enumerate dist under %s\n' "$dist_dir" >&2
-        return 1
+        wrangle_resolve_checksums "$checksums" || return 1
+        WRANGLE_RESOLVED+=("$checksums")
+    else
+        wrangle_resolve_glob "$dist_dir/"'*' || return 1
     fi
     # Fail closed: nothing to publish means the build produced no artifacts.
-    if [[ ! -s "$listing" ]]; then
-        rm -f "$listing"
+    if [[ "${#WRANGLE_RESOLVED[@]}" -eq 0 ]]; then
         printf 'wrangle: no dist files to publish under %s\n' "$dist_dir" >&2
         return 1
     fi
-    while IFS= read -r -d '' dist; do
+    for dist in "${WRANGLE_RESOLVED[@]}"; do
         if [[ ! -f "$dist" ]]; then
             printf 'wrangle: artifact %s listed but not found\n' "$dist" >&2
-            rc=1; break
+            return 1
         fi
-        gh release upload "$ref" "$dist" --clobber || { rc=1; break; }
-    done < "$listing"
-    rm -f "$listing"
-    [[ "$rc" -ne 0 ]] && return "$rc"
+        gh release upload "$ref" "$dist" --clobber || return 1
+    done
     wrangle_attach_metadata_zip "$ref" || return 1
     wrangle_publish_release "$ref"
 }

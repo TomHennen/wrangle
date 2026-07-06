@@ -90,7 +90,7 @@ default.
 
 To ship from a private repo, set **`attest-and-verify: disabled`**: you still
 get tests, scanning, an SBOM, and a published release with checksums — just no
-SLSA provenance or VSA. The default (`required`) instead fails the run with a
+SLSA provenance or VSA. The default (`enabled`) instead fails the run with a
 message telling you to switch. Public repos attest as before.
 
 Pick one mode per tag: switching an existing release between attested and

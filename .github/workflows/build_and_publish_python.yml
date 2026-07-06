@@ -80,13 +80,12 @@ on:
         default: sbom
       attest-and-verify:
         description: |
-          required (default): produce SLSA provenance + a signed VSA and verify
-          against the policy; fails fast on a private repo. disabled: publish an
-          unattested release (scans still gate it, no provenance/VSA/bundles) —
-          the path private repos use today (issue #600).
+          enabled (default): sign and verify SLSA provenance + a VSA for the
+          release. disabled: publish the release unattested (tests and scans
+          still gate it) — use on private repos, which can't attest (#600).
         required: false
         type: string
-        default: required
+        default: enabled
     outputs:
       hashes:
         description: "Base64-encoded SHA-256 hashes of built artifacts (for SLSA provenance)"
@@ -243,9 +242,9 @@ jobs:
           name: ${{ needs.prep.outputs.scan }}
           path: ${{ steps.build.outputs.metadata-dir }}/scan/
 
-      # On an attested release the verify job appends the bundle and owns the
-      # final upload, so build stages only the pre transient. Otherwise
-      # (non-release, or unattested) this sbom + scan/ IS the final metadata.
+      # On an attested release the verify job appends the signed bundle and owns
+      # the final metadata upload; otherwise (non-release or unattested) this
+      # sbom + scan/ is itself the final metadata artifact.
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: ${{ needs.prep.outputs.should-attest == 'true' && needs.prep.outputs.metadata-pre || needs.prep.outputs.metadata }}
