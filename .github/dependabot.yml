@@ -13,6 +13,7 @@ updates:
       - "/actions/prep"
       - "/actions/scan"
       - "/actions/verify"
+      - "/actions/verify-showcase-recipes"
       - "/actions/verify-vsa"
       - "/actions/verify_release"
       - "/build/actions/container"
