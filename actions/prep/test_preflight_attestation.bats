@@ -111,6 +111,7 @@ setup() {
 # --- helper units (source the script; the main guard keeps main from running) ---
 
 @test "unit: wrangle_validate_mode accepts enabled and disabled, rejects others" {
+    # shellcheck source=preflight_attestation.sh
     source "$SCRIPT"
     run wrangle_validate_mode enabled
     [[ "$status" -eq 0 ]]
@@ -122,6 +123,7 @@ setup() {
 }
 
 @test "unit: wrangle_preflight_attestation defaults an unset mode to enabled" {
+    # shellcheck source=preflight_attestation.sh
     source "$SCRIPT"
     unset ATTESTATION
     SHOULD_RELEASE=true VISIBILITY=private run wrangle_preflight_attestation
