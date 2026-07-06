@@ -110,7 +110,6 @@ Prefer your own SBOM generator over wrangle's default (syft)? On the go, python,
      "tools": {
        "my-sbom": {
          "kind": "sbom",
-         "delivery": "image",
          "image": "ghcr.io/myorg/my-sbom-generator@sha256:<digest>"
        }
      }

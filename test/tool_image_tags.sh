@@ -11,9 +11,8 @@ REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
 CATALOG="$REPO_ROOT/tools/catalog.json"
 
 # catalog_image_dirs <catalog_file> — print the tools/ subdirectory name of
-# every entry naming an image (with or without delivery: image, matching
-# check_catalog.sh): the image ref's path tail (minus @digest) is the tool's
-# directory and Dockerfile home.
+# every entry naming an image (matching check_catalog.sh): the image ref's path
+# tail (minus @digest) is the tool's directory and Dockerfile home.
 catalog_image_dirs() {
     local file="$1" image ref
     [[ -f "$file" ]] || return 0

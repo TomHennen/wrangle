@@ -589,20 +589,18 @@ BEHAVIOR:
        directory); reject otherwise as an unknown tool
     4. Skip if tools/<tool>/action.yml exists (action-pattern — handled by
        uses: steps in the scan action; any adapter.sh present is only the
-       tool image's entrypoint). Otherwise resolve the tool's
-       tools/catalog.json entry: a `delivery: image` entry runs the tool's
-       pinned image via `docker run` (read-only /src, writable /output owned
-       by the runner UID, --network none unless the entry declares
-       `network: egress`, a `secret:` passed via -e); else skip if
-       tools/<tool>/adapter.sh is missing.
-    5. (adapter path) Run tools/<tool>/install.sh if present — go.mod tools
-       were all installed upfront (timeout: 5 minutes)
-    6. Create <output_dir>/<tool>/
-    7. Run the adapter or image with <src_dir> and <output_dir>/<tool>/ under
-       the uniform 0/1/2 exit contract (an image gets WRANGLE_KIND for its
-       input/stage). A scan tool writes output.sarif; an sbom tool writes
-       sbom.spdx.json (timeout: 10 minutes)
-    8. Record pass/fail status; attest the primary output file by name —
+       tool image's entrypoint)
+    4. Resolve the tool's tools/catalog.json entry: an entry naming an `image`
+       runs the tool's pinned image via `docker run` (read-only /src, writable
+       /output owned by the runner UID, --network none unless the entry
+       declares `network: egress`, a `secret:` passed via -e). A tool with no
+       catalog image entry is rejected as an unknown tool
+    5. Create <output_dir>/<tool>/
+    6. Run the image with <src_dir> and <output_dir>/<tool>/ under the uniform
+       0/1/2 exit contract (WRANGLE_KIND carries its input/stage). A scan tool
+       writes output.sarif; an sbom tool writes sbom.spdx.json (timeout: 10
+       minutes)
+    7. Record pass/fail status; attest the primary output file by name —
        output.sarif via the scan/v1 manifest, sbom.spdx.json via its in-toto
        predicate https://spdx.dev/Document
 
@@ -661,7 +659,6 @@ select an injected tool.
   "tools": {
     "my-sbom": {                                  // a tool wrangle doesn't ship — full definition
       "kind": "sbom",
-      "delivery": "image",
       "image": "ghcr.io/myorg/my-sbom@sha256:<64hex>"
     }
   }
@@ -674,7 +671,7 @@ under a new name and deselect the curated one via `tools:` / `sbom-tool:`. Each 
 capabilities standalone; nothing inherits from any curated entry.
 
 **Per-entry validation** (any failure fails closed, aborting the run): tool name matches
-`^[a-z][a-z0-9_-]*$`; `kind` ∈ {`scan`, `sbom`, `attest`}; `delivery` is `image`; `image` is digest-pinned
+`^[a-z][a-z0-9_-]*$`; `kind` ∈ {`scan`, `sbom`, `attest`}; `image` is digest-pinned
 (`name@sha256:<64hex>`) **and outside the wrangle namespace** (`ghcr.io/tomhennen/wrangle/*` is rejected —
 a custom tool cannot borrow a wrangle VSA identity); a declared `network` ∈ {`none`, `egress`} and `secret`
 matches `^[a-z][a-z0-9-]*$`. The value rules are shared with the curated-catalog linter via
@@ -852,7 +849,8 @@ The install scripts include OS/arch detection (`linux/darwin`, `amd64/arm64`) as
    - `install.sh` — uses `lib/download_verify.sh` for download and verification
    - `adapter.sh` — follows the adapter contract above
    - `test.bats` — tests using mock binaries (fast, deterministic)
-2. Add `foo` to the orchestrator's default tool list in `actions/scan/action.yml`
+2. Build and publish the tool's image and add its digest-pinned image entry to `tools/catalog.json` (see [Tool containerization](tool_container_design.md))
+3. Add `foo` to the orchestrator's default tool list in `actions/scan/action.yml`
 
 **Action pattern** (wraps upstream GitHub Action):
 
@@ -861,7 +859,7 @@ The install scripts include OS/arch detection (`linux/darwin`, `amd64/arm64`) as
    - `test.bats` — structural tests (action.yml exists, SHA pinned, etc.)
 2. Add a `uses: ./tools/foo` step in `actions/scan/action.yml`
 
-Everything for one tool lives in one directory, with no workflow changes for adopters. Most tools deliver as a downloaded binary or a wrapped action; a tool that needs a container delivers as one via the catalog (`delivery: image`, see Design Decisions below).
+Everything for one tool lives in one directory, with no workflow changes for adopters. Most tools deliver as a downloaded binary or a wrapped action; a tool that needs a container delivers as one via the catalog (a digest-pinned `image` entry, see Design Decisions below).
 
 ### Tool Sub-specifications
 
@@ -904,14 +902,7 @@ The `.wrangle/` directory is in `.gitignore` to prevent accidental commits. The 
 
 ### Binary downloads as the default, container images per-tool
 
-**Default:** Tools are downloaded as standalone binaries (or wrapped as actions) and run directly, because for most tools that wins on:
-- **Speed:** No image pull latency (cached binary downloads are near-instant)
-- **Simplicity:** No container registry to manage, no image build pipeline
-- **Portability:** Works on any runner (macOS, self-hosted, ARM — not just Linux with Docker)
-- **Testability:** No Docker-in-Docker complexity; scripts testable with bats-core locally
-- **Adoption friction:** No authentication needed to pull tool images
-
-**Per-tool exception:** A tool whose upstream ships only as a container, or that needs an isolated runtime, opts into container delivery through the catalog (`delivery: image` with a digest-pinned `image:`); the orchestrator runs it via `docker run` under the adapter contract sandbox. Binary/adapter delivery remains the default. See [docs/tool_container_design.md](tool_container_design.md).
+Each adapter-pattern tool runs as a **digest-pinned OCI image** resolved through the catalog (a digest-pinned `image:` entry); the orchestrator dispatches it via `docker run` under the adapter contract sandbox — the container is the unit of both distribution and isolation. Tools with a well-maintained official GitHub Action stay action-pattern (wrapped via `uses:`) instead. Rationale and the packaging model are in [docs/tool_container_design.md](tool_container_design.md).
 
 The container *build/publish* workflow (for building adopters' Docker images) is a separate concern and remains unchanged.
 

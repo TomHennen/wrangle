@@ -49,7 +49,7 @@ _commit() {  # _commit <relpath> <content> -> exports the new HEAD sha in $LAST
 
 _catalog() {
     cat > "$CATALOG" <<JSON
-{"tools":{"osv":{"kind":"scan","delivery":"image","image":"$1","network":"egress"}}}
+{"tools":{"osv":{"kind":"scan","image":"$1","network":"egress"}}}
 JSON
 }
 
@@ -210,8 +210,8 @@ RUN true'
 RUN true'  # toola now stale vs base
     cat > "$CATALOG" <<JSON
 {"tools":{
-  "toola":{"kind":"scan","delivery":"image","image":"ghcr.io/tomhennen/wrangle/toola@$DIGEST"},
-  "toolb":{"kind":"scan","delivery":"image","image":"ghcr.io/tomhennen/wrangle/toolb@$DIGEST"}}}
+  "toola":{"kind":"scan","image":"ghcr.io/tomhennen/wrangle/toola@$DIGEST"},
+  "toolb":{"kind":"scan","image":"ghcr.io/tomhennen/wrangle/toolb@$DIGEST"}}}
 JSON
     cat >"$BIN_DIR/gh" <<SHIM
 #!/usr/bin/env bash

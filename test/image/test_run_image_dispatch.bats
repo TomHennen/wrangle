@@ -1,10 +1,10 @@
 #!/usr/bin/env bats
 
-# Validates run.sh's catalog-driven image-delivery dispatch (#596,
-# docs/tool_container_design.md §3.5): a tool whose catalog entry declares
-# delivery: image is run via `docker run` under the contract sandbox, writing
-# the SAME ${output_dir}/${tool}/output.sarif the downstream collectors consume,
-# with the 0/1/2 exit contract mapped.
+# Validates run.sh's catalog-driven image dispatch (#596,
+# docs/tool_container_design.md §3.5): a tool whose catalog entry names an image
+# is run via `docker run` under the contract sandbox, writing the SAME
+# ${output_dir}/${tool}/output.sarif the downstream collectors consume, with the
+# 0/1/2 exit contract mapped.
 #
 # Needs docker, so it lives under test/image/ (outside the Makefile's unit
 # `bats` glob, which expands test/ non-recursively) and runs in the dogfooded
@@ -83,10 +83,10 @@ setup() {
     # engine-portable repo digest, which run.sh's digest-pin check requires).
     export ORIG_DIR RUN_SH TMP_DIR SRC OUT TOOLS
 
-    # A mock catalog declaring mocktool as a delivery: image tool pointing at
+    # A mock catalog declaring mocktool as a curated image tool pointing at
     # the local mock image. network omitted -> none (the default).
     cat > "$TOOLS/catalog.json" <<JSON
-{"tools":{"mocktool":{"kind":"scan","delivery":"image","image":"$MOCK_IMAGE"}}}
+{"tools":{"mocktool":{"kind":"scan","image":"$MOCK_IMAGE"}}}
 JSON
 }
 
@@ -128,7 +128,7 @@ _run_orch() {
     # is never downgraded).
     printf 'error' > "$SRC/MODE"
     cat > "$TOOLS/catalog.json" <<JSON
-{"tools":{"toola":{"kind":"scan","delivery":"image","image":"$MOCK_IMAGE"},"toolb":{"kind":"scan","delivery":"image","image":"$MOCK_IMAGE"}}}
+{"tools":{"toola":{"kind":"scan","image":"$MOCK_IMAGE"},"toolb":{"kind":"scan","image":"$MOCK_IMAGE"}}}
 JSON
     _run_orch toola toolb
     [ "$status" -eq 2 ]
@@ -145,7 +145,7 @@ JSON
 @test "run.sh image dispatch: two image tools land in distinct dirs without clobbering" {
     printf 'clean' > "$SRC/MODE"
     cat > "$TOOLS/catalog.json" <<JSON
-{"tools":{"toola":{"kind":"scan","delivery":"image","image":"$MOCK_IMAGE"},"toolb":{"kind":"scan","delivery":"image","image":"$MOCK_IMAGE"}}}
+{"tools":{"toola":{"kind":"scan","image":"$MOCK_IMAGE"},"toolb":{"kind":"scan","image":"$MOCK_IMAGE"}}}
 JSON
     _run_orch toola toolb
     [ "$status" -eq 0 ]
@@ -158,7 +158,7 @@ JSON
     # zizmor tokens. Drive it deterministically with the mock image under the osv key.
     printf 'clean' > "$SRC/MODE"
     cat > "$TOOLS/catalog.json" <<JSON
-{"tools":{"osv":{"kind":"scan","delivery":"image","image":"$MOCK_IMAGE"}}}
+{"tools":{"osv":{"kind":"scan","image":"$MOCK_IMAGE"}}}
 JSON
     _run_orch osv
     [ "$status" -eq 0 ]
@@ -215,7 +215,7 @@ JSON
     # A catalog secret: maps WRANGLE_EXTRA_<NAME> into the image as <NAME>,
     # forwarded by name (not on docker's argv). Assert it actually arrives.
     cat > "$TOOLS/catalog.json" <<JSON
-{"tools":{"mocktool":{"kind":"scan","delivery":"image","image":"$MOCK_IMAGE","secret":"mock-secret"}}}
+{"tools":{"mocktool":{"kind":"scan","image":"$MOCK_IMAGE","secret":"mock-secret"}}}
 JSON
     printf 'secret' > "$SRC/MODE"
     WRANGLE_TOOLS_DIR="$TOOLS" WRANGLE_EXTRA_MOCK_SECRET="s3cr3t-value" \
@@ -230,7 +230,7 @@ JSON
     # the GITHUB_TOKEN env var inside the container, sourced from run.sh's
     # WRANGLE_EXTRA_GITHUB_TOKEN. This guards the env-bridge the adapter relies on.
     cat > "$TOOLS/catalog.json" <<JSON
-{"tools":{"mocktool":{"kind":"scan","delivery":"image","image":"$MOCK_IMAGE","secret":"github-token"}}}
+{"tools":{"mocktool":{"kind":"scan","image":"$MOCK_IMAGE","secret":"github-token"}}}
 JSON
     printf 'secret' > "$SRC/MODE"
     WRANGLE_TOOLS_DIR="$TOOLS" WRANGLE_EXTRA_GITHUB_TOKEN="ghs_mocktoken" \
@@ -258,7 +258,7 @@ JSON
         || skip_or_fail "local osv image (wrangle-osv:test) not built"
 
     cat > "$TOOLS/catalog.json" <<JSON
-{"tools":{"osv":{"kind":"scan","delivery":"image","image":"$OSV_IMAGE","network":"egress"}}}
+{"tools":{"osv":{"kind":"scan","image":"$OSV_IMAGE","network":"egress"}}}
 JSON
     mkdir -p "$TOOLS/osv"
     printf 'just text, no manifests\n' > "$SRC/README.txt"
@@ -280,7 +280,7 @@ JSON
         || skip_or_fail "local osv image (wrangle-osv:test) not built"
 
     cat > "$TOOLS/catalog.json" <<JSON
-{"tools":{"osv":{"kind":"scan","delivery":"image","image":"$OSV_IMAGE","network":"egress"}}}
+{"tools":{"osv":{"kind":"scan","image":"$OSV_IMAGE","network":"egress"}}}
 JSON
     mkdir -p "$TOOLS/osv"
     cp "$ORIG_DIR/tools/osv/testdata/vulnerable_go.mod" "$SRC/go.mod"
@@ -299,7 +299,7 @@ JSON
 # sbom.spdx.json and records the WRANGLE_KIND it saw.
 _sbom_catalog() {
     cat > "$TOOLS/catalog.json" <<JSON
-{"tools":{"mocktool":{"kind":"sbom","delivery":"image","image":"$MOCK_IMAGE"}}}
+{"tools":{"mocktool":{"kind":"sbom","image":"$MOCK_IMAGE"}}}
 JSON
 }
 

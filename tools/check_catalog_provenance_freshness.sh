@@ -67,7 +67,7 @@ provenance_build_commit() {
 # image, 2 backend/env error.
 check_provenance_freshness() {
     local file="$1" rc=0 stale=0 backend_err=0
-    local tool delivery image imagename commit checked=0 repo_root
+    local tool image imagename commit checked=0 repo_root
 
     if ! command -v gh >/dev/null 2>&1 || ! command -v jq >/dev/null 2>&1; then
         printf 'check_catalog_provenance_freshness: gh and jq are required\n' >&2
@@ -88,9 +88,8 @@ check_provenance_freshness() {
 
     while IFS= read -r tool; do
         [[ -z "$tool" ]] && continue
-        delivery="$(read_catalog_field "$file" "$tool" delivery)"
-        [[ "$delivery" == "image" ]] || continue
         image="$(read_catalog_field "$file" "$tool" image)"
+        [[ -n "$image" ]] || continue
         imagename="${image%@sha256:*}"
 
         # Skip adopter-override entries — not wrangle-signed.

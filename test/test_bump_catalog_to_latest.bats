@@ -17,7 +17,7 @@ setup() {
     command -v jq >/dev/null 2>&1 || { printf 'jq not on PATH\n' >&2; return 1; }
 
     printf '%s\n' \
-        '{"tools":{"osv":{"kind":"scan","delivery":"image","image":"ghcr.io/tomhennen/wrangle/osv@'"$DIGEST_A"'","network":"egress"}}}' \
+        '{"tools":{"osv":{"kind":"scan","image":"ghcr.io/tomhennen/wrangle/osv@'"$DIGEST_A"'","network":"egress"}}}' \
         > "$CATALOG"
 }
 
@@ -77,7 +77,7 @@ SHIM
     # Token-fail shim: a resolved non-curated entry would surface as exit 2.
     install_curl
     printf '%s\n' \
-        '{"tools":{"adopter":{"kind":"scan","delivery":"image","image":"registry.example.com/x/y@'"$DIGEST_A"'"}}}' \
+        '{"tools":{"adopter":{"kind":"scan","image":"registry.example.com/x/y@'"$DIGEST_A"'"}}}' \
         > "$CATALOG"
     SHIM_TOKEN_FAIL=1 run "$SCRIPT"
     [ "$status" -eq 0 ]
@@ -89,7 +89,7 @@ SHIM
 @test "bump_catalog_to_latest: resolvable entry bumped despite a sibling backend error (exit 2)" {
     install_curl_per_image
     printf '%s\n' \
-        '{"tools":{"toola":{"kind":"scan","delivery":"image","image":"ghcr.io/tomhennen/wrangle/toola@'"$DIGEST_A"'"},"toolb":{"kind":"scan","delivery":"image","image":"ghcr.io/tomhennen/wrangle/toolb@'"$DIGEST_A"'"}}}' \
+        '{"tools":{"toola":{"kind":"scan","image":"ghcr.io/tomhennen/wrangle/toola@'"$DIGEST_A"'"},"toolb":{"kind":"scan","image":"ghcr.io/tomhennen/wrangle/toolb@'"$DIGEST_A"'"}}}' \
         > "$CATALOG"
     run "$SCRIPT"
     [ "$status" -eq 2 ]
