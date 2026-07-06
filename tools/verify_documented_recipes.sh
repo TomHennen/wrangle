@@ -89,15 +89,24 @@ _valid_image() { [[ "$1" =~ ^[A-Za-z0-9][A-Za-z0-9._/-]*$ ]]; }
 _valid_name()  { [[ "$1" =~ ^[A-Za-z0-9][A-Za-z0-9._-]*$ ]]; }
 
 # --- doc extraction ------------------------------------------------------------
-# Emit every fenced ```bash block whose text contains the literal substring $1,
-# each terminated by NUL.
-_blocks_matching() {
+# Collect into the array named by $2 every fenced ```bash block whose text
+# contains the literal substring $1. Pure bash (no awk) so block boundaries don't
+# depend on the host awk's handling of NUL separators.
+_collect_blocks() {
     local sig="$1"
-    awk -v sig="$sig" '
-        $0 == "```bash" { inb = 1; blk = ""; next }
-        $0 == "```"     { if (inb && index(blk, sig)) printf "%s\0", blk; inb = 0; next }
-        inb             { blk = blk $0 "\n" }
-    ' "$DOC"
+    local -n _out="$2"
+    _out=()
+    local line blk="" inblk=0
+    while IFS= read -r line || [[ -n "$line" ]]; do
+        if [[ "$inblk" -eq 0 ]]; then
+            [[ "$line" == '```bash' ]] && { inblk=1; blk=""; }
+        elif [[ "$line" == '```' ]]; then
+            [[ "$blk" == *"$sig"* ]] && _out+=("$blk")
+            inblk=0
+        else
+            blk+="$line"$'\n'
+        fi
+    done < "$DOC"
 }
 
 # Print THE single template block matching signature $1; a count other than one
@@ -105,7 +114,7 @@ _blocks_matching() {
 _select_block() {
     local sig="$1"
     local -a matches=()
-    mapfile -d '' matches < <(_blocks_matching "$sig")
+    _collect_blocks "$sig" matches
     (( ${#matches[@]} == 1 )) \
         || die "expected exactly one doc block matching '$sig', found ${#matches[@]} — docs/verifying_artifacts.md drifted"
     printf '%s' "${matches[0]}"
