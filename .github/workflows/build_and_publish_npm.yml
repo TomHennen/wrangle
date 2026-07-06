@@ -151,7 +151,7 @@ jobs:
       metadata-pre: ${{ steps.prep.outputs.metadata-pre }}
     steps:
       # TODO: replace with $/actions/prep when GitHub ships $/ syntax (#136)
-      - uses: TomHennen/wrangle/actions/prep@5ff1fefbf7dd08eacc7e1ee3d356dfb3d9ac2321 # priv-immutable-597-407 2026-07-06
+      - uses: TomHennen/wrangle/actions/prep@8d82118f2c899721f7200d42c9ce241904461506 # priv-immutable-597-407 2026-07-06
         id: prep
         with:
           build-type: npm
@@ -171,7 +171,7 @@ jobs:
       security-events: write
     steps:
       # TODO: replace with $/actions/scan when GitHub ships $/ syntax (#136)
-      - uses: TomHennen/wrangle/actions/scan@5ff1fefbf7dd08eacc7e1ee3d356dfb3d9ac2321 # priv-immutable-597-407 2026-07-06
+      - uses: TomHennen/wrangle/actions/scan@8d82118f2c899721f7200d42c9ce241904461506 # priv-immutable-597-407 2026-07-06
         if: ${{ inputs.scan-tools != '' }}
         with:
           checkout: "true"
@@ -205,7 +205,7 @@ jobs:
           ref: ${{ inputs.ref || '' }}
 
       # TODO: replace with $/build/actions/npm when GitHub ships $/ syntax (#136)
-      - uses: TomHennen/wrangle/build/actions/npm@5ff1fefbf7dd08eacc7e1ee3d356dfb3d9ac2321 # priv-immutable-597-407 2026-07-06
+      - uses: TomHennen/wrangle/build/actions/npm@8d82118f2c899721f7200d42c9ce241904461506 # priv-immutable-597-407 2026-07-06
         id: build
         with:
           path: ${{ inputs.path }}
@@ -282,7 +282,7 @@ jobs:
       bundles-artifact-name: ${{ steps.attest.outputs.bundles-artifact-name }}
     steps:
       # TODO: replace with $/actions/attest_provenance when GitHub ships $/ syntax (#136)
-      - uses: TomHennen/wrangle/actions/attest_provenance@5ff1fefbf7dd08eacc7e1ee3d356dfb3d9ac2321 # priv-immutable-597-407 2026-07-06
+      - uses: TomHennen/wrangle/actions/attest_provenance@8d82118f2c899721f7200d42c9ce241904461506 # priv-immutable-597-407 2026-07-06
         id: attest
         with:
           build-type: npm
@@ -304,7 +304,7 @@ jobs:
       attestations: write   # post each VSA to the GitHub attestation store
     steps:
       # TODO: replace with $/actions/verify_release when GitHub ships $/ syntax (#136)
-      - uses: TomHennen/wrangle/actions/verify_release@5ff1fefbf7dd08eacc7e1ee3d356dfb3d9ac2321 # priv-immutable-597-407 2026-07-06
+      - uses: TomHennen/wrangle/actions/verify_release@8d82118f2c899721f7200d42c9ce241904461506 # priv-immutable-597-407 2026-07-06
         with:
           build-type: npm
           shortname: ${{ needs.prep.outputs.shortname }}
@@ -334,7 +334,7 @@ jobs:
       contents: write   # create the release if absent and upload the asset set
     steps:
       # TODO: replace with $/actions/publish_release when GitHub ships $/ syntax (#136)
-      - uses: TomHennen/wrangle/actions/publish_release@5ff1fefbf7dd08eacc7e1ee3d356dfb3d9ac2321 # priv-immutable-597-407 2026-07-06
+      - uses: TomHennen/wrangle/actions/publish_release@8d82118f2c899721f7200d42c9ce241904461506 # priv-immutable-597-407 2026-07-06
         with:
           build-type: npm
           shortname: ${{ needs.prep.outputs.shortname }}
