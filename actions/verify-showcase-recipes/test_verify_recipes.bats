@@ -96,8 +96,7 @@ _stub() {
 @test "a newly-added placeholder in the doc fails the substitution guard" {
     printf '```bash\nampel verify --subject <artifact> --context foo:<brand-new>\n```\n' \
         > "$BATS_TEST_TMPDIR/drift.md"
-    export WRANGLE_RECIPES_DOC="$BATS_TEST_TMPDIR/drift.md"
-    run bash -c '
+    WRANGLE_RECIPES_DOC="$BATS_TEST_TMPDIR/drift.md" run bash -c '
         source "$SCRIPT"
         REPO=o/r; RESOURCE_URI=x; ARTIFACT_NAME=a; IMAGE_NAME=; DIGEST=; BUILD_TYPE=go; NON_STRICT=0
         _substitute "$(_select_block "--subject <artifact>")"
@@ -109,16 +108,14 @@ _stub() {
 @test "a duplicated recipe block fails selection (drift, not silent pick)" {
     printf '```bash\nfoo --collector oci: one\n```\n```bash\nfoo --collector oci: two\n```\n' \
         > "$BATS_TEST_TMPDIR/dup.md"
-    export WRANGLE_RECIPES_DOC="$BATS_TEST_TMPDIR/dup.md"
-    run bash -c 'source "$SCRIPT"; _select_block "--collector oci:"'
+    WRANGLE_RECIPES_DOC="$BATS_TEST_TMPDIR/dup.md" run bash -c 'source "$SCRIPT"; _select_block "--collector oci:"'
     [[ "$status" -eq 2 ]]
     [[ "$output" == *"found 2"* ]]
 }
 
 @test "a missing recipe block fails selection" {
     printf '```bash\nunrelated command\n```\n' > "$BATS_TEST_TMPDIR/missing.md"
-    export WRANGLE_RECIPES_DOC="$BATS_TEST_TMPDIR/missing.md"
-    run bash -c 'source "$SCRIPT"; _select_block "--collector oci:"'
+    WRANGLE_RECIPES_DOC="$BATS_TEST_TMPDIR/missing.md" run bash -c 'source "$SCRIPT"; _select_block "--collector oci:"'
     [[ "$status" -eq 2 ]]
     [[ "$output" == *"found 0"* ]]
 }
