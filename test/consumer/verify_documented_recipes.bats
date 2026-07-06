@@ -56,7 +56,10 @@ require_tools() {
     require_sigstore
     cp "$BLOB" "$TMP/tampered.tgz"
     printf 'tamper' >> "$TMP/tampered.tgz"   # one extra byte -> different sha256
+    # Tamper failure is deterministic, so retrying (and re-hitting Sigstore) is
+    # pointless — fail fast.
     PATH="$(dirname "$AMPEL_BIN"):$(dirname "$COSIGN_BIN"):$PATH" \
+        WRANGLE_RECIPE_RETRIES=1 \
         run "$SCRIPT" --file "$TMP/tampered.tgz" --bundle "$BUNDLE" \
         --resource-uri "$RESOURCE_URI" --repo "$SIGNER_REPO" --type npm
     [[ "$status" -eq 1 ]]
