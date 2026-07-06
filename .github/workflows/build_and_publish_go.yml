@@ -163,7 +163,7 @@ jobs:
       metadata-pre: ${{ steps.prep.outputs.metadata-pre }}
     steps:
       # TODO: replace with $/actions/prep when GitHub ships $/ syntax (#136)
-      - uses: TomHennen/wrangle/actions/prep@296c4b29ecff77ad45023d99c94c46d0659976de # priv-immutable-597-407 2026-07-05
+      - uses: TomHennen/wrangle/actions/prep@5ff1fefbf7dd08eacc7e1ee3d356dfb3d9ac2321 # priv-immutable-597-407 2026-07-06
         id: prep
         with:
           build-type: go
@@ -183,7 +183,7 @@ jobs:
       security-events: write
     steps:
       # TODO: replace with $/actions/scan when GitHub ships $/ syntax (#136)
-      - uses: TomHennen/wrangle/actions/scan@296c4b29ecff77ad45023d99c94c46d0659976de # priv-immutable-597-407 2026-07-05
+      - uses: TomHennen/wrangle/actions/scan@5ff1fefbf7dd08eacc7e1ee3d356dfb3d9ac2321 # priv-immutable-597-407 2026-07-06
         if: ${{ inputs.scan-tools != '' }}
         with:
           checkout: "true"
@@ -215,7 +215,7 @@ jobs:
       # TODO: replace with $/build/actions/go/checks when GitHub ships $/ syntax (#136)
       # Self-pinned to PR HEAD until merge — bump-self-refs follow-up
       # repoints to the squashed merge SHA after this lands.
-      - uses: TomHennen/wrangle/build/actions/go/checks@296c4b29ecff77ad45023d99c94c46d0659976de # priv-immutable-597-407 2026-07-05
+      - uses: TomHennen/wrangle/build/actions/go/checks@5ff1fefbf7dd08eacc7e1ee3d356dfb3d9ac2321 # priv-immutable-597-407 2026-07-06
         id: checks
         with:
           path: ${{ inputs.path }}
@@ -278,7 +278,7 @@ jobs:
 
       # TODO: replace with $/build/actions/go/build when GitHub ships $/ syntax (#136)
       # Self-pinned to PR HEAD until merge.
-      - uses: TomHennen/wrangle/build/actions/go/build@296c4b29ecff77ad45023d99c94c46d0659976de # priv-immutable-597-407 2026-07-05
+      - uses: TomHennen/wrangle/build/actions/go/build@5ff1fefbf7dd08eacc7e1ee3d356dfb3d9ac2321 # priv-immutable-597-407 2026-07-06
         id: release
         with:
           path: ${{ inputs.path }}
@@ -368,7 +368,7 @@ jobs:
       # writes non-artifact bookkeeping into dist/ that is not released. This is
       # the same canonical subject set the VSA binds to.
       # TODO: replace with $/actions/attest_provenance when GitHub ships $/ syntax (#136)
-      - uses: TomHennen/wrangle/actions/attest_provenance@296c4b29ecff77ad45023d99c94c46d0659976de # priv-immutable-597-407 2026-07-05
+      - uses: TomHennen/wrangle/actions/attest_provenance@5ff1fefbf7dd08eacc7e1ee3d356dfb3d9ac2321 # priv-immutable-597-407 2026-07-06
         id: attest
         with:
           build-type: go
@@ -389,7 +389,7 @@ jobs:
       attestations: write   # post each VSA to the GitHub attestation store
     steps:
       # TODO: replace with $/actions/verify_release when GitHub ships $/ syntax (#136)
-      - uses: TomHennen/wrangle/actions/verify_release@296c4b29ecff77ad45023d99c94c46d0659976de # priv-immutable-597-407 2026-07-05
+      - uses: TomHennen/wrangle/actions/verify_release@5ff1fefbf7dd08eacc7e1ee3d356dfb3d9ac2321 # priv-immutable-597-407 2026-07-06
         with:
           build-type: go
           shortname: ${{ needs.prep.outputs.shortname }}
@@ -419,7 +419,7 @@ jobs:
       contents: write   # create the release if absent and upload the asset set
     steps:
       # TODO: replace with $/actions/publish_release when GitHub ships $/ syntax (#136)
-      - uses: TomHennen/wrangle/actions/publish_release@296c4b29ecff77ad45023d99c94c46d0659976de # priv-immutable-597-407 2026-07-05
+      - uses: TomHennen/wrangle/actions/publish_release@5ff1fefbf7dd08eacc7e1ee3d356dfb3d9ac2321 # priv-immutable-597-407 2026-07-06
         with:
           build-type: go
           shortname: ${{ needs.prep.outputs.shortname }}
