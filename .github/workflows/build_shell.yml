@@ -101,7 +101,7 @@ jobs:
     permissions: {}    # guard reads env only — no workspace, no API, no secrets
     steps:
       # TODO: replace with $/actions/prep when GitHub ships $/ syntax (#136)
-      - uses: TomHennen/wrangle/actions/prep@3e14800a41178da5ee591817cffced2078a1be29 # cleanup/image-only-delivery-a 2026-07-05
+      - uses: TomHennen/wrangle/actions/prep@58114e5180fffef5af1af9fa5d458b7efc52cbc1 # main 2026-07-06
 
   # Source scan. A load-bearing (:fail) finding fails the run alongside
   # the shell build/test (there is no artifact to gate publishing of).
@@ -114,7 +114,7 @@ jobs:
       security-events: write
     steps:
       # TODO: replace with $/actions/scan when GitHub ships $/ syntax (#136)
-      - uses: TomHennen/wrangle/actions/scan@3e14800a41178da5ee591817cffced2078a1be29 # cleanup/image-only-delivery-a 2026-07-05
+      - uses: TomHennen/wrangle/actions/scan@58114e5180fffef5af1af9fa5d458b7efc52cbc1 # main 2026-07-06
         if: ${{ inputs.scan-tools != '' }}
         with:
           checkout: "true"
@@ -190,7 +190,7 @@ jobs:
         # bats-jobs input — the main-pinned version would ignore it and run
         # bats serially, so the dogfood run wouldn't exercise the fan-out.
         # Bump to main post-merge via tools/bump_action_pins.sh.
-        uses: TomHennen/wrangle/build/actions/shell@3e14800a41178da5ee591817cffced2078a1be29 # cleanup/image-only-delivery-a 2026-07-05
+        uses: TomHennen/wrangle/build/actions/shell@58114e5180fffef5af1af9fa5d458b7efc52cbc1 # main 2026-07-06
         with:
           scan-path: ${{ inputs.scan-path }}
           bats-path: ${{ inputs.bats-path }}

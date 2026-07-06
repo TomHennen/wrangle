@@ -18,8 +18,8 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 # shellcheck source=lib/env.sh
 source "$SCRIPT_DIR/lib/env.sh"
 
-# Catalog reader: resolves a tool's curated entry (delivery, image, network,
-# secret) from tools/catalog.json.
+# Catalog reader: resolves a tool's curated entry (image, network, secret) from
+# tools/catalog.json.
 # shellcheck source=lib/read_catalog.sh
 source "$SCRIPT_DIR/lib/read_catalog.sh"
 
@@ -98,10 +98,10 @@ if [[ $# -eq 0 ]]; then
 fi
 
 # Parse tool specs: strip :policy suffixes, collect the tools run by run.sh.
-# run.sh dispatches only catalog image-delivery tools (via docker run). An
-# action-pattern tool (has an action.yml) is invoked via its uses: step, so it
-# is skipped here even when an adapter.sh is present only as its image
-# entrypoint. Any other selected tool has no way to run and is rejected.
+# run.sh dispatches only catalog image tools (via docker run). An action-pattern
+# tool (has an action.yml) is invoked via its uses: step, so it is skipped here
+# even when an adapter.sh is present only as its image entrypoint. Any other
+# selected tool has no way to run and is rejected.
 declare -a run_tools=()
 for spec in "$@"; do
     tool="${spec%%:*}"
@@ -113,9 +113,9 @@ for spec in "$@"; do
     if [[ -d "${TOOLS_DIR}/${tool}" ]] && [[ -f "${TOOLS_DIR}/${tool}/action.yml" ]]; then
         continue
     fi
-    # Image delivery is the only path run.sh dispatches; a tool must carry a
-    # catalog delivery: image entry, else it is unknown/unrunnable.
-    if [[ "$(read_catalog_field "$CATALOG" "$tool" delivery)" != image ]]; then
+    # A curated image is the only path run.sh dispatches; a tool must name a
+    # catalog image entry, else it is unknown/unrunnable.
+    if [[ -z "$(read_catalog_field "$CATALOG" "$tool" image)" ]]; then
         printf 'wrangle: unknown tool: %s (no catalog image entry in %s)\n' "$tool" "$CATALOG" >&2
         exit 2
     fi
@@ -207,8 +207,8 @@ run_one_tool() {
     local image
     image="$(read_catalog_field "$CATALOG" "$tool" image)"
     if [[ -z "$image" ]]; then
-        printf 'wrangle: %s: catalog declares delivery: image but no image\n' "$tool" >&2
-        fail_tool_config "$tool" "$tool_output_dir" "catalog declares delivery: image but no image"
+        printf 'wrangle: %s: catalog entry names no image\n' "$tool" >&2
+        fail_tool_config "$tool" "$tool_output_dir" "catalog entry names no image"
         return
     fi
     # Require an @sha256 digest pin (a tag alone is mutable); re-checked here

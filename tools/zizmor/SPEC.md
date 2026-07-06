@@ -2,7 +2,7 @@
 
 | Property | Value |
 |----------|-------|
-| Pattern | Adapter, delivered as a contract image (catalog `delivery: image`); `adapter.sh` is the image ENTRYPOINT and `run.sh` invokes it via `docker run` |
+| Pattern | Adapter, delivered as a contract image (catalog `image` entry); `adapter.sh` is the image ENTRYPOINT and `run.sh` invokes it via `docker run` |
 | Integrity verification | zizmor installed into the image from the hash-pinned `tools/zizmor/requirements.txt` (`pip --require-hashes`, the canonical PyPI distribution — keeps the dependency manifest in-repo for Dependabot/osv) |
 | SARIF output | `adapter.sh` runs `zizmor --format sarif` and writes `$WRANGLE_METADATA_DIR/zizmor/output.sarif` |
 | Human-readable output | `output.md` generated from SARIF via `lib/sarif_to_md.sh` for step summary details |
@@ -16,7 +16,7 @@
 
 Zizmor has two install paths, both driven by the hash-pinned `tools/zizmor/requirements.txt` and kept fresh by Dependabot (pip ecosystem; see `.github/dependabot.yml`):
 
-1. **CI / adopters** — the `tools/zizmor/Dockerfile` installs zizmor via `pip --require-hashes` into the tool image; `run.sh` runs that image (catalog `delivery: image`).
+1. **CI / adopters** — the `tools/zizmor/Dockerfile` installs zizmor via `pip --require-hashes` into the tool image; `run.sh` runs that image (catalog `image` entry).
 2. **Local test container** — `test/Dockerfile` installs zizmor the same way into a managed venv. `make zizmor` (and the default `./test.sh`) runs this copy against the wrangle repo so workflow security findings surface in the same `make test` loop as shellcheck and actionlint.
 
 Pip refuses any artifact whose sha256 isn't in `requirements.txt`, so version and hashes always move together.

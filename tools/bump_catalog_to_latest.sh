@@ -5,7 +5,7 @@ set -f  # disable globbing — handles external tool names
 # tools/bump_catalog_to_latest.sh — repoint every curated first-party catalog
 # entry to its current registry `:latest` digest. The batch driver behind the
 # post-publish auto-bump (docs/tool_container_design.md §11): it resolves
-# `:latest` for each ghcr.io/tomhennen/wrangle/* `delivery: image` entry and
+# `:latest` for each ghcr.io/tomhennen/wrangle/* image entry and
 # applies bump_catalog_digest.sh to any that drifted. Adopter-override entries
 # (a foreign namespace) are skipped — wrangle owns only its own images.
 #
@@ -55,7 +55,7 @@ bump_catalog_to_latest() {
         fi
         bumped=$((bumped + 1))
     done < <(jq -r '.tools // {} | to_entries[]
-        | select(.value.delivery == "image")
+        | select(.value.image != null)
         | [.key, .value.image] | @tsv' "$file")
 
     printf 'bump_catalog_to_latest: bumped %d of %d curated image digest(s)\n' "$bumped" "$checked"

@@ -142,7 +142,7 @@ jobs:
       metadata-pre: ${{ steps.prep.outputs.metadata-pre }}
     steps:
       # TODO: replace with $/actions/prep when GitHub ships $/ syntax (#136)
-      - uses: TomHennen/wrangle/actions/prep@3e14800a41178da5ee591817cffced2078a1be29 # cleanup/image-only-delivery-a 2026-07-05
+      - uses: TomHennen/wrangle/actions/prep@58114e5180fffef5af1af9fa5d458b7efc52cbc1 # main 2026-07-06
         id: prep
         with:
           build-type: npm
@@ -161,7 +161,7 @@ jobs:
       security-events: write
     steps:
       # TODO: replace with $/actions/scan when GitHub ships $/ syntax (#136)
-      - uses: TomHennen/wrangle/actions/scan@3e14800a41178da5ee591817cffced2078a1be29 # cleanup/image-only-delivery-a 2026-07-05
+      - uses: TomHennen/wrangle/actions/scan@58114e5180fffef5af1af9fa5d458b7efc52cbc1 # main 2026-07-06
         if: ${{ inputs.scan-tools != '' }}
         with:
           checkout: "true"
@@ -195,7 +195,7 @@ jobs:
           ref: ${{ inputs.ref || '' }}
 
       # TODO: replace with $/build/actions/npm when GitHub ships $/ syntax (#136)
-      - uses: TomHennen/wrangle/build/actions/npm@3e14800a41178da5ee591817cffced2078a1be29 # cleanup/image-only-delivery-a 2026-07-05
+      - uses: TomHennen/wrangle/build/actions/npm@58114e5180fffef5af1af9fa5d458b7efc52cbc1 # main 2026-07-06
         id: build
         with:
           path: ${{ inputs.path }}
@@ -274,7 +274,7 @@ jobs:
       bundles-artifact-name: ${{ steps.attest.outputs.bundles-artifact-name }}
     steps:
       # TODO: replace with $/actions/attest_provenance when GitHub ships $/ syntax (#136)
-      - uses: TomHennen/wrangle/actions/attest_provenance@3e14800a41178da5ee591817cffced2078a1be29 # cleanup/image-only-delivery-a 2026-07-05
+      - uses: TomHennen/wrangle/actions/attest_provenance@58114e5180fffef5af1af9fa5d458b7efc52cbc1 # main 2026-07-06
         id: attest
         with:
           build-type: npm
@@ -297,7 +297,7 @@ jobs:
       contents: write       # create the release if absent and attach the bundle on tag pushes
     steps:
       # TODO: replace with $/actions/verify_release when GitHub ships $/ syntax (#136)
-      - uses: TomHennen/wrangle/actions/verify_release@3e14800a41178da5ee591817cffced2078a1be29 # cleanup/image-only-delivery-a 2026-07-05
+      - uses: TomHennen/wrangle/actions/verify_release@58114e5180fffef5af1af9fa5d458b7efc52cbc1 # main 2026-07-06
         with:
           build-type: npm
           shortname: ${{ needs.prep.outputs.shortname }}

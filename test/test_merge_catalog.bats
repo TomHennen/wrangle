@@ -16,8 +16,8 @@ setup() {
     CUSTOM="$TEST_DIR/custom.json"
     cat > "$CURATED" <<JSON
 {"tools":{
-  "osv":{"kind":"scan","delivery":"image","image":"ghcr.io/tomhennen/wrangle/osv@$DIGEST","network":"egress","secret":"github-token"},
-  "sbom":{"kind":"sbom","delivery":"image","image":"ghcr.io/tomhennen/wrangle/syft@$DIGEST","network":"none"}
+  "osv":{"kind":"scan","image":"ghcr.io/tomhennen/wrangle/osv@$DIGEST","network":"egress","secret":"github-token"},
+  "sbom":{"kind":"sbom","image":"ghcr.io/tomhennen/wrangle/syft@$DIGEST","network":"none"}
 }}
 JSON
 }
@@ -30,7 +30,7 @@ _merge() { run "$MERGE" "$CURATED" "$CUSTOM"; }
 
 @test "merge: a net-new custom tool is unioned in; curated tools survive" {
     cat > "$CUSTOM" <<JSON
-{"tools":{"my-sbom":{"kind":"sbom","delivery":"image","image":"ghcr.io/myorg/my-sbom@$DIGEST"}}}
+{"tools":{"my-sbom":{"kind":"sbom","image":"ghcr.io/myorg/my-sbom@$DIGEST"}}}
 JSON
     _merge
     [ "$status" -eq 0 ]
@@ -41,7 +41,7 @@ JSON
 
 @test "merge: a name colliding with a curated tool is REJECTED (add-only, no override)" {
     cat > "$CUSTOM" <<JSON
-{"tools":{"osv":{"kind":"scan","delivery":"image","image":"ghcr.io/myorg/osv@$DIGEST2"}}}
+{"tools":{"osv":{"kind":"scan","image":"ghcr.io/myorg/osv@$DIGEST2"}}}
 JSON
     _merge
     [ "$status" -ne 0 ]
@@ -51,7 +51,7 @@ JSON
 
 @test "merge: an added tool gets exactly the grants it declares (no curated inheritance)" {
     cat > "$CUSTOM" <<JSON
-{"tools":{"my-scan":{"kind":"scan","delivery":"image","image":"ghcr.io/myorg/s@$DIGEST","network":"egress","secret":"my-token"}}}
+{"tools":{"my-scan":{"kind":"scan","image":"ghcr.io/myorg/s@$DIGEST","network":"egress","secret":"my-token"}}}
 JSON
     _merge
     [ "$status" -eq 0 ]
@@ -63,7 +63,7 @@ JSON
 
 @test "merge: an added tool with no network/secret declares neither" {
     cat > "$CUSTOM" <<JSON
-{"tools":{"my-sbom":{"kind":"sbom","delivery":"image","image":"ghcr.io/myorg/my-sbom@$DIGEST"}}}
+{"tools":{"my-sbom":{"kind":"sbom","image":"ghcr.io/myorg/my-sbom@$DIGEST"}}}
 JSON
     _merge
     [ "$status" -eq 0 ]
@@ -73,7 +73,7 @@ JSON
 
 @test "merge: rejects an invalid tool name" {
     cat > "$CUSTOM" <<JSON
-{"tools":{"BadName":{"kind":"sbom","delivery":"image","image":"ghcr.io/x@$DIGEST"}}}
+{"tools":{"BadName":{"kind":"sbom","image":"ghcr.io/x@$DIGEST"}}}
 JSON
     _merge
     [ "$status" -ne 0 ]
@@ -82,7 +82,7 @@ JSON
 
 @test "merge: rejects an out-of-allowlist kind" {
     cat > "$CUSTOM" <<JSON
-{"tools":{"my-sbom":{"kind":"exfiltrate","delivery":"image","image":"ghcr.io/x@$DIGEST"}}}
+{"tools":{"my-sbom":{"kind":"exfiltrate","image":"ghcr.io/x@$DIGEST"}}}
 JSON
     _merge
     [ "$status" -ne 0 ]
@@ -91,7 +91,7 @@ JSON
 
 @test "merge: rejects an out-of-allowlist network" {
     cat > "$CUSTOM" <<JSON
-{"tools":{"my-sbom":{"kind":"sbom","delivery":"image","image":"ghcr.io/x@$DIGEST","network":"host"}}}
+{"tools":{"my-sbom":{"kind":"sbom","image":"ghcr.io/x@$DIGEST","network":"host"}}}
 JSON
     _merge
     [ "$status" -ne 0 ]
@@ -100,7 +100,7 @@ JSON
 
 @test "merge: rejects an invalid secret name" {
     cat > "$CUSTOM" <<JSON
-{"tools":{"my-sbom":{"kind":"sbom","delivery":"image","image":"ghcr.io/x@$DIGEST","secret":"BAD_NAME"}}}
+{"tools":{"my-sbom":{"kind":"sbom","image":"ghcr.io/x@$DIGEST","secret":"BAD_NAME"}}}
 JSON
     _merge
     [ "$status" -ne 0 ]
@@ -109,7 +109,7 @@ JSON
 
 @test "merge: rejects a non-digest-pinned image" {
     cat > "$CUSTOM" <<JSON
-{"tools":{"my-sbom":{"kind":"sbom","delivery":"image","image":"ghcr.io/x:latest"}}}
+{"tools":{"my-sbom":{"kind":"sbom","image":"ghcr.io/x:latest"}}}
 JSON
     _merge
     [ "$status" -ne 0 ]
@@ -118,25 +118,16 @@ JSON
 
 @test "merge: rejects a tool with no image" {
     cat > "$CUSTOM" <<JSON
-{"tools":{"my-sbom":{"kind":"sbom","delivery":"image"}}}
+{"tools":{"my-sbom":{"kind":"sbom"}}}
 JSON
     _merge
     [ "$status" -ne 0 ]
-    [[ "$output" == *"must declare a digest-pinned image"* ]]
-}
-
-@test "merge: rejects a tool that is not delivery: image" {
-    cat > "$CUSTOM" <<JSON
-{"tools":{"my-sbom":{"kind":"sbom","image":"ghcr.io/x@$DIGEST"}}}
-JSON
-    _merge
-    [ "$status" -ne 0 ]
-    [[ "$output" == *"must declare delivery: image"* ]]
+    [[ "$output" == *"must name a digest-pinned image"* ]]
 }
 
 @test "merge: rejects a custom tool carrying a token grant (curated toolbox only)" {
     cat > "$CUSTOM" <<JSON
-{"tools":{"my-attest":{"kind":"attest","delivery":"image","image":"ghcr.io/myorg/my-attest@$DIGEST","token":"sigstore"}}}
+{"tools":{"my-attest":{"kind":"attest","image":"ghcr.io/myorg/my-attest@$DIGEST","token":"sigstore"}}}
 JSON
     _merge
     [ "$status" -ne 0 ]
@@ -145,7 +136,7 @@ JSON
 
 @test "merge: an off-namespace custom image is allowed (adopter-trusted)" {
     cat > "$CUSTOM" <<JSON
-{"tools":{"my-sbom":{"kind":"sbom","delivery":"image","image":"ghcr.io/myorg/my-sbom@$DIGEST"}}}
+{"tools":{"my-sbom":{"kind":"sbom","image":"ghcr.io/myorg/my-sbom@$DIGEST"}}}
 JSON
     _merge
     [ "$status" -eq 0 ]
@@ -154,7 +145,7 @@ JSON
 
 @test "merge: rejects a custom image in the wrangle namespace (no borrowing a VSA identity)" {
     cat > "$CUSTOM" <<JSON
-{"tools":{"my-osv":{"kind":"scan","delivery":"image","image":"ghcr.io/tomhennen/wrangle/osv@$DIGEST"}}}
+{"tools":{"my-osv":{"kind":"scan","image":"ghcr.io/tomhennen/wrangle/osv@$DIGEST"}}}
 JSON
     _merge
     [ "$status" -ne 0 ]
@@ -163,7 +154,7 @@ JSON
 
 @test "merge: rejects a wrangle-namespace image via the registry-port form" {
     cat > "$CUSTOM" <<JSON
-{"tools":{"my-osv":{"kind":"scan","delivery":"image","image":"ghcr.io:443/tomhennen/wrangle/osv@$DIGEST"}}}
+{"tools":{"my-osv":{"kind":"scan","image":"ghcr.io:443/tomhennen/wrangle/osv@$DIGEST"}}}
 JSON
     _merge
     [ "$status" -ne 0 ]
@@ -178,9 +169,9 @@ JSON
 }
 
 @test "merge: preserves curated top-level siblings such as _comment" {
-    printf '{"_comment":"keep me","tools":{"osv":{"kind":"scan","delivery":"image","image":"ghcr.io/tomhennen/wrangle/osv@%s"}}}' "$DIGEST" > "$CURATED"
+    printf '{"_comment":"keep me","tools":{"osv":{"kind":"scan","image":"ghcr.io/tomhennen/wrangle/osv@%s"}}}' "$DIGEST" > "$CURATED"
     cat > "$CUSTOM" <<JSON
-{"tools":{"my-sbom":{"kind":"sbom","delivery":"image","image":"ghcr.io/myorg/my-sbom@$DIGEST"}}}
+{"tools":{"my-sbom":{"kind":"sbom","image":"ghcr.io/myorg/my-sbom@$DIGEST"}}}
 JSON
     _merge
     [ "$status" -eq 0 ]
@@ -203,7 +194,7 @@ JSON
 
 @test "merge: tolerates a missing curated catalog (adopter-only tools)" {
     cat > "$CUSTOM" <<JSON
-{"tools":{"my-sbom":{"kind":"sbom","delivery":"image","image":"ghcr.io/myorg/my-sbom@$DIGEST"}}}
+{"tools":{"my-sbom":{"kind":"sbom","image":"ghcr.io/myorg/my-sbom@$DIGEST"}}}
 JSON
     run "$MERGE" "$TEST_DIR/does-not-exist.json" "$CUSTOM"
     [ "$status" -eq 0 ]

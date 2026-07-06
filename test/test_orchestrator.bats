@@ -25,7 +25,7 @@ teardown() {
     rm -rf "$TEST_DIR"
 }
 
-# _image_tool <tool> [kind] — declare <tool> as a delivery: image tool in the
+# _image_tool <tool> [kind] — declare <tool> as a curated image tool in the
 # mock catalog, digest-pinned on the curated namespace.
 _image_tool() {
     local tool="$1" kind="${2:-scan}" cat="$MOCK_TOOLS/catalog.json" tmp digest
@@ -33,7 +33,7 @@ _image_tool() {
     [[ -f "$cat" ]] || printf '{"tools":{}}' > "$cat"
     tmp="$(mktemp)"
     jq --arg t "$tool" --arg k "$kind" --arg img "ghcr.io/tomhennen/wrangle/$tool@$digest" \
-        '.tools[$t] = {kind:$k, delivery:"image", image:$img}' "$cat" > "$tmp"
+        '.tools[$t] = {kind:$k, image:$img}' "$cat" > "$tmp"
     mv "$tmp" "$cat"
 }
 
@@ -121,9 +121,9 @@ run_orchestrator() {
 
 # --- Digest-pin enforcement (regex runs before any docker) ---
 
-@test "orchestrator: image delivery rejects a tag-only (non-digest-pinned) image" {
+@test "orchestrator: image dispatch rejects a tag-only (non-digest-pinned) image" {
     cat > "$MOCK_TOOLS/catalog.json" <<JSON
-{"tools":{"imgtool":{"kind":"scan","delivery":"image","image":"registry.internal:5000/osv:latest"}}}
+{"tools":{"imgtool":{"kind":"scan","image":"registry.internal:5000/osv:latest"}}}
 JSON
     run_orchestrator -s "$TEST_DIR/src" -o "$TEST_DIR/output" "imgtool"
     [ "$status" -eq 2 ]
@@ -133,7 +133,7 @@ JSON
     [ -f "$TEST_DIR/output/imgtool/error" ]
 }
 
-@test "orchestrator: a delivery: image tool with no directory is admitted (not unknown)" {
+@test "orchestrator: a curated image tool with no directory is admitted (not unknown)" {
     _image_tool byotool sbom
     run_orchestrator -s "$TEST_DIR/src" -o "$TEST_DIR/output" "byotool"
     [[ "$output" != *"unknown tool"* ]]
@@ -169,7 +169,7 @@ _write_custom_tools() {
 }
 
 @test "orchestrator: auto-discovers .wrangle/tools.json and admits a selected new tool" {
-    _write_custom_tools "{\"tools\":{\"byotool\":{\"kind\":\"sbom\",\"delivery\":\"image\",\"image\":\"registry.internal:5000/byo@$_byo_digest\"}}}"
+    _write_custom_tools "{\"tools\":{\"byotool\":{\"kind\":\"sbom\",\"image\":\"registry.internal:5000/byo@$_byo_digest\"}}}"
     GITHUB_WORKSPACE="$TEST_DIR/ws" \
         run_orchestrator -s "$TEST_DIR/src" -o "$TEST_DIR/output" "byotool"
     [[ "$output" != *"unknown tool"* ]]
@@ -196,7 +196,7 @@ _write_custom_tools() {
 }
 
 @test "orchestrator: an invalid .wrangle/tools.json entry aborts the run" {
-    _write_custom_tools '{"tools":{"byotool":{"kind":"sbom","delivery":"image","image":"ghcr.io/x:latest"}}}'
+    _write_custom_tools '{"tools":{"byotool":{"kind":"sbom","image":"ghcr.io/x:latest"}}}'
     GITHUB_WORKSPACE="$TEST_DIR/ws" \
         run_orchestrator -s "$TEST_DIR/src" -o "$TEST_DIR/output" "byotool"
     [ "$status" -eq 2 ]
@@ -208,7 +208,7 @@ _write_custom_tools() {
     # selection does not name stays defined-but-never-run (the property that makes
     # auto-discovery safe under pull_request_target).
     _image_tool osv
-    _write_custom_tools "{\"tools\":{\"injected\":{\"kind\":\"sbom\",\"delivery\":\"image\",\"image\":\"registry.internal:5000/evil@$_byo_digest\"}}}"
+    _write_custom_tools "{\"tools\":{\"injected\":{\"kind\":\"sbom\",\"image\":\"registry.internal:5000/evil@$_byo_digest\"}}}"
     GITHUB_WORKSPACE="$TEST_DIR/ws" \
         run_orchestrator -s "$TEST_DIR/src" -o "$TEST_DIR/output" "osv"
     [[ "$output" != *"injected"* ]]
