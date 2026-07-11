@@ -285,14 +285,14 @@ Two conditions narrow every Build L3 claim:
 ┌──────────────────▼───────────────────────────────┐
 │  Wrangle Composite Action                        │
 │  actions/scan/action.yml                         │
-│  (runs tools via run.sh, uploads results)        │
+│  (installs tools, runs adapters, uploads results)│
 └──────────────────┬───────────────────────────────┘
                    │ calls
 ┌──────────────────▼───────────────────────────────┐
 │  Orchestrator + Tools                            │
-│  run.sh → docker run <tool image>                │
-│           (adapter.sh = image entrypoint)        │
-│  (run tool images, normalize output)             │
+│  run.sh → go install tool (tools/go.mod)         │
+│         → tools/<name>/adapter.sh                │
+│  (download binaries, run tools, normalize output)│
 └──────────────────────────────────────────────────┘
 ```
 
@@ -325,7 +325,7 @@ wrangle/
 │   └── actions/
 │       └── container/
 │           └── action.yml  # Container build/publish action
-├── run.sh                  # Orchestrator (dispatches tool images)
+├── run.sh                  # Orchestrator (installs + runs tools)
 ├── gh_workflow_examples/   # Copy-paste templates for adopters
 ├── test/                   # Integration tests, fixtures, schemas
 └── docs/
@@ -388,29 +388,36 @@ EXIT CODES (uniform across kinds):
   An sbom tool has no findings state, so it simply never returns 1.
 
 PRECONDITIONS:
-  Tool binary is on $PATH inside the tool image
+  Tool binary is on $PATH (handled by install script)
   jq is available
 
 ENVIRONMENT:
-  A tool image inherits nothing from the runner; the orchestrator passes only
-  these variables explicitly, via `docker run -e`:
+  The orchestrator sets these WRANGLE_* variables for every tool image:
     WRANGLE_KIND         the tool's kind (input/stage; see TOOL KIND above)
     WRANGLE_SOURCE_NAME  basename of the scanned source dir (the /src mount
                          hides its real path)
-    <VAR>                one catalog-declared secret: a tool whose entry names
-                         `secret: foo-bar` receives the runner's
-                         WRANGLE_EXTRA_FOO_BAR as FOO_BAR (uppercased, prefix
-                         stripped, forwarded by name). An undeclared
-                         WRANGLE_EXTRA_* is not forwarded.
-  Sensitive host variables (GITHUB_TOKEN, ACTIONS_RUNTIME_TOKEN, etc.) reach a
-  tool only when routed through that declared secret (e.g. zizmor's online audit
-  takes `secret: github-token`).
+    WRANGLE_EXTRA_<VAR>  the runner's WRANGLE_EXTRA_<VAR> reaches the tool as
+                         <VAR>, prefix stripped (see the WRANGLE_EXTRA_ rule below)
+
+  Adapters run with a restricted environment. Only the following variables
+  are passed through from the runner:
+    PATH, HOME, TMPDIR, RUNNER_TEMP, GITHUB_WORKSPACE, GITHUB_STEP_SUMMARY
+  Sensitive variables (GITHUB_TOKEN, ACTIONS_RUNTIME_TOKEN, etc.) are NOT
+  available to adapters by default. If a tool requires an additional
+  environment variable (e.g., a private vulnerability DB token), it can
+  be passed through by setting it in the composite action's `env:` block
+  with a `WRANGLE_EXTRA_` prefix. The orchestrator forwards any variable
+  matching `WRANGLE_EXTRA_*` to adapters with the prefix stripped.
+  Example: `WRANGLE_EXTRA_OSV_DB_TOKEN=xxx` becomes `OSV_DB_TOKEN=xxx`
+  in the adapter environment. This keeps the allowlist explicit without
+  requiring adapter forks for authenticated tools.
 
 SECURITY:
-  - The image cannot write outside its output: /src is mounted read-only and
-    only /output is writable — a fail-closed sandbox.
-  - A tool makes no network requests unless its catalog entry declares
-    `network: egress`; the default is `--network none`.
+  - Adapter scripts MUST NOT write files outside of output_dir.
+    The orchestrator performs a post-execution filesystem check to detect
+    unexpected modifications outside output_dir and flags violations.
+  - Adapter scripts MUST NOT make network requests beyond what the tool
+    requires for its scan (e.g., fetching vulnerability databases)
   - All output written to GITHUB_STEP_SUMMARY MUST be sanitized to
     prevent markdown/HTML injection
   - jq exit codes MUST be checked; malformed SARIF must not silently pass
@@ -425,9 +432,9 @@ is already present.
 
 ### Install Script Interface
 
-Adapter tools' binaries are built into each tool's image at image-build time. A Go tool comes from a `tool` directive in `tools/go.mod` (go.sum integrity, Dependabot freshness — DEP_MGMT branch 1); a tool that no package manager ships instead carries a bespoke `tools/<name>/install.sh` that downloads and verifies a binary per the integrity tiers below.
+Adapter tools are Go tools by default: a `tool` directive in `tools/go.mod`, which the orchestrator installs in one upfront `go install tool` (go.sum integrity, Dependabot freshness — DEP_MGMT branch 1). A tool that no package manager ships may instead carry a bespoke `tools/<name>/install.sh` (the escape hatch), downloading and verifying a binary per the integrity tiers below.
 
-Install scripts run at image-build time (a Dockerfile `RUN` step), not by the orchestrator or by users directly.
+Install scripts are called by the orchestrator (`run.sh`), not by users directly.
 
 **Contract:**
 
@@ -555,7 +562,7 @@ IDEMPOTENCY:
 
 ### Orchestrator Interface
 
-`run.sh` (at the repo root) runs multiple tools, each as its pinned image.
+`run.sh` (at the repo root) installs and runs multiple adapters.
 
 **Contract:**
 
@@ -569,16 +576,18 @@ OPTIONS:
 ARGUMENTS:
   tool1, tool2   Tool specs to run (e.g., osv, zizmor, scorecard:info).
                  Optional :fail/:info suffix is stripped before processing.
-                 Action-pattern tools (an action.yml) are silently skipped —
-                 they run via their own uses: step; a selected tool with no
-                 action.yml and no catalog image entry is rejected (exit 2).
+                 Action-pattern tools (an action.yml, or no adapter.sh and
+                 no catalog image entry) are silently skipped.
 
 BEHAVIOR:
   For each tool:
     1. Strip :policy suffix if present (run.sh does not use the policy —
        that is handled by lib/check_results.sh in the scan action)
     2. Validate tool name matches ^[a-z][a-z0-9_-]*$ (reject otherwise)
-    3. Skip if tools/<tool>/action.yml exists (action-pattern — handled by
+    3. Verify tools/<tool>/ directory exists, OR the catalog gives the tool a
+       `delivery: image` entry (a catalog-only image tool needs no local
+       directory); reject otherwise as an unknown tool
+    4. Skip if tools/<tool>/action.yml exists (action-pattern — handled by
        uses: steps in the scan action; any adapter.sh present is only the
        tool image's entrypoint)
     4. Resolve the tool's tools/catalog.json entry: an entry naming an `image`
@@ -596,14 +605,15 @@ BEHAVIOR:
        predicate https://spdx.dev/Document
 
   After all tools:
-    8. Print summary table to stdout
+    9. Print summary table to stdout
 
 TIMEOUTS:
-  Each tool image run is wrapped in `timeout(1)` to prevent a hung tool
+  Each adapter invocation is wrapped in `timeout(1)` to prevent a hung tool
   from consuming the entire GitHub Actions job timeout (default 6 hours).
 
-  Default: 10 minutes per tool (WRANGLE_ADAPTER_TIMEOUT, sufficient for
-  scanning large repos).
+  Default timeouts:
+    - Install scripts: 5 minutes (sufficient for binary download + verify)
+    - Adapter scripts: 10 minutes (sufficient for scanning large repos)
 
   A timeout expiration is treated as exit code 2 (tool failure). The
   orchestrator logs the timeout and continues to the next tool.
@@ -623,11 +633,11 @@ INPUT VALIDATION:
   throughout the orchestrator and adapter scripts.
 
 ENVIRONMENT ISOLATION:
-  A tool image inherits no runner environment; the orchestrator passes only the
-  variables in the adapter API ENVIRONMENT section explicitly, via `docker run -e`.
+  The orchestrator clears sensitive environment variables before invoking
+  adapters. See the adapter API ENVIRONMENT section for the allowlist.
 
 NOTES:
-  The orchestrator resolves its helper scripts and the catalog relative to its
+  The orchestrator resolves adapter and install script paths relative to its
   own location (using $0 / BASH_SOURCE), not the caller's working directory.
   This is critical for portability when called via github.action_path.
 ```
@@ -787,12 +797,12 @@ This is the entire file an adopter needs. No secrets, no configuration, no depen
 
 Every tool lives in `tools/<name>/` regardless of which pattern it uses. There are two patterns:
 
-**Adapter pattern** — for tools that run as a wrangle-published image (e.g., OSV-Scanner). The tool's `adapter.sh` is the image entrypoint; the orchestrator (`run.sh`) dispatches the image via `docker run`:
+**Adapter pattern** — for tools distributed as standalone binaries (e.g., OSV-Scanner). The orchestrator (`run.sh`) handles installation and execution:
 
 ```
 tools/<name>/
-├── install.sh    # Downloads + verifies the tool binary at image-build time (tools no package manager ships)
-├── adapter.sh    # Image entrypoint: runs the tool, produces SARIF
+├── install.sh    # Downloads + verifies the tool binary
+├── adapter.sh    # Runs the tool, produces SARIF
 └── test.bats     # Tests for both scripts
 ```
 
@@ -833,11 +843,11 @@ The install scripts include OS/arch detection (`linux/darwin`, `amd64/arm64`) as
 
 ### Adding a New Tool
 
-**Adapter pattern** (runs as a wrangle-published image):
+**Adapter pattern** (standalone binary):
 
 1. Create `tools/foo/` directory with:
-   - `adapter.sh` — the image entrypoint; follows the adapter contract above
-   - `install.sh` — uses `lib/download_verify.sh` for download and verification when no package manager ships the tool (run at image-build time)
+   - `install.sh` — uses `lib/download_verify.sh` for download and verification
+   - `adapter.sh` — follows the adapter contract above
    - `test.bats` — tests using mock binaries (fast, deterministic)
 2. Build and publish the tool's image and add its digest-pinned image entry to `tools/catalog.json` (see [Tool containerization](tool_container_design.md))
 3. Add `foo` to the orchestrator's default tool list in `actions/scan/action.yml`
@@ -882,7 +892,7 @@ Structure after a scan:
 
 The optional `error` file is the tool-error marker for action-pattern tools — see "Tool-error marker contract" under [Two Tool Patterns](#two-tool-patterns).
 
-The `.wrangle/` directory is in `.gitignore` to prevent accidental commits.
+The `.wrangle/` directory is in `.gitignore` to prevent accidental commits. The orchestrator's filesystem check (`run.sh`) excludes the metadata directory from its pre/post snapshots.
 
 **Future use:** The metadata directory is designed to become the source for signed attestations: "this commit was scanned by tools X, Y, Z with these results."
 
@@ -890,7 +900,7 @@ The `.wrangle/` directory is in `.gitignore` to prevent accidental commits.
 
 ## Design Decisions
 
-### Tool delivery: container images per tool
+### Binary downloads as the default, container images per-tool
 
 Each adapter-pattern tool runs as a **digest-pinned OCI image** resolved through the catalog (a digest-pinned `image:` entry); the orchestrator dispatches it via `docker run` under the adapter contract sandbox — the container is the unit of both distribution and isolation. Tools with a well-maintained official GitHub Action stay action-pattern (wrapped via `uses:`) instead. Rationale and the packaging model are in [docs/tool_container_design.md](tool_container_design.md).
 
@@ -969,7 +979,11 @@ Wrangle's reusable workflows have two kinds of checks that sit at workflow start
 
 The `_guard` / `_gate` suffix is the name's contract: `_guard` = abort on fail, `_gate` = signal and let downstream branch.
 
-**Adding refusal categories:** add the check to `actions/prep/preflight_guard.sh`, add a matching row to the "refuses" list above, and add a structural assertion to `actions/prep/test_preflight_guard.bats`.
+**Attestation preflight — a non-trigger refusal:** [`actions/prep/preflight_attestation.sh`](../actions/prep/preflight_attestation.sh) is a third refusal shape, gated on the build inputs rather than the trigger. On a release run (`should-release == true`) with `attest-and-verify: enabled`, prep refuses (`exit 1`) unless `github.event.repository.visibility == public` — on a private personal repo GitHub's attestation store is unavailable (attestation would fail), and on a private org repo it signs to the public Sigstore transparency log, leaking the repo's identity and build timing. Visibility is read from the event context only (prep holds no token and makes no API call); an empty visibility (no repository object on the event) and `internal` are both treated as non-public. `attest-and-verify: disabled` skips this wall and takes the unattested publish path instead. prep emits `should-attest` (`should-release && attest-and-verify != disabled`, written only past the visibility wall so it is structurally fail-closed); the go/python/npm `attest` and `verify` jobs gate on it, and a single least-privileged `publish` job (`contents: write` only) does the release upload in both modes, gated so an attested run publishes only when `verify` succeeded. Container has no `publish` job — its image is pushed mid-build and is the released artifact.
+
+**Publish flow (immutable-release safe):** the `publish` job's [`actions/publish_release`](../actions/publish_release/action.yml) composite drives `run_verify.sh attach` (or `attach-unattested`), which creates the tag's release as a **draft**, attaches every asset (and, unattested, the body marker), then flips it to **published** as the final act. GitHub immutable releases freeze a release at publish, so no asset or body edit may follow the flip. This is immutable-safe only for releases wrangle creates; a release already published before wrangle runs cannot be amended.
+
+**Adding refusal categories:** a *trigger* refusal goes in `actions/prep/preflight_guard.sh` with a matching row in the "refuses" list above and a structural assertion in `actions/prep/test_preflight_guard.bats`; a refusal gated on build inputs rather than the trigger (as the attestation preflight is) belongs in its own preflight script and bats, wired into prep alongside the guard.
 
 ### Integrity Verification
 
@@ -1088,7 +1102,8 @@ Action-pattern tools call these helpers from their own `action.yml`. The `format
 - Integrity verification (checksums + SLSA provenance) is the primary defense against malicious binaries
 - GitHub-hosted runners are ephemeral, limiting the blast radius of any compromise
 - For self-hosted runners, adopters should use [StepSecurity Harden-Runner](https://github.com/step-security/harden-runner) alongside wrangle for network monitoring
-- Write confinement: each tool runs against a read-only `/src` mount with only `/output` writable, so it cannot modify the workspace it scans
+- Post-execution filesystem check: the orchestrator snapshots the workspace file list before and after each adapter run, flagging any unexpected file modifications outside `output_dir`
+- Future versions may use lightweight sandboxing (bubblewrap, firejail) on Linux runners
 
 ### Protecting Wrangle Itself
 

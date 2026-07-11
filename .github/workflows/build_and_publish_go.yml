@@ -117,6 +117,14 @@ on:
         required: false
         type: string
         default: sbom
+      attest-and-verify:
+        description: |
+          enabled (default): sign and verify SLSA provenance + a VSA for the
+          release. disabled: publish the release unattested (tests and scans
+          still gate it) — use on private repos, which can't attest (#600).
+        required: false
+        type: string
+        default: enabled
     outputs:
       hashes:
         description: "Base64-encoded SHA-256 hashes of built artifacts (for SLSA provenance)"
@@ -146,6 +154,7 @@ jobs:
     permissions: {}    # guard/gate/names read env only — no workspace, no API, no secrets
     outputs:
       should-release: ${{ steps.prep.outputs.should-release }}
+      should-attest: ${{ steps.prep.outputs.should-attest }}
       shortname: ${{ steps.prep.outputs.shortname }}
       dist: ${{ steps.prep.outputs.dist }}
       scan: ${{ steps.prep.outputs.scan }}
@@ -154,12 +163,13 @@ jobs:
       metadata-pre: ${{ steps.prep.outputs.metadata-pre }}
     steps:
       # TODO: replace with $/actions/prep when GitHub ships $/ syntax (#136)
-      - uses: TomHennen/wrangle/actions/prep@58114e5180fffef5af1af9fa5d458b7efc52cbc1 # main 2026-07-06
+      - uses: TomHennen/wrangle/actions/prep@aecba7ddee17b67bb1bd6d220a67eb2742f9abee # priv-immutable-597-407 2026-07-06
         id: prep
         with:
           build-type: go
           path: ${{ inputs.path }}
           release-events: ${{ inputs.release-events }}
+          attest-and-verify: ${{ inputs.attest-and-verify }}
 
   # Source scan. A load-bearing (:fail) finding fails this job, which
   # blocks the release on release events (see release.if) — decoupled
@@ -173,7 +183,7 @@ jobs:
       security-events: write
     steps:
       # TODO: replace with $/actions/scan when GitHub ships $/ syntax (#136)
-      - uses: TomHennen/wrangle/actions/scan@58114e5180fffef5af1af9fa5d458b7efc52cbc1 # main 2026-07-06
+      - uses: TomHennen/wrangle/actions/scan@aecba7ddee17b67bb1bd6d220a67eb2742f9abee # priv-immutable-597-407 2026-07-06
         if: ${{ inputs.scan-tools != '' }}
         with:
           checkout: "true"
@@ -205,7 +215,7 @@ jobs:
       # TODO: replace with $/build/actions/go/checks when GitHub ships $/ syntax (#136)
       # Self-pinned to PR HEAD until merge — bump-self-refs follow-up
       # repoints to the squashed merge SHA after this lands.
-      - uses: TomHennen/wrangle/build/actions/go/checks@58114e5180fffef5af1af9fa5d458b7efc52cbc1 # main 2026-07-06
+      - uses: TomHennen/wrangle/build/actions/go/checks@aecba7ddee17b67bb1bd6d220a67eb2742f9abee # priv-immutable-597-407 2026-07-06
         id: checks
         with:
           path: ${{ inputs.path }}
@@ -268,7 +278,7 @@ jobs:
 
       # TODO: replace with $/build/actions/go/build when GitHub ships $/ syntax (#136)
       # Self-pinned to PR HEAD until merge.
-      - uses: TomHennen/wrangle/build/actions/go/build@58114e5180fffef5af1af9fa5d458b7efc52cbc1 # main 2026-07-06
+      - uses: TomHennen/wrangle/build/actions/go/build@aecba7ddee17b67bb1bd6d220a67eb2742f9abee # priv-immutable-597-407 2026-07-06
         id: release
         with:
           path: ${{ inputs.path }}
@@ -330,23 +340,21 @@ jobs:
           name: ${{ needs.prep.outputs.checks }}
           path: ${{ steps.release.outputs.metadata-dir }}/scan/govulncheck/
 
-      # Non-release: this is the final unified metadata (sbom + scan/). On
-      # release the verify job appends the bundle and owns the final upload.
+      # On an attested release the verify job appends the signed bundle and owns
+      # the final metadata upload; otherwise (non-release or unattested) this
+      # sbom + scan/ is itself the final metadata artifact.
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
-          name: ${{ needs.prep.outputs.should-release == 'true' && needs.prep.outputs.metadata-pre || needs.prep.outputs.metadata }}
+          name: ${{ needs.prep.outputs.should-attest == 'true' && needs.prep.outputs.metadata-pre || needs.prep.outputs.metadata }}
           path: ${{ steps.release.outputs.metadata-dir }}/
           if-no-files-found: error
-          # Short-retain only the premeta transient (release path); the
-          # non-release artifact is the final deliverable, kept at repo default.
-          retention-days: ${{ needs.prep.outputs.should-release == 'true' && '1' || '' }}
 
   # Generate SLSA L3 build provenance via GitHub's attestation API, naming THIS
   # reusable workflow as builder.id (its job_workflow_ref) and the Sigstore
   # signing identity, then sign the SBOM + scan/v1 metadata over the built dist
   # and post it to the attestation store — persisted independent of the verdict
   attest:
-    if: ${{ needs.prep.outputs.should-release == 'true' }}
+    if: ${{ needs.prep.outputs.should-attest == 'true' }}
     needs: [prep, release]
     runs-on: ubuntu-latest
     permissions:
@@ -360,7 +368,7 @@ jobs:
       # writes non-artifact bookkeeping into dist/ that is not released. This is
       # the same canonical subject set the VSA binds to.
       # TODO: replace with $/actions/attest_provenance when GitHub ships $/ syntax (#136)
-      - uses: TomHennen/wrangle/actions/attest_provenance@58114e5180fffef5af1af9fa5d458b7efc52cbc1 # main 2026-07-06
+      - uses: TomHennen/wrangle/actions/attest_provenance@aecba7ddee17b67bb1bd6d220a67eb2742f9abee # priv-immutable-597-407 2026-07-06
         id: attest
         with:
           build-type: go
@@ -370,23 +378,18 @@ jobs:
   # Emit one signed SLSA Verification Summary Attestation (VSA) per dist archive
   # and append it to the SLSA provenance, producing one per-artifact
   # <archive>.intoto.jsonl bundle consumers fetch. bnd signs each VSA keyless with
-  # this workflow's OIDC identity.
-  #
-  # This job owns the publish: goreleaser ran --skip=publish, so nothing is live
-  # until verify uploads the attested archives + checksums.txt + bundles to the
-  # tag's release (created if absent). fail: true therefore DOES block the publish — a failed
-  # policy means the bytes are never uploaded — and fails the workflow conclusion.
+  # this workflow's OIDC identity. fail: true blocks the publish job (which needs
+  # verify), so a failed policy means the bytes are never uploaded.
   verify:
-    if: ${{ needs.prep.outputs.should-release == 'true' }}
+    if: ${{ needs.prep.outputs.should-attest == 'true' }}
     needs: [prep, release, attest]
     runs-on: ubuntu-latest
     permissions:
       id-token: write       # bnd keyless-signs each VSA via this workflow's OIDC identity
       attestations: write   # post each VSA to the GitHub attestation store
-      contents: write       # create the release if absent and upload the attested archives + checksums + bundles
     steps:
       # TODO: replace with $/actions/verify_release when GitHub ships $/ syntax (#136)
-      - uses: TomHennen/wrangle/actions/verify_release@58114e5180fffef5af1af9fa5d458b7efc52cbc1 # main 2026-07-06
+      - uses: TomHennen/wrangle/actions/verify_release@aecba7ddee17b67bb1bd6d220a67eb2742f9abee # priv-immutable-597-407 2026-07-06
         with:
           build-type: go
           shortname: ${{ needs.prep.outputs.shortname }}
@@ -396,3 +399,24 @@ jobs:
           # resourceUri is the golang module purl consumers pin when verifying;
           # each subject digest is the cryptographic bind.
           context: buildPoint:git+https://github.com/${{ github.repository }},vsa.resourceUri:pkg:golang/${{ needs.release.outputs.module }}@${{ needs.release.outputs.version }}
+
+  # Least-privileged publish: sole contents:write job, no signing scopes, no
+  # adopter code (goreleaser's publishers stay off). The if: gates publish on
+  # verify success; unattested mode skips verify, so should-attest guards that escape.
+  publish:
+    if: >
+      always() && !cancelled() &&
+      needs.prep.outputs.should-release == 'true' &&
+      needs.release.result == 'success' &&
+      (needs.prep.outputs.should-attest != 'true' || needs.verify.result == 'success')
+    needs: [prep, release, verify]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write   # create the release if absent and upload the asset set
+    steps:
+      # TODO: replace with $/actions/publish_release when GitHub ships $/ syntax (#136)
+      - uses: TomHennen/wrangle/actions/publish_release@aecba7ddee17b67bb1bd6d220a67eb2742f9abee # priv-immutable-597-407 2026-07-06
+        with:
+          build-type: go
+          shortname: ${{ needs.prep.outputs.shortname }}
+          attest-and-verify: ${{ inputs.attest-and-verify }}

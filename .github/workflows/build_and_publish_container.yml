@@ -78,6 +78,15 @@ on:
         required: false
         type: string
         default: policies/wrangle-default-container-v1.hjson
+      attest-and-verify:
+        description: |
+          enabled (default): sign and verify SLSA provenance + a VSA and push
+          them as OCI referrers on the image. disabled: leave the pushed image
+          unattested (tests and scans still gate the build) — use on private
+          repos, which can't attest (#600).
+        required: false
+        type: string
+        default: enabled
     secrets:
       gh_token:
         description: >
@@ -112,16 +121,18 @@ jobs:
     permissions: {}    # guard/gate/names read env only — no workspace, no API, no secrets
     outputs:
       should-release: ${{ steps.prep.outputs.should-release }}
+      should-attest: ${{ steps.prep.outputs.should-attest }}
       shortname: ${{ steps.prep.outputs.shortname }}
       scan: ${{ steps.prep.outputs.scan }}
     steps:
       # TODO: replace with $/actions/prep when GitHub ships $/ syntax (#136)
-      - uses: TomHennen/wrangle/actions/prep@58114e5180fffef5af1af9fa5d458b7efc52cbc1 # main 2026-07-06
+      - uses: TomHennen/wrangle/actions/prep@aecba7ddee17b67bb1bd6d220a67eb2742f9abee # priv-immutable-597-407 2026-07-06
         id: prep
         with:
           build-type: container
           path: ${{ inputs.path }}
           release-events: ${{ inputs.release-events }}
+          attest-and-verify: ${{ inputs.attest-and-verify }}
 
   # Source scan. The container push happens mid-composite in `build` and
   # is not release-gated, so a load-bearing (:fail) finding must block
@@ -135,7 +146,7 @@ jobs:
       security-events: write
     steps:
       # TODO: replace with $/actions/scan when GitHub ships $/ syntax (#136)
-      - uses: TomHennen/wrangle/actions/scan@58114e5180fffef5af1af9fa5d458b7efc52cbc1 # main 2026-07-06
+      - uses: TomHennen/wrangle/actions/scan@aecba7ddee17b67bb1bd6d220a67eb2742f9abee # priv-immutable-597-407 2026-07-06
         if: ${{ inputs.scan-tools != '' }}
         with:
           checkout: "true"
@@ -161,7 +172,7 @@ jobs:
     # TODO: replace with $/build/actions/container when GitHub ships $/ syntax (#136)
     - name: "build and publish"
       id: build
-      uses: TomHennen/wrangle/build/actions/container@58114e5180fffef5af1af9fa5d458b7efc52cbc1 # main 2026-07-06
+      uses: TomHennen/wrangle/build/actions/container@aecba7ddee17b67bb1bd6d220a67eb2742f9abee # priv-immutable-597-407 2026-07-06
       with:
         path: ${{ inputs.path }}
         dockerfile: ${{ inputs.dockerfile }}
@@ -189,17 +200,15 @@ jobs:
         name: ${{ needs.prep.outputs.scan }}
         path: ${{ steps.build.outputs.metadata-dir }}/scan/
 
-    # Non-release: this is the final unified metadata (sbom + scan/). On
-    # release the verify job appends the bundle and owns the final upload.
+    # On an attested release the verify job appends the signed bundle and owns
+    # the final metadata upload; otherwise (non-release or unattested) this
+    # sbom + scan/ is itself the final metadata artifact.
     - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
       if: always()
       with:
-        name: ${{ needs.prep.outputs.should-release == 'true' && steps.build.outputs.metadata-pre-artifact-name || steps.build.outputs.metadata-artifact-name }}
+        name: ${{ needs.prep.outputs.should-attest == 'true' && steps.build.outputs.metadata-pre-artifact-name || steps.build.outputs.metadata-artifact-name }}
         path: ${{ steps.build.outputs.metadata-dir }}/
         if-no-files-found: warn
-        # Short-retain only the premeta transient (release path); the
-        # non-release artifact is the final deliverable, kept at repo default.
-        retention-days: ${{ needs.prep.outputs.should-release == 'true' && '1' || '' }}
 
   # Generate SLSA L3 build provenance via GitHub's attestation API, naming THIS
   # reusable workflow as builder.id (its job_workflow_ref) and the Sigstore
@@ -208,7 +217,7 @@ jobs:
   # the verdict (#550). Both run here, in the same job_workflow_ref identity the
   # PolicySet binds, so the move from verify carries no policy change.
   attest:
-    if: ${{ needs.prep.outputs.should-release == 'true' }}
+    if: ${{ needs.prep.outputs.should-attest == 'true' }}
     needs: [prep, build]
     runs-on: ubuntu-latest
     permissions:
@@ -239,7 +248,7 @@ jobs:
       # image's bundle the verify job appends the VSA to. cosign is built from
       # tools/go.mod here.
       # TODO: replace with $/actions/attest_metadata_oci when GitHub ships $/ syntax (#136)
-      - uses: TomHennen/wrangle/actions/attest_metadata_oci@58114e5180fffef5af1af9fa5d458b7efc52cbc1 # main 2026-07-06
+      - uses: TomHennen/wrangle/actions/attest_metadata_oci@aecba7ddee17b67bb1bd6d220a67eb2742f9abee # priv-immutable-597-407 2026-07-06
         with:
           shortname: ${{ needs.prep.outputs.shortname }}
           subject-digest: ${{ needs.build.outputs.digest }}
@@ -250,7 +259,7 @@ jobs:
   # downstream caller jobs) rather than rolling back the live image. Needs
   # `attest` so the provenance referrer the collector reads already exists.
   verify:
-    if: ${{ needs.prep.outputs.should-release == 'true' }}
+    if: ${{ needs.prep.outputs.should-attest == 'true' }}
     needs: [prep, build, attest]
     runs-on: ubuntu-latest
     # No contents: write — the container caller grants only contents: read, so
@@ -278,7 +287,7 @@ jobs:
 
       # oci-target pushes the VSA referrer; the dist download is skipped (the image is the artifact).
       # TODO: replace with $/actions/verify_release when GitHub ships $/ syntax (#136)
-      - uses: TomHennen/wrangle/actions/verify_release@58114e5180fffef5af1af9fa5d458b7efc52cbc1 # main 2026-07-06
+      - uses: TomHennen/wrangle/actions/verify_release@aecba7ddee17b67bb1bd6d220a67eb2742f9abee # priv-immutable-597-407 2026-07-06
         with:
           build-type: container
           shortname: ${{ needs.prep.outputs.shortname }}
@@ -290,4 +299,3 @@ jobs:
           context: buildPoint:git+https://github.com/${{ github.repository }},vsa.resourceUri:${{ needs.build.outputs.imagename }}@${{ needs.build.outputs.digest }}
           # Push each signed VSA as its own by-digest referrer (fail-closed).
           oci-target: ${{ needs.build.outputs.imagename }}@${{ needs.build.outputs.digest }}
-          attach-to-release: "false"

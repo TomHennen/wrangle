@@ -48,10 +48,12 @@ setup() {
     [ "$status" -eq 0 ]
 }
 
-@test "verify_release: threads build-type and attach-release-assets to the release attach" {
-    run grep -F 'attach-release-assets: ${{ inputs.attach-release-assets }}' "$ACTION"
-    [ "$status" -eq 0 ]
-    # build-type drives the go-vs-others dist distinction in the attach step.
-    run grep -F 'build-type: ${{ inputs.build-type }}' "$ACTION"
-    [ "$status" -eq 0 ]
+@test "verify_release: no longer threads any release-attach inputs to verify (publish owns the upload)" {
+    # Release upload moved to actions/publish_release; verify_release runs
+    # verify+sign only, so it must pass no attach-* / dist-dir / metadata-dir /
+    # build-type wiring to the verify action.
+    ! grep -qF 'attach-to-release:' "$ACTION"
+    ! grep -qF 'attach-release-assets:' "$ACTION"
+    ! grep -qF 'dist-dir:' "$ACTION"
+    ! grep -qF 'metadata-dir: ${{ steps.names.outputs.metadata-dir }}' "$ACTION"
 }
