@@ -1,6 +1,9 @@
 # osv-scanner native config for manifests in this directory (tools/go.mod).
 # Discovered by the scanner itself — wrangle's scan adapter adds nothing.
-# Every entry is an advisory with no version bump that clears it.
+# Every entry is an advisory with no version bump that clears it, so each is
+# suppressed with a justification. The shared `ignoreUntil` is a forced-revisit
+# tripwire: once that date passes the scan resurfaces every entry so the
+# decision to keep suppressing it is re-made, not inherited forever.
 
 # github.com/docker/docker v28.5.2+incompatible, pulled in by osv-scanner's own
 # module graph (`go mod why -m`: cmd/osv-scanner). Unfixable by bump: the
@@ -11,28 +14,35 @@
 
 [[IgnoredVulns]]
 id = "GHSA-rg2x-37c3-w2rh"
+ignoreUntil = 2026-10-11T00:00:00Z
 reason = "docker/docker path has no patched version; fix is the moby/moby/v2 rename — waiting on osv-scanner upstream migration"
 
 [[IgnoredVulns]]
 id = "GHSA-vp62-88p7-qqf5"
+ignoreUntil = 2026-10-11T00:00:00Z
 reason = "docker/docker path has no patched version; fix is the moby/moby/v2 rename — waiting on osv-scanner upstream migration"
 
 [[IgnoredVulns]]
 id = "GHSA-x86f-5xw2-fm2r"
+ignoreUntil = 2026-10-11T00:00:00Z
 reason = "docker/docker path has no patched version; fix is the moby/moby/v2 rename — waiting on osv-scanner upstream migration"
 
 [[IgnoredVulns]]
 id = "GHSA-pxq6-2prw-chj9"
+ignoreUntil = 2026-10-11T00:00:00Z
 reason = "docker/docker path has no patched version; fix is the moby/moby/v2 rename — waiting on osv-scanner upstream migration"
 
 [[IgnoredVulns]]
 id = "GHSA-x744-4wpc-v9h2"
+ignoreUntil = 2026-10-11T00:00:00Z
 reason = "docker/docker path has no patched version; fix is the moby/moby/v2 rename — waiting on osv-scanner upstream migration"
 
 # golang.org/x/crypto/openpgp, reached through wrangle-attest's PGP path (rekor
 # pki/pgp). Unfixable by bump: x/crypto froze openpgp as deprecated/unmaintained,
-# so no patched version exists.
+# so no patched version exists — the only real exit is dropping the PGP path,
+# which no advisory will ever signal, so the ignoreUntil revisit is what forces it.
 
 [[IgnoredVulns]]
 id = "GO-2026-5932"
+ignoreUntil = 2026-10-11T00:00:00Z
 reason = "x/crypto/openpgp is frozen and deprecated upstream — no patched version exists"
