@@ -302,11 +302,9 @@ jobs:
           # digest is the cryptographic bind.
           context: buildPoint:git+https://github.com/${{ github.repository }},vsa.resourceUri:${{ needs.build.outputs.resource-uri }}
 
-  # The publish job: creates the GitHub release if absent and uploads the asset
-  # set, in BOTH modes (PyPI publish stays in the adopter's workflow — the OIDC
-  # constraint above). Only job holding contents: write; no signing scopes. The
-  # if: preserves the policy gate: an attested run publishes only when verify
-  # succeeded; the skipped-verify escape is reachable only in unattested mode.
+  # Least-privileged publish of the GitHub release: sole contents:write job, no
+  # signing scopes (PyPI publish stays in the adopter's workflow). The if: gates
+  # publish on verify success; unattested mode skips verify, so should-attest guards that.
   publish:
     if: >
       always() && !cancelled() &&

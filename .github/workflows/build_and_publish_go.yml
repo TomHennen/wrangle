@@ -400,13 +400,9 @@ jobs:
           # each subject digest is the cryptographic bind.
           context: buildPoint:git+https://github.com/${{ github.repository }},vsa.resourceUri:pkg:golang/${{ needs.release.outputs.module }}@${{ needs.release.outputs.version }}
 
-  # The publish job: creates the release (as a draft) and uploads the rationalized
-  # asset set, then publishes, in BOTH modes. It is the only job holding
-  # contents: write, holds no signing scopes, and runs no adopter code
-  # (goreleaser's publishers stay off — the contents: write / adopter-code split
-  # in build/actions/go/SPEC.md). The if: preserves the policy gate: an attested
-  # run publishes only when verify succeeded; the skipped-verify escape is
-  # reachable only in unattested mode.
+  # Least-privileged publish: sole contents:write job, no signing scopes, no
+  # adopter code (goreleaser's publishers stay off). The if: gates publish on
+  # verify success; unattested mode skips verify, so should-attest guards that escape.
   publish:
     if: >
       always() && !cancelled() &&
