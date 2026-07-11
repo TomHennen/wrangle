@@ -1,12 +1,12 @@
 # osv-scanner native config for manifests in this directory (tools/go.mod).
 # Discovered by the scanner itself — wrangle's scan adapter adds nothing.
-#
-# All advisories are in github.com/docker/docker v28.5.2+incompatible, pulled
-# in by osv-scanner's own module graph (`go mod why -m`: cmd/osv-scanner).
-# They are unfixable by version bump: the docker/docker module line was
-# re-namespaced and every version of the old path is flagged — the fix
-# exists only as github.com/moby/moby/v2, which osv-scanner upstream has not
-# migrated to. Remove these entries when an osv-scanner release imports
+# Every entry is an advisory with no version bump that clears it.
+
+# github.com/docker/docker v28.5.2+incompatible, pulled in by osv-scanner's own
+# module graph (`go mod why -m`: cmd/osv-scanner). Unfixable by bump: the
+# docker/docker module line was re-namespaced and every version of the old path
+# is flagged — the fix exists only as github.com/moby/moby/v2, which osv-scanner
+# upstream has not migrated to. Remove these when an osv-scanner release imports
 # moby/moby/v2.
 
 [[IgnoredVulns]]
@@ -28,3 +28,11 @@ reason = "docker/docker path has no patched version; fix is the moby/moby/v2 ren
 [[IgnoredVulns]]
 id = "GHSA-x744-4wpc-v9h2"
 reason = "docker/docker path has no patched version; fix is the moby/moby/v2 rename — waiting on osv-scanner upstream migration"
+
+# golang.org/x/crypto/openpgp, reached through wrangle-attest's PGP path (rekor
+# pki/pgp). Unfixable by bump: x/crypto froze openpgp as deprecated/unmaintained,
+# so no patched version exists.
+
+[[IgnoredVulns]]
+id = "GO-2026-5932"
+reason = "x/crypto/openpgp is frozen and deprecated upstream — no patched version exists"
