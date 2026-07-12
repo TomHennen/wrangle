@@ -146,15 +146,18 @@ jobs:
           go-version-file: ${{ inputs.go-tools-dir }}/go.mod
           cache-dependency-path: ${{ inputs.go-tools-dir }}/go.sum
 
-      # Restores prebuilt tool binaries on a go.sum-stable run so they aren't
+      # Restores prebuilt tool binaries on an input-stable run so they aren't
       # relinked; a hit skips the go.sum re-verify, so this is test/scan only
-      # and never gates a release (this workflow attests nothing).
+      # and never gates a release (this workflow attests nothing). Keyed on
+      # go.sum AND the in-repo Go tool sources, matching the setup script's
+      # rebuild stamp — wrangle-attest/wrangle-lint compile from the checkout,
+      # so a source-only change must miss the cache.
       - name: Cache setup-script tool binaries
         if: ${{ inputs.cache-setup-tools == 'enabled' && inputs.go-tools-dir != '' }}
         uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: ${{ runner.temp }}/.wrangle/bin
-          key: setup-tools-${{ runner.os }}-${{ hashFiles(format('{0}/go.sum', inputs.go-tools-dir)) }}
+          key: setup-tools-${{ runner.os }}-${{ hashFiles(format('{0}/go.sum', inputs.go-tools-dir), format('{0}/**/*.go', inputs.go-tools-dir)) }}
 
       # Cross-run cache of the docker images the setup-script registers in
       # $WRANGLE_IMAGE_CACHE_LIST (docker save/load): a hit loads the images
