@@ -1,4 +1,4 @@
-.PHONY: all test lint shellcheck shellstyle workflowstyle gotest bats zizmor integration bump-action-pins converge-action-pins check-catalog check-catalog-freshness check-catalog-provenance-freshness bump-catalog-digest bump-catalog-to-latest release-preflight
+.PHONY: bump-version-refs all test lint shellcheck shellstyle workflowstyle gotest bats zizmor integration bump-action-pins converge-action-pins check-catalog check-catalog-freshness check-catalog-provenance-freshness bump-catalog-digest bump-catalog-to-latest release-preflight
 
 # bash, not the default sh: the integration recipe sources lib/env.sh,
 # whose `set -o pipefail` dash doesn't reliably support.
@@ -119,3 +119,8 @@ bump-catalog-to-latest:
 # immutable, so this runs before `gh release create`, not after.
 release-preflight:
 	@./tools/release_preflight.sh
+
+# Retarget every adopter-facing wrangle release ref at a new version tag
+# (cut-release Phase 2). Usage: make bump-version-refs VERSION=v0.4.0
+bump-version-refs:
+	@./tools/bump_version_refs.sh $(VERSION)

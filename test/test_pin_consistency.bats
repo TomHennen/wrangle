@@ -11,8 +11,9 @@
 # wrangle's release tags are immutable, so a tag pin is safe; the inline zizmor
 # ignore keeps an adopter's own `unpinned-uses` from firing on the wrangle line.
 # A SHA pin (`@<40-hex> # vX.Y.Z`) is also accepted. Excluded: wrangle's internal
-# self-references (`# main YYYY-MM-DD`), the `git+https://...@vX` policy locators
-# (no `uses:`), and test fixtures.
+# self-references (`# main YYYY-MM-DD`) and the `git+https://...@vX` policy
+# locators (no `uses:`). NOT excluded: test fixtures — the grep is repo-wide, so
+# a fixture must interpolate its version rather than embed a literal pin.
 
 setup() {
     REPO_ROOT="$(cd "$(dirname "$BATS_TEST_FILENAME")/.." && pwd)"

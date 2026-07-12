@@ -18,7 +18,7 @@ Pin by release **tag** (`@vX.Y.Z`), with an inline zizmor exception on that one
 line:
 
 ```yaml
-uses: TomHennen/wrangle/.github/workflows/build_and_publish_go.yml@v0.3.1 # zizmor: ignore[unpinned-uses] - immutable
+uses: TomHennen/wrangle/.github/workflows/build_and_publish_go.yml@v0.4.0 # zizmor: ignore[unpinned-uses] - immutable
 ```
 
 wrangle's release tags are
