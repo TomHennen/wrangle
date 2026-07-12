@@ -179,7 +179,6 @@ func TestRunStatementAppendFailClosed(t *testing.T) {
 	})
 
 	t.Run("signing failure touches neither file", func(t *testing.T) {
-		t.Setenv("WRANGLE_RETRY_DELAY", "0")
 		swapSigner(t, func() (statementSigner, func(), error) { return failingSigner{}, func() {}, nil })
 		bundle := newBundle(t)
 		out := filepath.Join(t.TempDir(), "out.json")

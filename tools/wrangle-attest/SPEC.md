@@ -87,10 +87,9 @@ into a buffer before `--out` is touched, so a failure on the Nth manifest — a
 malformed manifest or a signing failure — never leaves a partial/unsigned file.
 Exit 0 on success; non-zero (fail closed) on any error.
 
-Signer construction and each sign call are retried once for transient Sigstore
-I/O (`WRANGLE_RETRY_DELAY` seconds between attempts, default 5). The retry
-wraps only that I/O — never statement building, digesting, manifest parsing, or
-file writes — so it can flip a transient failure but never manufacture output.
+Transient Sigstore I/O is retried by the signer itself (`carabiner-dev/signer`
+configures retries on the Fulcio, Rekor, and TSA hops, and on TUF/OIDC fetches),
+so the engine adds no retry of its own and signs exactly as `bnd` does.
 
 ```
 wrangle-attest --sign --statement <file> --out <file> [--append <bundle>]
@@ -147,9 +146,9 @@ ephemeral key: DSSE shape + signature + fail-closed). `--statement` mode is
 covered by a recording signer pinning the payload to the file bytes verbatim, a
 local-key payload round-trip, a fail-closed table (including a signing failure
 leaving a pre-existing `--out` untouched), and the tag-gated keyless
-integration test. `--append`, the retry, and `assemble` are covered
-hermetically with fake signers (byte-exact bundle goldens, retry-once
-accounting, buffer-then-write fail-closed). Regenerate goldens with
+integration test. `--append` and `assemble` are covered hermetically with fake
+signers (byte-exact bundle goldens, buffer-then-write fail-closed). Regenerate
+goldens with
 `go test ./wrangle-attest/ -update`. The real keyless path is covered by the
 dispatch e2e (`actions/attest_provenance` and `actions/attest_metadata_oci` bats
 cover the `sign_metadata.sh` glue).

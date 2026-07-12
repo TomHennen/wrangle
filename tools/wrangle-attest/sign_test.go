@@ -94,7 +94,6 @@ func TestRunSignEmitsSignedStatement(t *testing.T) {
 // A signing failure on any statement must leave no output (no partial/unsigned
 // bundle) — the buffer-then-write fail-closed discipline must hold for --sign.
 func TestRunSignFailClosedNoOutput(t *testing.T) {
-	t.Setenv("WRANGLE_RETRY_DELAY", "0")
 	swapSigner(t, func() (statementSigner, func(), error) {
 		return failingSigner{}, func() {}, nil
 	})

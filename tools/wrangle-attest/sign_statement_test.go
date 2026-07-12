@@ -88,7 +88,6 @@ func TestRunStatementLocalKeyPayloadRoundTrip(t *testing.T) {
 // A signing failure must leave a pre-existing --out byte-unchanged — --out is
 // only written after signing succeeds.
 func TestRunStatementSignFailureLeavesOutUntouched(t *testing.T) {
-	t.Setenv("WRANGLE_RETRY_DELAY", "0")
 	swapSigner(t, func() (statementSigner, func(), error) { return failingSigner{}, func() {}, nil })
 
 	dir := t.TempDir()

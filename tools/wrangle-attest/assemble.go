@@ -83,7 +83,7 @@ func runAssemble(args []string, stderr io.Writer) int {
 		return failClosed(stderr, fmt.Errorf("no signed metadata produced for %s", specs[0].subject))
 	}
 
-	sg, closeFn, err := newRetrySigner(stderr)
+	sg, closeFn, err := newSigner()
 	if err != nil {
 		return failClosed(stderr, err)
 	}

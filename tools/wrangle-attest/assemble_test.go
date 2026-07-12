@@ -183,7 +183,6 @@ func TestAssembleSubjectsBlankLinesDropped(t *testing.T) {
 }
 
 func TestAssembleFailClosed(t *testing.T) {
-	t.Setenv("WRANGLE_RETRY_DELAY", "0")
 	newFixture := func(t *testing.T) (meta, seed string) {
 		return writeAssembleMeta(t), writeTempFile(t, "seed.jsonl", "{\"seed\":true}\n")
 	}
@@ -286,7 +285,7 @@ func TestAssembleFailClosed(t *testing.T) {
 		meta, seed := newFixture(t)
 		dist := writeTempFile(t, "pkg.tgz", "PKGBYTES")
 		subjects := writeTempFile(t, "subjects", dist+"\n"+testArtifactDigest+"\n")
-		// 2 subjects x 2 manifests: calls 1-3 succeed, call 4 and its retry fail.
+		// 2 subjects x 2 manifests: calls 1-3 succeed, the last one fails.
 		ss := &seqSigner{failFrom: 4}
 		swapSigner(t, func() (statementSigner, func(), error) { return ss, func() {}, nil })
 		out := t.TempDir()
@@ -298,8 +297,8 @@ func TestAssembleFailClosed(t *testing.T) {
 			"--bundle-dir", bundleDir, "--statements-out", stmtsOut}, &stderr); rc != 2 {
 			t.Fatalf("rc=%d, want fail-closed 2; stderr=%s", rc, stderr.String())
 		}
-		if ss.calls != 5 {
-			t.Fatalf("sign calls = %d, want 5 (4th statement retried once)", ss.calls)
+		if ss.calls != 4 {
+			t.Fatalf("sign calls = %d, want 4", ss.calls)
 		}
 		if _, err := os.Stat(bundleDir); !os.IsNotExist(err) {
 			t.Fatalf("bundle dir created despite failure, stat err=%v", err)
