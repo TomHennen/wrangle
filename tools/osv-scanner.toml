@@ -1,30 +1,36 @@
 # osv-scanner native config for manifests in this directory (tools/go.mod).
 # Discovered by the scanner itself — wrangle's scan adapter adds nothing.
-#
-# All advisories are in github.com/docker/docker v28.5.2+incompatible, pulled
-# in by osv-scanner's own module graph (`go mod why -m`: cmd/osv-scanner).
-# They are unfixable by version bump: the docker/docker module line was
-# re-namespaced and every version of the old path is flagged — the fix
-# exists only as github.com/moby/moby/v2, which osv-scanner upstream has not
-# migrated to. Remove these entries when an osv-scanner release imports
-# moby/moby/v2.
+# Every entry is an advisory no version bump clears, and each `reason` carries
+# the full justification (the scanner prints it on every filtered finding). The
+# shared `ignoreUntil` is a forced-revisit tripwire: once it passes the scan
+# resurfaces every entry, so a suppression is re-decided, never inherited.
 
 [[IgnoredVulns]]
 id = "GHSA-rg2x-37c3-w2rh"
-reason = "docker/docker path has no patched version; fix is the moby/moby/v2 rename — waiting on osv-scanner upstream migration"
+ignoreUntil = 2026-10-11T00:00:00Z
+reason = "docker/docker (pulled in by osv-scanner's own module graph) has no patched version: the module line was re-namespaced and every version of the old path is flagged. The fix exists only as github.com/moby/moby/v2, which osv-scanner upstream has not migrated to — remove this entry when an osv-scanner release imports moby/moby/v2."
 
 [[IgnoredVulns]]
 id = "GHSA-vp62-88p7-qqf5"
-reason = "docker/docker path has no patched version; fix is the moby/moby/v2 rename — waiting on osv-scanner upstream migration"
+ignoreUntil = 2026-10-11T00:00:00Z
+reason = "docker/docker (pulled in by osv-scanner's own module graph) has no patched version: the module line was re-namespaced and every version of the old path is flagged. The fix exists only as github.com/moby/moby/v2, which osv-scanner upstream has not migrated to — remove this entry when an osv-scanner release imports moby/moby/v2."
 
 [[IgnoredVulns]]
 id = "GHSA-x86f-5xw2-fm2r"
-reason = "docker/docker path has no patched version; fix is the moby/moby/v2 rename — waiting on osv-scanner upstream migration"
+ignoreUntil = 2026-10-11T00:00:00Z
+reason = "docker/docker (pulled in by osv-scanner's own module graph) has no patched version: the module line was re-namespaced and every version of the old path is flagged. The fix exists only as github.com/moby/moby/v2, which osv-scanner upstream has not migrated to — remove this entry when an osv-scanner release imports moby/moby/v2."
 
 [[IgnoredVulns]]
 id = "GHSA-pxq6-2prw-chj9"
-reason = "docker/docker path has no patched version; fix is the moby/moby/v2 rename — waiting on osv-scanner upstream migration"
+ignoreUntil = 2026-10-11T00:00:00Z
+reason = "docker/docker (pulled in by osv-scanner's own module graph) has no patched version: the module line was re-namespaced and every version of the old path is flagged. The fix exists only as github.com/moby/moby/v2, which osv-scanner upstream has not migrated to — remove this entry when an osv-scanner release imports moby/moby/v2."
 
 [[IgnoredVulns]]
 id = "GHSA-x744-4wpc-v9h2"
-reason = "docker/docker path has no patched version; fix is the moby/moby/v2 rename — waiting on osv-scanner upstream migration"
+ignoreUntil = 2026-10-11T00:00:00Z
+reason = "docker/docker (pulled in by osv-scanner's own module graph) has no patched version: the module line was re-namespaced and every version of the old path is flagged. The fix exists only as github.com/moby/moby/v2, which osv-scanner upstream has not migrated to — remove this entry when an osv-scanner release imports moby/moby/v2."
+
+[[IgnoredVulns]]
+id = "GO-2026-5932"
+ignoreUntil = 2026-10-11T00:00:00Z
+reason = "x/crypto/openpgp, reached through wrangle-attest's PGP path (rekor pki/pgp), has no patched version: x/crypto froze openpgp as deprecated and unmaintained. The only exit is dropping the PGP path, which no advisory will ever signal — so the ignoreUntil revisit is what forces reconsideration."
