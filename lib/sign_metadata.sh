@@ -21,8 +21,8 @@ source "$_SIGN_METADATA_DIR/toolbox_run.sh"
 # (newline-separated dist file paths / sha256: digests), GITHUB_REPOSITORY (store
 # push target), GITHUB_TOKEN (bnd reads it to auth the store push), COMMIT
 # (scanned git commit woven into the scan/v1 envelope), BUNDLE_OUT, and one of
-# BUNDLE_IN / OCI_TARGET (the provenance seed source). bnd keyless-signs via the
-# caller's OIDC identity.
+# BUNDLE_IN / OCI_TARGET (the provenance seed source). wrangle-attest keyless-signs
+# via the caller's OIDC identity.
 
 # Build the wrangle-attest arg vector (one arg per line for mapfile) that signs
 # every subject's build metadata and assembles the per-artifact bundles. $1 = the
