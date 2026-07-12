@@ -153,8 +153,7 @@ func validateStatementMode(roots []string, subject, artifact, commit string, sig
 }
 
 // signStatementFile signs an existing statement file. The raw file bytes are
-// the DSSE payload verbatim — never re-marshaled or normalized — so the bundle
-// is byte-identical to `bnd statement` on the same file.
+// the DSSE payload verbatim — never re-marshaled or normalized.
 func signStatementFile(path, out string, stderr io.Writer) int {
 	raw, err := os.ReadFile(path)
 	if err != nil {

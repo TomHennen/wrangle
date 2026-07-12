@@ -85,6 +85,35 @@ func TestRunStatementLocalKeyPayloadRoundTrip(t *testing.T) {
 	}
 }
 
+// A signing failure must leave a pre-existing --out byte-unchanged — --out is
+// only written after signing succeeds.
+func TestRunStatementSignFailureLeavesOutUntouched(t *testing.T) {
+	swapSigner(t, func() (statementSigner, func(), error) { return failingSigner{}, func() {}, nil })
+
+	dir := t.TempDir()
+	path := filepath.Join(dir, "stmt.json")
+	if err := os.WriteFile(path, []byte(`{"a":1}`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	out := filepath.Join(dir, "out.json")
+	prior := []byte("pre-existing content\n")
+	if err := os.WriteFile(out, prior, 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	var stderr bytes.Buffer
+	if rc := run([]string{"--sign", "--statement", path, "--out", out}, &stderr); rc != 2 {
+		t.Fatalf("rc=%d, want fail-closed 2; stderr=%s", rc, stderr.String())
+	}
+	data, err := os.ReadFile(out)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !bytes.Equal(data, prior) {
+		t.Fatalf("pre-existing --out changed on signing failure: %q", data)
+	}
+}
+
 func TestRunStatementFailClosed(t *testing.T) {
 	rs := &recordingSigner{out: []byte(`{}`)}
 	swapSigner(t, func() (statementSigner, func(), error) { return rs, func() {}, nil })
