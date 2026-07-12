@@ -13,7 +13,7 @@ jobs:
       contents: read
       actions: read           # source scan
       security-events: write  # scan findings -> Security tab
-    uses: TomHennen/wrangle/.github/workflows/build_shell.yml@v0.3.1 # zizmor: ignore[unpinned-uses] - immutable
+    uses: TomHennen/wrangle/.github/workflows/build_shell.yml@v0.4.0 # zizmor: ignore[unpinned-uses] - immutable
 ```
 
 PRs, pushes, and manual dispatches all run the same checks — there's no release step to gate.
