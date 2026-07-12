@@ -10,6 +10,7 @@ import (
 	"bytes"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/carabiner-dev/signer"
@@ -140,6 +141,78 @@ func TestRunSignKeylessStatement(t *testing.T) {
 	}
 
 	verifyKeylessBundle(t, data)
+}
+
+// TestRunAssembleKeyless drives one assemble round-trip: the emitted bundle
+// must be the provenance line verbatim followed by one verifiable Sigstore bundle
+// per discovered manifest, with --statements-out carrying the same lines.
+func TestRunAssembleKeyless(t *testing.T) {
+	// In CI this job has id-token: write; a missing token is a real gap, not a
+	// skip — keyless must actually run here.
+	if os.Getenv("ACTIONS_ID_TOKEN_REQUEST_URL") == "" {
+		t.Fatal("ACTIONS_ID_TOKEN_REQUEST_URL unset; keyless signing needs ambient GitHub OIDC")
+	}
+
+	dir := t.TempDir()
+	writeFile(t, dir, "meta/wrangle_attestation_metadata.json",
+		`{"predicate-type":"https://spdx.dev/Document","result-file":"sbom.spdx.json"}`)
+	writeFile(t, dir, "meta/sbom.spdx.json", `{"spdxVersion":"SPDX-2.3","name":"assemble"}`)
+	provenanceLine := `{"dsseEnvelope":{"payload":"provenance"},"fromReferrer":true}`
+	writeFile(t, dir, "provenance.jsonl", provenanceLine+"\n")
+	writeFile(t, dir, "subjects", testArtifactDigest+"\n")
+	bundleDir := filepath.Join(dir, "bundles")
+	stmtsOut := filepath.Join(dir, "statements.jsonl")
+
+	var stderr testWriter
+	rc := run([]string{"assemble",
+		"--metadata-root", filepath.Join(dir, "meta"),
+		"--subjects-file", filepath.Join(dir, "subjects"),
+		"--provenance", filepath.Join(dir, "provenance.jsonl"),
+		"--sign",
+		"--bundle-dir", bundleDir,
+		"--statements-out", stmtsOut,
+	}, &stderr)
+	if rc != 0 {
+		t.Fatalf("keyless assemble rc=%d stderr=%s", rc, stderr.b)
+	}
+
+	name := strings.ReplaceAll(testArtifactDigest, ":", "-") + ".intoto.jsonl"
+	data, err := os.ReadFile(filepath.Join(bundleDir, name))
+	if err != nil {
+		t.Fatal(err)
+	}
+	lines := bytes.Split(bytes.TrimSuffix(data, []byte("\n")), []byte("\n"))
+	if len(lines) != 2 {
+		t.Fatalf("bundle lines = %d, want provenance + one signed statement:\n%s", len(lines), data)
+	}
+	if string(lines[0]) != provenanceLine {
+		t.Fatalf("provenance not passed through verbatim:\n got: %q\nwant: %q", lines[0], provenanceLine)
+	}
+
+	var bundle sbundle.Bundle
+	if err := bundle.UnmarshalJSON(lines[1]); err != nil {
+		t.Fatalf("signed line is not a Sigstore bundle: %v\n%s", err, lines[1])
+	}
+	env := bundle.GetDsseEnvelope()
+	if env == nil {
+		t.Fatal("bundle carries no DSSE envelope")
+	}
+	var stmt intoto.Statement
+	if err := protojson.Unmarshal(env.GetPayload(), &stmt); err != nil {
+		t.Fatalf("payload is not the in-toto statement: %v", err)
+	}
+	if stmt.GetPredicateType() != "https://spdx.dev/Document" {
+		t.Fatalf("wrong predicateType: %q", stmt.GetPredicateType())
+	}
+	verifyKeylessBundle(t, lines[1])
+
+	stmts, err := os.ReadFile(stmtsOut)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if want := append(append([]byte(nil), lines[1]...), '\n'); !bytes.Equal(stmts, want) {
+		t.Fatalf("statements-out differs from the bundle's signed line:\n got: %q\nwant: %q", stmts, want)
+	}
 }
 
 // verifyKeylessBundle verifies the signed bundle bytes with the upstream
