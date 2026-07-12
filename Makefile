@@ -130,3 +130,9 @@ bump-version-refs:
 # confirmation. Usage: make cut-release VERSION=v0.4.0 NOTES=release-notes.md
 cut-release:
 	@./tools/cut_release.sh $(VERSION) $(NOTES)
+
+# Roll the self-ref pins onto main's first-parent history, labelled `# main`
+# (cut-release Phase 1, last step). Open the result as a PR; merge it as a
+# merge commit, never a squash.
+finalize-pins:
+	@./tools/finalize_pins.sh $(SHA)

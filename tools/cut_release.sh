@@ -63,6 +63,18 @@ wrangle_check_target_on_main() {
         || wrangle_die "target $sha is not on origin/main"
 }
 
+# The Release Gate catches un-finalized pins too, but 10 minutes later and as an
+# opaque "gate failed". Say it up front, with the remedy.
+wrangle_check_pins_finalized() {
+    "$SCRIPT_DIR/check_pin_main_history.sh" >/dev/null 2>&1 && return 0
+    printf 'cut_release: the self-ref pins are not on main'"'"'s first-parent history.\n' >&2
+    printf '\n  An in-PR converge pins branch commits; only a post-merge bump can reach\n' >&2
+    printf '  first-parent history. Run the finalize, open it as a PR, merge it as a\n' >&2
+    printf '  MERGE COMMIT (not a squash), then cut at that commit:\n\n' >&2
+    printf '    tools/finalize_pins.sh\n\n' >&2
+    return 1
+}
+
 # Dispatch the Release Gate on the target and poll it. A locally-run preflight
 # cannot substitute: the pin gates read origin/main's history, so a stale or
 # shallow checkout can produce a confident false green.
@@ -121,6 +133,7 @@ wrangle_cut_release() {
         target="$(git -C "$REPO_ROOT" rev-parse origin/main)"
     fi
     wrangle_check_target_on_main "$target"
+    wrangle_check_pins_finalized "$target"
     wrangle_release_gate_green "$target"
     wrangle_confirm "$version" "$target"
 
