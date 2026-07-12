@@ -314,6 +314,34 @@ EOF
     grep -qF "# main 2099-12-31" .github/workflows/a.yml
 }
 
+@test "bump_action_pins: labels as 'main' via origin/main when the local main is stale" {
+    # The footgun: a throwaway worktree's local `main` lags the remote, so a
+    # target already merged upstream misses the local ancestry test and gets the
+    # cleanup branch's name. Preferring origin/main labels it correctly.
+    git checkout -q -b main 2>/dev/null || git checkout -q main
+    local stale_local; stale_local="$(git rev-parse HEAD)"
+    # A bare "remote" whose main carries a commit the local main doesn't have.
+    local remote="$TEST_DIR/remote.git"
+    git init -q --bare "$remote"
+    git remote add origin "$remote"
+    git commit --allow-empty -q -m "merged upstream"
+    target_sha="$(git rev-parse HEAD)"
+    git push -q origin main
+    # Rewind the local main behind the remote to simulate the stale worktree.
+    git reset -q --hard "$stale_local"
+    git fetch -q origin
+    git checkout -q -b cleanup-branch
+    cat > .github/workflows/a.yml <<EOF
+jobs:
+  build:
+    uses: TomHennen/wrangle/build/actions/python@aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
+EOF
+    unset WRANGLE_PINS_BRANCH
+    run "$SCRIPT" "$target_sha"
+    [[ "$status" -eq 0 ]]
+    grep -qF "# main 2099-12-31" .github/workflows/a.yml
+}
+
 @test "bump_action_pins: labels as current branch when target SHA is NOT on main" {
     # Setup: main with one commit, feature branch with an additional commit.
     # Run the script targeting the feature-branch-only commit.

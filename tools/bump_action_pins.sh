@@ -30,10 +30,12 @@
 #   WRANGLE_PINS_REPO   — repo prefix to match (default: TomHennen/wrangle)
 #   WRANGLE_PINS_BRANCH — branch label to write into the comment.
 #                         Default detection (in order):
-#                           1. If target_sha is reachable from `main` (i.e.,
-#                              already merged), use `main`. This makes
-#                              post-merge cleanup runs label correctly even
-#                              when the cleanup happens on a temporary branch.
+#                           1. If target_sha is reachable from the default
+#                              branch (i.e. already merged), use its name. The
+#                              remote-tracking ref (`origin/main`) is preferred
+#                              over the local branch, which a throwaway worktree
+#                              often lacks or leaves stale, so a post-merge
+#                              cleanup run on a temporary branch labels correctly.
 #                           2. Else use the current branch
 #                              (`git symbolic-ref --short HEAD`).
 #                           3. Else (detached HEAD) fall back to "main".
@@ -76,9 +78,20 @@ if [[ ! "$target_sha" =~ ^[0-9a-f]{40}$ ]]; then
 fi
 
 default_branch="${WRANGLE_PINS_DEFAULT_BRANCH:-main}"
+# Prefer the remote-tracking ref: a throwaway worktree's local default branch is
+# often stale or absent, so a target already merged to origin would otherwise
+# miss the ancestry test and get mislabeled with the current branch's name.
+default_branch_ref=""
+for cand in "origin/$default_branch" "$default_branch"; do
+    if git -C "$REPO_ROOT" rev-parse --verify --quiet "$cand^{commit}" >/dev/null; then
+        default_branch_ref="$cand"
+        break
+    fi
+done
 if [[ -n "${WRANGLE_PINS_BRANCH:-}" ]]; then
     branch_label="$WRANGLE_PINS_BRANCH"
-elif git -C "$REPO_ROOT" merge-base --is-ancestor "$target_sha" "$default_branch" >/dev/null 2>&1; then
+elif [[ -n "$default_branch_ref" ]] \
+    && git -C "$REPO_ROOT" merge-base --is-ancestor "$target_sha" "$default_branch_ref" >/dev/null 2>&1; then
     # Target is already on the default branch — e.g., the operator branched
     # off main to refresh pins after a merge. Label as the default branch
     # rather than the cleanup branch's name, which would be misleading.
