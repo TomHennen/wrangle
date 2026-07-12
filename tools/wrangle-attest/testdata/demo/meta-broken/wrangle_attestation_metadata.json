@@ -1,0 +1,4 @@
+{
+  "predicate-type": "https://example.com/not-a-known-predicate/v1",
+  "result-file": "output.sarif"
+}

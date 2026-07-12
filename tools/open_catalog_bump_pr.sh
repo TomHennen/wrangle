@@ -6,16 +6,16 @@ set -f
 #
 # Runs after bump_catalog_to_latest.sh in the post-publish workflow: it takes the
 # already-modified tools/catalog.json in the working tree, commits it to a
-# dedicated bot branch, converges the self-ref pins onto that commit, and opens a
-# PR (or force-updates the existing one, so a rolling publish keeps a single PR
-# rather than piling up). No-op when the catalog is unchanged. First-party
-# rebuilds are cooldown-exempt (§11), so the PR is meant to be reviewed and merged
-# on CI/review latency, not held for the 7-day community-vetting delay. Uses git +
-# the gh CLI with the ambient GITHUB_TOKEN.
+# dedicated bot branch, and opens a PR (or force-updates the existing one, so a
+# rolling publish keeps a single PR rather than piling up). No-op when the catalog
+# is unchanged. First-party rebuilds are cooldown-exempt (§11), so the PR is meant
+# to be reviewed and merged on CI/review latency, not held for the 7-day
+# community-vetting delay. Uses git + the gh CLI with the ambient GITHUB_TOKEN.
 #
-# The convergence step is required: check_pin_freshness folds tools/catalog.json
-# into every pin's scope, so a catalog-only commit stales the consumers until the
-# pins are re-bumped onto it.
+# The commit carries tools/catalog.json and nothing else: GITHUB_TOKEN cannot push
+# .github/workflows/** (that needs the `workflows` scope, which no `permissions:`
+# block can grant), so pin convergence — which rewrites those files — is a human
+# step on the PR (`make converge-action-pins`) rather than part of this script.
 #
 # Setup requirement: the repository must have "Allow GitHub Actions to create and
 # approve pull requests" enabled, or `gh pr create` with GITHUB_TOKEN fails.
@@ -28,8 +28,6 @@ BASE="${WRANGLE_AUTOBUMP_BASE:-main}"
 CATALOG_REL="tools/catalog.json"
 BOT_NAME="github-actions[bot]"
 BOT_EMAIL="41898282+github-actions[bot]@users.noreply.github.com"
-
-SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
 pr_title() {
     printf 'chore(catalog): bump curated tool-image digests to :latest'
@@ -51,11 +49,14 @@ CI/review latency to keep the catalog current.
 Adopter-override entries (a foreign namespace) are never touched here; those
 pins stay adopter-owned.
 
-**Merge as a merge commit, not a squash.** Beyond the catalog bump this PR carries
-self-ref pin-convergence commits (one per nesting level); squashing re-orphans the
-intermediate pins. The `# <branch>` pin labels are relabelled `# main` at release.
+**Before merging, converge the pins.** This PR bumps `tools/catalog.json` only, so
+`check_pin_freshness` is red by design: the catalog is in every self-ref pin's
+scope, and a bot cannot push the `.github/workflows/**` edits a convergence makes.
+Check the digests out, run `make converge-action-pins`, and push the resulting
+commits to this branch — then merge it as a **merge commit, not a squash**, or the
+intermediate pins re-orphan.
 
-Refs #619, #596.
+Refs #619, #596, #767.
 BODY
 }
 
@@ -102,18 +103,10 @@ main() {
     fi
     : "${WRANGLE_AUTOBUMP_GH_REPO:?set WRANGLE_AUTOBUMP_GH_REPO (owner/repo)}"
 
-    # Set the bot identity at repo scope: the catalog commit and every
-    # converge_action_pins.sh pin commit (which commits with no inline identity)
-    # both need it, and the CI checkout configures none.
-    git config user.name "$BOT_NAME"
-    git config user.email "$BOT_EMAIL"
-
     git switch -C "$BRANCH" >/dev/null 2>&1 || { printf 'open_catalog_bump_pr: could not create branch %s\n' "$BRANCH" >&2; return 2; }
     git add "$CATALOG_REL"
-    git commit -m "$(pr_title)" >/dev/null || { printf 'open_catalog_bump_pr: commit failed\n' >&2; return 2; }
-    # The catalog commit stales every pin (freshness folds tools/catalog.json into
-    # each pin's scope); converge re-bumps them onto it so the PR passes freshness.
-    "$SCRIPT_DIR/converge_action_pins.sh" || { printf 'open_catalog_bump_pr: pin convergence failed\n' >&2; return 2; }
+    git -c "user.name=$BOT_NAME" -c "user.email=$BOT_EMAIL" \
+        commit -m "$(pr_title)" >/dev/null || { printf 'open_catalog_bump_pr: commit failed\n' >&2; return 2; }
     push_branch || { printf 'open_catalog_bump_pr: push failed\n' >&2; return 2; }
     open_or_update_pr || { printf 'open_catalog_bump_pr: gh pr open failed\n' >&2; return 2; }
 }

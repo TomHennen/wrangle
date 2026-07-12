@@ -3,7 +3,7 @@
 # from the pinned tools/go.mod (manifest-preserving — keeps vuln scanning of its
 # deps) and runs its adapter as the contract entrypoint:
 #   docker run <image> <src> <output>  ->  <output>/output.sarif, exit 0/1/2
-# Build context is the repo root (the build needs tools/go.mod + tools/wrangle-lint).
+# Build context is the repo root (the build needs tools/go.mod + tools/wrangle-lint + lib/).
 FROM golang:1.26.4@sha256:32c0e6e5c4f6707717051091b4d0b077464a679eaab563e11474efc5328e2aa5 AS build
 WORKDIR /src
 COPY tools/ ./tools/
@@ -17,6 +17,7 @@ RUN apk add --no-cache bash jq ca-certificates \
  && adduser -D -u 1000 wrangle
 COPY --from=build /out/wrangle-lint /usr/local/bin/wrangle-lint
 COPY tools/wrangle-lint/adapter.sh /wrangle/tools/wrangle-lint/adapter.sh
+COPY lib/sarif_adapter_exit.sh /wrangle/lib/sarif_adapter_exit.sh
 ENV HOME=/tmp
 USER wrangle
 ENTRYPOINT ["/wrangle/tools/wrangle-lint/adapter.sh"]

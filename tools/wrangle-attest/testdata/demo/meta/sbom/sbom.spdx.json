@@ -1,0 +1,13 @@
+{
+  "spdxVersion": "SPDX-2.3",
+  "SPDXID": "SPDXRef-DOCUMENT",
+  "name": "wrangle-demo-0.1.0",
+  "packages": [
+    {
+      "SPDXID": "SPDXRef-Package-wrangle",
+      "name": "wrangle",
+      "versionInfo": "0.1.0",
+      "licenseDeclared": "Apache-2.0"
+    }
+  ]
+}

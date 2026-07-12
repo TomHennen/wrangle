@@ -175,7 +175,7 @@ runs:
     # produced — see issue #189.
     - name: Upload OSV SARIF
       if: always() && contains(inputs.tools, 'osv')
-      uses: github/codeql-action/upload-sarif@8aad20d150bbac5944a9f9d289da16a4b0d87c1e # v4.36.2
+      uses: github/codeql-action/upload-sarif@54f647b7e1bb85c95cddabcd46b0c578ec92bc1a # v4.36.3
       continue-on-error: true
       with:
         sarif_file: ${{ github.workspace }}/.wrangle/metadata/osv/output.sarif
@@ -183,7 +183,7 @@ runs:
 
     - name: Upload wrangle-lint SARIF
       if: always() && contains(inputs.tools, 'wrangle-lint')
-      uses: github/codeql-action/upload-sarif@8aad20d150bbac5944a9f9d289da16a4b0d87c1e # v4.36.2
+      uses: github/codeql-action/upload-sarif@54f647b7e1bb85c95cddabcd46b0c578ec92bc1a # v4.36.3
       continue-on-error: true
       with:
         sarif_file: ${{ github.workspace }}/.wrangle/metadata/wrangle-lint/output.sarif
@@ -191,7 +191,7 @@ runs:
 
     - name: Upload Zizmor SARIF
       if: always() && contains(inputs.tools, 'zizmor')
-      uses: github/codeql-action/upload-sarif@8aad20d150bbac5944a9f9d289da16a4b0d87c1e # v4.36.2
+      uses: github/codeql-action/upload-sarif@54f647b7e1bb85c95cddabcd46b0c578ec92bc1a # v4.36.3
       continue-on-error: true
       with:
         sarif_file: ${{ github.workspace }}/.wrangle/metadata/zizmor/output.sarif
@@ -210,7 +210,7 @@ runs:
     # failure. Gating on the marker preserves the prior valid state.
     - name: Upload Dependency Review SARIF
       if: always() && contains(inputs.tools, 'dependency-review') && github.event_name == 'pull_request' && hashFiles('.wrangle/metadata/dependency-review/error') == ''
-      uses: github/codeql-action/upload-sarif@8aad20d150bbac5944a9f9d289da16a4b0d87c1e # v4.36.2
+      uses: github/codeql-action/upload-sarif@54f647b7e1bb85c95cddabcd46b0c578ec92bc1a # v4.36.3
       continue-on-error: true
       with:
         sarif_file: ${{ github.workspace }}/.wrangle/metadata/dependency-review/output.sarif
