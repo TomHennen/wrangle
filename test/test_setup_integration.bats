@@ -29,10 +29,17 @@ setup() {
     [ "$status" -eq 0 ]
 }
 
-@test "setup_integration: guards the Go tool install with a go.sum-digest stamp" {
+@test "setup_integration: guards the Go tool install with a build-inputs stamp" {
     # A restored CI binary cache (build_shell.yml cache-setup-tools) must skip
-    # the rebuild: the install runs only when the stamp is absent or stale.
+    # the rebuild only when go.sum AND the in-repo tool sources are unchanged:
+    # wrangle-attest/wrangle-lint compile from the checkout, so a source-only
+    # change must invalidate the stamp or a stale binary serves the tests.
     run grep -F '.go-tools.stamp' "$SETUP"
+    [ "$status" -eq 0 ]
+    run grep -F "find \"\$REPO_ROOT/tools\" -type f -name '*.go'" "$SETUP"
+    [ "$status" -eq 0 ]
+    # The workflow cache key must invalidate on the same inputs as the stamp.
+    run grep -F "format('{0}/**/*.go', inputs.go-tools-dir)" "$REPO_ROOT/.github/workflows/build_shell.yml"
     [ "$status" -eq 0 ]
 }
 

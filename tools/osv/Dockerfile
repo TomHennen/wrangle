@@ -17,9 +17,9 @@ RUN apk add --no-cache bash jq ca-certificates \
  && adduser -D -u 1000 wrangle
 COPY --from=build /out/osv-scanner /usr/local/bin/osv-scanner
 # Preserve the tools/osv + lib layout the adapter expects
-# (adapter.sh -> render_md.sh -> ../../lib/sanitize.sh).
+# (adapter.sh -> ../../lib/sarif_adapter_exit.sh, render_md.sh -> ../../lib/sanitize.sh).
 COPY tools/osv/adapter.sh tools/osv/render_md.sh /wrangle/tools/osv/
-COPY lib/sanitize.sh /wrangle/lib/sanitize.sh
+COPY lib/sanitize.sh lib/sarif_adapter_exit.sh /wrangle/lib/
 ENV HOME=/tmp
 USER wrangle
 ENTRYPOINT ["/wrangle/tools/osv/adapter.sh"]
