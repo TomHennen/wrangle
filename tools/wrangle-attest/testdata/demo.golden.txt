@@ -1,5 +1,6 @@
 wrangle-attest demo run
-mode: offline + real keyless signing (public Rekor entries published)
+signing is real: --sign signs against public-good Sigstore, which writes a
+public Rekor transparency-log entry under the signing identity.
 signatures, Fulcio certs and Rekor entries are never printed: they differ
 every run. Everything below is deterministic.
 
