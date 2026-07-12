@@ -21,7 +21,8 @@ func (r *metadataRoots) Set(v string) error {
 // single artifact subject, builds one Statement per manifest, and writes them
 // all to --out as JSONL. With --sign each statement is keyless-signed (one
 // shared signer, so the OIDC+Fulcio flow runs once) and the Sigstore bundle is
-// emitted; without it the statements are emitted unsigned. The file is written
+// emitted; without it the statements are emitted unsigned. With --statement it
+// instead signs one existing statement file verbatim. The file is written
 // whole (buffer first) so a mid-run failure — including a Fulcio error on the
 // Nth statement — never leaves a partial/unsigned bundle on disk.
 func run(args []string, stderr io.Writer) int {
@@ -34,10 +35,18 @@ func run(args []string, stderr io.Writer) int {
 	artifact := fs.String("artifact", "", "file to self-digest into the sha256 subject (alternative to --subject)")
 	commit := fs.String("commit", "", "scanned git commit, woven into the scan/v1 envelope only")
 	sign := fs.Bool("sign", false, "keyless-sign each statement and emit the Sigstore bundle")
+	statement := fs.String("statement", "", "existing in-toto statement file to sign verbatim (requires --sign)")
 	out := fs.String("out", "", "file the in-toto JSONL statements are written to")
 
 	if err := fs.Parse(args); err != nil {
 		return 2
+	}
+
+	if *statement != "" {
+		if err := validateStatementMode(roots, *subject, *artifact, *commit, *sign, *out); err != nil {
+			return failClosed(stderr, err)
+		}
+		return signStatementFile(*statement, *out, stderr)
 	}
 
 	subjectArg, err := resolveSubject(*subject, *artifact)
@@ -127,4 +136,51 @@ func validateFlags(roots []string, subject, out string) error {
 		return fmt.Errorf("--out is required")
 	}
 	return nil
+}
+
+func validateStatementMode(roots []string, subject, artifact, commit string, sign bool, out string) error {
+	if len(roots) > 0 || subject != "" || artifact != "" || commit != "" {
+		return fmt.Errorf("--statement cannot be combined with --metadata-root, --subject, --artifact, or --commit")
+	}
+	if !sign {
+		return fmt.Errorf("--statement requires --sign")
+	}
+	if out == "" {
+		return fmt.Errorf("--out is required")
+	}
+	return nil
+}
+
+// signStatementFile signs an existing statement file. The raw file bytes are
+// the DSSE payload verbatim — never re-marshaled or normalized.
+func signStatementFile(path, out string, stderr io.Writer) int {
+	raw, err := os.ReadFile(path)
+	if err != nil {
+		return failClosed(stderr, fmt.Errorf("statement: %w", err))
+	}
+	// Early-out before the signer does TUF/OIDC work; SignStatement itself
+	// validates that the payload is an in-toto statement.
+	if len(bytes.TrimSpace(raw)) == 0 {
+		return failClosed(stderr, fmt.Errorf("statement file is empty: %s", path))
+	}
+
+	sg, closeFn, err := newSigner()
+	if err != nil {
+		return failClosed(stderr, err)
+	}
+	defer closeFn()
+
+	line, err := sg.sign(raw)
+	if err != nil {
+		return failClosed(stderr, err)
+	}
+
+	var buf bytes.Buffer
+	buf.Write(line)
+	buf.WriteByte('\n')
+	if err := os.WriteFile(out, buf.Bytes(), 0o644); err != nil {
+		return failClosed(stderr, err)
+	}
+	fmt.Fprintf(stderr, "wrangle-attest: wrote signed statement to %s\n", out)
+	return 0
 }
