@@ -124,3 +124,9 @@ release-preflight:
 # (cut-release Phase 2). Usage: make bump-version-refs VERSION=v0.4.0
 bump-version-refs:
 	@./tools/bump_version_refs.sh $(VERSION)
+
+# Cut a release tag. Dispatches the Release Gate on the target and refuses to
+# tag unless it is green; requires a hand-written notes file and an interactive
+# confirmation. Usage: make cut-release VERSION=v0.4.0 NOTES=release-notes.md
+cut-release:
+	@./tools/cut_release.sh $(VERSION) $(NOTES)
