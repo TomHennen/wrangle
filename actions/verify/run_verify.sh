@@ -49,7 +49,7 @@ wrangle_resolve_policy() {
     esac
 }
 
-# Shared build-metadata primitives, also used by the attest job: wrangle_retry_once,
+# Shared build-metadata primitives, also used by the attest job:
 # wrangle_push_store, wrangle_push_oci_referrer, wrangle_read_subjects.
 # shellcheck source=../../lib/sign_metadata.sh
 source "$LIB_DIR/sign_metadata.sh"
@@ -70,60 +70,47 @@ source "$LIB_DIR/resolve_subjects.sh"
 
 WRANGLE_CATALOG="${WRANGLE_CATALOG:-$REPO_ROOT/tools/catalog.json}"
 
-# Emit the ampel subject flag for one subject, one arg per line. A digest-form
-# subject (algo:hex, e.g. a container) passes through; a file subject is hashed
-# to sha256 ourselves and passed as --subject-hash so the VSA subject carries a
-# single sha256 digest — ampel's file hasher emits sha256+sha512, but the GitHub
-# attestation store rejects a multi-digest subject.
-wrangle_subject_arg() {
-    local subject="$1" digest
+# Build the wrangle-attest verify arg vector (one arg per line for mapfile).
+# $1 = subject; $2 = signed-VSA output; $3 = the attest-assembled per-artifact
+# bundle (provenance + that subject's SBOM/scan), which the engine feeds to the
+# policy as ampel's jsonl: collector — so the verdict and VSA cover those
+# tenets — and appends the signed VSA to. COLLECTOR (when set, e.g. container's
+# oci:) is an additional collector. A digest-form subject passes through (the
+# engine accepts sha256 only); a file subject is self-digested by the engine.
+wrangle_engine_verify_args() {
+    local subject="$1" out="$2" bundle="$3"
+    local args=(verify)
     if [[ "$subject" =~ ^[a-z0-9]+:[a-f0-9]+$ ]]; then
-        printf -- '--subject=%s\n' "$subject"
-        return 0
+        args+=(--subject="$subject")
+    else
+        args+=(--artifact="$subject")
     fi
-    # A missing/unreadable subject file must fail closed, not yield an empty hash.
-    digest="$(sha256sum "$subject")" || return 1
-    printf -- '--subject-hash=sha256:%s\n' "${digest%% *}"
-}
-
-# Build the ampel verify arg vector (one arg per line for mapfile). $1 = subject;
-# $2 = unsigned-VSA output; $3 = the attest-assembled per-artifact bundle
-# (provenance + that subject's SBOM/scan), fed as a jsonl: collector so the
-# verdict (and VSA) cover those tenets. COLLECTOR (when set, e.g. container's
-# oci:) is an additional collector. Must be a collector, not --attestation (which
-# parses only one statement; the bundle is multi-line).
-wrangle_ampel_verify_args() {
-    local subject="$1" results_path="$2" bundle="$3"
-    # Capture (not process-substitute) so a subject-hashing failure aborts.
-    local subject_arg
-    subject_arg="$(wrangle_subject_arg "$subject")"
-    local args=(verify "$subject_arg"
-        --collector="jsonl:$bundle")
-    [[ -n "${COLLECTOR:-}" ]] && args+=(--collector="$COLLECTOR")
     # shellcheck disable=SC2153 # env-var inputs; the sourced validate script's lowercase locals trip the misspelling heuristic
     args+=(--policy="$(wrangle_resolve_policy "$POLICY")"
-        --exit-code="$FAIL"
-        --attest-results
-        --attest-format=vsa
-        --results-path="$results_path")
-    [[ -n "${CONTEXT:-}" ]] && args+=(--context "$CONTEXT")
-    [[ -n "${ATTESTATION:-}" ]] && args+=(--attestation "$ATTESTATION")
-    args+=(--format=html)
+        --bundle="$bundle"
+        --fail="$FAIL"
+        --out="$out")
+    [[ -n "${COLLECTOR:-}" ]] && args+=(--collector="$COLLECTOR")
+    [[ -n "${CONTEXT:-}" ]] && args+=(--context="$CONTEXT")
+    [[ -n "${ATTESTATION:-}" ]] && args+=(--attestation="$ATTESTATION")
     printf '%s\n' "${args[@]}"
 }
 
-# Build the bnd statement argument vector that signs a VSA in place.
-wrangle_bnd_sign_args() {
-    printf '%s\n' statement "$1"
-}
-
-# Run ampel verify in the VSA-gated toolbox image. The bundle, results path, and
-# (relative) BUNDLE_OUT ride the workspace/temp mounts; only the policy dir needs
-# an extra mount — a disk policy resolves under the action checkout, outside the
-# workspace (a *://* locator is fetched, not read). An oci: collector reads
-# attestations from ghcr, so it also gets the job's registry login and token.
-wrangle_ampel() {
-    local policy
+# Verify one subject in the VSA-gated toolbox image: wrangle-attest verify
+# execs the in-image ampel against the policy, fail-closes unless ampel's exit
+# code and the emitted VSA agree on the verdict, signs the VSA (step-local
+# SIGSTORE_ID_TOKEN threaded by name), writes the signed line to $2, and
+# appends it to the bundle at $3 — one container run, so an unsigned VSA never
+# leaves the engine process. Only the policy dir needs an extra mount — a disk
+# policy resolves under the action checkout, outside the workspace (a *://*
+# locator is fetched, not read). An oci: collector reads attestations from
+# ghcr, so the run also gets the job's registry login and token; the engine
+# strips the signing token from ampel's environment. The engine retries the
+# ampel exec and the signer retries Sigstore I/O, so no retry wraps this run.
+wrangle_engine_verify() {
+    local subject="$1" out="$2" bundle="$3"
+    local args policy
+    mapfile -t args < <(wrangle_engine_verify_args "$subject" "$out" "$bundle")
     policy="$(wrangle_resolve_policy "$POLICY")"
     local -a extra=()
     case "$policy" in
@@ -131,56 +118,20 @@ wrangle_ampel() {
         *)     extra+=(--mount "$(dirname "$policy")") ;;
     esac
     [[ -n "${COLLECTOR:-}" ]] && extra+=(--docker-config --env GITHUB_TOKEN)
-    wrangle_toolbox_exec "${extra[@]}" -- ampel "$@"
-}
-
-# ampel verify one subject -> unsigned VSA at $2, streaming the report to the
-# step summary. $1 is the subject; $3 the attest-assembled bundle fed to the
-# policy as the jsonl collector.
-wrangle_verify_emit_vsa() {
-    local subject="$1" results_path="$2" bundle="$3"
-    local args report rc=0
-    mapfile -t args < <(wrangle_ampel_verify_args "$subject" "$results_path" "$bundle")
-    # Fail closed: an aborted arg builder (e.g. a subject file we couldn't hash)
-    # yields a short/empty vector, never a silently mis-verified subject.
-    if [[ "${args[0]:-}" != "verify" || "${args[1]:-}" != --subject* ]]; then
-        printf 'wrangle: could not build ampel args for %s\n' "$subject" >&2
-        return 2
-    fi
-
-    # Capture the report to a file before sanitizing: ampel's --exit-code carries
-    # the policy verdict, and piping straight into the truncating sanitizer could
-    # SIGPIPE ampel and flip a PASS into a blocked release.
+    # Capture the report (the engine's stdout) to a file before sanitizing:
+    # piping straight into the truncating sanitizer could SIGPIPE the engine
+    # and flip a PASS into a blocked release.
+    local report rc=0
     report="$(mktemp)"
-    wrangle_retry_once "$report" wrangle_ampel "${args[@]}" || rc=$?
+    wrangle_toolbox_exec --sigstore "${extra[@]}" -- \
+        wrangle-attest "${args[@]}" > "$report" || rc=$?
     wrangle_sanitize_output < "$report" >> "$GITHUB_STEP_SUMMARY"
     # The step summary is easy to miss, so echo a failed report to the job log.
     if [[ "$rc" -ne 0 ]]; then
-        printf 'wrangle: ampel verification failed for %s (exit %s):\n' "$subject" "$rc" >&2
+        printf 'wrangle: verification failed for %s (exit %s):\n' "$subject" "$rc" >&2
         cat "$report" >&2
     fi
     rm -f "$report"
-    return "$rc"
-}
-
-# bnd-sign the unsigned VSA at $1 in place (in the toolbox container, minting a
-# step-local SIGSTORE_ID_TOKEN threaded by name); the signed statement lands at $1.
-wrangle_sign_vsa() {
-    local vsa="$1"
-    local args
-    mapfile -t args < <(wrangle_bnd_sign_args "$vsa.unsigned")
-    mv "$vsa" "$vsa.unsigned"
-    local rc=0
-    wrangle_retry_once "$vsa" wrangle_toolbox_exec \
-        --sigstore -- bnd "${args[@]}" || rc=$?
-    rm -f "$vsa.unsigned"
-    # bnd can exit 0 yet emit nothing; an empty output would silently append no
-    # VSA line to the bundle (jq -c on empty input yields nothing). Fail closed,
-    # matching the attest side (lib/sign_metadata.sh).
-    if [[ "$rc" -eq 0 && ! -s "$vsa" ]]; then
-        printf 'wrangle: VSA signing produced no output for %s\n' "$vsa" >&2
-        return 1
-    fi
     return "$rc"
 }
 
@@ -234,15 +185,12 @@ wrangle_run() {
         # When BUNDLE_OUT == BUNDLE_IN (the metadata dir) the bundle is already in
         # place; otherwise stage attest's copy so the VSA appends to it.
         [[ "$src" -ef "$bundle" ]] || cp "$src" "$bundle"
-        # Verify against the policy, feeding the bundle (provenance + SBOM/scan) as
-        # the jsonl collector so the verdict/VSA cover those tenets.
-        wrangle_verify_emit_vsa "$subject" "$tmp_vsa" "$bundle"
-        wrangle_sign_vsa "$tmp_vsa"
-        # Flatten bnd's pretty statement to one JSON line: appended to the bundle,
-        # posted to the store, and pushed alone as the OCI referrer (cosign attach
-        # rejects multi-line).
+        # Verify against the policy, sign the VSA, and append it to the bundle;
+        # the signed line also lands at tmp_vsa for the pushes below.
+        wrangle_engine_verify "$subject" "$tmp_vsa" "$bundle"
+        # One statement per line for the store push and the OCI referrer (cosign
+        # attach rejects multi-line); jq -c also fail-closes on a non-JSON line.
         jq -c . "$tmp_vsa" > "$vsa_line"
-        cat "$vsa_line" >> "$bundle"
         wrangle_push_store "$vsa_line"
         wrangle_push_bundle "$vsa_line"
     done

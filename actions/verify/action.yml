@@ -1,7 +1,7 @@
 # The PolicySet mandates the signer identities of every input attestation
 # (common.identities), so verification is fail-closed with no --signer flag to
-# forget. bnd signs each VSA keyless via the CALLING workflow's OIDC identity;
-# consumers verify with cosign --certificate-identity-regexp.
+# forget. wrangle-attest signs each VSA keyless via the CALLING workflow's OIDC
+# identity; consumers verify with cosign --certificate-identity-regexp.
 #
 # Caller permissions: id-token: write (sign); attestations: write (post each VSA
 # to the GitHub attestation store); packages: write only with oci-target. The

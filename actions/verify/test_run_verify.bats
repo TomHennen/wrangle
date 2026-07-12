@@ -3,29 +3,31 @@
 # Tests for actions/verify/run_verify.sh
 #
 # The arg-builder functions are validated against the shape the real
-# ampel/bnd/cosign CLIs accept. Full keyless bnd signing needs OIDC and cannot
-# run offline, so the sign path is checked at the argument-vector level only;
-# the emit and run paths are exercised end-to-end with tiny ampel/bnd/cosign
-# stubs on PATH to confirm the per-subject verify -> sign -> append-VSA plumbing
-# (verify appends the VSA to the attest-assembled bundle; assembly itself is
-# tested in test/test_sign_metadata.bats).
+# wrangle-attest/bnd/cosign CLIs accept. Full keyless signing needs OIDC and
+# cannot run offline, so the verify path is exercised end-to-end with a tiny
+# wrangle-attest stub on PATH that honors the engine's verify contract (signed
+# line at --out, appended to --bundle, report on stdout); the engine's own
+# verdict protocol is covered by go test ./wrangle-attest/. bnd/cosign stubs
+# cover the push plumbing (verify appends the VSA to the attest-assembled
+# bundle; assembly itself is tested in test/test_sign_metadata.bats).
 #
 # skip_or_fail (fail-not-skip under CI) lives in a shared bats helper. The real
-# ampel/bnd/cosign are installed only in the `integration (real binaries)` job,
-# so a skip there means coverage silently degraded; the unit suite has no real
-# binaries and skips these by design.
+# ampel/bnd/cosign/wrangle-attest are installed only in the `integration (real
+# binaries)` job, so a skip there means coverage silently degraded; the unit
+# suite has no real binaries and skips these by design.
 load "../../test/lib/bats_helpers"
 
 setup() {
     SCRIPT="$(cd "$(dirname "$BATS_TEST_FILENAME")" && pwd)/run_verify.sh"
     TEST_DIR="$(mktemp -d)"
 
-    # Discover the real ampel/bnd wherever they're installed (PATH or the
-    # action's WRANGLE_BIN_DIR), so the integration assertions actually run in
-    # any job that built the tools and skip only when they're genuinely absent.
+    # Discover the real tools wherever they're installed (PATH or the action's
+    # WRANGLE_BIN_DIR), so the integration assertions actually run in any job
+    # that built the tools and skip only when they're genuinely absent.
     AMPEL_BIN="$(command -v ampel || echo "${WRANGLE_BIN_DIR:-/nonexistent}/ampel")"
     BND_BIN="$(command -v bnd || echo "${WRANGLE_BIN_DIR:-/nonexistent}/bnd")"
     COSIGN_BIN="$(command -v cosign || echo "${WRANGLE_BIN_DIR:-/nonexistent}/cosign")"
+    WATTEST_BIN="$(command -v wrangle-attest || echo "${WRANGLE_BIN_DIR:-/nonexistent}/wrangle-attest")"
 
     export SUBJECTS=$'dist/app-1.2.3.tgz'
     export POLICY="policies/release.json"
@@ -49,8 +51,8 @@ setup() {
 
     # shellcheck source=run_verify.sh
     source "$SCRIPT"
-    # wrangle_verify_emit_vsa uses wrangle_sanitize_output, which run() sources
-    # at runtime; load it here so the direct-call emit tests have it too.
+    # wrangle_engine_verify uses wrangle_sanitize_output, which run() sources
+    # at runtime; load it here so the direct-call report tests have it too.
     # shellcheck source=../../lib/sanitize.sh
     source "$(cd "$(dirname "$BATS_TEST_FILENAME")/../../lib" && pwd)/sanitize.sh"
     # Signing/verify always containerizes; make the toolbox path transparent so
@@ -68,7 +70,7 @@ teardown() {
 
 @test "run_verify: a policy locator passes through unresolved" {
     export POLICY="git+https://github.com/o/r@abc123#policies/x.hjson"
-    mapfile -t args < <(wrangle_ampel_verify_args "sha256:abc" "$VSA" "$TEST_DIR/b.jsonl")
+    mapfile -t args < <(wrangle_engine_verify_args "sha256:abc" "$VSA" "$TEST_DIR/b.jsonl")
     printf '%s\n' "${args[@]}" | grep -qx -- "--policy=git+https://github.com/o/r@abc123#policies/x.hjson"
 }
 
@@ -77,134 +79,74 @@ teardown() {
     # double-prefixed to $REPO_ROOT/abs/… and ampel would read the wrong file),
     # so it gets its own guard distinct from the locator case.
     export POLICY="/etc/wrangle/policy.hjson"
-    mapfile -t args < <(wrangle_ampel_verify_args "sha256:abc" "$VSA" "$TEST_DIR/b.jsonl")
+    mapfile -t args < <(wrangle_engine_verify_args "sha256:abc" "$VSA" "$TEST_DIR/b.jsonl")
     printf '%s\n' "${args[@]}" | grep -qx -- "--policy=/etc/wrangle/policy.hjson"
 }
 
-# --- subject arg (single-sha256 subject) ---
+# --- engine arg vector ---
 
-@test "run_verify: subject_arg hashes a file subject to a single sha256 --subject-hash" {
-    # The store rejects a multi-digest subject; passing the file as a precomputed
-    # sha256 hash keeps the VSA subject single-digest (ampel's file hasher would
-    # otherwise add sha512).
-    printf 'CONTENT\n' > "$TEST_DIR/blob"
-    local want; want="$(sha256sum "$TEST_DIR/blob" | cut -d' ' -f1)"
-    run wrangle_subject_arg "$TEST_DIR/blob"
-    [[ "$status" -eq 0 ]]
-    [[ "$output" == "--subject-hash=sha256:$want" ]]
-}
-
-@test "run_verify: subject_arg passes a digest subject through as --subject" {
-    # A container subject is already a digest; ampel synthesizes a single-digest
-    # descriptor from it, so it needs no re-hashing.
-    run wrangle_subject_arg "sha256:0000000000000000000000000000000000000000000000000000000000000000"
-    [[ "$status" -eq 0 ]]
-    [[ "$output" == "--subject=sha256:0000000000000000000000000000000000000000000000000000000000000000" ]]
-}
-
-@test "run_verify: subject_arg fails closed on an unreadable file subject" {
-    run wrangle_subject_arg "$TEST_DIR/does-not-exist.tgz"
-    [[ "$status" -ne 0 ]]
-}
-
-# --- ampel arg vector ---
-
-@test "run_verify: ampel args carry the core verify flags for the given subject" {
-    mapfile -t args < <(wrangle_ampel_verify_args "sha256:abc123" "$VSA" "$TEST_DIR/b.jsonl")
+@test "run_verify: engine args carry the core verify flags for the given subject" {
+    mapfile -t args < <(wrangle_engine_verify_args "sha256:abc123" "$VSA" "$TEST_DIR/b.jsonl")
     [[ "${args[0]}" == "verify" ]]
     printf '%s\n' "${args[@]}" | grep -qx -- "--subject=sha256:abc123"
-    printf '%s\n' "${args[@]}" | grep -qx -- "--collector=jsonl:$TEST_DIR/b.jsonl"
+    # The bundle rides --bundle: the engine feeds it to the policy as the
+    # jsonl: collector AND appends the signed VSA to it.
+    printf '%s\n' "${args[@]}" | grep -qx -- "--bundle=$TEST_DIR/b.jsonl"
     # A relative policy path is resolved to an absolute path under the action's checkout.
     printf '%s\n' "${args[@]}" | grep -qE -- "^--policy=/.*/policies/release\.json$"
-    printf '%s\n' "${args[@]}" | grep -qx -- "--exit-code=true"
-    printf '%s\n' "${args[@]}" | grep -qx -- "--attest-results"
-    printf '%s\n' "${args[@]}" | grep -qx -- "--attest-format=vsa"
-    printf '%s\n' "${args[@]}" | grep -qx -- "--results-path=$VSA"
-    printf '%s\n' "${args[@]}" | grep -qx -- "--format=html"
+    printf '%s\n' "${args[@]}" | grep -qx -- "--fail=true"
+    printf '%s\n' "${args[@]}" | grep -qx -- "--out=$VSA"
 }
 
-@test "run_verify: ampel args omit context and attestation when empty" {
-    mapfile -t args < <(wrangle_ampel_verify_args "sha256:abc" "$VSA" "$TEST_DIR/b.jsonl")
-    if printf '%s\n' "${args[@]}" | grep -qx -- "--context"; then return 1; fi
-    if printf '%s\n' "${args[@]}" | grep -qx -- "--attestation"; then return 1; fi
+@test "run_verify: engine args pass a file subject as --artifact for the engine to self-digest" {
+    # The store rejects a multi-digest subject; the engine self-digests the
+    # file to the single sha256 and hands ampel a precomputed --subject-hash.
+    mapfile -t args < <(wrangle_engine_verify_args "$TEST_DIR/dist/app.tgz" "$VSA" "$TEST_DIR/b.jsonl")
+    printf '%s\n' "${args[@]}" | grep -qx -- "--artifact=$TEST_DIR/dist/app.tgz"
+    if printf '%s\n' "${args[@]}" | grep -q -- "--subject="; then return 1; fi
 }
 
-@test "run_verify: ampel args include context and attestation when set" {
+@test "run_verify: engine args omit collector, context, and attestation when empty" {
+    mapfile -t args < <(wrangle_engine_verify_args "sha256:abc" "$VSA" "$TEST_DIR/b.jsonl")
+    if printf '%s\n' "${args[@]}" | grep -q -- "--collector"; then return 1; fi
+    if printf '%s\n' "${args[@]}" | grep -q -- "--context"; then return 1; fi
+    if printf '%s\n' "${args[@]}" | grep -q -- "--attestation"; then return 1; fi
+}
+
+@test "run_verify: engine args include collector, context, and attestation when set" {
+    # Container: COLLECTOR (the oci: referrer collector) is additional — the
+    # engine always feeds the bundle itself as the jsonl: collector.
+    export COLLECTOR="oci:registry.example/img@sha256:abc"
     export CONTEXT="buildPoint:git+https://github.com/o/r"
     export ATTESTATION="att.intoto.json"
-    mapfile -t args < <(wrangle_ampel_verify_args "sha256:abc" "$VSA" "$TEST_DIR/b.jsonl")
-    # --context is followed by its value as a separate argument
-    found_ctx=0
-    for i in "${!args[@]}"; do
-        if [[ "${args[$i]}" == "--context" && "${args[$((i+1))]}" == "$CONTEXT" ]]; then
-            found_ctx=1
-        fi
-        if [[ "${args[$i]}" == "--attestation" && "${args[$((i+1))]}" == "$ATTESTATION" ]]; then
-            found_att=1
-        fi
-    done
-    [[ "$found_ctx" -eq 1 ]]
-    [[ "${found_att:-0}" -eq 1 ]]
-}
-
-@test "run_verify: ampel args feed the per-artifact bundle to the policy as a jsonl collector" {
-    # The provenance + SBOM/scan tenets fail closed unless ampel evaluates the
-    # policy against the attest-assembled bundle, so the verdict (and VSA) must
-    # cover it. It must be a jsonl: collector, not --attestation: the bundle is
-    # multi-statement JSONL and --attestation parses only a single statement.
-    local bundle="$TEST_DIR/b.jsonl"
-    mapfile -t args < <(wrangle_ampel_verify_args "sha256:abc" "$VSA" "$bundle")
-    printf '%s\n' "${args[@]}" | grep -qx -- "--collector=jsonl:$bundle"
-    # The bundle is never routed through --attestation (single-statement only).
-    if printf '%s\n' "${args[@]}" | grep -qx -- "--attestation"; then return 1; fi
-}
-
-@test "run_verify: ampel args carry only the bundle collector when COLLECTOR is empty" {
-    # go/npm/python: the bundle is the sole collector.
-    export COLLECTOR=""
-    mapfile -t args < <(wrangle_ampel_verify_args "sha256:abc" "$VSA" "$TEST_DIR/b.jsonl")
-    [[ "$(printf '%s\n' "${args[@]}" | grep -c -- "--collector=")" -eq 1 ]]
-}
-
-@test "run_verify: ampel args carry both the bundle collector and COLLECTOR when set" {
-    # Container: the bundle collector and the oci: referrer collector coexist
-    # (ampel --collector is repeatable), so neither shadows the other.
-    export COLLECTOR="oci:registry.example/img@sha256:abc"
-    local bundle="$TEST_DIR/b.jsonl"
-    mapfile -t args < <(wrangle_ampel_verify_args "sha256:abc" "$VSA" "$bundle")
-    [[ "$(printf '%s\n' "${args[@]}" | grep -c -- "--collector=")" -eq 2 ]]
+    mapfile -t args < <(wrangle_engine_verify_args "sha256:abc" "$VSA" "$TEST_DIR/b.jsonl")
     printf '%s\n' "${args[@]}" | grep -qx -- "--collector=$COLLECTOR"
-    printf '%s\n' "${args[@]}" | grep -qx -- "--collector=jsonl:$bundle"
+    printf '%s\n' "${args[@]}" | grep -qx -- "--context=$CONTEXT"
+    printf '%s\n' "${args[@]}" | grep -qx -- "--attestation=$ATTESTATION"
 }
 
-@test "run_verify: ampel arg vector is accepted by the real ampel parser" {
-    # The real ampel rejects an unknown flag with a non-"subject" error; a bad
-    # subject means every flag in our vector parsed. Confirms the flag names
-    # match the installed CLI without needing real attestations.
-    if [[ ! -x "$AMPEL_BIN" ]]; then skip_or_fail "real ampel not available"; fi
-    mapfile -t args < <(wrangle_ampel_verify_args "sha256:abc" "$VSA" "$TEST_DIR/b.jsonl")
-    run "$AMPEL_BIN" "${args[@]}"
+@test "run_verify: engine args carry fail=false through (warn mode)" {
+    export FAIL="false"
+    mapfile -t args < <(wrangle_engine_verify_args "sha256:abc" "$VSA" "$TEST_DIR/b.jsonl")
+    printf '%s\n' "${args[@]}" | grep -qx -- "--fail=false"
+}
+
+@test "run_verify: engine arg vector drives the real engine into the real ampel" {
+    # End-to-end over the exec seam with the real binaries: the engine parses
+    # our vector, execs the real ampel (a bogus policy makes it fail after flag
+    # parsing), and reports the ampel failure — so any flag drift would surface
+    # as "not defined" (engine) or "unknown flag" (ampel) instead.
+    if [[ ! -x "$WATTEST_BIN" || ! -x "$AMPEL_BIN" ]]; then skip_or_fail "real wrangle-attest/ampel not available"; fi
+    export POLICY="$TEST_DIR/no-such-policy.hjson"
+    printf '{"provenance":1}\n' > "$TEST_DIR/b.jsonl"
+    local sha; sha="$(printf '0%.0s' {1..64})"
+    mapfile -t args < <(wrangle_engine_verify_args "sha256:$sha" "$TEST_DIR/vsa.out" "$TEST_DIR/b.jsonl")
+    PATH="$(dirname "$AMPEL_BIN"):$PATH" WRANGLE_RETRY_DELAY=0 run "$WATTEST_BIN" "${args[@]}"
     [[ "$status" -ne 0 ]]
+    [[ "$output" == *"ampel verify failed"* ]]
+    [[ "$output" != *"not defined"* ]]
     [[ "$output" != *"unknown flag"* ]]
     [[ "$output" != *"unknown shorthand"* ]]
-}
-
-# --- bnd arg vector ---
-
-@test "run_verify: bnd sign args are 'statement <unsigned-path>'" {
-    mapfile -t args < <(wrangle_bnd_sign_args "$VSA.unsigned")
-    [[ "${args[0]}" == "statement" ]]
-    [[ "${args[1]}" == "$VSA.unsigned" ]]
-    [[ "${#args[@]}" -eq 2 ]]
-}
-
-@test "run_verify: bnd sign args name a real bnd subcommand" {
-    if [[ ! -x "$BND_BIN" ]]; then skip_or_fail "real bnd not available"; fi
-    # `bnd statement --help` proves the subcommand exists without triggering
-    # the keyless signing flow (which blocks on OIDC offline).
-    run "$BND_BIN" statement --help
-    [[ "$status" -eq 0 ]]
-    [[ "$output" == *"in-toto attestation"* ]]
 }
 
 # --- cosign arg vectors (VSA referrer push) ---
@@ -262,7 +204,7 @@ teardown() {
     [[ "$output" == *"no subjects"* ]]
 }
 
-# Emit a bnd-signed metadata JSONL line: a DSSE bundle whose decoded payload
+# Emit a signed metadata JSONL line: a DSSE bundle whose decoded payload
 # binds subject sha256 $1 and predicateType $2 — the shape the attest job's
 # assembled bundle carries.
 _signed_meta_line() {
@@ -367,19 +309,19 @@ STUB
 
 # --- emit path plumbing (stubbed ampel) ---
 
-@test "run_verify: emit pipes ampel output through the HTML sanitizer" {
-    # Stub ampel emits HTML so we can confirm tags are stripped on the way to
-    # the summary (real ampel needs valid attestations to produce a report).
-    cat > "$TEST_DIR/ampel" <<'STUB'
+@test "run_verify: the engine report pipes through the HTML sanitizer to the summary" {
+    # Stub engine emits HTML (ampel's report passes through its stdout) so we
+    # can confirm tags are stripped on the way to the summary.
+    cat > "$TEST_DIR/wrangle-attest" <<'STUB'
 #!/bin/bash
 printf '<h1>PASS</h1><script>x</script>RESULT\n'
 STUB
-    chmod +x "$TEST_DIR/ampel"
+    chmod +x "$TEST_DIR/wrangle-attest"
     export PATH="$TEST_DIR:$PATH"
     export GITHUB_STEP_SUMMARY="$TEST_DIR/summary.md"
     : > "$GITHUB_STEP_SUMMARY"
 
-    run wrangle_verify_emit_vsa "sha256:abc" "$VSA" "$TEST_DIR/b.jsonl"
+    run wrangle_engine_verify "sha256:abc" "$VSA" "$TEST_DIR/b.jsonl"
     [[ "$status" -eq 0 ]]
     summary="$(cat "$GITHUB_STEP_SUMMARY")"
     [[ "$summary" == *"PASS"* ]]
@@ -388,38 +330,41 @@ STUB
     [[ "$summary" != *"<script>"* ]]
 }
 
-@test "run_verify: emit preserves a PASS verdict when the report exceeds the summary cap" {
-    # Regression: a >MAX_SUMMARY report must not SIGPIPE the sanitizer and flip
+@test "run_verify: a PASS verdict survives a report exceeding the summary cap" {
+    # Regression: a >MAX_SUMMARY report must not SIGPIPE the engine and flip
     # a passing verdict into a blocked release.
-    cat > "$TEST_DIR/ampel" <<'STUB'
+    cat > "$TEST_DIR/wrangle-attest" <<'STUB'
 #!/bin/bash
 head -c 200000 /dev/zero | tr '\0' 'a'
 exit 0
 STUB
-    chmod +x "$TEST_DIR/ampel"
+    chmod +x "$TEST_DIR/wrangle-attest"
     export PATH="$TEST_DIR:$PATH"
     export GITHUB_STEP_SUMMARY="$TEST_DIR/summary.md"
     : > "$GITHUB_STEP_SUMMARY"
 
-    run wrangle_verify_emit_vsa "sha256:abc" "$VSA" "$TEST_DIR/b.jsonl"
+    run wrangle_engine_verify "sha256:abc" "$VSA" "$TEST_DIR/b.jsonl"
     [[ "$status" -eq 0 ]]
     # Summary is truncated to the cap, but the verdict still passed.
     [[ "$(wc -c < "$GITHUB_STEP_SUMMARY")" -le 65536 ]]
 }
 
-@test "run_verify: emit propagates a failing ampel exit code" {
-    cat > "$TEST_DIR/ampel" <<'STUB'
+@test "run_verify: a failing engine exit code propagates and echoes the report to the log" {
+    cat > "$TEST_DIR/wrangle-attest" <<'STUB'
 #!/bin/bash
-printf 'FAILED\n'
+printf 'FAILED-REPORT\n'
 exit 1
 STUB
-    chmod +x "$TEST_DIR/ampel"
+    chmod +x "$TEST_DIR/wrangle-attest"
     export PATH="$TEST_DIR:$PATH"
     export GITHUB_STEP_SUMMARY="$TEST_DIR/summary.md"
     : > "$GITHUB_STEP_SUMMARY"
 
-    run wrangle_verify_emit_vsa "sha256:abc" "$VSA" "$TEST_DIR/b.jsonl"
+    run wrangle_engine_verify "sha256:abc" "$VSA" "$TEST_DIR/b.jsonl"
     [[ "$status" -ne 0 ]]
+    # The failed report is echoed to the job log, not just the easy-to-miss summary.
+    [[ "$output" == *"verification failed for sha256:abc"* ]]
+    [[ "$output" == *"FAILED-REPORT"* ]]
 }
 
 @test "run_verify: run rejects an input that fails validation (fail-closed)" {
@@ -446,28 +391,43 @@ _stage_bundle() {
     } > "$BUNDLE_IN/$name"
 }
 
-@test "run_verify: run verifies, signs, and appends one VSA line per subject" {
-    # Stub ampel/bnd so each subject produces a deterministic signed line; the
-    # completed bundle = the attest-assembled bundle plus one appended VSA.
-    cat > "$TEST_DIR/ampel" <<STUB
+# A wrangle-attest stub honoring the engine's verify contract: the signed VSA
+# line (echoing back the subject digest so tests can prove which subject
+# reached the bundle and the store) lands at --out AND is appended to --bundle;
+# the report goes to stdout. Records every argv in $TEST_DIR/engine-args. The
+# real engine can't run here (keyless signing needs OIDC/network); its verdict
+# protocol is covered by go test ./wrangle-attest/.
+_stub_engine_verify() {
+    cat > "$TEST_DIR/wrangle-attest" <<STUB
 #!/bin/bash
-# Emit a one-line JSON unsigned VSA naming the subject, where --results-path points.
-# File subjects are hashed by run_verify to --subject-hash; echo that back so the
-# test can prove the per-subject VSA reached the bundle and the store.
-subj=""
-for a in "\$@"; do case "\$a" in --subject-hash=*) subj="\${a#--subject-hash=}";; --subject=*) subj="\${a#--subject=}";; esac; done
-for a in "\$@"; do case "\$a" in --results-path=*) printf '{"unsigned":"%s"}\n' "\$subj" > "\${a#--results-path=}";; esac; done
+printf '%s\n' "\$@" >> "$TEST_DIR/engine-args"
+[[ "\$1" == "verify" ]] || { echo "non-verify engine invocation: \$1" >&2; exit 97; }
+subj="" out="" bundle=""
+for a in "\$@"; do case "\$a" in
+    --subject=*)  subj="\${a#--subject=}" ;;
+    --artifact=*) subj="sha256:\$(sha256sum "\${a#--artifact=}" | cut -d' ' -f1)" ;;
+    --out=*)      out="\${a#--out=}" ;;
+    --bundle=*)   bundle="\${a#--bundle=}" ;;
+esac; done
+printf '{"signed":{"unsigned":"%s"}}\n' "\$subj" > "\$out"
+cat "\$out" >> "\$bundle"
 printf 'report\n'
 STUB
-    # bnd "signs" (statement) by wrapping the unsigned statement over two lines
-    # (so the jq -c flatten in run is load-bearing); "push" records the VSA it
-    # was handed so the test can prove the signed statement reached the store.
+    chmod +x "$TEST_DIR/wrangle-attest"
+    : > "$TEST_DIR/engine-args"
+}
+
+@test "run_verify: run verifies, signs, and appends one VSA line per subject" {
+    # Stub the engine so each subject produces a deterministic signed line; the
+    # completed bundle = the attest-assembled bundle plus one appended VSA.
+    _stub_engine_verify
+    # bnd handles only the store push; VSA signing never reaches it.
     cat > "$TEST_DIR/bnd" <<STUB
 #!/bin/bash
-if [[ "\$1" == "push" ]]; then cat "\$4" >> "$TEST_DIR/pushed"; exit 0; fi
-printf '{\n  "signed": '; cat "\$2"; printf '}\n'
+[[ "\$1" == "push" ]] || { echo "unexpected bnd verb: \$1" >&2; exit 96; }
+cat "\$4" >> "$TEST_DIR/pushed"
 STUB
-    chmod +x "$TEST_DIR/ampel" "$TEST_DIR/bnd"
+    chmod +x "$TEST_DIR/bnd"
     export PATH="$TEST_DIR:$PATH"
     export GITHUB_STEP_SUMMARY="$TEST_DIR/summary.md"
     : > "$GITHUB_STEP_SUMMARY"
@@ -507,29 +467,21 @@ STUB
     run jq -e . "$b"; [[ "$status" -eq 0 ]]
 }
 
-@test "run_verify: run feeds the attest-assembled bundle to ampel as the collector" {
-    # The bundle (provenance + signed SBOM/scan) is fed to ampel as the jsonl:
-    # collector so the verdict/VSA cover those tenets; the VSA is appended to it.
-    # A wrangle-attest stub that fails proves verify never re-signs metadata.
-    cat > "$TEST_DIR/ampel" <<STUB
-#!/bin/bash
-printf '%s\n' "\$@" >> "$TEST_DIR/ampel-args"
-for a in "\$@"; do case "\$a" in --results-path=*) printf '{"unsigned":1}\n' > "\${a#--results-path=}";; esac; done
-printf 'report\n'
-STUB
+@test "run_verify: run hands the engine the attest-assembled bundle, verify-mode only" {
+    # The bundle (provenance + signed SBOM/scan) rides --bundle so the engine
+    # feeds it to the policy and appends the VSA to it. Every engine invocation
+    # must be verify-mode (the stub hard-fails otherwise), proving verify never
+    # re-signs metadata via manifest/assemble mode.
+    _stub_engine_verify
     cat > "$TEST_DIR/bnd" <<STUB
 #!/bin/bash
-[[ "\$1" == "push" ]] && { cat "\$4" >> "$TEST_DIR/pushed"; exit 0; }
-printf '{"signed":'; cat "\$2"; printf '}\n'
+[[ "\$1" == "push" ]] || { echo "unexpected bnd verb: \$1" >&2; exit 96; }
+cat "\$4" >> "$TEST_DIR/pushed"
 STUB
-    cat > "$TEST_DIR/wrangle-attest" <<'STUB'
-#!/bin/bash
-exit 1
-STUB
-    chmod +x "$TEST_DIR/ampel" "$TEST_DIR/bnd" "$TEST_DIR/wrangle-attest"
+    chmod +x "$TEST_DIR/bnd"
     export PATH="$TEST_DIR:$PATH"
     export GITHUB_STEP_SUMMARY="$TEST_DIR/summary.md"; : > "$GITHUB_STEP_SUMMARY"
-    : > "$TEST_DIR/ampel-args"; : > "$TEST_DIR/pushed"
+    : > "$TEST_DIR/pushed"
     export OCI_TARGET=""
     local sha; sha="$(printf '0%.0s' {1..64})"
     export SUBJECTS="sha256:$sha"
@@ -537,8 +489,8 @@ STUB
 
     run "$SCRIPT" run
     [[ "$status" -eq 0 ]]
-    # ampel was handed the bundle as a jsonl: collector pointing at BUNDLE_OUT.
-    grep -qE -- "^--collector=jsonl:$BUNDLE_OUT/" "$TEST_DIR/ampel-args"
+    # The engine was handed the completed-bundle path under BUNDLE_OUT.
+    grep -qE -- "^--bundle=$BUNDLE_OUT/" "$TEST_DIR/engine-args"
     # The attest-signed metadata statement is preserved in the completed bundle.
     local bundle; bundle="$BUNDLE_OUT/$(ls "$BUNDLE_OUT")"
     grep -q '"dsseEnvelope"' "$bundle"
@@ -551,11 +503,12 @@ STUB
 @test "run_verify: run fails closed when a subject's attest-assembled bundle is missing" {
     # The attest job must have assembled this subject's bundle; a missing one is a
     # wiring/attest bug and must abort rather than emit a VSA-only bundle.
-    cat > "$TEST_DIR/ampel" <<'STUB'
+    cat > "$TEST_DIR/wrangle-attest" <<'STUB'
 #!/bin/bash
+echo "engine must not run without a staged bundle" >&2
 exit 1
 STUB
-    chmod +x "$TEST_DIR/ampel"
+    chmod +x "$TEST_DIR/wrangle-attest"
     export PATH="$TEST_DIR:$PATH"
     export GITHUB_STEP_SUMMARY="$TEST_DIR/summary.md"; : > "$GITHUB_STEP_SUMMARY"
     local sha; sha="$(printf '0%.0s' {1..64})"
@@ -564,21 +517,18 @@ STUB
     run "$SCRIPT" run
     [[ "$status" -ne 0 ]]
     [[ "$output" == *"missing or empty"* ]]
+    [[ "$output" != *"engine must not run"* ]]
 }
 
 @test "run_verify: run pushes only the VSA statement as the referrer for an OCI target" {
     # Container path: the attest-assembled bundle is appended with the VSA for the
     # workflow artifact, but only the lone signed VSA statement is pushed as the
     # by-digest referrer (cosign attach rejects a multi-line bundle).
-    cat > "$TEST_DIR/ampel" <<STUB
+    _stub_engine_verify
+    cat > "$TEST_DIR/bnd" <<'STUB'
 #!/bin/bash
-for a in "\$@"; do case "\$a" in --results-path=*) printf '{"vsa":1}\n' > "\${a#--results-path=}";; esac; done
-printf 'report\n'
-STUB
-    cat > "$TEST_DIR/bnd" <<STUB
-#!/bin/bash
-[[ "\$1" == "push" ]] && exit 0
-cat "\$2"
+[[ "$1" == "push" ]] && exit 0
+exit 96
 STUB
     # Record the attach file so the test can prove it was the single VSA statement.
     {
@@ -589,7 +539,7 @@ STUB
         printf 'fi\n'
         printf 'exit 0\n'
     } > "$TEST_DIR/cosign"
-    chmod +x "$TEST_DIR/ampel" "$TEST_DIR/bnd" "$TEST_DIR/cosign"
+    chmod +x "$TEST_DIR/bnd" "$TEST_DIR/cosign"
     export PATH="$TEST_DIR:$PATH"
     export GITHUB_STEP_SUMMARY="$TEST_DIR/summary.md"
     : > "$GITHUB_STEP_SUMMARY"
@@ -610,7 +560,7 @@ STUB
     # The referrer push got ONLY the lone VSA statement — a single line, no
     # provenance — so cosign attach accepts it.
     [[ "$(wc -l < "$TEST_DIR/attached")" -eq 1 ]]
-    grep -q '"vsa":1' "$TEST_DIR/attached"
+    grep -q "\"signed\":{\"unsigned\":\"sha256:$sha\"}" "$TEST_DIR/attached"
     ! grep -q 'dsseEnvelope' "$TEST_DIR/attached"
 }
 
@@ -618,22 +568,18 @@ STUB
     # The by-digest VSA referrer is the container consumer's discovery path, so a
     # failing cosign attach (after the one transient retry) must fail the verify
     # job — a missing by-digest VSA is a real delivery gap, not a nice-to-have.
-    cat > "$TEST_DIR/ampel" <<STUB
+    _stub_engine_verify
+    cat > "$TEST_DIR/bnd" <<'STUB'
 #!/bin/bash
-for a in "\$@"; do case "\$a" in --results-path=*) printf '{"vsa":1}\n' > "\${a#--results-path=}";; esac; done
-printf 'report\n'
-STUB
-    cat > "$TEST_DIR/bnd" <<STUB
-#!/bin/bash
-[[ "\$1" == "push" ]] && exit 0
-cat "\$2"
+[[ "$1" == "push" ]] && exit 0
+exit 96
 STUB
     cat > "$TEST_DIR/cosign" <<'STUB'
 #!/bin/bash
 [[ "$1" == "attach" ]] && exit 7
 exit 0
 STUB
-    chmod +x "$TEST_DIR/ampel" "$TEST_DIR/bnd" "$TEST_DIR/cosign"
+    chmod +x "$TEST_DIR/bnd" "$TEST_DIR/cosign"
     export PATH="$TEST_DIR:$PATH"
     export GITHUB_STEP_SUMMARY="$TEST_DIR/summary.md"
     : > "$GITHUB_STEP_SUMMARY"
@@ -1270,60 +1216,91 @@ EOF
     chmod +x "$TEST_DIR/gh"
 }
 
-@test "wrangle_ampel: runs ampel verify in the VSA-gated toolbox image on the egress bridge" {
+@test "wrangle_engine_verify: one VSA-gated toolbox run with a minted, name-threaded token" {
     _install_toolbox_shims
-    _stub_toolbox_catalog
-    PATH="$TEST_DIR:$PATH" run wrangle_ampel verify --policy=p
+    _stub_toolbox_catalog "$_toolbox_image" sigstore
+    _stub_mint_curl
+    export GITHUB_STEP_SUMMARY="$TEST_DIR/summary.md"; : > "$GITHUB_STEP_SUMMARY"
+    PATH="$TEST_DIR:$PATH" run wrangle_engine_verify "sha256:abc" "$VSA" "$TEST_DIR/b.jsonl"
     [ "$status" -eq 0 ]
     grep -q "toolbox-image VSA verified PASSED" <<< "$output"
     grep -q -- "--network bridge" "$TEST_DIR/docker.args"
-    grep -q -- "$_toolbox_image ampel verify" "$TEST_DIR/docker.args"
+    grep -q -- "$_toolbox_image wrangle-attest verify" "$TEST_DIR/docker.args"
+    # The engine signs the VSA, so the sigstore token rides this run — threaded
+    # by NAME only, its value never on argv; the engine strips it from ampel's
+    # child env (asserted in go test ./wrangle-attest/).
+    grep -q -- "-e SIGSTORE_ID_TOKEN" "$TEST_DIR/docker.args"
+    ! grep -q "MINTED-SIGSTORE-JWT" "$TEST_DIR/docker.args"
+    # The mint-anything request vars NEVER enter the container.
+    ! grep -q "ACTIONS_ID_TOKEN_REQUEST" "$TEST_DIR/docker.args"
+    # No registry login token without an oci: collector.
+    ! grep -q -- "-e GITHUB_TOKEN" "$TEST_DIR/docker.args"
 }
 
-@test "wrangle_ampel: a non-PASSED toolbox VSA fails closed (no docker)" {
+@test "wrangle_engine_verify: a non-PASSED toolbox VSA fails closed (no docker)" {
     _install_toolbox_shims
-    _stub_toolbox_catalog
-    PATH="$TEST_DIR:$PATH" GH_FAIL=1 run wrangle_ampel verify
-    [ "$status" -eq 2 ]
+    _stub_toolbox_catalog "$_toolbox_image" sigstore
+    _stub_mint_curl
+    export GITHUB_STEP_SUMMARY="$TEST_DIR/summary.md"; : > "$GITHUB_STEP_SUMMARY"
+    PATH="$TEST_DIR:$PATH" GH_FAIL=1 run wrangle_engine_verify "sha256:abc" "$VSA" "$TEST_DIR/b.jsonl"
+    [ "$status" -ne 0 ]
     grep -q "verification failed" <<< "$output"
     [ ! -f "$TEST_DIR/docker.args" ]
 }
 
-@test "wrangle_ampel: a missing catalog toolbox image fails closed (no docker)" {
+@test "wrangle_engine_verify: a missing catalog grant fails closed before any dispatch (no docker)" {
     _install_toolbox_shims
     echo '{"tools":{}}' > "$TEST_DIR/catalog.json"
     export WRANGLE_CATALOG="$TEST_DIR/catalog.json"
-    PATH="$TEST_DIR:$PATH" run wrangle_ampel verify
-    [ "$status" -eq 2 ]
-    grep -q "no attest-toolbox image" <<< "$output"
+    export GITHUB_STEP_SUMMARY="$TEST_DIR/summary.md"; : > "$GITHUB_STEP_SUMMARY"
+    PATH="$TEST_DIR:$PATH" run wrangle_engine_verify "sha256:abc" "$VSA" "$TEST_DIR/b.jsonl"
+    [ "$status" -ne 0 ]
+    # The signing run mints first, so the empty catalog trips the token gate.
+    grep -q "capability required to sign" <<< "$output"
     [ ! -f "$TEST_DIR/docker.args" ]
 }
 
-@test "wrangle_ampel: a non-digest-pinned catalog image is rejected (no docker)" {
+@test "wrangle_engine_verify: a non-digest-pinned catalog image is rejected (no docker)" {
     _install_toolbox_shims
-    _stub_toolbox_catalog "ghcr.io/tomhennen/wrangle/attest-toolbox:latest"
-    PATH="$TEST_DIR:$PATH" run wrangle_ampel verify
-    [ "$status" -eq 2 ]
+    _stub_toolbox_catalog "ghcr.io/tomhennen/wrangle/attest-toolbox:latest" sigstore
+    _stub_mint_curl
+    export GITHUB_STEP_SUMMARY="$TEST_DIR/summary.md"; : > "$GITHUB_STEP_SUMMARY"
+    PATH="$TEST_DIR:$PATH" run wrangle_engine_verify "sha256:abc" "$VSA" "$TEST_DIR/b.jsonl"
+    [ "$status" -ne 0 ]
     grep -q "digest-pinned" <<< "$output"
     [ ! -f "$TEST_DIR/docker.args" ]
 }
 
-@test "wrangle_ampel: an OCI collector runs in-container with the job's registry auth" {
+@test "wrangle_engine_verify: an OCI collector adds the job's registry auth to the run" {
     _install_toolbox_shims
-    _stub_toolbox_catalog
+    _stub_toolbox_catalog "$_toolbox_image" sigstore
+    _stub_mint_curl
     export GITHUB_TOKEN="registry-token" HOME="$TEST_DIR"
     mkdir -p "$TEST_DIR/.docker"
+    export GITHUB_STEP_SUMMARY="$TEST_DIR/summary.md"; : > "$GITHUB_STEP_SUMMARY"
     PATH="$TEST_DIR:$PATH" COLLECTOR="oci:ghcr.io/x@sha256:abc" \
-        run wrangle_ampel verify --policy=p
+        run wrangle_engine_verify "sha256:abc" "$VSA" "$TEST_DIR/b.jsonl"
     [ "$status" -eq 0 ]
-    grep -q -- "$_toolbox_image ampel verify" "$TEST_DIR/docker.args"
-    # Registry read needs the job's ghcr login and token, no signing token.
+    grep -q -- "$_toolbox_image wrangle-attest verify" "$TEST_DIR/docker.args"
+    # Registry read needs the job's ghcr login and token by name, not value.
     grep -q -- "-e GITHUB_TOKEN" "$TEST_DIR/docker.args"
+    ! grep -q "registry-token" "$TEST_DIR/docker.args"
     grep -q -- "-e DOCKER_CONFIG=/wrangle/docker-config" "$TEST_DIR/docker.args"
-    ! grep -q -- "-e SIGSTORE_ID_TOKEN" "$TEST_DIR/docker.args"
 }
 
-@test "wrangle_ampel: WRANGLE_VERIFY_TOOL_IMAGES=0 skips the VSA gate for a Sigstore outage" {
+@test "wrangle_engine_verify: a failed token mint fails closed (no docker)" {
+    _install_toolbox_shims
+    _stub_toolbox_catalog "$_toolbox_image" sigstore
+    # Grant present but the ambient OIDC request vars absent -> mint fails.
+    unset ACTIONS_ID_TOKEN_REQUEST_URL ACTIONS_ID_TOKEN_REQUEST_TOKEN SIGSTORE_ID_TOKEN
+    export GITHUB_STEP_SUMMARY="$TEST_DIR/summary.md"; : > "$GITHUB_STEP_SUMMARY"
+    PATH="$TEST_DIR:$PATH" run wrangle_engine_verify "sha256:abc" "$VSA" "$TEST_DIR/b.jsonl"
+    [ "$status" -ne 0 ]
+    grep -q "lacks id-token: write" <<< "$output"
+    [ ! -f "$TEST_DIR/docker.args" ]
+}
+
+@test "wrangle_engine_verify: WRANGLE_VERIFY_TOOL_IMAGES=0 skips the VSA gate for a Sigstore outage" {
     # The sole path that dispatches without verifying — gh must never be consulted.
     cat > "$TEST_DIR/gh" <<EOF
 #!/bin/bash
@@ -1335,93 +1312,19 @@ EOF
 printf '%s\n' "\$*" > "$TEST_DIR/docker.args"
 EOF
     chmod +x "$TEST_DIR/docker"
-    _stub_toolbox_catalog
-    PATH="$TEST_DIR:$PATH" WRANGLE_VERIFY_TOOL_IMAGES=0 run wrangle_ampel verify --policy=p
+    _stub_toolbox_catalog "$_toolbox_image" sigstore
+    _stub_mint_curl
+    export GITHUB_STEP_SUMMARY="$TEST_DIR/summary.md"; : > "$GITHUB_STEP_SUMMARY"
+    PATH="$TEST_DIR:$PATH" WRANGLE_VERIFY_TOOL_IMAGES=0 run wrangle_engine_verify "sha256:abc" "$VSA" "$TEST_DIR/b.jsonl"
     [ "$status" -eq 0 ]
     grep -q "verification disabled by configuration" <<< "$output"
     [ ! -f "$TEST_DIR/gh.called" ]
-    grep -q -- "$_toolbox_image ampel verify" "$TEST_DIR/docker.args"
+    grep -q -- "$_toolbox_image wrangle-attest verify" "$TEST_DIR/docker.args"
 }
 
-@test "retry: ampel and the VSA sign both route through wrangle_retry_once" {
-    grep -q 'wrangle_retry_once "$report" wrangle_ampel' "$SCRIPT"
-    grep -q 'wrangle_retry_once "$vsa" wrangle_toolbox_exec' "$SCRIPT"
-}
-
-# ---- containerized VSA signing (bnd statement) ----
-
-@test "wrangle_sign_vsa: signs in-container with a minted, name-threaded token" {
-    _install_toolbox_shims
-    _stub_toolbox_catalog "$_toolbox_image" sigstore
-    _stub_mint_curl
-    printf 'unsigned-vsa\n' > "$VSA"
-    PATH="$TEST_DIR:$PATH" GITHUB_TOKEN=registry-token run wrangle_sign_vsa "$VSA"
-    [ "$status" -eq 0 ]
-    # The VSA gate ran, then bnd statement inside the toolbox image.
-    grep -q "toolbox-image VSA verified PASSED" <<< "$output"
-    grep -q -- "$_toolbox_image bnd statement" "$TEST_DIR/docker.args"
-    # The sigstore token is threaded by NAME only; its value is never on argv.
-    grep -q -- "-e SIGSTORE_ID_TOKEN" "$TEST_DIR/docker.args"
-    ! grep -q "MINTED-SIGSTORE-JWT" "$TEST_DIR/docker.args"
-    # The mint-anything request vars NEVER enter the container.
-    ! grep -q "ACTIONS_ID_TOKEN_REQUEST" "$TEST_DIR/docker.args"
-    # Signing needs no registry login token.
-    ! grep -q -- "-e GITHUB_TOKEN" "$TEST_DIR/docker.args"
-}
-
-@test "wrangle_sign_vsa: a missing token: sigstore grant fails closed (no docker, no in-job bnd)" {
-    _install_toolbox_shims
-    _stub_toolbox_catalog   # no token grant
-    _stub_mint_curl
-    cat > "$TEST_DIR/bnd" <<EOF
-#!/bin/bash
-touch "$TEST_DIR/bnd.called"
-EOF
-    chmod +x "$TEST_DIR/bnd"
-    printf 'unsigned-vsa\n' > "$VSA"
-    PATH="$TEST_DIR:$PATH" GITHUB_TOKEN=registry-token run wrangle_sign_vsa "$VSA"
-    [ "$status" -ne 0 ]
-    grep -q "capability required to sign" <<< "$output"
-    [ ! -f "$TEST_DIR/docker.args" ]
-    [ ! -f "$TEST_DIR/bnd.called" ]
-}
-
-@test "wrangle_sign_vsa: a non-PASSED toolbox VSA fails closed (no docker)" {
-    _install_toolbox_shims
-    _stub_toolbox_catalog "$_toolbox_image" sigstore
-    _stub_mint_curl
-    printf 'unsigned-vsa\n' > "$VSA"
-    PATH="$TEST_DIR:$PATH" GH_FAIL=1 GITHUB_TOKEN=registry-token run wrangle_sign_vsa "$VSA"
-    [ "$status" -ne 0 ]
-    [ ! -f "$TEST_DIR/docker.args" ]
-}
-
-@test "wrangle_sign_vsa: a failed token mint fails closed (no docker, no in-job bnd)" {
-    _install_toolbox_shims
-    _stub_toolbox_catalog "$_toolbox_image" sigstore
-    # Grant present but the ambient OIDC request vars absent -> mint fails.
-    unset ACTIONS_ID_TOKEN_REQUEST_URL ACTIONS_ID_TOKEN_REQUEST_TOKEN SIGSTORE_ID_TOKEN
-    cat > "$TEST_DIR/bnd" <<EOF
-#!/bin/bash
-touch "$TEST_DIR/bnd.called"
-EOF
-    chmod +x "$TEST_DIR/bnd"
-    printf 'unsigned-vsa\n' > "$VSA"
-    PATH="$TEST_DIR:$PATH" GITHUB_TOKEN=registry-token run wrangle_sign_vsa "$VSA"
-    [ "$status" -ne 0 ]
-    grep -q "lacks id-token: write" <<< "$output"
-    [ ! -f "$TEST_DIR/docker.args" ]
-    [ ! -f "$TEST_DIR/bnd.called" ]
-}
-
-@test "run_verify: sign_vsa fails closed when bnd emits no output" {
-    # bnd can exit 0 yet write nothing; an empty signed VSA would silently append
-    # no VSA line to the bundle (jq -c on empty input yields nothing).
-    local stub="$TEST_DIR/stubbin"; mkdir -p "$stub"
-    printf '#!/bin/bash\nexit 0\n' > "$stub/bnd"   # exit 0, empty stdout
-    chmod +x "$stub/bnd"
-    printf '{"unsigned":"vsa"}' > "$VSA"
-    PATH="$stub:$PATH" run wrangle_sign_vsa "$VSA"
-    [ "$status" -ne 0 ]
-    [[ "$output" == *"produced no output"* ]]
+@test "retry: the engine verify run is not wrapped in the in-shell retry" {
+    # The engine retries the ampel exec itself and the signer retries Sigstore
+    # I/O; an in-shell re-run after a torn bundle append could double-append.
+    # The push paths (lib/sign_metadata.sh) keep their wrangle_retry_once.
+    ! grep -q 'wrangle_retry_once' "$SCRIPT"
 }
