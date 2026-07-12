@@ -151,7 +151,7 @@ jobs:
       metadata-pre: ${{ steps.prep.outputs.metadata-pre }}
     steps:
       # TODO: replace with $/actions/prep when GitHub ships $/ syntax (#136)
-      - uses: TomHennen/wrangle/actions/prep@4c787f006ad44e642a91df79683b713125d78a57 # feat/482-vsa-sign-verify-flip 2026-07-12
+      - uses: TomHennen/wrangle/actions/prep@62244f27b831b608306fd3dbf6cdbeea775d8464 # feat/482-vsa-sign-verify-flip 2026-07-12
         id: prep
         with:
           build-type: npm
@@ -171,7 +171,7 @@ jobs:
       security-events: write
     steps:
       # TODO: replace with $/actions/scan when GitHub ships $/ syntax (#136)
-      - uses: TomHennen/wrangle/actions/scan@4c787f006ad44e642a91df79683b713125d78a57 # feat/482-vsa-sign-verify-flip 2026-07-12
+      - uses: TomHennen/wrangle/actions/scan@62244f27b831b608306fd3dbf6cdbeea775d8464 # feat/482-vsa-sign-verify-flip 2026-07-12
         if: ${{ inputs.scan-tools != '' }}
         with:
           checkout: "true"
@@ -205,7 +205,7 @@ jobs:
           ref: ${{ inputs.ref || '' }}
 
       # TODO: replace with $/build/actions/npm when GitHub ships $/ syntax (#136)
-      - uses: TomHennen/wrangle/build/actions/npm@4c787f006ad44e642a91df79683b713125d78a57 # feat/482-vsa-sign-verify-flip 2026-07-12
+      - uses: TomHennen/wrangle/build/actions/npm@62244f27b831b608306fd3dbf6cdbeea775d8464 # feat/482-vsa-sign-verify-flip 2026-07-12
         id: build
         with:
           path: ${{ inputs.path }}
@@ -282,7 +282,7 @@ jobs:
       bundles-artifact-name: ${{ steps.attest.outputs.bundles-artifact-name }}
     steps:
       # TODO: replace with $/actions/attest_provenance when GitHub ships $/ syntax (#136)
-      - uses: TomHennen/wrangle/actions/attest_provenance@4c787f006ad44e642a91df79683b713125d78a57 # feat/482-vsa-sign-verify-flip 2026-07-12
+      - uses: TomHennen/wrangle/actions/attest_provenance@62244f27b831b608306fd3dbf6cdbeea775d8464 # feat/482-vsa-sign-verify-flip 2026-07-12
         id: attest
         with:
           build-type: npm
@@ -304,7 +304,7 @@ jobs:
       attestations: write   # post each VSA to the GitHub attestation store
     steps:
       # TODO: replace with $/actions/verify_release when GitHub ships $/ syntax (#136)
-      - uses: TomHennen/wrangle/actions/verify_release@4c787f006ad44e642a91df79683b713125d78a57 # feat/482-vsa-sign-verify-flip 2026-07-12
+      - uses: TomHennen/wrangle/actions/verify_release@62244f27b831b608306fd3dbf6cdbeea775d8464 # feat/482-vsa-sign-verify-flip 2026-07-12
         with:
           build-type: npm
           shortname: ${{ needs.prep.outputs.shortname }}
@@ -331,7 +331,7 @@ jobs:
       contents: write   # create the release if absent and upload the asset set
     steps:
       # TODO: replace with $/actions/publish_release when GitHub ships $/ syntax (#136)
-      - uses: TomHennen/wrangle/actions/publish_release@4c787f006ad44e642a91df79683b713125d78a57 # feat/482-vsa-sign-verify-flip 2026-07-12
+      - uses: TomHennen/wrangle/actions/publish_release@62244f27b831b608306fd3dbf6cdbeea775d8464 # feat/482-vsa-sign-verify-flip 2026-07-12
         with:
           build-type: npm
           shortname: ${{ needs.prep.outputs.shortname }}
