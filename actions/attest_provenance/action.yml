@@ -73,8 +73,8 @@ runs:
         subject-path: ${{ inputs.subject-path }}
 
     # Normalize the signed provenance bundle to one JSON object per line — the
-    # shared seed every per-artifact bundle copies (ampel's jsonl: collector).
-    - name: Stage the provenance seed
+    # shared provenance every per-artifact bundle copies (ampel's jsonl: collector).
+    - name: Stage the provenance
       shell: bash
       env:
         BUNDLE_PATH: ${{ steps.attest.outputs.bundle-path }}

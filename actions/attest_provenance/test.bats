@@ -58,7 +58,7 @@ setup() {
     [ "$status" -eq 0 ]
 }
 
-@test "attest_provenance: stages the provenance seed for assembly" {
+@test "attest_provenance: stages the provenance for assembly" {
     run grep -F 'jq -c . "$BUNDLE_PATH" > "$RUNNER_TEMP/provenance.jsonl"' "$ACTION"
     [ "$status" -eq 0 ]
 }
@@ -83,7 +83,7 @@ setup() {
     [ "$status" -eq 0 ]
 }
 
-@test "attest_provenance: threads the seed (BUNDLE_IN) and output dir (BUNDLE_OUT) into the sign step" {
+@test "attest_provenance: threads the provenance (BUNDLE_IN) and output dir (BUNDLE_OUT) into the sign step" {
     run grep -F 'BUNDLE_IN: ${{ runner.temp }}/provenance.jsonl' "$ACTION"
     [ "$status" -eq 0 ]
     run grep -F 'BUNDLE_OUT: ${{ runner.temp }}/bundles' "$ACTION"
