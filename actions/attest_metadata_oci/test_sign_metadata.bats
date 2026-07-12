@@ -70,9 +70,9 @@ STUB
         BUNDLE_OUT="$TEST_DIR/bundles" GITHUB_REPOSITORY="o/r" COMMIT="abc123" \
         OCI_TARGET="ghcr.io/o/r/img@sha256:$sha" run "$SIGN"
     [ "$status" -eq 0 ]
-    # The raw referrers are handed to the engine, which filters them to the seed.
-    grep -qx -- "--seed-referrers=$TEST_DIR/seed.*" "$STUB_BIN/assemble-args"
-    # The bundle = provenance seed + signed metadata; one store push, one OCI attach.
+    # The raw referrers are handed to the engine, which filters them to the provenance.
+    grep -qx -- "--provenance-referrers=$TEST_DIR/provenance.*" "$STUB_BIN/assemble-args"
+    # The bundle = provenance + signed metadata; one store push, one OCI attach.
     local bundle="$TEST_DIR/bundles/sha256-$sha.intoto.jsonl"
     [ "$(wc -l < "$bundle")" -eq 2 ]
     [ "$(jq -r '.dsseEnvelope.payload | @base64d | fromjson | .predicateType' <(head -n1 "$bundle"))" = "https://slsa.dev/provenance/v1" ]

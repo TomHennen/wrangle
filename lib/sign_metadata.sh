@@ -13,7 +13,7 @@ source "$_SIGN_METADATA_DIR/toolbox_run.sh"
 # Source this to drive `wrangle-attest assemble` — which signs the build metadata
 # (SBOM + each scan/<tool>/ manifest it discovers under METADATA_ROOT) for every
 # subject and assembles one per-artifact <artifact>.intoto.jsonl bundle
-# (provenance seed + that subject's signed metadata) — and to deliver each signed
+# (provenance + that subject's signed metadata) — and to deliver each signed
 # statement to the GitHub attestation store and, for a container, the image's OCI
 # referrers. The attest job signs + assembles; the verify job appends the VSA.
 #
@@ -21,22 +21,22 @@ source "$_SIGN_METADATA_DIR/toolbox_run.sh"
 # (newline-separated dist file paths / sha256: digests), GITHUB_REPOSITORY (store
 # push target), GITHUB_TOKEN (bnd reads it to auth the store push), COMMIT
 # (scanned git commit woven into the scan/v1 envelope), BUNDLE_OUT, and one of
-# BUNDLE_IN / OCI_TARGET (the provenance seed source). wrangle-attest keyless-signs
+# BUNDLE_IN / OCI_TARGET (the provenance source). wrangle-attest keyless-signs
 # via the caller's OIDC identity.
 
 # Build the wrangle-attest arg vector (one arg per line for mapfile) that signs
 # every subject's build metadata and assembles the per-artifact bundles. $1 = the
-# subjects file; $2 = the provenance seed source; $3 = the signed-statements
-# output. With OCI_TARGET the seed is the image's raw attestation referrers, which
-# the engine filters to the provenance envelopes.
+# subjects file; $2 = the provenance source; $3 = the signed-statements output.
+# With OCI_TARGET the provenance is the image's raw attestation referrers, which
+# the engine filters to the SLSA provenance envelopes.
 wrangle_assemble_args() {
-    local seed_flag="--seed=$2"
-    [[ -n "${OCI_TARGET:-}" ]] && seed_flag="--seed-referrers=$2"
+    local provenance_flag="--provenance=$2"
+    [[ -n "${OCI_TARGET:-}" ]] && provenance_flag="--provenance-referrers=$2"
     printf '%s\n' \
         assemble \
         --metadata-root="${METADATA_ROOT:-}" \
         --subjects-file="$1" \
-        "$seed_flag" \
+        "$provenance_flag" \
         --commit="${COMMIT:-}" \
         --sign \
         --bundle-dir="$BUNDLE_OUT" \
@@ -86,21 +86,21 @@ wrangle_cosign_download_args() {
     printf '%s\n' download attestation "$1"
 }
 
-# Write the provenance seed source to $1, once per run: the image's raw
+# Write the provenance source to $1, once per run: the image's raw
 # attestation referrers (container, when OCI_TARGET is set — the engine filters
 # them to the SLSA provenance envelopes) or BUNDLE_IN (go/npm/python). Fails
-# closed on a missing seed.
-wrangle_seed_bundle() {
-    local seed="$1"
+# closed on a missing provenance.
+wrangle_stage_provenance() {
+    local provenance="$1"
     if [[ -n "${OCI_TARGET:-}" ]]; then
         local args
         mapfile -t args < <(wrangle_cosign_download_args "$OCI_TARGET")
         # Retry once like the toolbox's sibling downloads above: a transient
-        # blip on the seed download must not fail the whole attest job.
-        wrangle_retry_once "$seed" wrangle_toolbox_exec --docker-config --env GITHUB_TOKEN -- cosign "${args[@]}"
+        # blip on the provenance download must not fail the whole attest job.
+        wrangle_retry_once "$provenance" wrangle_toolbox_exec --docker-config --env GITHUB_TOKEN -- cosign "${args[@]}"
     else
-        [[ -s "$BUNDLE_IN" ]] || { printf 'wrangle: provenance seed %s missing or empty\n' "${BUNDLE_IN:-}" >&2; return 1; }
-        cp "$BUNDLE_IN" "$seed"
+        [[ -s "$BUNDLE_IN" ]] || { printf 'wrangle: provenance %s missing or empty\n' "${BUNDLE_IN:-}" >&2; return 1; }
+        cp "$BUNDLE_IN" "$provenance"
     fi
 }
 
@@ -113,25 +113,25 @@ wrangle_bundle_name() {
 
 # Sign every subject's build-metadata in the attest job and assemble one
 # per-artifact <artifact>.intoto.jsonl bundle into BUNDLE_OUT: the shared
-# provenance seed plus that subject's signed SBOM + scan/v1 lines. Each signed
+# provenance plus that subject's signed SBOM + scan/v1 lines. Each signed
 # line is then posted to the GitHub attestation store, and with OCI_TARGET set
 # (container) additionally pushed as its own by-digest OCI referrer. Persisted
 # independent of the policy verdict; the VSA stays in verify. wrangle-attest
 # assemble fails closed on a missing metadata dir, an empty subject set, an
-# unreadable provenance seed, a duplicate bundle basename, or a subject that
+# unreadable provenance, a duplicate bundle basename, or a subject that
 # yields no signed statement (the release SBOM is always present). Inputs (env):
 # METADATA_ROOT, SUBJECTS, GITHUB_REPOSITORY, GITHUB_TOKEN, COMMIT, BUNDLE_OUT,
-# one of BUNDLE_IN / OCI_TARGET (the seed source).
+# one of BUNDLE_IN / OCI_TARGET (the provenance source).
 wrangle_sign_and_assemble_bundles() {
-    local seed subjects_file stmts rc=0
-    seed="$(mktemp "${RUNNER_TEMP:-/tmp}/seed.XXXXXX")"
+    local provenance subjects_file stmts rc=0
+    provenance="$(mktemp "${RUNNER_TEMP:-/tmp}/provenance.XXXXXX")"
     subjects_file="$(mktemp "${RUNNER_TEMP:-/tmp}/subjects.XXXXXX")"
     stmts="$(mktemp "${RUNNER_TEMP:-/tmp}/attestmeta.XXXXXX")"
     printf '%s\n' "$SUBJECTS" > "$subjects_file"
 
     local args line
-    if wrangle_seed_bundle "$seed"; then
-        mapfile -t args < <(wrangle_assemble_args "$subjects_file" "$seed" "$stmts")
+    if wrangle_stage_provenance "$provenance"; then
+        mapfile -t args < <(wrangle_assemble_args "$subjects_file" "$provenance" "$stmts")
         wrangle_retry_once /dev/null wrangle_toolbox_exec \
             --sigstore -- wrangle-attest "${args[@]}" || rc=$?
     else
@@ -146,7 +146,7 @@ wrangle_sign_and_assemble_bundles() {
             wrangle_push_oci_referrer "$stmts.line"
         done < "$stmts"
     fi
-    rm -f "$stmts" "$stmts.line" "$seed" "$subjects_file"
+    rm -f "$stmts" "$stmts.line" "$provenance" "$subjects_file"
     return "$rc"
 }
 

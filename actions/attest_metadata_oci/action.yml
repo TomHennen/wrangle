@@ -3,7 +3,7 @@ description: >
   Sign the container build's SBOM + scan/v1 metadata in the attest job, push each
   signed statement to the GitHub attestation store AND as its own by-digest OCI
   referrer on the image, then assemble the image's <artifact>.intoto.jsonl bundle
-  (the provenance referrer seed + the signed metadata) and upload it as the
+  (the provenance referrer provenance + the signed metadata) and upload it as the
   bundles workflow artifact the verify job appends the VSA to (#550, #566). This
   is the container counterpart to the attest_provenance composite's bundle
   assembly: container publishes its attestations as OCI referrers, not via the
@@ -59,7 +59,7 @@ runs:
         GITHUB_REPOSITORY: ${{ github.repository }}
         # bnd push github authenticates to the attestation store with this token;
         # the attestations: write permission rides on it. cosign uses the job's
-        # ghcr login for the provenance-seed pull and the OCI referrer push
+        # ghcr login for the provenance pull and the OCI referrer push
         # (packages: write).
         GITHUB_TOKEN: ${{ github.token }}
       run: |

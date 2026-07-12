@@ -78,19 +78,19 @@ printf '%s\n' "\$@" > "$dir/assemble-args"
 EOF
     cat >> "$dir/wrangle-attest" <<'EOF'
 [[ "$1" == "assemble" ]] || exit 2
-subjects=""; seed=""; referrers=""; bundle_dir=""; stmts=""
+subjects=""; provenance=""; referrers=""; bundle_dir=""; stmts=""
 for a in "$@"; do case "$a" in
     --subjects-file=*)  subjects="${a#*=}" ;;
-    --seed=*)           seed="${a#*=}" ;;
-    --seed-referrers=*) referrers="${a#*=}" ;;
+    --provenance=*)           provenance="${a#*=}" ;;
+    --provenance-referrers=*) referrers="${a#*=}" ;;
     --bundle-dir=*)     bundle_dir="${a#*=}" ;;
     --statements-out=*) stmts="${a#*=}" ;;
 esac; done
 if [[ -n "$referrers" ]]; then
-    seed="$referrers.provenance"
+    provenance="$referrers.provenance"
     jq -ce 'select((.dsseEnvelope.payload | @base64d | fromjson | .predicateType) == "https://slsa.dev/provenance/v1")' \
-        "$referrers" > "$seed"
-    [[ -s "$seed" ]] || { printf 'stub: no SLSA provenance referrer\n' >&2; exit 2; }
+        "$referrers" > "$provenance"
+    [[ -s "$provenance" ]] || { printf 'stub: no SLSA provenance referrer\n' >&2; exit 2; }
 fi
 mkdir -p "$bundle_dir"
 : > "$stmts"
@@ -106,7 +106,7 @@ while IFS= read -r subject; do
     [[ -e "$bundle" ]] && { printf 'stub: duplicate bundle basename\n' >&2; exit 2; }
     payload="$(printf '{"predicateType":"https://spdx.dev/Document","subject":[{"digest":{"sha256":"%s"}}]}' "$digest" | base64 | tr -d '\n')"
     line="$(printf '{"dsseEnvelope":{"payload":"%s"}}' "$payload")"
-    cat "$seed" > "$bundle"
+    cat "$provenance" > "$bundle"
     printf '%s\n' "$line" >> "$bundle"
     printf '%s\n' "$line" >> "$stmts"
 done < "$subjects"

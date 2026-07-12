@@ -7,7 +7,7 @@
 #
 # The engine is stubbed (assemble requires --sign, whose keyless flow needs
 # OIDC/network; go test ./wrangle-attest/ covers its behavior), as are bnd and
-# cosign (store/OCI pushes need network). The pure helpers (seed, bundle-name,
+# cosign (store/OCI pushes need network). The pure helpers (provenance, bundle-name,
 # arg vectors) run with no real tools.
 load "lib/bats_helpers"
 
@@ -21,7 +21,7 @@ setup() {
     # shellcheck source=../lib/sign_metadata.sh
     source "$LIB"
     # Signing always containerizes; make the toolbox path transparent so the
-    # assemble/seed tests exercise their tool stubs. Recording-docker tests override.
+    # assemble/provenance tests exercise their tool stubs. Recording-docker tests override.
     wrangle_stub_toolbox_transparent
 }
 
@@ -80,11 +80,11 @@ STUB
 
 @test "sign_metadata: assemble args carry the metadata-root, subjects, commit, sign, bundle dir, and statements out" {
     export METADATA_ROOT="$TEST_DIR/meta" COMMIT="deadbeef" BUNDLE_OUT="$TEST_DIR/bundles" OCI_TARGET=""
-    mapfile -t args < <(wrangle_assemble_args "$TEST_DIR/subjects" "$TEST_DIR/seed" "$TEST_DIR/stmts")
+    mapfile -t args < <(wrangle_assemble_args "$TEST_DIR/subjects" "$TEST_DIR/provenance" "$TEST_DIR/stmts")
     [[ "${args[0]}" == "assemble" ]]
     printf '%s\n' "${args[@]}" | grep -qx -- "--metadata-root=$TEST_DIR/meta"
     printf '%s\n' "${args[@]}" | grep -qx -- "--subjects-file=$TEST_DIR/subjects"
-    printf '%s\n' "${args[@]}" | grep -qx -- "--seed=$TEST_DIR/seed"
+    printf '%s\n' "${args[@]}" | grep -qx -- "--provenance=$TEST_DIR/provenance"
     printf '%s\n' "${args[@]}" | grep -qx -- "--commit=deadbeef"
     printf '%s\n' "${args[@]}" | grep -qx -- "--sign"
     printf '%s\n' "${args[@]}" | grep -qx -- "--bundle-dir=$TEST_DIR/bundles"
@@ -94,43 +94,43 @@ STUB
 @test "sign_metadata: assemble args hand the raw referrers to the engine for an OCI target" {
     export METADATA_ROOT="$TEST_DIR/meta" BUNDLE_OUT="$TEST_DIR/bundles"
     export OCI_TARGET="ghcr.io/o/r/img@sha256:abc"
-    mapfile -t args < <(wrangle_assemble_args "$TEST_DIR/subjects" "$TEST_DIR/seed" "$TEST_DIR/stmts")
-    printf '%s\n' "${args[@]}" | grep -qx -- "--seed-referrers=$TEST_DIR/seed"
-    ! printf '%s\n' "${args[@]}" | grep -qx -- "--seed=$TEST_DIR/seed"
+    mapfile -t args < <(wrangle_assemble_args "$TEST_DIR/subjects" "$TEST_DIR/provenance" "$TEST_DIR/stmts")
+    printf '%s\n' "${args[@]}" | grep -qx -- "--provenance-referrers=$TEST_DIR/provenance"
+    ! printf '%s\n' "${args[@]}" | grep -qx -- "--provenance=$TEST_DIR/provenance"
 }
 
-# --- provenance seed ---
+# --- provenance ---
 
-@test "sign_metadata: seed copies BUNDLE_IN when no OCI target" {
+@test "sign_metadata: provenance copies BUNDLE_IN when no OCI target" {
     export BUNDLE_IN="$TEST_DIR/provenance.jsonl"
     printf 'PROVLINE\n' > "$BUNDLE_IN"
     export OCI_TARGET=""
-    local seed="$TEST_DIR/seed.jsonl"
-    wrangle_seed_bundle "$seed"
-    [[ "$(cat "$seed")" == "PROVLINE" ]]
+    local provenance="$TEST_DIR/provenance.jsonl"
+    wrangle_stage_provenance "$provenance"
+    [[ "$(cat "$provenance")" == "PROVLINE" ]]
     [[ "$(cat "$BUNDLE_IN")" == "PROVLINE" ]]
 }
 
-@test "sign_metadata: seed fails closed when BUNDLE_IN is missing or empty" {
+@test "sign_metadata: provenance fails closed when BUNDLE_IN is missing or empty" {
     export OCI_TARGET=""
     export BUNDLE_IN="$TEST_DIR/absent.jsonl"
-    run wrangle_seed_bundle "$TEST_DIR/seed.jsonl"
+    run wrangle_stage_provenance "$TEST_DIR/provenance.jsonl"
     [[ "$status" -ne 0 ]]
-    [[ "$output" == *"provenance seed"* ]]
+    [[ "$output" == *"provenance"* ]]
 }
 
-@test "sign_metadata: seed passes the image's raw attestation referrers through for an OCI target" {
+@test "sign_metadata: provenance passes the image's raw attestation referrers through for an OCI target" {
     # cosign download returns ALL referrers (a prior run may have left a VSA on the
-    # digest); the engine filters them to the provenance, so the seed is unfiltered.
+    # digest); the engine filters them to the provenance, so the provenance is unfiltered.
     {
         _dsse_line "https://slsa.dev/provenance/v1"
         _dsse_line "https://slsa.dev/verification_summary/v1"
     } > "$TEST_DIR/referrers.jsonl"
     _stub_cosign
     export OCI_TARGET="ghcr.io/o/r/img@sha256:0000000000000000000000000000000000000000000000000000000000000000"
-    local seed="$TEST_DIR/seed.jsonl"
-    wrangle_seed_bundle "$seed"
-    diff "$TEST_DIR/referrers.jsonl" "$seed"
+    local provenance="$TEST_DIR/provenance.jsonl"
+    wrangle_stage_provenance "$provenance"
+    diff "$TEST_DIR/referrers.jsonl" "$provenance"
 }
 
 # --- assemble bundles ---
@@ -148,7 +148,7 @@ STUB
     wrangle_stub_attest_assemble
 }
 
-@test "sign_metadata: assemble writes one bundle per subject (seed + signed metadata) and pushes each line to the store" {
+@test "sign_metadata: assemble writes one bundle per subject (provenance + signed metadata) and pushes each line to the store" {
     _stub_delivery_tools
     local meta="$TEST_DIR/meta"; mkdir -p "$meta"
     mkdir -p "$TEST_DIR/dist"
@@ -168,7 +168,7 @@ STUB
 
     local a="$BUNDLE_OUT/a.tgz.intoto.jsonl" b="$BUNDLE_OUT/b.tgz.intoto.jsonl"
     [[ -f "$a" && -f "$b" ]]
-    # Each bundle = the shared provenance seed + that subject's signed metadata.
+    # Each bundle = the shared provenance + that subject's signed metadata.
     [[ "$(head -n1 "$a")" == '{"provenance":1}' ]]
     [[ "$(jq -r '.dsseEnvelope.payload | @base64d | fromjson | .subject[0].digest.sha256' <(tail -n1 "$a"))" == "$ha" ]]
     [[ "$(jq -r '.dsseEnvelope.payload | @base64d | fromjson | .subject[0].digest.sha256' <(tail -n1 "$b"))" == "$hb" ]]
@@ -203,7 +203,7 @@ STUB
 
 @test "sign_metadata: assemble fails closed when the engine fails (no bundles, no pushes)" {
     # The engine owns every assembly invariant (missing metadata dir, empty subject
-    # set, unreadable seed, duplicate bundle basename, a subject with no signed
+    # set, unreadable provenance, duplicate bundle basename, a subject with no signed
     # statement); a non-zero engine exit must abort the job with nothing delivered.
     _stub_delivery_tools
     cat > "$TEST_DIR/wrangle-attest" <<'STUB'
@@ -257,7 +257,7 @@ JSON
     export GITHUB_TOKEN="registry-token"
 }
 
-# The env every assemble run reads, with the seed already on disk (a recording
+# The env every assemble run reads, with the provenance already on disk (a recording
 # docker never runs the real cosign download).
 _export_assemble_env() {
     local meta="$TEST_DIR/meta"; mkdir -p "$meta"

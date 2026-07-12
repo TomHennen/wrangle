@@ -120,7 +120,7 @@ STUB
     export METADATA_ROOT="$META" COMMIT="deadbeef" BUNDLE_OUT="$TEST_DIR/bundles" OCI_TARGET=""
     # shellcheck source=sign_metadata.sh
     source "$SIGN"
-    mapfile -t args < <(wrangle_assemble_args "$TEST_DIR/absent-subjects" "$TEST_DIR/seed" "$TEST_DIR/stmts")
+    mapfile -t args < <(wrangle_assemble_args "$TEST_DIR/absent-subjects" "$TEST_DIR/provenance" "$TEST_DIR/stmts")
     run "$ATTEST_BIN" "${args[@]}"
     [ "$status" -ne 0 ]
     [[ "$output" != *"flag provided but not defined"* ]]
@@ -138,7 +138,7 @@ STUB
         BUNDLE_IN="$TEST_DIR/provenance.jsonl" BUNDLE_OUT="$TEST_DIR/bundles" \
         GITHUB_REPOSITORY="o/r" COMMIT="abc123" run "$SIGN"
     [ "$status" -eq 0 ]
-    # One per-artifact bundle (provenance seed + signed metadata) and one push.
+    # One per-artifact bundle (provenance + signed metadata) and one push.
     local bundle="$TEST_DIR/bundles/app-1.2.3.tgz.intoto.jsonl"
     [ -s "$bundle" ]
     [ "$(head -n1 "$bundle")" = '{"provenance":1}' ]
