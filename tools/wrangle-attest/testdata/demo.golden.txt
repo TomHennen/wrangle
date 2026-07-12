@@ -1,0 +1,242 @@
+wrangle-attest demo run
+mode: offline + real keyless signing (public Rekor entries published)
+signatures, Fulcio certs and Rekor entries are never printed: they differ
+every run. Everything below is deterministic.
+
+=== the input a user starts from
+# two release binaries and one container image digest:
+
+$ sha256sum dist/wrangle_0.1.0_linux_amd64 dist/wrangle_0.1.0_darwin_arm64
+    47d801ffad72f6bdb405dec1ead7c45a9d66697f4984d8f502d632c68bb63e66  dist/wrangle_0.1.0_linux_amd64
+    c059e5962b766a11cc39854f0bacc2fac133b5c25e95b4a2380fa9abbb649cee  dist/wrangle_0.1.0_darwin_arm64
+    [exit 0]
+
+# subjects.txt - one subject per line, file paths are self-digested:
+
+$ cat subjects.txt
+    dist/wrangle_0.1.0_linux_amd64
+    dist/wrangle_0.1.0_darwin_arm64
+    sha256:1923631e35baf2fd56a54ceabea80af979e9ca59b597aa29f5fe679fe8ce8256
+    [exit 0]
+
+# each tool leaves a metadata root: its manifest plus its native result file
+
+$ cat meta/sbom/wrangle_attestation_metadata.json
+    {
+      "predicate-type": "https://spdx.dev/Document",
+      "result-file": "sbom.spdx.json"
+    }
+    [exit 0]
+
+$ cat meta/scan/wrangle_attestation_metadata.json
+    {
+      "predicate-type": "https://github.com/TomHennen/wrangle/attestation/scan/v1",
+      "result-file": "output.sarif",
+      "tool": {
+        "name": "zizmor",
+        "version": "1.10.0"
+      },
+      "result": "findings"
+    }
+    [exit 0]
+
+=== fail closed: a non-sha256 subject digest
+# the GitHub attestation store keys by sha256; a sha512 subject is refused,
+# not silently reinterpreted as a file path.
+
+$ wrangle-attest assemble \
+    --metadata-root meta/sbom \
+    --metadata-root meta/scan \
+    --subjects-file bad-subjects.txt \
+    --provenance provenance/provenance.fixture.intoto.jsonl \
+    --sign \
+    --bundle-dir bundles \
+    --statements-out statements.jsonl
+    wrangle-attest: subject "sha512:eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee" must be sha256:<64-hex>
+    wrangle-attest: failing closed.
+    [exit 2]
+check: sha512 subject exits 2: 2
+
+=== fail closed: two subjects that collide on one bundle name
+# bundle names are basenames, so a rebuilt artifact under another directory
+# would clobber the first bundle. Refused before anything is signed.
+
+$ cat colliding-subjects.txt
+    dist/wrangle_0.1.0_linux_amd64
+    dist-rebuild/wrangle_0.1.0_linux_amd64
+    [exit 0]
+
+$ wrangle-attest assemble \
+    --metadata-root meta/sbom \
+    --subjects-file colliding-subjects.txt \
+    --provenance provenance/provenance.fixture.intoto.jsonl \
+    --sign \
+    --bundle-dir bundles \
+    --statements-out statements.jsonl
+    wrangle-attest: duplicate bundle basename wrangle_0.1.0_linux_amd64.intoto.jsonl — refusing to clobber
+    wrangle-attest: failing closed.
+    [exit 2]
+check: duplicate bundle name exits 2: 2
+
+=== fail closed: a manifest naming an unknown predicate type
+
+$ cat meta-broken/wrangle_attestation_metadata.json
+    {
+      "predicate-type": "https://example.com/not-a-known-predicate/v1",
+      "result-file": "output.sarif"
+    }
+    [exit 0]
+
+$ wrangle-attest assemble \
+    --metadata-root meta-broken \
+    --subjects-file subjects.txt \
+    --provenance provenance/provenance.fixture.intoto.jsonl \
+    --sign \
+    --bundle-dir bundles \
+    --statements-out statements.jsonl
+    wrangle-attest: meta-broken/wrangle_attestation_metadata.json: unknown predicate-type "https://example.com/not-a-known-predicate/v1"
+    wrangle-attest: failing closed.
+    [exit 2]
+check: unknown predicate-type exits 2: 2
+check: no bundle directory was created: absent
+
+=== sign the build's SLSA provenance
+# the provenance is normally handed over by the build; here the demo signs
+# the statement itself, so assemble gets a real Sigstore bundle line.
+
+$ wrangle-attest \
+    --sign \
+    --statement provenance/provenance.statement.json \
+    --out provenance/provenance.intoto.jsonl
+    wrangle-attest: wrote signed statement to provenance/provenance.intoto.jsonl
+    [exit 0]
+check: provenance bundle lines: 1
+
+=== assemble: sign every tool's metadata, one bundle per artifact
+
+$ wrangle-attest assemble \
+    --metadata-root meta/sbom \
+    --metadata-root meta/scan \
+    --subjects-file subjects.txt \
+    --provenance provenance/provenance.intoto.jsonl \
+    --commit 0f4f2b3d3b7a1c8e5d9a6b4c2e1f0a9b8c7d6e5f \
+    --sign \
+    --bundle-dir bundles \
+    --statements-out statements.jsonl
+    wrangle-attest: assembled 3 bundle(s) into bundles
+    [exit 0]
+
+=== what came out
+
+$ ls bundles
+    sha256-1923631e35baf2fd56a54ceabea80af979e9ca59b597aa29f5fe679fe8ce8256.intoto.jsonl
+    wrangle_0.1.0_darwin_arm64.intoto.jsonl
+    wrangle_0.1.0_linux_amd64.intoto.jsonl
+    [exit 0]
+check: bundles written: 3
+check: newly signed statements: 6
+# every bundle: the shared provenance verbatim, then that artifact's own
+# signed statements. Decoded from the DSSE payload of each line.
+
+  wrangle_0.1.0_linux_amd64.intoto.jsonl  (3 statement(s))
+    1. predicateType: https://slsa.dev/provenance/v1
+       subject:       sha256:47d801ffad72f6bdb405dec1ead7c45a9d66697f4984d8f502d632c68bb63e66
+       subject:       sha256:c059e5962b766a11cc39854f0bacc2fac133b5c25e95b4a2380fa9abbb649cee
+       subject:       sha256:1923631e35baf2fd56a54ceabea80af979e9ca59b597aa29f5fe679fe8ce8256
+       material:      fulcio-cert + rekor-entry
+    2. predicateType: https://spdx.dev/Document
+       subject:       sha256:47d801ffad72f6bdb405dec1ead7c45a9d66697f4984d8f502d632c68bb63e66
+       material:      fulcio-cert + rekor-entry
+    3. predicateType: https://github.com/TomHennen/wrangle/attestation/scan/v1
+       subject:       sha256:47d801ffad72f6bdb405dec1ead7c45a9d66697f4984d8f502d632c68bb63e66
+       material:      fulcio-cert + rekor-entry
+
+  wrangle_0.1.0_darwin_arm64.intoto.jsonl  (3 statement(s))
+    1. predicateType: https://slsa.dev/provenance/v1
+       subject:       sha256:47d801ffad72f6bdb405dec1ead7c45a9d66697f4984d8f502d632c68bb63e66
+       subject:       sha256:c059e5962b766a11cc39854f0bacc2fac133b5c25e95b4a2380fa9abbb649cee
+       subject:       sha256:1923631e35baf2fd56a54ceabea80af979e9ca59b597aa29f5fe679fe8ce8256
+       material:      fulcio-cert + rekor-entry
+    2. predicateType: https://spdx.dev/Document
+       subject:       sha256:c059e5962b766a11cc39854f0bacc2fac133b5c25e95b4a2380fa9abbb649cee
+       material:      fulcio-cert + rekor-entry
+    3. predicateType: https://github.com/TomHennen/wrangle/attestation/scan/v1
+       subject:       sha256:c059e5962b766a11cc39854f0bacc2fac133b5c25e95b4a2380fa9abbb649cee
+       material:      fulcio-cert + rekor-entry
+
+  sha256-1923631e35baf2fd56a54ceabea80af979e9ca59b597aa29f5fe679fe8ce8256.intoto.jsonl  (3 statement(s))
+    1. predicateType: https://slsa.dev/provenance/v1
+       subject:       sha256:47d801ffad72f6bdb405dec1ead7c45a9d66697f4984d8f502d632c68bb63e66
+       subject:       sha256:c059e5962b766a11cc39854f0bacc2fac133b5c25e95b4a2380fa9abbb649cee
+       subject:       sha256:1923631e35baf2fd56a54ceabea80af979e9ca59b597aa29f5fe679fe8ce8256
+       material:      fulcio-cert + rekor-entry
+    2. predicateType: https://spdx.dev/Document
+       subject:       sha256:1923631e35baf2fd56a54ceabea80af979e9ca59b597aa29f5fe679fe8ce8256
+       material:      fulcio-cert + rekor-entry
+    3. predicateType: https://github.com/TomHennen/wrangle/attestation/scan/v1
+       subject:       sha256:1923631e35baf2fd56a54ceabea80af979e9ca59b597aa29f5fe679fe8ce8256
+       material:      fulcio-cert + rekor-entry
+check: statements per bundle: 3
+
+=== sign the VSA and append it to the artifact's bundle
+# what actions/verify does after the policy passes: one process signs the
+# VSA and appends the identical signed line to that artifact's bundle.
+
+$ wrangle-attest \
+    --sign \
+    --statement vsa/vsa.statement.json \
+    --out vsa/vsa.intoto.jsonl \
+    --append bundles/wrangle_0.1.0_linux_amd64.intoto.jsonl
+    wrangle-attest: wrote signed statement to vsa/vsa.intoto.jsonl
+    wrangle-attest: appended signed statement to bundles/wrangle_0.1.0_linux_amd64.intoto.jsonl
+    [exit 0]
+
+  wrangle_0.1.0_linux_amd64.intoto.jsonl  (4 statement(s))
+    1. predicateType: https://slsa.dev/provenance/v1
+       subject:       sha256:47d801ffad72f6bdb405dec1ead7c45a9d66697f4984d8f502d632c68bb63e66
+       subject:       sha256:c059e5962b766a11cc39854f0bacc2fac133b5c25e95b4a2380fa9abbb649cee
+       subject:       sha256:1923631e35baf2fd56a54ceabea80af979e9ca59b597aa29f5fe679fe8ce8256
+       material:      fulcio-cert + rekor-entry
+    2. predicateType: https://spdx.dev/Document
+       subject:       sha256:47d801ffad72f6bdb405dec1ead7c45a9d66697f4984d8f502d632c68bb63e66
+       material:      fulcio-cert + rekor-entry
+    3. predicateType: https://github.com/TomHennen/wrangle/attestation/scan/v1
+       subject:       sha256:47d801ffad72f6bdb405dec1ead7c45a9d66697f4984d8f502d632c68bb63e66
+       material:      fulcio-cert + rekor-entry
+    4. predicateType: https://slsa.dev/verification_summary/v1
+       subject:       sha256:47d801ffad72f6bdb405dec1ead7c45a9d66697f4984d8f502d632c68bb63e66
+       material:      fulcio-cert + rekor-entry
+check: linux bundle after append: 4
+check: darwin bundle untouched: 3
+
+=== fail closed: append to a bundle that does not exist
+
+$ wrangle-attest \
+    --sign \
+    --statement vsa/vsa.statement.json \
+    --out vsa/vsa2.intoto.jsonl \
+    --append bundles/does_not_exist.intoto.jsonl
+    wrangle-attest: append target: stat bundles/does_not_exist.intoto.jsonl: no such file or directory
+    wrangle-attest: failing closed.
+    [exit 2]
+check: append to missing bundle exits 2: 2
+check: no stray --out written: absent
+
+=== re-running assemble refuses to clobber
+
+$ wrangle-attest assemble \
+    --metadata-root meta/sbom \
+    --metadata-root meta/scan \
+    --subjects-file subjects.txt \
+    --provenance provenance/provenance.intoto.jsonl \
+    --sign \
+    --bundle-dir bundles \
+    --statements-out statements.jsonl
+    wrangle-attest: bundle wrangle_0.1.0_linux_amd64.intoto.jsonl already exists under bundles — refusing to clobber
+    wrangle-attest: failing closed.
+    [exit 2]
+check: re-run over a populated bundle-dir exits 2: 2
+check: linux bundle still intact: 4
+
+=== result
+all checks passed
