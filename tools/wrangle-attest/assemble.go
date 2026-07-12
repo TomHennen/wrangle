@@ -139,7 +139,9 @@ func runAssemble(args []string, stderr io.Writer) int {
 	if err := os.WriteFile(*statementsOut, stmtsOut.Bytes(), 0o644); err != nil {
 		return failClosed(stderr, err)
 	}
-	fmt.Fprintf(stderr, "wrangle-attest: assembled %d bundle(s) into %s\n", len(specs), *bundleDir)
+	fmt.Fprintf(stderr, "wrangle-attest: wrote %d bundle(s) to %s and %d signed statement(s) to %s\n",
+		len(specs), filepath.Clean(*bundleDir)+string(filepath.Separator),
+		bytes.Count(stmtsOut.Bytes(), []byte{'\n'}), *statementsOut)
 	return 0
 }
 
