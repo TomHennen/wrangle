@@ -105,7 +105,7 @@ STUB
     export BUNDLE_IN="$TEST_DIR/provenance.jsonl"
     printf 'PROVLINE\n' > "$BUNDLE_IN"
     export OCI_TARGET=""
-    local provenance="$TEST_DIR/provenance.jsonl"
+    local provenance="$TEST_DIR/staged.jsonl"
     wrangle_stage_provenance "$provenance"
     [[ "$(cat "$provenance")" == "PROVLINE" ]]
     [[ "$(cat "$BUNDLE_IN")" == "PROVLINE" ]]
@@ -114,7 +114,7 @@ STUB
 @test "sign_metadata: provenance fails closed when BUNDLE_IN is missing or empty" {
     export OCI_TARGET=""
     export BUNDLE_IN="$TEST_DIR/absent.jsonl"
-    run wrangle_stage_provenance "$TEST_DIR/provenance.jsonl"
+    run wrangle_stage_provenance "$TEST_DIR/staged.jsonl"
     [[ "$status" -ne 0 ]]
     [[ "$output" == *"provenance"* ]]
 }
@@ -128,7 +128,7 @@ STUB
     } > "$TEST_DIR/referrers.jsonl"
     _stub_cosign
     export OCI_TARGET="ghcr.io/o/r/img@sha256:0000000000000000000000000000000000000000000000000000000000000000"
-    local provenance="$TEST_DIR/provenance.jsonl"
+    local provenance="$TEST_DIR/staged.jsonl"
     wrangle_stage_provenance "$provenance"
     diff "$TEST_DIR/referrers.jsonl" "$provenance"
 }
