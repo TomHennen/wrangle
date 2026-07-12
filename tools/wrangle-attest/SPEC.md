@@ -104,9 +104,11 @@ missing, empty, or non-JSON-object file fails closed before `--out` is touched.
 
 `--append` additionally appends the identical signed line + `\n` to the
 existing bundle at `<bundle>` (the attest-assembled per-artifact bundle). It
-requires `--statement`, and a missing or empty append target fails closed
-before signing — a VSA-only bundle is impossible. On any failure neither
-`--out` nor the append target is modified.
+requires `--statement` and must not name the same file as `--out`; a missing
+or empty append target fails closed before signing — a VSA-only bundle is
+impossible. Any failure exits non-zero having modified neither file, except a
+failed append after `--out` was written, which removes `--out` again
+(best-effort) before exiting non-zero.
 
 ```
 wrangle-attest assemble --metadata-root <dir>... --subjects-file <file> \
@@ -128,9 +130,11 @@ output to the SLSA provenance envelopes, keeping each surviving line's
 original bytes (zero matches or a malformed line fails closed). A bundle-name
 collision — within the subject set or with a file already under
 `--bundle-dir` — fails closed. Everything is buffered and validated before
-anything is written, so a failure anywhere (including on the last signature)
-leaves no file on disk. `assemble` requires `--sign` and rejects `--subject`,
-`--artifact`, `--statement`, `--out`, and `--append`.
+anything is written, so a validation or signing failure (including on the last
+signature) writes nothing; a write-phase failure exits non-zero and a re-run
+refuses the partially written `--bundle-dir` via the pre-existence check.
+`assemble` requires `--sign` and rejects `--subject`, `--artifact`,
+`--statement`, `--out`, and `--append`.
 
 ## Testing
 

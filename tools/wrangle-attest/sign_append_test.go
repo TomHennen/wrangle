@@ -89,6 +89,43 @@ func TestRunStatementAppendFailClosed(t *testing.T) {
 		}
 	}
 
+	// A post-signing append failure (the directory passes the up-front stat
+	// gate but O_APPEND open fails) must remove the just-written --out.
+	t.Run("append target is a directory", func(t *testing.T) {
+		rs := &recordingSigner{out: []byte(`{"bundle":"x"}`)}
+		swapSigner(t, func() (statementSigner, func(), error) { return rs, func() {}, nil })
+		out := filepath.Join(t.TempDir(), "out.json")
+		var stderr bytes.Buffer
+		if rc := run([]string{"--sign", "--statement", stmt, "--out", out,
+			"--append", t.TempDir()}, &stderr); rc != 2 {
+			t.Fatalf("rc=%d, want 2; stderr=%s", rc, stderr.String())
+		}
+		if _, err := os.Stat(out); !os.IsNotExist(err) {
+			t.Fatalf("expected --out removed after a failed append, stat err=%v", err)
+		}
+	})
+
+	t.Run("append same file as out", func(t *testing.T) {
+		rs := &recordingSigner{out: []byte(`{"bundle":"x"}`)}
+		swapSigner(t, func() (statementSigner, func(), error) { return rs, func() {}, nil })
+		bundle := newBundle(t)
+		unclean := filepath.Dir(bundle) + "/./" + filepath.Base(bundle)
+		for _, appendArg := range []string{bundle, unclean} {
+			var stderr bytes.Buffer
+			if rc := run([]string{"--sign", "--statement", stmt, "--out", bundle,
+				"--append", appendArg}, &stderr); rc != 2 {
+				t.Fatalf("append %q: rc=%d, want 2; stderr=%s", appendArg, rc, stderr.String())
+			}
+			got, err := os.ReadFile(bundle)
+			if err != nil || string(got) != bundleContent {
+				t.Fatalf("append %q: bundle modified: %q err=%v", appendArg, got, err)
+			}
+			if len(rs.got) != 0 {
+				t.Fatalf("append %q: signer ran despite --append == --out", appendArg)
+			}
+		}
+	})
+
 	t.Run("append target missing", func(t *testing.T) {
 		rs := &recordingSigner{out: []byte(`{"bundle":"x"}`)}
 		swapSigner(t, func() (statementSigner, func(), error) { return rs, func() {}, nil })

@@ -7,9 +7,34 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 )
 
 const retryNoticeText = "retrying once for transient Sigstore I/O"
+
+// WRANGLE_RETRY_DELAY matches shell `sleep`: fractional seconds are honored,
+// not silently mapped to the default.
+func TestRetryDelay(t *testing.T) {
+	cases := []struct {
+		value string
+		want  time.Duration
+	}{
+		{"", 5 * time.Second},
+		{"0", 0},
+		{"2", 2 * time.Second},
+		{"0.5", 500 * time.Millisecond},
+		{"-1", 5 * time.Second},
+		{"nonsense", 5 * time.Second},
+	}
+	for _, tc := range cases {
+		t.Run("value "+tc.value, func(t *testing.T) {
+			t.Setenv("WRANGLE_RETRY_DELAY", tc.value)
+			if got := retryDelay(); got != tc.want {
+				t.Fatalf("retryDelay(%q) = %v, want %v", tc.value, got, tc.want)
+			}
+		})
+	}
+}
 
 // flakySigner fails the first `failures` sign calls, then succeeds.
 type flakySigner struct {

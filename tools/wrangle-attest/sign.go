@@ -49,7 +49,8 @@ func newRetrySigner(stderr io.Writer) (statementSigner, func(), error) {
 
 // retrySigner retries each sign call once to absorb a transient Sigstore blip
 // (signing is deterministic input -> Fulcio/Rekor I/O, so a retry re-signs the
-// same bytes).
+// same bytes). The retry reuses the shared signer instance — it never rebuilds
+// it, so a degraded signer fails identically, never differently.
 type retrySigner struct {
 	inner  statementSigner
 	stderr io.Writer
@@ -70,15 +71,18 @@ func retryNotice(stderr io.Writer, what string, err error) {
 }
 
 // retrySleep spaces the attempts by WRANGLE_RETRY_DELAY seconds (default 5;
-// tests set 0).
+// tests set 0; fractional values accepted, like shell `sleep`).
 func retrySleep() {
-	delay := 5 * time.Second
+	time.Sleep(retryDelay())
+}
+
+func retryDelay() time.Duration {
 	if v := os.Getenv("WRANGLE_RETRY_DELAY"); v != "" {
-		if s, err := strconv.Atoi(v); err == nil && s >= 0 {
-			delay = time.Duration(s) * time.Second
+		if s, err := strconv.ParseFloat(v, 64); err == nil && s >= 0 {
+			return time.Duration(s * float64(time.Second))
 		}
 	}
-	time.Sleep(delay)
+	return 5 * time.Second
 }
 
 // keylessSigner is the production sigstore backend: ambient GitHub OIDC ->

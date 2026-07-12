@@ -46,8 +46,9 @@
 // newline-separated subjects file, self-digests file subjects, signs every
 // discovered manifest per subject with one shared signer, and writes one
 // per-artifact bundle (the provenance seed verbatim + that subject's signed
-// lines) plus a file of every newly signed line — all buffered, so a failure
-// anywhere writes nothing.
+// lines) plus a file of every newly signed line — all buffered, so validation
+// and signing failures write nothing; a write-phase failure exits non-zero and
+// a re-run refuses the partially written bundle dir.
 //
 // Fail closed: a malformed/missing manifest, an unknown predicate-type, a
 // missing result file, a malformed subject, or a signing failure aborts with a

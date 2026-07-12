@@ -35,7 +35,9 @@ const provenancePredicate = "https://slsa.dev/provenance/v1"
 // that subject's signed lines) under --bundle-dir, plus every newly signed
 // line to --statements-out. Everything is buffered and validated first —
 // subjects, digests, bundle-name collisions, the seed, every signature — so a
-// failure anywhere (including on the last statement) writes nothing.
+// validation or signing failure (including on the last statement) writes
+// nothing; a write-phase failure exits non-zero and a re-run refuses the
+// partially written --bundle-dir via the pre-existence check.
 func runAssemble(args []string, stderr io.Writer) int {
 	fs := flag.NewFlagSet("wrangle-attest assemble", flag.ContinueOnError)
 	fs.SetOutput(stderr)

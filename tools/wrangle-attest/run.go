@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"path/filepath"
 )
 
 // metadataRoots collects repeated --metadata-root flags.
@@ -181,6 +182,9 @@ func signStatementFile(path, out, appendTo string, stderr io.Writer) int {
 		return failClosed(stderr, fmt.Errorf("statement file is not a JSON object: %s", path))
 	}
 	if appendTo != "" {
+		if filepath.Clean(appendTo) == filepath.Clean(out) {
+			return failClosed(stderr, fmt.Errorf("--append must not be the same file as --out"))
+		}
 		info, err := os.Stat(appendTo)
 		if err != nil {
 			return failClosed(stderr, fmt.Errorf("append target: %w", err))
@@ -212,6 +216,8 @@ func signStatementFile(path, out, appendTo string, stderr io.Writer) int {
 	}
 	if appendTo != "" {
 		if err := appendLine(appendTo, buf.Bytes()); err != nil {
+			// A failed append must not leave the just-written --out behind.
+			os.Remove(out)
 			return failClosed(stderr, err)
 		}
 	}
