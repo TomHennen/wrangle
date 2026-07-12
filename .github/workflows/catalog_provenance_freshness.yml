@@ -1,7 +1,7 @@
 name: Catalog Provenance Freshness
 
 # Weekly advisory that each published tool image was built from current source.
-# catalog_release_gate.yml runs the same check fail-closed as the release gate.
+# release_gate.yml runs the same check fail-closed as the release gate.
 
 on:
   schedule:
