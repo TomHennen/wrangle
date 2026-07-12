@@ -88,9 +88,6 @@ jobs:
       - name: Keyless sign integration test
         run: ./test/keyless_attest.sh
 
-      # The demo drives the real CLI end to end (assemble, --statement, --append,
-      # the fail-closed paths) and diffs its transcript against the checked-in
-      # golden.
       - name: Demo run
         env:
           WRANGLE_DEMO_TRANSCRIPT: ${{ runner.temp }}/demo-transcript.txt

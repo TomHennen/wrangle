@@ -10,9 +10,9 @@ set -f
 #
 # Signing is real: in CI the ambient GitHub OIDC token is exchanged at Fulcio; on
 # a laptop the signer runs the standard Sigstore browser/device flow, so the
-# identity on the cert is the human's.
-#
-# WRANGLE_DEMO_UPDATE_GOLDEN=1 rewrites the golden from this run.
+# identity on the cert is the human's. With neither an OIDC provider nor a
+# terminal the signer waits on the device flow rather than failing, so the golden
+# is regenerated (WRANGLE_DEMO_UPDATE_GOLDEN=1) from CI or an interactive run.
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)"
@@ -33,7 +33,6 @@ note() {
     printf '# %s\n' "$1"
 }
 
-# Echo the command the way a user would type it: one flag per continuation line.
 show_cmd() {
     printf '\n$ %s' "$1"
     shift
@@ -48,7 +47,6 @@ show_cmd() {
     printf '\n'
 }
 
-# Run a command with its output shown indented, and report its exit code.
 demo_exec() {
     show_cmd "$@"
     local rc=0
@@ -89,15 +87,13 @@ present_or_absent() {
     fi
 }
 
-# Decode one bundle line: its statement's predicateType, every subject digest it
-# binds, and whether the line carries real keyless material.
 describe_line() {
     local line="$1" index="$2" payload material
     payload="$(printf '%s' "$line" | jq -r '.dsseEnvelope.payload' | base64 -d)"
     material="$(printf '%s' "$line" | jq -r '
         [ (if .verificationMaterial.certificate.rawBytes then "fulcio-cert" else empty end),
           (if (.verificationMaterial.tlogEntries | length) > 0 then "rekor-entry" else empty end) ]
-        | if length == 0 then "none (unsigned fixture)" else join(" + ") end')"
+        | join(" + ")')"
     printf '    %d. predicateType: %s\n' "$index" "$(printf '%s' "$payload" | jq -r '.predicateType')"
     printf '%s' "$payload" | jq -r '.subject[] | "       subject:       sha256:" + .digest.sha256'
     printf '       material:      %s\n' "$material"
@@ -247,6 +243,7 @@ demo_signed() {
 }
 
 demo_body() {
+    set -e
     printf 'wrangle-attest demo run\n'
     printf 'signing is real: --sign signs against public-good Sigstore, which writes a\n'
     printf 'public Rekor transparency-log entry under the signing identity.\n'
