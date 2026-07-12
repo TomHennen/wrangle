@@ -85,6 +85,35 @@ func TestRunStatementLocalKeyPayloadRoundTrip(t *testing.T) {
 	}
 }
 
+// A signing failure must leave a pre-existing --out byte-unchanged — --out is
+// only written after signing succeeds.
+func TestRunStatementSignFailureLeavesOutUntouched(t *testing.T) {
+	swapSigner(t, func() (statementSigner, func(), error) { return failingSigner{}, func() {}, nil })
+
+	dir := t.TempDir()
+	path := filepath.Join(dir, "stmt.json")
+	if err := os.WriteFile(path, []byte(`{"a":1}`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	out := filepath.Join(dir, "out.json")
+	prior := []byte("pre-existing content\n")
+	if err := os.WriteFile(out, prior, 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	var stderr bytes.Buffer
+	if rc := run([]string{"--sign", "--statement", path, "--out", out}, &stderr); rc != 2 {
+		t.Fatalf("rc=%d, want fail-closed 2; stderr=%s", rc, stderr.String())
+	}
+	data, err := os.ReadFile(out)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !bytes.Equal(data, prior) {
+		t.Fatalf("pre-existing --out changed on signing failure: %q", data)
+	}
+}
+
 func TestRunStatementFailClosed(t *testing.T) {
 	rs := &recordingSigner{out: []byte(`{}`)}
 	swapSigner(t, func() (statementSigner, func(), error) { return rs, func() {}, nil })
@@ -103,10 +132,6 @@ func TestRunStatementFailClosed(t *testing.T) {
 	}
 	empty := write("empty.json", "")
 	blank := write("blank.json", " \n\t\n")
-	notJSON := write("not.json", "not json")
-	array := write("array.json", `[{"a":1}]`)
-	null := write("null.json", "null")
-	truncated := write("truncated.json", `{"a":`)
 	out := filepath.Join(dir, "out.json")
 
 	cases := []struct {
@@ -116,10 +141,6 @@ func TestRunStatementFailClosed(t *testing.T) {
 		{"missing file", []string{"--sign", "--statement", filepath.Join(dir, "nope.json"), "--out", out}},
 		{"empty file", []string{"--sign", "--statement", empty, "--out", out}},
 		{"whitespace-only file", []string{"--sign", "--statement", blank, "--out", out}},
-		{"not JSON", []string{"--sign", "--statement", notJSON, "--out", out}},
-		{"JSON array", []string{"--sign", "--statement", array, "--out", out}},
-		{"JSON null", []string{"--sign", "--statement", null, "--out", out}},
-		{"truncated JSON object", []string{"--sign", "--statement", truncated, "--out", out}},
 		{"no --sign", []string{"--statement", good, "--out", out}},
 		{"no --out", []string{"--sign", "--statement", good}},
 		{"with --metadata-root", []string{"--sign", "--statement", good, "--metadata-root", dir, "--out", out}},

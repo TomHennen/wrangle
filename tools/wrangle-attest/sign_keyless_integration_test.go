@@ -10,6 +10,7 @@ import (
 	"bytes"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/carabiner-dev/signer"
@@ -90,7 +91,7 @@ func TestRunSignKeyless(t *testing.T) {
 
 // TestRunSignKeylessStatement signs an existing statement file via --statement
 // and asserts the emitted Sigstore bundle's DSSE payload is the file bytes
-// verbatim — the byte-identity contract with `bnd statement`.
+// verbatim.
 func TestRunSignKeylessStatement(t *testing.T) {
 	// In CI this job has id-token: write; a missing token is a real gap, not a
 	// skip — keyless must actually run here.
@@ -140,6 +141,78 @@ func TestRunSignKeylessStatement(t *testing.T) {
 	}
 
 	verifyKeylessBundle(t, data)
+}
+
+// TestRunAssembleKeyless drives one assemble round-trip: the emitted bundle
+// must be the provenance line verbatim followed by one verifiable Sigstore bundle
+// per discovered manifest, with --statements-out carrying the same lines.
+func TestRunAssembleKeyless(t *testing.T) {
+	// In CI this job has id-token: write; a missing token is a real gap, not a
+	// skip — keyless must actually run here.
+	if os.Getenv("ACTIONS_ID_TOKEN_REQUEST_URL") == "" {
+		t.Fatal("ACTIONS_ID_TOKEN_REQUEST_URL unset; keyless signing needs ambient GitHub OIDC")
+	}
+
+	dir := t.TempDir()
+	writeFile(t, dir, "meta/wrangle_attestation_metadata.json",
+		`{"predicate-type":"https://spdx.dev/Document","result-file":"sbom.spdx.json"}`)
+	writeFile(t, dir, "meta/sbom.spdx.json", `{"spdxVersion":"SPDX-2.3","name":"assemble"}`)
+	provenanceLine := `{"dsseEnvelope":{"payload":"provenance"},"fromReferrer":true}`
+	writeFile(t, dir, "provenance.jsonl", provenanceLine+"\n")
+	writeFile(t, dir, "subjects", testArtifactDigest+"\n")
+	bundleDir := filepath.Join(dir, "bundles")
+	stmtsOut := filepath.Join(dir, "statements.jsonl")
+
+	var stderr testWriter
+	rc := run([]string{"assemble",
+		"--metadata-root", filepath.Join(dir, "meta"),
+		"--subjects-file", filepath.Join(dir, "subjects"),
+		"--provenance", filepath.Join(dir, "provenance.jsonl"),
+		"--sign",
+		"--bundle-dir", bundleDir,
+		"--statements-out", stmtsOut,
+	}, &stderr)
+	if rc != 0 {
+		t.Fatalf("keyless assemble rc=%d stderr=%s", rc, stderr.b)
+	}
+
+	name := strings.ReplaceAll(testArtifactDigest, ":", "-") + ".intoto.jsonl"
+	data, err := os.ReadFile(filepath.Join(bundleDir, name))
+	if err != nil {
+		t.Fatal(err)
+	}
+	lines := bytes.Split(bytes.TrimSuffix(data, []byte("\n")), []byte("\n"))
+	if len(lines) != 2 {
+		t.Fatalf("bundle lines = %d, want provenance + one signed statement:\n%s", len(lines), data)
+	}
+	if string(lines[0]) != provenanceLine {
+		t.Fatalf("provenance not passed through verbatim:\n got: %q\nwant: %q", lines[0], provenanceLine)
+	}
+
+	var bundle sbundle.Bundle
+	if err := bundle.UnmarshalJSON(lines[1]); err != nil {
+		t.Fatalf("signed line is not a Sigstore bundle: %v\n%s", err, lines[1])
+	}
+	env := bundle.GetDsseEnvelope()
+	if env == nil {
+		t.Fatal("bundle carries no DSSE envelope")
+	}
+	var stmt intoto.Statement
+	if err := protojson.Unmarshal(env.GetPayload(), &stmt); err != nil {
+		t.Fatalf("payload is not the in-toto statement: %v", err)
+	}
+	if stmt.GetPredicateType() != "https://spdx.dev/Document" {
+		t.Fatalf("wrong predicateType: %q", stmt.GetPredicateType())
+	}
+	verifyKeylessBundle(t, lines[1])
+
+	stmts, err := os.ReadFile(stmtsOut)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if want := append(append([]byte(nil), lines[1]...), '\n'); !bytes.Equal(stmts, want) {
+		t.Fatalf("statements-out differs from the bundle's signed line:\n got: %q\nwant: %q", stmts, want)
+	}
 }
 
 // verifyKeylessBundle verifies the signed bundle bytes with the upstream
@@ -199,3 +272,47 @@ func tamperPayload(t *testing.T, bundleBytes []byte) []byte {
 type testWriter struct{ b []byte }
 
 func (w *testWriter) Write(p []byte) (int, error) { w.b = append(w.b, p...); return len(p), nil }
+
+// The keyless (sigstore) backend — the only backend wrangle signs with —
+// rejects a payload that is not an in-toto statement before it reaches Fulcio.
+// This is the signer's own check, not one of ours: the engine passes the file
+// bytes through untouched, so a valid JSON object that is merely not a
+// statement must still fail closed with --out untouched.
+func TestRunSignKeylessRejectsNonStatement(t *testing.T) {
+	if os.Getenv("ACTIONS_ID_TOKEN_REQUEST_URL") == "" {
+		t.Fatal("ACTIONS_ID_TOKEN_REQUEST_URL unset; keyless signing needs ambient GitHub OIDC")
+	}
+
+	dir := t.TempDir()
+	prior := []byte("PRE-EXISTING\n")
+	for _, tc := range []struct{ name, content string }{
+		{"valid JSON object that is not an in-toto statement", `{"hello":"world"}`},
+		{"JSON array", `[{"a":1}]`},
+		{"JSON null", `null`},
+		{"truncated JSON object", `{"a":`},
+		{"not JSON at all", `not json`},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			path := filepath.Join(dir, "stmt.json")
+			if err := os.WriteFile(path, []byte(tc.content), 0o644); err != nil {
+				t.Fatal(err)
+			}
+			out := filepath.Join(dir, "out.json")
+			if err := os.WriteFile(out, prior, 0o644); err != nil {
+				t.Fatal(err)
+			}
+
+			var stderr testWriter
+			if rc := run([]string{"--sign", "--statement", path, "--out", out}, &stderr); rc != 2 {
+				t.Fatalf("rc=%d, want fail-closed 2; stderr=%s", rc, stderr.b)
+			}
+			data, err := os.ReadFile(out)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if !bytes.Equal(data, prior) {
+				t.Fatalf("pre-existing --out changed on a rejected statement: %q", data)
+			}
+		})
+	}
+}

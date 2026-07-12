@@ -1,0 +1,41 @@
+{
+  "_type": "https://in-toto.io/Statement/v1",
+  "predicateType": "https://slsa.dev/provenance/v1",
+  "subject": [
+    {
+      "name": "wrangle_0.1.0_linux_amd64",
+      "digest": {
+        "sha256": "47d801ffad72f6bdb405dec1ead7c45a9d66697f4984d8f502d632c68bb63e66"
+      }
+    },
+    {
+      "name": "wrangle_0.1.0_darwin_arm64",
+      "digest": {
+        "sha256": "c059e5962b766a11cc39854f0bacc2fac133b5c25e95b4a2380fa9abbb649cee"
+      }
+    },
+    {
+      "name": "wrangle-demo-image",
+      "digest": {
+        "sha256": "1923631e35baf2fd56a54ceabea80af979e9ca59b597aa29f5fe679fe8ce8256"
+      }
+    }
+  ],
+  "predicate": {
+    "buildDefinition": {
+      "buildType": "https://slsa-framework.github.io/github-actions-buildtypes/workflow/v1",
+      "externalParameters": {
+        "workflow": {
+          "ref": "refs/tags/v0.1.0",
+          "repository": "https://github.com/TomHennen/wrangle-demo",
+          "path": ".github/workflows/release.yml"
+        }
+      }
+    },
+    "runDetails": {
+      "builder": {
+        "id": "https://github.com/actions/runner/github-hosted"
+      }
+    }
+  }
+}

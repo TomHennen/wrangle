@@ -13,6 +13,7 @@ tool (
 )
 
 require (
+	github.com/carabiner-dev/hasher v0.2.4
 	github.com/carabiner-dev/signer v0.5.2
 	github.com/in-toto/attestation v1.2.0
 	github.com/owenrumney/go-sarif/v3 v3.3.0
@@ -127,7 +128,6 @@ require (
 	github.com/carabiner-dev/command v0.3.1 // indirect
 	github.com/carabiner-dev/ghrfs v0.3.4 // indirect
 	github.com/carabiner-dev/github v0.2.3 // indirect
-	github.com/carabiner-dev/hasher v0.2.4 // indirect
 	github.com/carabiner-dev/jsonl v0.2.1 // indirect
 	github.com/carabiner-dev/openeox v1.0.0-pre.1 // indirect
 	github.com/carabiner-dev/osv v0.0.0-20250124012120-b8ce4531cd92 // indirect

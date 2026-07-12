@@ -314,6 +314,7 @@ wrangle/
 │   ├── format_sarif_summary.sh  # SARIF → markdown summary (with sarif_to_md.sh fallback)
 │   ├── log_findings.sh     # Per-finding CI log lines (issue #158)
 │   ├── sanitize.sh         # wrangle_sanitize_output() — shared HTML stripping + truncation
+│   ├── sarif_adapter_exit.sh    # wrangle_sarif_adapter_exit() — SARIF validation + adapter 0/1/2 exit
 │   ├── sarif_to_md.sh      # SARIF → human-readable markdown (per-tool)
 │   └── tool_banner.sh      # Print visual banner for tool log attribution
 ├── actions/                # GitHub Actions entry points
@@ -422,6 +423,11 @@ SECURITY:
     prevent markdown/HTML injection
   - jq exit codes MUST be checked; malformed SARIF must not silently pass
 ```
+
+SARIF-emitting adapters end by sourcing `lib/sarif_adapter_exit.sh` and calling
+`wrangle_sarif_adapter_exit <tool> <sarif_file> [clean_exit]`, which validates the
+document and maps it to the 0/1/2 exit above. Tool images that run such an adapter
+MUST copy the helper into the image alongside it.
 
 **Setup-script image-cache contract (shell build type):** when the caller
 enables `build_shell.yml`'s `image-cache`, the setup-script MAY append docker

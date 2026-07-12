@@ -1,0 +1,9 @@
+{
+  "predicate-type": "https://github.com/TomHennen/wrangle/attestation/scan/v1",
+  "result-file": "output.sarif",
+  "tool": {
+    "name": "osv-scanner",
+    "version": "2.2.4"
+  },
+  "result": "findings"
+}
