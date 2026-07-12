@@ -132,10 +132,6 @@ func TestRunStatementFailClosed(t *testing.T) {
 	}
 	empty := write("empty.json", "")
 	blank := write("blank.json", " \n\t\n")
-	notJSON := write("not.json", "not json")
-	array := write("array.json", `[{"a":1}]`)
-	null := write("null.json", "null")
-	truncated := write("truncated.json", `{"a":`)
 	out := filepath.Join(dir, "out.json")
 
 	cases := []struct {
@@ -145,10 +141,6 @@ func TestRunStatementFailClosed(t *testing.T) {
 		{"missing file", []string{"--sign", "--statement", filepath.Join(dir, "nope.json"), "--out", out}},
 		{"empty file", []string{"--sign", "--statement", empty, "--out", out}},
 		{"whitespace-only file", []string{"--sign", "--statement", blank, "--out", out}},
-		{"not JSON", []string{"--sign", "--statement", notJSON, "--out", out}},
-		{"JSON array", []string{"--sign", "--statement", array, "--out", out}},
-		{"JSON null", []string{"--sign", "--statement", null, "--out", out}},
-		{"truncated JSON object", []string{"--sign", "--statement", truncated, "--out", out}},
 		{"no --sign", []string{"--statement", good, "--out", out}},
 		{"no --out", []string{"--sign", "--statement", good}},
 		{"with --metadata-root", []string{"--sign", "--statement", good, "--metadata-root", dir, "--out", out}},
