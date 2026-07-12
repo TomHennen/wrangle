@@ -49,7 +49,9 @@ seed_tree() {
 
 @test "bump_version_refs: fails closed when refs already disagree on a version" {
     seed_tree v0.3.1
-    printf 'uses: TomHennen/wrangle/actions/scan@v0.2.0\n' > "$TMP_DIR/gh_workflow_examples/stale.yml"
+    # Version interpolated, never a literal pin: test_pin_consistency.bats greps
+    # the whole repo, so a literal here would read as a real adopter pin.
+    printf 'uses: TomHennen/wrangle/actions/scan@%s\n' v0.2.0 > "$TMP_DIR/gh_workflow_examples/stale.yml"
     run "$SCRIPT" v0.4.0
     [[ "$status" -eq 1 ]]
     [[ "$output" == *"disagree on a version"* ]]
