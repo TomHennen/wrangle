@@ -277,7 +277,7 @@ When the gate job fails, the reusable workflow as a whole fails with a non-zero 
 
 | Permission | Scope | Why |
 |------------|-------|-----|
-| `id-token` | `write` | OIDC token for bnd keyless signing of the VSA |
+| `id-token` | `write` | OIDC token for wrangle-attest keyless signing of the VSA |
 | `packages` | `write` | Pull the image's provenance for the ampel collector **and** push the VSA referrer to the registry |
 
 Note the absence of `contents: write`: the container VSA is delivered as its own registry referrer (and the combined bundle as a workflow artifact), not attached to a GitHub release, so the verify job needs no `contents` write scope. (npm/Go verify jobs *do* request `contents: write` because they attach the VSA to a release.) The container caller grants only `contents: read`, so requesting `contents: write` here would be a startup-failing permission escalation. Unifying every build type onto a single GitHub attestation-store delivery is tracked in [#447](https://github.com/TomHennen/wrangle/issues/447)/[#372](https://github.com/TomHennen/wrangle/issues/372).

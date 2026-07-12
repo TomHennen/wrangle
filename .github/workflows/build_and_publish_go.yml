@@ -377,7 +377,7 @@ jobs:
 
   # Emit one signed SLSA Verification Summary Attestation (VSA) per dist archive
   # and append it to the SLSA provenance, producing one per-artifact
-  # <archive>.intoto.jsonl bundle consumers fetch. bnd signs each VSA keyless with
+  # <archive>.intoto.jsonl bundle consumers fetch. wrangle-attest signs each VSA keyless with
   # this workflow's OIDC identity. fail: true blocks the publish job (which needs
   # verify), so a failed policy means the bytes are never uploaded.
   verify:
@@ -385,7 +385,7 @@ jobs:
     needs: [prep, release, attest]
     runs-on: ubuntu-latest
     permissions:
-      id-token: write       # bnd keyless-signs each VSA via this workflow's OIDC identity
+      id-token: write       # wrangle-attest keyless-signs each VSA via this workflow's OIDC identity
       attestations: write   # post each VSA to the GitHub attestation store
     steps:
       # TODO: replace with $/actions/verify_release when GitHub ships $/ syntax (#136)

@@ -174,7 +174,7 @@ The reusable workflow's `verify` job requires:
 
 ```yaml
 permissions:
-  id-token: write     # bnd keyless-signs the VSA via this workflow's OIDC identity
+  id-token: write     # wrangle-attest keyless-signs the VSA via this workflow's OIDC identity
   contents: write     # attach the VSA to the release on tag pushes
 ```
 

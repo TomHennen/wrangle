@@ -21,7 +21,7 @@ source "$_SIGN_METADATA_DIR/toolbox_run.sh"
 # (newline-separated dist file paths / sha256: digests, read by
 # wrangle_read_subjects), GITHUB_REPOSITORY (store push target), GITHUB_TOKEN
 # (bnd reads it to auth the store push), COMMIT (scanned git commit woven into
-# the scan/v1 envelope). bnd keyless-signs via the caller's OIDC identity.
+# the scan/v1 envelope). wrangle-attest keyless-signs via the caller's OIDC identity.
 
 # Build the wrangle-attest arg vector (one arg per line for mapfile) that signs
 # the build metadata into in-toto statements. $1 = subject arg
@@ -71,8 +71,8 @@ wrangle_push_store() {
 
 # Build the cosign arg vector that pushes a single signed statement as an OCI
 # referrer. `attach attestation` uploads verbatim (no re-sign), preserving the
-# bnd signer; it accepts only one bundle line. $1 is the single-statement file,
-# $2 the image digest ref.
+# original signer; it accepts only one bundle line. $1 is the single-statement
+# file, $2 the image digest ref.
 wrangle_cosign_attach_args() {
     printf '%s\n' attach attestation \
         --attestation "$1" \

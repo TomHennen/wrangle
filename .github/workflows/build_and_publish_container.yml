@@ -266,7 +266,7 @@ jobs:
     # requesting it here would be a startup-failing escalation; the bundle ships
     # as a workflow artifact and an OCI referrer, not a release asset.
     permissions:
-      id-token: write       # bnd keyless-signs the VSA via this workflow's OIDC identity
+      id-token: write       # wrangle-attest keyless-signs the VSA via this workflow's OIDC identity
       attestations: write   # post the VSA to the GitHub attestation store
       packages: write       # push the VSA referrer to ghcr
     steps:

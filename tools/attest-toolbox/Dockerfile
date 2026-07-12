@@ -3,9 +3,9 @@
 # from the pinned tools/go.mod (manifest-preserving — keeps vuln scanning of
 # their deps) onto a hardened wolfi base, all four on PATH:
 #   ampel          — evaluate a release against a PolicySet, emit the VSA
-#   bnd            — keyless-sign statements (provenance, SBOM, VSA)
+#   bnd            — post signed statements to the GitHub attestation store
 #   cosign         — push attestations as OCI referrers
-#   wrangle-attest — build the unsigned scan/build in-toto statements
+#   wrangle-attest — build + keyless-sign the scan/build/VSA statements
 # Unlike the scan-tool images this is NOT a sandboxed adapter: the verify/attest
 # path needs network egress (Sigstore/Rekor, the GitHub attestation store, the
 # registry) and, when signing, the workflow's OIDC token. It therefore ships no

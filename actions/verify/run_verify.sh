@@ -236,6 +236,9 @@ wrangle_run() {
         # When BUNDLE_OUT == BUNDLE_IN (the metadata dir) the bundle is already in
         # place; otherwise stage attest's copy so the VSA appends to it.
         [[ "$src" -ef "$bundle" ]] || cp "$src" "$bundle"
+        # Truncate the reused temp so a prior subject's VSA can never survive an
+        # emit that exits 0 without writing.
+        : > "$tmp_vsa"
         # Verify against the policy, feeding the bundle (provenance + SBOM/scan) as
         # the jsonl collector so the verdict/VSA cover those tenets.
         wrangle_verify_emit_vsa "$subject" "$tmp_vsa" "$bundle"
