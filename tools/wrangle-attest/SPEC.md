@@ -112,7 +112,7 @@ failed append after `--out` was written, which removes `--out` again
 
 ```
 wrangle-attest assemble --metadata-root <dir>... --subjects-file <file> \
-    (--seed <file> | --seed-referrers <file>) [--commit <hex-sha>] --sign \
+    (--provenance <file> | --provenance-referrers <file>) [--commit <hex-sha>] --sign \
     --bundle-dir <dir> --statements-out <file>
 ```
 
@@ -123,9 +123,9 @@ never reinterpreted as a path), anything else is a dist file the engine
 self-digests. For each subject, every discovered manifest is built and signed
 with one shared signer (one OIDC/Fulcio flow total; zero manifests fails
 closed), and `<bundle-dir>/<basename, ':'→'-'>.intoto.jsonl` is written as the
-provenance seed verbatim plus one signed line per statement; `--statements-out`
-collects every newly signed line in the same order. `--seed` is copied
-byte-for-byte; `--seed-referrers` filters raw `cosign download attestation`
+provenance verbatim plus one signed line per statement; `--statements-out`
+collects every newly signed line in the same order. `--provenance` is copied
+byte-for-byte; `--provenance-referrers` filters raw `cosign download attestation`
 output to the SLSA provenance envelopes, keeping each surviving line's
 original bytes (zero matches or a malformed line fails closed). A bundle-name
 collision — within the subject set or with a file already under

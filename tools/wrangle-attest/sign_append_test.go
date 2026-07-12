@@ -9,7 +9,7 @@ import (
 
 // The appended bytes must be the existing bundle verbatim + the signed line +
 // '\n' — including when the bundle lacks a trailing newline, where the line
-// concatenates onto the seed's last line exactly as a shell `printf '%s\n' >>`
+// concatenates onto the provenance's last line exactly as a shell `printf '%s\n' >>`
 // would.
 func TestRunStatementAppendGolden(t *testing.T) {
 	line := `{"bundle":"x"}`
@@ -17,8 +17,8 @@ func TestRunStatementAppendGolden(t *testing.T) {
 		name   string
 		bundle string
 	}{
-		{"bundle with trailing newline", "{\"seed\":1}\n{\"seed\":2}\n"},
-		{"bundle without trailing newline", "{\"seed\":1}\n{\"seed\":2}"},
+		{"bundle with trailing newline", "{\"provenance\":1}\n{\"provenance\":2}\n"},
+		{"bundle without trailing newline", "{\"provenance\":1}\n{\"provenance\":2}"},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
@@ -65,7 +65,7 @@ func TestRunStatementAppendFailClosed(t *testing.T) {
 	if err := os.WriteFile(stmt, []byte(`{"a":1}`), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	const bundleContent = "{\"seed\":1}\n"
+	const bundleContent = "{\"provenance\":1}\n"
 	newBundle := func(t *testing.T) string {
 		bundle := filepath.Join(t.TempDir(), "pkg.intoto.jsonl")
 		if err := os.WriteFile(bundle, []byte(bundleContent), 0o644); err != nil {
