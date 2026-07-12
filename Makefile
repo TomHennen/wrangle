@@ -1,4 +1,4 @@
-.PHONY: all test lint shellcheck shellstyle workflowstyle gotest bats zizmor integration bump-action-pins converge-action-pins check-catalog check-catalog-freshness check-catalog-provenance-freshness bump-catalog-digest bump-catalog-to-latest
+.PHONY: all test lint shellcheck shellstyle workflowstyle gotest bats zizmor integration bump-action-pins converge-action-pins check-catalog check-catalog-freshness check-catalog-provenance-freshness bump-catalog-digest bump-catalog-to-latest release-preflight
 
 # bash, not the default sh: the integration recipe sources lib/env.sh,
 # whose `set -o pipefail` dash doesn't reliably support.
@@ -114,3 +114,8 @@ bump-catalog-digest:
 # driver the post-publish auto-bump runs). See tools/bump_catalog_to_latest.sh.
 bump-catalog-to-latest:
 	@./tools/bump_catalog_to_latest.sh
+
+# Every code-level gate that must hold before a release tag is cut. The tag is
+# immutable, so this runs before `gh release create`, not after.
+release-preflight:
+	@./tools/release_preflight.sh
