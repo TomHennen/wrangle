@@ -13,6 +13,10 @@ set -f  # disable globbing — adapter walks adopter-controlled paths
 # Usage: adapter.sh <src_dir> <output_dir>
 # Exit: 0 = no findings, 1 = findings found, 2 = tool error
 
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+# shellcheck source=../../lib/sarif_adapter_exit.sh
+source "$SCRIPT_DIR/../../lib/sarif_adapter_exit.sh"
+
 if [[ $# -ne 2 ]]; then
     printf 'Usage: adapter.sh <src_dir> <output_dir>\n' >&2
     exit 2
@@ -47,17 +51,4 @@ if [[ "$lint_exit" -ne 0 ]]; then
     exit 2
 fi
 
-if ! jq empty "$SARIF_FILE" 2>/dev/null; then
-    printf 'wrangle/wrangle-lint: produced invalid JSON in SARIF output\n' >&2
-    exit 2
-fi
-
-if ! num_findings="$(jq '[.runs[].results[]] | length' "$SARIF_FILE" 2>/dev/null)"; then
-    printf 'wrangle/wrangle-lint: failed to parse SARIF results\n' >&2
-    exit 2
-fi
-if [[ "$num_findings" -gt 0 ]]; then
-    exit 1
-fi
-
-exit 0
+wrangle_sarif_adapter_exit 'wrangle/wrangle-lint' "$SARIF_FILE"
