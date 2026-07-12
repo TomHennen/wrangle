@@ -27,6 +27,8 @@ case "${WL_SHIM_MODE:-clean}" in
         printf '{"version":"2.1.0","runs":[{"tool":{"driver":{"name":"wrangle-lint"}},"results":[{"ruleId":"WL003","level":"error","message":{"text":"x"},"locations":[{"physicalLocation":{"artifactLocation":{"uri":".github/dependabot.yml"},"region":{"startLine":1}}}]}]}]}\n' >"$out" ;;
     invalid)
         printf '{ not valid json\n' >"$out" ;;
+    no-runs)
+        printf '{}\n' >"$out" ;;
     toolerror)
         exit 2 ;;
 esac
@@ -59,6 +61,11 @@ teardown() {
 
 @test "invalid SARIF from the binary: exit 2" {
     WL_SHIM_MODE=invalid run "$ADAPTER" "$BATS_TEST_DIRNAME" "$OUT"
+    [ "$status" -eq 2 ]
+}
+
+@test "SARIF missing runs array: exit 2" {
+    WL_SHIM_MODE=no-runs run "$ADAPTER" "$BATS_TEST_DIRNAME" "$OUT"
     [ "$status" -eq 2 ]
 }
 

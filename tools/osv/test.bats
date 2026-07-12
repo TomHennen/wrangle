@@ -104,6 +104,18 @@ SARIF
         fi
         exit 0
         ;;
+    no-runs)
+        if [[ "$format" == "sarif" ]]; then
+            printf '{}\n' > "$output_file"
+        fi
+        exit 0
+        ;;
+    findings-empty-sarif)
+        if [[ "$format" == "sarif" ]]; then
+            printf '{"version":"2.1.0","runs":[{"tool":{"driver":{"name":"osv-scanner"}},"results":[]}]}\n' > "$output_file"
+        fi
+        exit 1
+        ;;
 esac
 MOCK
     chmod +x "$MOCK_BIN/osv-scanner"
@@ -331,6 +343,18 @@ SARIF
     export OSV_MOCK_MODE="bad-json"
     run "$ADAPTER" "$TMP_DIR/src" "$TMP_DIR/output"
     [ "$status" -eq 2 ]
+}
+
+@test "osv adapter: SARIF missing runs array produces exit 2" {
+    export OSV_MOCK_MODE="no-runs"
+    run "$ADAPTER" "$TMP_DIR/src" "$TMP_DIR/output"
+    [ "$status" -eq 2 ]
+}
+
+@test "osv adapter: scanner reports findings the SARIF lacks produces exit 1" {
+    export OSV_MOCK_MODE="findings-empty-sarif"
+    run "$ADAPTER" "$TMP_DIR/src" "$TMP_DIR/output"
+    [ "$status" -eq 1 ]
 }
 
 @test "osv adapter: requires 2 arguments" {
