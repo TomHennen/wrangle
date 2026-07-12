@@ -648,9 +648,10 @@ STUB
 
 # --- attach to release (wrangle_attach_release) ---
 #
-# wrangle attaches the bundle to the tag's release, creating a published release
-# if none exists. These tests drive a `gh` shim whose `release view` exit code
-# follows GH_VIEW_SEQ so both branches (release present / absent) are exercised.
+# wrangle drives a draft -> attach-all -> publish flow: it creates the tag's
+# release as a draft if absent, uploads assets, then flips it to published. These
+# tests drive a `gh` shim whose `release view` existence-probe exit code follows
+# GH_VIEW_SEQ so both branches (release present / absent) are exercised.
 
 # Install a gh shim on PATH that logs calls and returns scripted exit codes.
 _install_gh_shim() {
@@ -659,11 +660,23 @@ _install_gh_shim() {
 printf '%s\n' "$*" >> "$GH_LOG"
 case "$1 $2" in
   "release view")
+    # The --json reads (body for the unattested marker, isDraft for the
+    # publish-flip fallback) are separate from the existence probe: serve the
+    # staged value and never consume a GH_VIEW_SEQ slot.
+    if [[ "$*" == *"--json body"* ]]; then cat "${GH_BODY:-/dev/null}"; exit 0; fi
+    if [[ "$*" == *"--json isDraft"* ]]; then printf '%s' "${GH_ISDRAFT:-false}"; exit 0; fi
     n=$(cat "$GH_VIEW_N" 2>/dev/null || echo 0); n=$((n + 1)); printf '%s' "$n" > "$GH_VIEW_N"
     code=$(printf '%s' "$GH_VIEW_SEQ" | cut -d' ' -f"$n"); exit "${code:-1}" ;;
   "release create") exit "${GH_CREATE_CODE:-0}" ;;
+  "release edit")
+    # Capture the --notes value (the new body) so tests can assert what was set.
+    prev=""; for a in "$@"; do [[ "$prev" == "--notes" ]] && printf '%s' "$a" > "${GH_NOTES:-/dev/null}"; prev="$a"; done
+    exit "${GH_EDIT_CODE:-0}" ;;
   "release upload")
     [[ -n "${GH_KEEP_ZIP:-}" && "$4" == *.zip ]] && cp "$4" "$GH_KEEP_ZIP"
+    # GH_ZIP_UPLOAD_CODE fails only the metadata-zip upload, leaving dist/bundle
+    # uploads green — isolates the last-asset failure that must abort the flip.
+    [[ "$4" == *.zip ]] && exit "${GH_ZIP_UPLOAD_CODE:-0}"
     exit "${GH_UPLOAD_CODE:-0}" ;;
 esac
 exit 0
@@ -812,7 +825,7 @@ _require_zip() {
     export GH_VIEW_SEQ="1"            # view fails (no release)
     run "$SCRIPT" attach
     [[ "$status" -eq 0 ]]
-    grep -qx "release create v1.2.3 --generate-notes --title v1.2.3" "$GH_LOG"
+    grep -qx "release create v1.2.3 --draft --generate-notes --title v1.2.3" "$GH_LOG"
     grep -qx "release upload v1.2.3 $BUNDLE_OUT/a.tgz.intoto.jsonl --clobber" "$GH_LOG"
 }
 
@@ -837,7 +850,7 @@ _require_zip() {
     export GH_CREATE_CODE="1"        # our create loses the race
     run "$SCRIPT" attach
     [[ "$status" -eq 0 ]]
-    grep -qx "release create v1.2.3 --generate-notes --title v1.2.3" "$GH_LOG"
+    grep -qx "release create v1.2.3 --draft --generate-notes --title v1.2.3" "$GH_LOG"
     grep -qx "release upload v1.2.3 $BUNDLE_OUT/a.tgz.intoto.jsonl --clobber" "$GH_LOG"
 }
 
@@ -867,6 +880,297 @@ SHIM
     [[ "$status" -eq 0 ]]
     [[ "$output" != *"workflow artifact only"* ]]
     grep -qx "release upload v1.2.3 $BUNDLE_OUT/a.tgz.intoto.jsonl --clobber" "$GH_LOG"
+}
+
+# --- draft -> attach -> publish ordering (#407, immutable releases) ---
+#
+# ensure_release creates a DRAFT so assets attach before publish; the flow flips
+# the draft to published as its FINAL act. Immutable releases freeze at publish,
+# so no asset/body edit may follow the flip.
+
+@test "run_verify attach: creates the release as a draft, then publishes it" {
+    _require_zip
+    _install_gh_shim
+    _stage_release_assets
+    export BUILD_TYPE="python"
+    export GH_VIEW_SEQ="1"            # no release yet -> create as draft
+    run "$SCRIPT" attach
+    [[ "$status" -eq 0 ]]
+    grep -qx "release create v1.2.3 --draft --generate-notes --title v1.2.3" "$GH_LOG"
+    grep -qx "release edit v1.2.3 --draft=false" "$GH_LOG"
+}
+
+@test "run_verify attach: the publish flip is the LAST gh mutation (no upload/edit after it)" {
+    # LOAD-BEARING for immutable releases: every asset + body edit must land while
+    # the release is still a draft. A stray upload/edit after --draft=false hits a
+    # frozen release.
+    _require_zip
+    _install_gh_shim
+    _stage_release_assets
+    export BUILD_TYPE="go"
+    : > "$DIST_DIR/checksums.txt"
+    export GH_VIEW_SEQ="0"
+    run "$SCRIPT" attach
+    [[ "$status" -eq 0 ]]
+    # The flip must be the final release-mutating call in the log.
+    local last
+    last="$(grep -nE 'release (upload|create|edit)' "$GH_LOG" | tail -n1)"
+    [[ "$last" == *"release edit v1.2.3 --draft=false"* ]]
+}
+
+@test "run_verify attach: a failed metadata-zip upload fails closed before the publish flip" {
+    # The metadata zip is the last asset; its upload failure MUST abort the attach
+    # before wrangle_publish_release flips the draft — else an incomplete release
+    # freezes as published on immutable. Regression guard: the helper runs on the
+    # left of `||`, so set -e is disabled in its body and a swallowed failure
+    # would let the flip proceed.
+    _require_zip
+    _install_gh_shim
+    _stage_release_assets
+    export BUILD_TYPE="python"
+    export GH_VIEW_SEQ="0"
+    export GH_ZIP_UPLOAD_CODE=1      # only the metadata-zip upload fails
+    run "$SCRIPT" attach
+    [[ "$status" -ne 0 ]]
+    # The draft must NOT have been published.
+    if grep -q "release edit v1.2.3 --draft=false" "$GH_LOG"; then return 1; fi
+}
+
+@test "run_verify: ensure_release creates a draft when the release is absent" {
+    _install_gh_shim
+    export GH_VIEW_SEQ="1 1"          # absent, and the post-create re-check is not reached
+    run wrangle_ensure_release v1.2.3
+    [[ "$status" -eq 0 ]]
+    grep -qx "release create v1.2.3 --draft --generate-notes --title v1.2.3" "$GH_LOG"
+}
+
+@test "run_verify: ensure_release is race-safe — a lost create succeeds if the release now exists" {
+    # Sibling build-type publishes race to create the same release; the loser's
+    # create 422s, but the release exists by then, so publish must proceed.
+    _install_gh_shim
+    export GH_VIEW_SEQ="1 0"          # absent, then present (another job won the create)
+    export GH_CREATE_CODE=1           # our create loses the race
+    run wrangle_ensure_release v1.2.3
+    [[ "$status" -eq 0 ]]
+}
+
+@test "run_verify: ensure_release fails closed when create fails and the release stays absent" {
+    _install_gh_shim
+    export GH_VIEW_SEQ="1 1"          # absent, still absent
+    export GH_CREATE_CODE=1
+    run wrangle_ensure_release v1.2.3
+    [[ "$status" -ne 0 ]]
+    [[ "$output" == *"failed to create"* ]]
+}
+
+@test "run_verify: publish_release flips the draft to published" {
+    _install_gh_shim
+    run wrangle_publish_release v1.2.3
+    [[ "$status" -eq 0 ]]
+    grep -qx "release edit v1.2.3 --draft=false" "$GH_LOG"
+}
+
+@test "run_verify: publish_release tolerates an already-published release (sibling won the flip)" {
+    # A concurrent sibling build-type publish already flipped it: gh edit may
+    # fail, but the release is published, so this must still succeed.
+    _install_gh_shim
+    export GH_EDIT_CODE=1             # our flip errors
+    export GH_ISDRAFT=false           # ...but the release is already published
+    run wrangle_publish_release v1.2.3
+    [[ "$status" -eq 0 ]]
+}
+
+@test "run_verify: publish_release fails closed when the flip fails and the release is still a draft" {
+    _install_gh_shim
+    export GH_EDIT_CODE=1
+    export GH_ISDRAFT=true
+    run wrangle_publish_release v1.2.3
+    [[ "$status" -ne 0 ]]
+    [[ "$output" == *"failed to publish"* ]]
+}
+
+# --- attach-unattested (wrangle_attach_unattested) ---
+#
+# The disabled-attestation publish: no bundles or VSAs, so every dist file (go:
+# archives + checksums.txt) and the metadata zip are uploaded, the release body
+# is marked unattested (before the publish flip), and the draft is published.
+
+# Stage a dist dir (no bundles) + the metadata dir, plus the env attach-unattested
+# reads. The metadata zip is sourced from METADATA_ROOT.
+_stage_unattested_assets() {
+    mkdir -p "$TEST_DIR/dist" "$TEST_DIR/meta"
+    : > "$TEST_DIR/dist/app-linux-amd64.tar.gz"
+    printf 'deadbeef  app-linux-amd64.tar.gz\n' > "$TEST_DIR/dist/checksums.txt"
+    : > "$TEST_DIR/meta/sbom.spdx.json"
+    export DIST_DIR="$TEST_DIR/dist"
+    export METADATA_ROOT="$TEST_DIR/meta"
+    export METADATA_ZIP_NAME="go-metadata.zip"
+    export GH_BODY="$TEST_DIR/body"; : > "$GH_BODY"
+    export GH_NOTES="$TEST_DIR/notes"; : > "$GH_NOTES"
+}
+
+@test "run_verify attach-unattested: uploads every dist file + checksums.txt and the metadata zip, no bundles" {
+    _require_zip
+    _install_gh_shim
+    _stage_unattested_assets
+    export GH_VIEW_SEQ="0"            # release exists
+    run "$SCRIPT" attach-unattested
+    [[ "$status" -eq 0 ]]
+    grep -qx "release upload v1.2.3 $DIST_DIR/app-linux-amd64.tar.gz --clobber" "$GH_LOG"
+    grep -qx "release upload v1.2.3 $DIST_DIR/checksums.txt --clobber" "$GH_LOG"
+    grep -q "release upload v1.2.3 .*go-metadata.zip --clobber" "$GH_LOG"
+    # No bundle (.intoto.jsonl) is uploaded in unattested mode.
+    if grep -q "intoto.jsonl" "$GH_LOG"; then return 1; fi
+    # The draft is published as the final step.
+    grep -qx "release edit v1.2.3 --draft=false" "$GH_LOG"
+}
+
+@test "run_verify attach-unattested: the marker edit precedes the publish flip (immutable-safe)" {
+    # The body marker is a gh release edit; it MUST land before --draft=false or it
+    # re-violates immutability on the adopter's release.
+    _require_zip
+    _install_gh_shim
+    _stage_unattested_assets
+    export GH_VIEW_SEQ="0"
+    run "$SCRIPT" attach-unattested
+    [[ "$status" -eq 0 ]]
+    local marker_line flip_line
+    marker_line="$(grep -n 'release edit v1.2.3 --notes' "$GH_LOG" | head -n1 | cut -d: -f1)"
+    flip_line="$(grep -n 'release edit v1.2.3 --draft=false' "$GH_LOG" | head -n1 | cut -d: -f1)"
+    [[ -n "$marker_line" && -n "$flip_line" ]]
+    [[ "$marker_line" -lt "$flip_line" ]]
+    # And the flip is the last mutation.
+    local last
+    last="$(grep -nE 'release (upload|create|edit)' "$GH_LOG" | tail -n1)"
+    [[ "$last" == *"release edit v1.2.3 --draft=false"* ]]
+}
+
+@test "run_verify attach-unattested: a checksums manifest scopes the upload, excluding build-tool bookkeeping" {
+    # A build tool (e.g. goreleaser) writes config.yaml / artifacts.json /
+    # metadata.json / CHANGELOG.md into dist/; a flat glob would wrongly publish
+    # them. With a checksums manifest present, publish only its entries.
+    _require_zip
+    _install_gh_shim
+    _stage_unattested_assets
+    : > "$DIST_DIR/config.yaml"
+    : > "$DIST_DIR/artifacts.json"
+    : > "$DIST_DIR/metadata.json"
+    : > "$DIST_DIR/CHANGELOG.md"
+    export GH_VIEW_SEQ="0"
+    run "$SCRIPT" attach-unattested
+    [[ "$status" -eq 0 ]]
+    grep -qx "release upload v1.2.3 $DIST_DIR/app-linux-amd64.tar.gz --clobber" "$GH_LOG"
+    grep -qx "release upload v1.2.3 $DIST_DIR/checksums.txt --clobber" "$GH_LOG"
+    local bk
+    for bk in config.yaml artifacts.json metadata.json CHANGELOG.md; do
+        if grep -qF "$bk" "$GH_LOG"; then
+            printf 'leaked bookkeeping: %s\n' "$bk" >&2
+            return 1
+        fi
+    done
+}
+
+@test "run_verify attach-unattested: with no checksums manifest, uploads every flat dist file (npm/python)" {
+    # Build types without a checksums manifest (their dist holds only real
+    # artifacts) publish the flat dist — no manifest scoping, no build-type branch.
+    _require_zip
+    _install_gh_shim
+    mkdir -p "$TEST_DIR/dist" "$TEST_DIR/meta"
+    : > "$TEST_DIR/dist/pkg-1.0.0-py3-none-any.whl"
+    : > "$TEST_DIR/dist/pkg-1.0.0.tar.gz"
+    : > "$TEST_DIR/meta/sbom.spdx.json"
+    export DIST_DIR="$TEST_DIR/dist"
+    export METADATA_ROOT="$TEST_DIR/meta"
+    export METADATA_ZIP_NAME="python-metadata.zip"
+    export GH_BODY="$TEST_DIR/body"; : > "$GH_BODY"
+    export GH_NOTES="$TEST_DIR/notes"; : > "$GH_NOTES"
+    export GH_VIEW_SEQ="0"
+    run "$SCRIPT" attach-unattested
+    [[ "$status" -eq 0 ]]
+    grep -qx "release upload v1.2.3 $DIST_DIR/pkg-1.0.0-py3-none-any.whl --clobber" "$GH_LOG"
+    grep -qx "release upload v1.2.3 $DIST_DIR/pkg-1.0.0.tar.gz --clobber" "$GH_LOG"
+    grep -q "release upload v1.2.3 .*python-metadata.zip --clobber" "$GH_LOG"
+}
+
+@test "run_verify attach-unattested: marks the release body as unattested" {
+    _require_zip
+    _install_gh_shim
+    _stage_unattested_assets
+    export GH_VIEW_SEQ="0"
+    run "$SCRIPT" attach-unattested
+    [[ "$status" -eq 0 ]]
+    grep -q "release edit v1.2.3 --notes" "$GH_LOG"
+    grep -q "issues/600" "$GH_NOTES"
+}
+
+@test "run_verify attach-unattested: preserves a pre-existing release body and appends the marker" {
+    # Generated/adopter notes must survive: the marker is appended, not a
+    # wholesale --notes replacement that would destroy the existing body.
+    _require_zip
+    _install_gh_shim
+    _stage_unattested_assets
+    printf 'Adopter changelog line.\n' > "$GH_BODY"
+    export GH_VIEW_SEQ="0"
+    run "$SCRIPT" attach-unattested
+    [[ "$status" -eq 0 ]]
+    grep -q "Adopter changelog line." "$GH_NOTES"
+    grep -q "issues/600" "$GH_NOTES"
+}
+
+@test "run_verify attach-unattested: is idempotent — a re-run does not double-append the marker" {
+    # The marker's unique key suppresses a second append when it is already
+    # present (a re-run must not stack markers).
+    _install_gh_shim
+    _stage_unattested_assets
+    # Body already carries the marker key.
+    printf 'Notes.\n\n> [!WARNING]\n> Unattested build (attest-and-verify: disabled) — no SLSA provenance or VSA.\n' > "$GH_BODY"
+    export GH_VIEW_SEQ="0"
+    run "$SCRIPT" attach-unattested
+    [[ "$status" -eq 0 ]]
+    # mark_release_unattested returns early without editing the notes.
+    if grep -q "release edit v1.2.3 --notes" "$GH_LOG"; then return 1; fi
+}
+
+@test "run_verify attach-unattested: appends the marker even when notes already contain an unrelated alert" {
+    # The idempotency key must be unique to the unattested marker, not a generic
+    # alert line: an adopter's own `> [!WARNING]` block must not suppress it.
+    _install_gh_shim
+    _stage_unattested_assets
+    {
+        printf '> [!WARNING]\n'
+        printf '> Breaking change in this release.\n'
+    } > "$GH_BODY"
+    export GH_VIEW_SEQ="0"
+    run "$SCRIPT" attach-unattested
+    [[ "$status" -eq 0 ]]
+    grep -q "release edit v1.2.3 --notes" "$GH_LOG"
+    grep -q "issues/600" "$GH_NOTES"
+}
+
+@test "run_verify attach-unattested: a failed metadata-zip upload fails closed before the publish flip" {
+    _require_zip
+    _install_gh_shim
+    _stage_unattested_assets
+    export GH_VIEW_SEQ="0"
+    export GH_ZIP_UPLOAD_CODE=1      # only the metadata-zip upload fails
+    run "$SCRIPT" attach-unattested
+    [[ "$status" -ne 0 ]]
+    if grep -q "release edit v1.2.3 --draft=false" "$GH_LOG"; then return 1; fi
+}
+
+@test "run_verify attach-unattested: fails closed when dist has no artifacts" {
+    _install_gh_shim
+    mkdir -p "$TEST_DIR/dist" "$TEST_DIR/meta"   # empty dist, no checksums
+    : > "$TEST_DIR/meta/sbom.spdx.json"
+    export DIST_DIR="$TEST_DIR/dist"
+    export METADATA_ROOT="$TEST_DIR/meta"
+    export METADATA_ZIP_NAME="python-metadata.zip"
+    export GH_BODY="$TEST_DIR/body"; : > "$GH_BODY"
+    export GH_NOTES="$TEST_DIR/notes"; : > "$GH_NOTES"
+    export GH_VIEW_SEQ="0"
+    run "$SCRIPT" attach-unattested
+    [[ "$status" -ne 0 ]]
+    [[ "$output" == *"no dist files to publish"* ]]
 }
 
 # --- wrangle_retry_once -----------------------------------------------------
