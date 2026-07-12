@@ -87,7 +87,7 @@ malformed manifest or a signing failure — never leaves a partial/unsigned file
 Exit 0 on success; non-zero (fail closed) on any error.
 
 ```
-wrangle-attest --sign --statement <file> --out <file>
+wrangle-attest --sign --statement <file> --out <file> [--append <bundle>]
 ```
 
 Signs an existing in-toto statement file (the verify job's VSA) instead of
@@ -96,6 +96,12 @@ never re-marshaled — so the bundle is byte-identical to `bnd statement` on the
 same file, written as one compact bundle line. `--statement` is mutually
 exclusive with `--metadata-root`, `--subject`, `--artifact`, and `--commit`; a
 missing, empty, or non-JSON-object file fails closed before `--out` is touched.
+
+`--append` additionally appends the identical signed line + `\n` to the
+existing bundle at `<bundle>` (the attest-assembled per-artifact bundle). It
+requires `--statement`, and a missing or empty append target fails closed
+before signing — a VSA-only bundle is impossible. On any failure neither
+`--out` nor the append target is modified.
 
 ## Testing
 

@@ -23,9 +23,10 @@ func (r *metadataRoots) Set(v string) error {
 // all to --out as JSONL. With --sign each statement is keyless-signed (one
 // shared signer, so the OIDC+Fulcio flow runs once) and the Sigstore bundle is
 // emitted; without it the statements are emitted unsigned. With --statement it
-// instead signs one existing statement file verbatim. The file is written
-// whole (buffer first) so a mid-run failure — including a Fulcio error on the
-// Nth statement — never leaves a partial/unsigned bundle on disk.
+// instead signs one existing statement file verbatim, optionally appending the
+// signed line to an existing bundle via --append. The file is written whole
+// (buffer first) so a mid-run failure — including a Fulcio error on the Nth
+// statement — never leaves a partial/unsigned bundle on disk.
 func run(args []string, stderr io.Writer) int {
 	fs := flag.NewFlagSet("wrangle-attest", flag.ContinueOnError)
 	fs.SetOutput(stderr)
@@ -38,16 +39,21 @@ func run(args []string, stderr io.Writer) int {
 	sign := fs.Bool("sign", false, "keyless-sign each statement and emit the Sigstore bundle")
 	statement := fs.String("statement", "", "existing in-toto statement file to sign verbatim (requires --sign)")
 	out := fs.String("out", "", "file the in-toto JSONL statements are written to")
+	appendTo := fs.String("append", "", "existing non-empty bundle the signed line is also appended to (requires --statement)")
 
 	if err := fs.Parse(args); err != nil {
 		return 2
+	}
+
+	if *appendTo != "" && *statement == "" {
+		return failClosed(stderr, fmt.Errorf("--append requires --statement"))
 	}
 
 	if *statement != "" {
 		if err := validateStatementMode(roots, *subject, *artifact, *commit, *sign, *out); err != nil {
 			return failClosed(stderr, err)
 		}
-		return signStatementFile(*statement, *out, stderr)
+		return signStatementFile(*statement, *out, *appendTo, stderr)
 	}
 
 	subjectArg, err := resolveSubject(*subject, *artifact)
@@ -154,8 +160,10 @@ func validateStatementMode(roots []string, subject, artifact, commit string, sig
 
 // signStatementFile signs an existing statement file. The raw file bytes are
 // the DSSE payload verbatim — never re-marshaled or normalized — so the bundle
-// is byte-identical to `bnd statement` on the same file.
-func signStatementFile(path, out string, stderr io.Writer) int {
+// is byte-identical to `bnd statement` on the same file. With appendTo the
+// identical signed line is also appended to that existing bundle, which must
+// already be non-empty (a VSA-only bundle must be impossible).
+func signStatementFile(path, out, appendTo string, stderr io.Writer) int {
 	raw, err := os.ReadFile(path)
 	if err != nil {
 		return failClosed(stderr, fmt.Errorf("statement: %w", err))
@@ -166,6 +174,15 @@ func signStatementFile(path, out string, stderr io.Writer) int {
 	}
 	if trimmed[0] != '{' || !json.Valid(raw) {
 		return failClosed(stderr, fmt.Errorf("statement file is not a JSON object: %s", path))
+	}
+	if appendTo != "" {
+		info, err := os.Stat(appendTo)
+		if err != nil {
+			return failClosed(stderr, fmt.Errorf("append target: %w", err))
+		}
+		if info.Size() == 0 {
+			return failClosed(stderr, fmt.Errorf("append target %s is empty", appendTo))
+		}
 	}
 
 	sg, closeFn, err := newSigner()
@@ -178,6 +195,9 @@ func signStatementFile(path, out string, stderr io.Writer) int {
 	if err != nil {
 		return failClosed(stderr, err)
 	}
+	if len(bytes.TrimSpace(line)) == 0 {
+		return failClosed(stderr, fmt.Errorf("signing produced no output for %s", path))
+	}
 
 	var buf bytes.Buffer
 	buf.Write(line)
@@ -185,6 +205,33 @@ func signStatementFile(path, out string, stderr io.Writer) int {
 	if err := os.WriteFile(out, buf.Bytes(), 0o644); err != nil {
 		return failClosed(stderr, err)
 	}
+	if appendTo != "" {
+		if err := appendLine(appendTo, buf.Bytes()); err != nil {
+			return failClosed(stderr, err)
+		}
+	}
 	fmt.Fprintf(stderr, "wrangle-attest: wrote signed statement to %s\n", out)
+	if appendTo != "" {
+		fmt.Fprintf(stderr, "wrangle-attest: appended signed statement to %s\n", appendTo)
+	}
 	return 0
+}
+
+// appendLine appends line to the file at path in a single write (os.WriteFile
+// would truncate); a torn append surfaces as a non-zero exit, never a silent
+// partial bundle.
+func appendLine(path string, line []byte) error {
+	f, err := os.OpenFile(path, os.O_WRONLY|os.O_APPEND, 0)
+	if err != nil {
+		return fmt.Errorf("append target: %w", err)
+	}
+	if _, err := f.Write(line); err != nil {
+		f.Close()
+		return fmt.Errorf("appending to %s: %w", path, err)
+	}
+	if err := f.Sync(); err != nil {
+		f.Close()
+		return fmt.Errorf("appending to %s: %w", path, err)
+	}
+	return f.Close()
 }
