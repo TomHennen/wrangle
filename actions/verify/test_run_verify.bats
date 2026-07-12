@@ -500,6 +500,33 @@ STUB
     ! grep -q 'dsseEnvelope' "$TEST_DIR/pushed"
 }
 
+@test "run_verify: run fails closed when the engine exits 0 without landing a signed VSA" {
+    # jq -c exits 0 on empty input, so without the host-side guard an engine
+    # that exited 0 having written nothing here (e.g. a mount mismatch) would
+    # push an empty statement to the store and the registry.
+    cat > "$TEST_DIR/wrangle-attest" <<'STUB'
+#!/bin/bash
+printf 'report\n'
+exit 0
+STUB
+    cat > "$TEST_DIR/bnd" <<EOF
+#!/bin/bash
+touch "$TEST_DIR/bnd.called"
+EOF
+    chmod +x "$TEST_DIR/wrangle-attest" "$TEST_DIR/bnd"
+    export PATH="$TEST_DIR:$PATH"
+    export GITHUB_STEP_SUMMARY="$TEST_DIR/summary.md"; : > "$GITHUB_STEP_SUMMARY"
+    local sha; sha="$(printf '0%.0s' {1..64})"
+    export SUBJECTS="sha256:$sha"
+    _stage_bundle "sha256-$sha.intoto.jsonl" "$sha"
+
+    run "$SCRIPT" run
+    [[ "$status" -ne 0 ]]
+    [[ "$output" == *"produced no signed VSA"* ]]
+    # Nothing was pushed to the store.
+    [ ! -f "$TEST_DIR/bnd.called" ]
+}
+
 @test "run_verify: run fails closed when a subject's attest-assembled bundle is missing" {
     # The attest job must have assembled this subject's bundle; a missing one is a
     # wiring/attest bug and must abort rather than emit a VSA-only bundle.

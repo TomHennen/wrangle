@@ -106,7 +106,8 @@ wrangle_engine_verify_args() {
 # locator is fetched, not read). An oci: collector reads attestations from
 # ghcr, so the run also gets the job's registry login and token; the engine
 # strips the signing token from ampel's environment. The engine retries the
-# ampel exec and the signer retries Sigstore I/O, so no retry wraps this run.
+# ampel exec internally; this run is not retried in-shell because a re-run
+# after a completed bundle append would append the VSA twice.
 wrangle_engine_verify() {
     local subject="$1" out="$2" bundle="$3"
     local args policy
@@ -188,8 +189,15 @@ wrangle_run() {
         # Verify against the policy, sign the VSA, and append it to the bundle;
         # the signed line also lands at tmp_vsa for the pushes below.
         wrangle_engine_verify "$subject" "$tmp_vsa" "$bundle"
+        # jq -c exits 0 on empty input, so an engine that exited 0 without
+        # landing the signed line host-side would push an empty statement.
+        if [[ ! -s "$tmp_vsa" ]]; then
+            printf 'wrangle: engine produced no signed VSA for %s\n' "$subject" >&2
+            rm -f "$tmp_vsa" "$vsa_line"
+            return 1
+        fi
         # One statement per line for the store push and the OCI referrer (cosign
-        # attach rejects multi-line); jq -c also fail-closes on a non-JSON line.
+        # attach rejects multi-line).
         jq -c . "$tmp_vsa" > "$vsa_line"
         wrangle_push_store "$vsa_line"
         wrangle_push_bundle "$vsa_line"
