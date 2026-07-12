@@ -111,7 +111,7 @@ runs:
     # TODO: replace with $/tools/scorecard when $/ syntax ships (#136, #137)
     - name: Scorecard
       if: always() && contains(inputs.tools, 'scorecard') && github.event_name != 'pull_request'
-      uses: TomHennen/wrangle/tools/scorecard@b56333f2644bafcee4a08bd7b50124137d4c32bf # refactor/sarif-adapter-exit-lib 2026-07-12
+      uses: TomHennen/wrangle/tools/scorecard@9bb62911a9b199e4bdaadac05417cae1af9f1567 # main 2026-07-12
 
     # Dependency Review is PR-only — the upstream action requires
     # github.event.pull_request.base.sha / head.sha to compute the diff.
@@ -123,7 +123,7 @@ runs:
     # The wrapper's inline defaults (fail-on-severity: high) still apply.
     - name: Dependency Review
       if: always() && contains(inputs.tools, 'dependency-review') && github.event_name == 'pull_request'
-      uses: TomHennen/wrangle/tools/dependency-review@b56333f2644bafcee4a08bd7b50124137d4c32bf # refactor/sarif-adapter-exit-lib 2026-07-12
+      uses: TomHennen/wrangle/tools/dependency-review@9bb62911a9b199e4bdaadac05417cae1af9f1567 # main 2026-07-12
 
     - name: Generate step summary
       if: always()
@@ -175,7 +175,7 @@ runs:
     # produced — see issue #189.
     - name: Upload OSV SARIF
       if: always() && contains(inputs.tools, 'osv')
-      uses: github/codeql-action/upload-sarif@8aad20d150bbac5944a9f9d289da16a4b0d87c1e # v4.36.2
+      uses: github/codeql-action/upload-sarif@54f647b7e1bb85c95cddabcd46b0c578ec92bc1a # v4.36.3
       continue-on-error: true
       with:
         sarif_file: ${{ github.workspace }}/.wrangle/metadata/osv/output.sarif
@@ -183,7 +183,7 @@ runs:
 
     - name: Upload wrangle-lint SARIF
       if: always() && contains(inputs.tools, 'wrangle-lint')
-      uses: github/codeql-action/upload-sarif@8aad20d150bbac5944a9f9d289da16a4b0d87c1e # v4.36.2
+      uses: github/codeql-action/upload-sarif@54f647b7e1bb85c95cddabcd46b0c578ec92bc1a # v4.36.3
       continue-on-error: true
       with:
         sarif_file: ${{ github.workspace }}/.wrangle/metadata/wrangle-lint/output.sarif
@@ -191,7 +191,7 @@ runs:
 
     - name: Upload Zizmor SARIF
       if: always() && contains(inputs.tools, 'zizmor')
-      uses: github/codeql-action/upload-sarif@8aad20d150bbac5944a9f9d289da16a4b0d87c1e # v4.36.2
+      uses: github/codeql-action/upload-sarif@54f647b7e1bb85c95cddabcd46b0c578ec92bc1a # v4.36.3
       continue-on-error: true
       with:
         sarif_file: ${{ github.workspace }}/.wrangle/metadata/zizmor/output.sarif
@@ -210,7 +210,7 @@ runs:
     # failure. Gating on the marker preserves the prior valid state.
     - name: Upload Dependency Review SARIF
       if: always() && contains(inputs.tools, 'dependency-review') && github.event_name == 'pull_request' && hashFiles('.wrangle/metadata/dependency-review/error') == ''
-      uses: github/codeql-action/upload-sarif@8aad20d150bbac5944a9f9d289da16a4b0d87c1e # v4.36.2
+      uses: github/codeql-action/upload-sarif@54f647b7e1bb85c95cddabcd46b0c578ec92bc1a # v4.36.3
       continue-on-error: true
       with:
         sarif_file: ${{ github.workspace }}/.wrangle/metadata/dependency-review/output.sarif
