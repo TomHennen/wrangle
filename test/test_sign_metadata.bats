@@ -1,13 +1,14 @@
 #!/usr/bin/env bats
 
-# Tests for lib/sign_metadata.sh — the shared attest-job orchestration that signs
-# the build metadata and assembles the per-artifact <artifact>.intoto.jsonl
-# bundles (provenance seed + that subject's signed metadata) (#566).
+# Tests for lib/sign_metadata.sh — the attest-job glue that seeds the provenance,
+# drives `wrangle-attest assemble` (which signs the build metadata and assembles
+# the per-artifact <artifact>.intoto.jsonl bundles), and delivers each signed line
+# to the GitHub attestation store and the image's OCI referrers (#566).
 #
-# wrangle-attest runs for real where a built binary is present (it self-digests
-# offline); bnd/cosign are stubbed (keyless --sign + store/OCI push need
-# OIDC/network). The pure helpers (seed, bundle-name, cosign-download args) run
-# with no real tools.
+# The engine is stubbed (assemble requires --sign, whose keyless flow needs
+# OIDC/network; go test ./wrangle-attest/ covers its behavior), as are bnd and
+# cosign (store/OCI pushes need network). The pure helpers (seed, bundle-name,
+# arg vectors) run with no real tools.
 load "lib/bats_helpers"
 
 setup() {
@@ -36,6 +37,20 @@ _dsse_line() {
     printf '{"dsseEnvelope":{"payload":"%s"}}\n' "$payload"
 }
 
+# A cosign whose `download attestation` emits $TEST_DIR/referrers.jsonl and whose
+# `attach attestation` records the pushed line.
+_stub_cosign() {
+    cat > "$TEST_DIR/cosign" <<STUB
+#!/bin/bash
+[[ "\$1" == "download" && "\$2" == "attestation" ]] && { cat "$TEST_DIR/referrers.jsonl"; exit 0; }
+prev=""
+for a in "\$@"; do [[ "\$prev" == "--attestation" ]] && cat "\$a" >> "$TEST_DIR/oci-pushed"; prev="\$a"; done
+exit 0
+STUB
+    chmod +x "$TEST_DIR/cosign"
+    : > "$TEST_DIR/oci-pushed"
+}
+
 # --- bundle naming ---
 
 @test "sign_metadata: bundle name is the basename with the digest colon replaced" {
@@ -61,6 +76,29 @@ _dsse_line() {
     [[ "$output" == *"download attestation"* ]]
 }
 
+# --- assemble args ---
+
+@test "sign_metadata: assemble args carry the metadata-root, subjects, commit, sign, bundle dir, and statements out" {
+    export METADATA_ROOT="$TEST_DIR/meta" COMMIT="deadbeef" BUNDLE_OUT="$TEST_DIR/bundles" OCI_TARGET=""
+    mapfile -t args < <(wrangle_assemble_args "$TEST_DIR/subjects" "$TEST_DIR/seed" "$TEST_DIR/stmts")
+    [[ "${args[0]}" == "assemble" ]]
+    printf '%s\n' "${args[@]}" | grep -qx -- "--metadata-root=$TEST_DIR/meta"
+    printf '%s\n' "${args[@]}" | grep -qx -- "--subjects-file=$TEST_DIR/subjects"
+    printf '%s\n' "${args[@]}" | grep -qx -- "--seed=$TEST_DIR/seed"
+    printf '%s\n' "${args[@]}" | grep -qx -- "--commit=deadbeef"
+    printf '%s\n' "${args[@]}" | grep -qx -- "--sign"
+    printf '%s\n' "${args[@]}" | grep -qx -- "--bundle-dir=$TEST_DIR/bundles"
+    printf '%s\n' "${args[@]}" | grep -qx -- "--statements-out=$TEST_DIR/stmts"
+}
+
+@test "sign_metadata: assemble args hand the raw referrers to the engine for an OCI target" {
+    export METADATA_ROOT="$TEST_DIR/meta" BUNDLE_OUT="$TEST_DIR/bundles"
+    export OCI_TARGET="ghcr.io/o/r/img@sha256:abc"
+    mapfile -t args < <(wrangle_assemble_args "$TEST_DIR/subjects" "$TEST_DIR/seed" "$TEST_DIR/stmts")
+    printf '%s\n' "${args[@]}" | grep -qx -- "--seed-referrers=$TEST_DIR/seed"
+    ! printf '%s\n' "${args[@]}" | grep -qx -- "--seed=$TEST_DIR/seed"
+}
+
 # --- provenance seed ---
 
 @test "sign_metadata: seed copies BUNDLE_IN when no OCI target" {
@@ -81,97 +119,38 @@ _dsse_line() {
     [[ "$output" == *"provenance seed"* ]]
 }
 
-@test "sign_metadata: seed fetches provenance via cosign download for an OCI target" {
-    {
-        printf '#!/bin/bash\n'
-        printf '[[ "$1" == "download" && "$2" == "attestation" ]] || exit 1\n'
-        printf 'cat %q\n' "$TEST_DIR/referrers.jsonl"
-    } > "$TEST_DIR/cosign"
-    chmod +x "$TEST_DIR/cosign"
-    _dsse_line "https://slsa.dev/provenance/v1" > "$TEST_DIR/referrers.jsonl"
-    export PATH="$TEST_DIR:$PATH"
-    export OCI_TARGET="ghcr.io/o/r/img@sha256:0000000000000000000000000000000000000000000000000000000000000000"
-    local seed="$TEST_DIR/seed.jsonl"
-    wrangle_seed_bundle "$seed"
-    [[ "$(wc -l < "$seed")" -eq 1 ]]
-    [[ "$(jq -r '.dsseEnvelope.payload | @base64d | fromjson | .predicateType' "$seed")" == "https://slsa.dev/provenance/v1" ]]
-}
-
-@test "sign_metadata: seed drops a prior VSA referrer so a re-run stays idempotent" {
-    # cosign download returns ALL referrers; a prior run left a VSA on the digest.
-    # Seeding must keep only the provenance so the rebuilt bundle never accumulates
-    # the stale VSA.
-    {
-        printf '#!/bin/bash\n'
-        printf '[[ "$1" == "download" && "$2" == "attestation" ]] || exit 1\n'
-        printf 'cat %q\n' "$TEST_DIR/referrers.jsonl"
-    } > "$TEST_DIR/cosign"
-    chmod +x "$TEST_DIR/cosign"
+@test "sign_metadata: seed passes the image's raw attestation referrers through for an OCI target" {
+    # cosign download returns ALL referrers (a prior run may have left a VSA on the
+    # digest); the engine filters them to the provenance, so the seed is unfiltered.
     {
         _dsse_line "https://slsa.dev/provenance/v1"
         _dsse_line "https://slsa.dev/verification_summary/v1"
     } > "$TEST_DIR/referrers.jsonl"
-    export PATH="$TEST_DIR:$PATH"
+    _stub_cosign
     export OCI_TARGET="ghcr.io/o/r/img@sha256:0000000000000000000000000000000000000000000000000000000000000000"
     local seed="$TEST_DIR/seed.jsonl"
     wrangle_seed_bundle "$seed"
-    [[ "$(wc -l < "$seed")" -eq 1 ]]
-    [[ "$(jq -r '.dsseEnvelope.payload | @base64d | fromjson | .predicateType' "$seed")" == "https://slsa.dev/provenance/v1" ]]
-}
-
-@test "sign_metadata: seed fails closed when no provenance referrer is present" {
-    {
-        printf '#!/bin/bash\n'
-        printf '[[ "$1" == "download" && "$2" == "attestation" ]] || exit 1\n'
-        printf 'cat %q\n' "$TEST_DIR/referrers.jsonl"
-    } > "$TEST_DIR/cosign"
-    chmod +x "$TEST_DIR/cosign"
-    _dsse_line "https://slsa.dev/verification_summary/v1" > "$TEST_DIR/referrers.jsonl"
-    export PATH="$TEST_DIR:$PATH"
-    export OCI_TARGET="ghcr.io/o/r/img@sha256:0000000000000000000000000000000000000000000000000000000000000000"
-    run wrangle_seed_bundle "$TEST_DIR/seed.jsonl"
-    [[ "$status" -ne 0 ]]
-    [[ "$output" == *"no SLSA provenance referrer"* ]]
+    diff "$TEST_DIR/referrers.jsonl" "$seed"
 }
 
 # --- assemble bundles ---
 
-# Stub wrangle-attest to emit one signed-metadata DSSE line binding the subject's
-# digest (it would otherwise need OIDC for --sign). bnd/cosign record their pushes.
-_stub_attest_tools() {
-    cat > "$TEST_DIR/wrangle-attest" <<'STUB'
-#!/bin/bash
-set -euo pipefail
-subj=""; out=""
-for a in "$@"; do case "$a" in
-    --subject=*) subj="${a#--subject=}";;
-    --artifact=*) subj="sha256:$(sha256sum "${a#--artifact=}" | cut -d' ' -f1)";;
-    --out=*) out="${a#--out=}";;
-esac; done
-digest="${subj#*:}"
-payload="$(printf '{"predicateType":"https://spdx.dev/Document","subject":[{"digest":{"sha256":"%s"}}]}' "$digest" | base64 | tr -d '\n')"
-printf '{"dsseEnvelope":{"payload":"%s"}}\n' "$payload" > "$out"
-STUB
+# bnd/cosign record their pushes; the engine stub emits the bundles + signed lines.
+_stub_delivery_tools() {
     cat > "$TEST_DIR/bnd" <<STUB
 #!/bin/bash
 [[ "\$1" == "push" ]] && { cat "\$4" >> "$TEST_DIR/store-pushed"; exit 0; }
 exit 0
 STUB
-    cat > "$TEST_DIR/cosign" <<STUB
-#!/bin/bash
-for a in "\$@"; do [[ "\${prev:-}" == "--attestation" ]] && cat "\$a" >> "$TEST_DIR/oci-pushed"; prev="\$a"; done
-exit 0
-STUB
-    chmod +x "$TEST_DIR/wrangle-attest" "$TEST_DIR/bnd" "$TEST_DIR/cosign"
-    export PATH="$TEST_DIR:$PATH"
-    : > "$TEST_DIR/store-pushed"; : > "$TEST_DIR/oci-pushed"
+    chmod +x "$TEST_DIR/bnd"
+    : > "$TEST_DIR/store-pushed"
+    _stub_cosign
+    wrangle_stub_attest_assemble
 }
 
-@test "sign_metadata: assemble writes one bundle per subject (seed + signed metadata) and pushes to the store" {
-    _stub_attest_tools
+@test "sign_metadata: assemble writes one bundle per subject (seed + signed metadata) and pushes each line to the store" {
+    _stub_delivery_tools
     local meta="$TEST_DIR/meta"; mkdir -p "$meta"
-    printf '{"spdxVersion":"SPDX-2.3"}' > "$meta/sbom.spdx.json"
-    printf '{"predicate-type":"https://spdx.dev/Document","result-file":"sbom.spdx.json"}' > "$meta/wrangle_attestation_metadata.json"
     mkdir -p "$TEST_DIR/dist"
     printf 'AAA\n' > "$TEST_DIR/dist/a.tgz"
     printf 'BBB\n' > "$TEST_DIR/dist/b.tgz"
@@ -193,30 +172,19 @@ STUB
     [[ "$(head -n1 "$a")" == '{"provenance":1}' ]]
     [[ "$(jq -r '.dsseEnvelope.payload | @base64d | fromjson | .subject[0].digest.sha256' <(tail -n1 "$a"))" == "$ha" ]]
     [[ "$(jq -r '.dsseEnvelope.payload | @base64d | fromjson | .subject[0].digest.sha256' <(tail -n1 "$b"))" == "$hb" ]]
-    # A subject's bundle carries only its own metadata.
-    ! grep -q "$hb" "$a"
-    ! grep -q "$ha" "$b"
+    # Both subjects went to the engine in one invocation — one OIDC/Fulcio flow.
+    [[ "$(grep -c '^assemble$' "$TEST_DIR/assemble-args")" -eq 1 ]]
     # Each signed line was posted to the store; with no OCI target none were OCI-pushed.
     [[ "$(wc -l < "$TEST_DIR/store-pushed")" -eq 2 ]]
     [[ ! -s "$TEST_DIR/oci-pushed" ]]
 }
 
 @test "sign_metadata: assemble pushes each signed line as an OCI referrer when OCI_TARGET is set" {
-    _stub_attest_tools
     local meta="$TEST_DIR/meta"; mkdir -p "$meta"
-    printf '{"spdxVersion":"SPDX-2.3"}' > "$meta/sbom.spdx.json"
-    printf '{"predicate-type":"https://spdx.dev/Document","result-file":"sbom.spdx.json"}' > "$meta/wrangle_attestation_metadata.json"
     local sha; sha="$(printf '0%.0s' {1..64})"
-    # Container seeds the provenance from the OCI referrer.
+    # Container seeds the provenance from the image's referrers.
     _dsse_line "https://slsa.dev/provenance/v1" > "$TEST_DIR/referrers.jsonl"
-    cat > "$TEST_DIR/cosign" <<STUB
-#!/bin/bash
-[[ "\$1" == "download" ]] && { cat "$TEST_DIR/referrers.jsonl"; exit 0; }
-for a in "\$@"; do [[ "\${prev:-}" == "--attestation" ]] && cat "\$a" >> "$TEST_DIR/oci-pushed"; prev="\$a"; done
-exit 0
-STUB
-    chmod +x "$TEST_DIR/cosign"
-    export PATH="$TEST_DIR:$PATH"
+    _stub_delivery_tools
     export OCI_TARGET="ghcr.io/o/r/img@sha256:$sha"
     export METADATA_ROOT="$meta"
     export SUBJECTS="sha256:$sha"
@@ -233,29 +201,17 @@ STUB
     [[ "$(wc -l < "$TEST_DIR/oci-pushed")" -eq 1 ]]
 }
 
-@test "sign_metadata: assemble fails closed on a missing metadata dir" {
-    export METADATA_ROOT="$TEST_DIR/absent"
-    local sha; sha="$(printf '0%.0s' {1..64})"
-    export SUBJECTS="sha256:$sha"
-    export BUNDLE_OUT="$TEST_DIR/bundles"
-    export BUNDLE_IN="$TEST_DIR/provenance.jsonl"; printf '{"provenance":1}\n' > "$BUNDLE_IN"
-    export OCI_TARGET=""
-    run wrangle_sign_and_assemble_bundles
-    [[ "$status" -ne 0 ]]
-}
-
-@test "sign_metadata: assemble fails closed when a subject yields no signed metadata" {
-    # A wrangle-attest that produces an empty out file must abort — never an
-    # incomplete bundle missing its metadata.
+@test "sign_metadata: assemble fails closed when the engine fails (no bundles, no pushes)" {
+    # The engine owns every assembly invariant (missing metadata dir, empty subject
+    # set, unreadable seed, duplicate bundle basename, a subject with no signed
+    # statement); a non-zero engine exit must abort the job with nothing delivered.
+    _stub_delivery_tools
     cat > "$TEST_DIR/wrangle-attest" <<'STUB'
 #!/bin/bash
-for a in "$@"; do case "$a" in --out=*) : > "${a#--out=}";; esac; done
+exit 2
 STUB
     chmod +x "$TEST_DIR/wrangle-attest"
-    export PATH="$TEST_DIR:$PATH"
-    local meta="$TEST_DIR/meta"; mkdir -p "$meta"
-    printf '{"predicate-type":"https://spdx.dev/Document","result-file":"sbom.spdx.json"}' > "$meta/wrangle_attestation_metadata.json"
-    export METADATA_ROOT="$meta"
+    export METADATA_ROOT="$TEST_DIR/absent"
     local sha; sha="$(printf '0%.0s' {1..64})"
     export SUBJECTS="sha256:$sha"
     export BUNDLE_OUT="$TEST_DIR/bundles"
@@ -264,7 +220,9 @@ STUB
     export GITHUB_REPOSITORY="o/r"
     run wrangle_sign_and_assemble_bundles
     [[ "$status" -ne 0 ]]
-    [[ "$output" == *"no signed metadata"* ]]
+    [[ ! -e "$BUNDLE_OUT" || -z "$(ls -A "$BUNDLE_OUT")" ]]
+    [[ ! -s "$TEST_DIR/store-pushed" ]]
+    [[ ! -s "$TEST_DIR/oci-pushed" ]]
 }
 
 # --- containerized signing (the attest-toolbox image under the token grant) ---
@@ -299,15 +257,24 @@ JSON
     export GITHUB_TOKEN="registry-token"
 }
 
-@test "sign_metadata: metadata signing runs in-container with a name-threaded sigstore token" {
-    _stub_toolbox_container
+# The env every assemble run reads, with the seed already on disk (a recording
+# docker never runs the real cosign download).
+_export_assemble_env() {
     local meta="$TEST_DIR/meta"; mkdir -p "$meta"
     printf '{}' > "$meta/wrangle_attestation_metadata.json"
-    export METADATA_ROOT="$meta" COMMIT="abc123"
+    export METADATA_ROOT="$meta" COMMIT="abc123" OCI_TARGET="" GITHUB_REPOSITORY="o/r"
+    export BUNDLE_OUT="$TEST_DIR/bundles"
+    export BUNDLE_IN="$TEST_DIR/provenance.jsonl"; printf '{"provenance":1}\n' > "$BUNDLE_IN"
     local sha; sha="$(printf '0%.0s' {1..64})"
-    wrangle_sign_metadata_statements "sha256:$sha" "$TEST_DIR/out.jsonl"
-    # wrangle-attest --sign ran inside the VSA-gated toolbox image.
-    grep -q -- "$_toolbox_image wrangle-attest" "$TEST_DIR/docker.args"
+    export SUBJECTS="sha256:$sha"
+}
+
+@test "sign_metadata: metadata signing runs in-container with a name-threaded sigstore token" {
+    _stub_toolbox_container
+    _export_assemble_env
+    wrangle_sign_and_assemble_bundles
+    # wrangle-attest assemble --sign ran inside the VSA-gated toolbox image.
+    grep -q -- "$_toolbox_image wrangle-attest assemble" "$TEST_DIR/docker.args"
     grep -q -- "--sign" "$TEST_DIR/docker.args"
     # Only the sigstore token is threaded, by name; never the request vars, never
     # the minted value on argv, never the registry token.
@@ -357,10 +324,8 @@ JSON
 touch "$TEST_DIR/attest.called"
 EOF
     chmod +x "$TEST_DIR/wrangle-attest"
-    local meta="$TEST_DIR/meta"; mkdir -p "$meta"; printf '{}' > "$meta/wrangle_attestation_metadata.json"
-    export METADATA_ROOT="$meta" COMMIT="abc123"
-    local sha; sha="$(printf '0%.0s' {1..64})"
-    run wrangle_sign_metadata_statements "sha256:$sha" "$TEST_DIR/out.jsonl"
+    _export_assemble_env
+    run wrangle_sign_and_assemble_bundles
     [ "$status" -ne 0 ]
     grep -q "capability required to sign" <<< "$output"
     [ ! -f "$TEST_DIR/docker.args" ]
@@ -372,10 +337,10 @@ EOF
     # wrangle sets METADATA_ROOT/SUBJECTS relative; a bind mount source must be
     # absolute, so the signer mounts the workspace + sets -w, never a relative source.
     cd "$TEST_DIR"
+    _export_assemble_env
     mkdir -p metadata; printf '{}' > metadata/wrangle_attestation_metadata.json
-    export METADATA_ROOT="metadata" COMMIT="abc123"
-    local sha; sha="$(printf '0%.0s' {1..64})"
-    wrangle_sign_metadata_statements "sha256:$sha" "out.jsonl"
+    export METADATA_ROOT="metadata" BUNDLE_OUT="bundles"
+    wrangle_sign_and_assemble_bundles
     # Every bind mount source is an absolute host path (starts with /); none is relative.
     ! grep -qE -- 'source=[^/]' "$TEST_DIR/docker.args"
     # The workspace is mounted and set as the container working dir instead.
@@ -393,10 +358,8 @@ EOF
 touch "$TEST_DIR/attest.called"
 EOF
     chmod +x "$TEST_DIR/wrangle-attest"
-    local meta="$TEST_DIR/meta"; mkdir -p "$meta"; printf '{}' > "$meta/wrangle_attestation_metadata.json"
-    export METADATA_ROOT="$meta" COMMIT="abc123"
-    local sha; sha="$(printf '0%.0s' {1..64})"
-    run wrangle_sign_metadata_statements "sha256:$sha" "$TEST_DIR/out.jsonl"
+    _export_assemble_env
+    run wrangle_sign_and_assemble_bundles
     [ "$status" -ne 0 ]
     [ ! -f "$TEST_DIR/docker.args" ]
     [ ! -f "$TEST_DIR/attest.called" ]

@@ -61,3 +61,55 @@ EOF
     export ACTIONS_ID_TOKEN_REQUEST_TOKEN="request-bearer-secret"
     export GITHUB_TOKEN="${GITHUB_TOKEN:-registry-token}"
 }
+
+# wrangle_stub_attest_assemble [dir]: a stand-in for `wrangle-attest assemble` on
+# PATH, recording its argv in <dir>/assemble-args and emitting the bundles and
+# signed lines the real engine would. The real engine cannot run here: assemble
+# requires --sign, whose keyless flow needs OIDC/network (its own behavior is
+# covered by go test ./wrangle-attest/). Each emitted line is a DSSE envelope
+# binding the subject's sha256, so a test can assert which subject a bundle line
+# carries.
+wrangle_stub_attest_assemble() {
+    local dir="${1:-$TEST_DIR}"
+    cat > "$dir/wrangle-attest" <<EOF
+#!/bin/bash
+set -euo pipefail
+printf '%s\n' "\$@" > "$dir/assemble-args"
+EOF
+    cat >> "$dir/wrangle-attest" <<'EOF'
+[[ "$1" == "assemble" ]] || exit 2
+subjects=""; seed=""; referrers=""; bundle_dir=""; stmts=""
+for a in "$@"; do case "$a" in
+    --subjects-file=*)  subjects="${a#*=}" ;;
+    --seed=*)           seed="${a#*=}" ;;
+    --seed-referrers=*) referrers="${a#*=}" ;;
+    --bundle-dir=*)     bundle_dir="${a#*=}" ;;
+    --statements-out=*) stmts="${a#*=}" ;;
+esac; done
+if [[ -n "$referrers" ]]; then
+    seed="$referrers.provenance"
+    jq -ce 'select((.dsseEnvelope.payload | @base64d | fromjson | .predicateType) == "https://slsa.dev/provenance/v1")' \
+        "$referrers" > "$seed"
+    [[ -s "$seed" ]] || { printf 'stub: no SLSA provenance referrer\n' >&2; exit 2; }
+fi
+mkdir -p "$bundle_dir"
+: > "$stmts"
+while IFS= read -r subject; do
+    [[ -z "$subject" ]] && continue
+    if [[ "$subject" == sha256:* ]]; then
+        digest="${subject#sha256:}"
+    else
+        digest="$(sha256sum "$subject" | cut -d' ' -f1)"
+    fi
+    name="${subject##*/}"
+    bundle="$bundle_dir/${name//:/-}.intoto.jsonl"
+    [[ -e "$bundle" ]] && { printf 'stub: duplicate bundle basename\n' >&2; exit 2; }
+    payload="$(printf '{"predicateType":"https://spdx.dev/Document","subject":[{"digest":{"sha256":"%s"}}]}' "$digest" | base64 | tr -d '\n')"
+    line="$(printf '{"dsseEnvelope":{"payload":"%s"}}' "$payload")"
+    cat "$seed" > "$bundle"
+    printf '%s\n' "$line" >> "$bundle"
+    printf '%s\n' "$line" >> "$stmts"
+done < "$subjects"
+EOF
+    chmod +x "$dir/wrangle-attest"
+}

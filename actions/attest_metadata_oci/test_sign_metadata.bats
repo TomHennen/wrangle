@@ -1,14 +1,14 @@
 #!/usr/bin/env bats
 
 # Tests for the container attest-job metadata signing (issue #550 PR 3):
-#   sign_metadata.sh — wrangle-attest --sign over the image digest + bnd store
+#   sign_metadata.sh — wrangle-attest assemble over the image digest + bnd store
 #                      push + cosign OCI-referrer push, emitting the signed set.
 #
-# The shared orchestration lives in lib/sign_metadata.sh
-# (wrangle_sign_and_assemble_bundles); this thin wrapper drives it with OCI_TARGET
-# set, seeding the provenance from the OCI referrer and assembling the per-artifact
-# bundle. wrangle-attest runs for real (it self-digests offline); bnd + cosign are
-# stubbed because the keyless --sign + store/registry pushes need OIDC/network.
+# The shared glue lives in lib/sign_metadata.sh (wrangle_sign_and_assemble_bundles);
+# this thin wrapper drives it with OCI_TARGET set, seeding the provenance from the
+# image's referrers and assembling the per-artifact bundle. wrangle-attest, bnd and
+# cosign are stubbed because keyless --sign and the store/registry pushes need
+# OIDC/network.
 load "../../test/lib/bats_helpers"
 
 setup() {
@@ -26,11 +26,7 @@ setup() {
     export META
 
     export RUNNER_TEMP="$TEST_DIR"
-    export WRANGLE_BIN_DIR="$TEST_DIR/bin"
     export WRANGLE_RETRY_DELAY=0
-
-    ATTEST_BIN="$(command -v wrangle-attest || echo "${WRANGLE_BIN_DIR}/wrangle-attest")"
-    export ATTEST_BIN
 
     # Signing always containerizes; make the toolbox path transparent so the
     # tool stubs run. Written after META so its stubs sit on PATH for $SIGN.
@@ -42,16 +38,8 @@ teardown() {
 }
 
 @test "attest_metadata_oci sign_metadata: signs the digest subject, assembles the bundle, and pushes to the store AND the OCI referrer" {
-    [[ -x "$ATTEST_BIN" ]] || skip_or_fail "wrangle-attest not built"
     STUB_BIN="$TEST_DIR/stubbin"; mkdir -p "$STUB_BIN"
-    # A wrapper that forwards to the real engine but drops --sign (offline).
-    cat > "$STUB_BIN/wrangle-attest" << STUBA
-#!/usr/bin/env bash
-set -euo pipefail
-args=()
-for a in "\$@"; do [[ "\$a" == "--sign" ]] || args+=("\$a"); done
-exec "$ATTEST_BIN" "\${args[@]}"
-STUBA
+    wrangle_stub_attest_assemble "$STUB_BIN"
     # bnd records each store push; cosign seeds the provenance on download and
     # records each OCI referrer attach.
     cat > "$STUB_BIN/bnd" << STUB
@@ -59,8 +47,13 @@ STUBA
 [[ "\$1" == "push" && "\$2" == "github" ]] && { printf '%s\n' "\$4" >> "$TEST_DIR/pushed"; }
 exit 0
 STUB
-    local seed_payload; seed_payload="$(printf '{"predicateType":"https://slsa.dev/provenance/v1","subject":[]}' | base64 | tr -d '\n')"
-    printf '{"dsseEnvelope":{"payload":"%s"}}\n' "$seed_payload" > "$TEST_DIR/referrers.jsonl"
+    # cosign download returns every referrer; the engine filters them to the
+    # provenance, so a prior run's VSA must not reach the rebuilt bundle.
+    local prov vsa
+    prov="$(printf '{"predicateType":"https://slsa.dev/provenance/v1","subject":[]}' | base64 | tr -d '\n')"
+    vsa="$(printf '{"predicateType":"https://slsa.dev/verification_summary/v1","subject":[]}' | base64 | tr -d '\n')"
+    printf '{"dsseEnvelope":{"payload":"%s"}}\n{"dsseEnvelope":{"payload":"%s"}}\n' "$prov" "$vsa" \
+        > "$TEST_DIR/referrers.jsonl"
     cat > "$STUB_BIN/cosign" << STUB
 #!/usr/bin/env bash
 [[ "\$1" == "download" ]] && { cat "$TEST_DIR/referrers.jsonl"; exit 0; }
@@ -77,9 +70,11 @@ STUB
         BUNDLE_OUT="$TEST_DIR/bundles" GITHUB_REPOSITORY="o/r" COMMIT="abc123" \
         OCI_TARGET="ghcr.io/o/r/img@sha256:$sha" run "$SIGN"
     [ "$status" -eq 0 ]
+    # The raw referrers are handed to the engine, which filters them to the seed.
+    grep -qx -- "--seed-referrers=$TEST_DIR/seed.*" "$STUB_BIN/assemble-args"
     # The bundle = provenance seed + signed metadata; one store push, one OCI attach.
     local bundle="$TEST_DIR/bundles/sha256-$sha.intoto.jsonl"
-    [ -s "$bundle" ]
+    [ "$(wc -l < "$bundle")" -eq 2 ]
     [ "$(jq -r '.dsseEnvelope.payload | @base64d | fromjson | .predicateType' <(head -n1 "$bundle"))" = "https://slsa.dev/provenance/v1" ]
     [ "$(wc -l < "$TEST_DIR/pushed")" -eq 1 ]
     [ "$(wc -l < "$TEST_DIR/attached")" -eq 1 ]
