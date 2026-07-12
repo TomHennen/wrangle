@@ -126,7 +126,7 @@ jobs:
       scan: ${{ steps.prep.outputs.scan }}
     steps:
       # TODO: replace with $/actions/prep when GitHub ships $/ syntax (#136)
-      - uses: TomHennen/wrangle/actions/prep@d72cf07d2527ce36c007f75726ba9a3ccc639ec6 # feat/482-vsa-sign-verify-flip 2026-07-12
+      - uses: TomHennen/wrangle/actions/prep@b9d27427284c83d8b37e0ce3fb69cecff0bb2d62 # feat/482-vsa-sign-verify-flip 2026-07-12
         id: prep
         with:
           build-type: container
@@ -146,7 +146,7 @@ jobs:
       security-events: write
     steps:
       # TODO: replace with $/actions/scan when GitHub ships $/ syntax (#136)
-      - uses: TomHennen/wrangle/actions/scan@d72cf07d2527ce36c007f75726ba9a3ccc639ec6 # feat/482-vsa-sign-verify-flip 2026-07-12
+      - uses: TomHennen/wrangle/actions/scan@b9d27427284c83d8b37e0ce3fb69cecff0bb2d62 # feat/482-vsa-sign-verify-flip 2026-07-12
         if: ${{ inputs.scan-tools != '' }}
         with:
           checkout: "true"
@@ -172,7 +172,7 @@ jobs:
     # TODO: replace with $/build/actions/container when GitHub ships $/ syntax (#136)
     - name: "build and publish"
       id: build
-      uses: TomHennen/wrangle/build/actions/container@d72cf07d2527ce36c007f75726ba9a3ccc639ec6 # feat/482-vsa-sign-verify-flip 2026-07-12
+      uses: TomHennen/wrangle/build/actions/container@b9d27427284c83d8b37e0ce3fb69cecff0bb2d62 # feat/482-vsa-sign-verify-flip 2026-07-12
       with:
         path: ${{ inputs.path }}
         dockerfile: ${{ inputs.dockerfile }}
@@ -248,7 +248,7 @@ jobs:
       # image's bundle the verify job appends the VSA to. cosign is built from
       # tools/go.mod here.
       # TODO: replace with $/actions/attest_metadata_oci when GitHub ships $/ syntax (#136)
-      - uses: TomHennen/wrangle/actions/attest_metadata_oci@d72cf07d2527ce36c007f75726ba9a3ccc639ec6 # feat/482-vsa-sign-verify-flip 2026-07-12
+      - uses: TomHennen/wrangle/actions/attest_metadata_oci@b9d27427284c83d8b37e0ce3fb69cecff0bb2d62 # feat/482-vsa-sign-verify-flip 2026-07-12
         with:
           shortname: ${{ needs.prep.outputs.shortname }}
           subject-digest: ${{ needs.build.outputs.digest }}
@@ -287,7 +287,7 @@ jobs:
 
       # oci-target pushes the VSA referrer; the dist download is skipped (the image is the artifact).
       # TODO: replace with $/actions/verify_release when GitHub ships $/ syntax (#136)
-      - uses: TomHennen/wrangle/actions/verify_release@d72cf07d2527ce36c007f75726ba9a3ccc639ec6 # feat/482-vsa-sign-verify-flip 2026-07-12
+      - uses: TomHennen/wrangle/actions/verify_release@b9d27427284c83d8b37e0ce3fb69cecff0bb2d62 # feat/482-vsa-sign-verify-flip 2026-07-12
         with:
           build-type: container
           shortname: ${{ needs.prep.outputs.shortname }}
