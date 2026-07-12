@@ -99,6 +99,21 @@ $ wrangle-attest assemble \
     wrangle-attest: failing closed.
     [exit 2]
 check: unknown predicate-type exits 2: 2
+
+=== fail closed: no provenance
+# every bundle starts from the build's provenance, so assemble refuses to
+# run without exactly one of --provenance / --provenance-referrers.
+
+$ wrangle-attest assemble \
+    --metadata-root meta/sbom \
+    --subjects-file subjects.txt \
+    --sign \
+    --bundle-dir bundles \
+    --statements-out statements.jsonl
+    wrangle-attest: exactly one of --provenance or --provenance-referrers is required
+    wrangle-attest: failing closed.
+    [exit 2]
+check: missing provenance exits 2: 2
 check: no bundle directory was created: absent
 
 === sign the build's SLSA provenance
@@ -124,7 +139,7 @@ $ wrangle-attest assemble \
     --sign \
     --bundle-dir bundles \
     --statements-out statements.jsonl
-    wrangle-attest: assembled 3 bundle(s) into bundles
+    wrangle-attest: wrote 3 bundle(s) to bundles/ and 6 signed statement(s) to statements.jsonl
     [exit 0]
 
 === what came out
@@ -222,6 +237,26 @@ $ wrangle-attest \
     [exit 2]
 check: append to missing bundle exits 2: 2
 check: no stray --out written: absent
+
+=== fail closed: a --statement that is not an in-toto statement
+# the payload is signed verbatim, so the engine checks it really is a
+# statement before it signs arbitrary JSON.
+
+$ cat vsa/not-a-statement.json
+    {
+      "hello": "this is not an in-toto statement"
+    }
+    [exit 0]
+
+$ wrangle-attest \
+    --sign \
+    --statement vsa/not-a-statement.json \
+    --out vsa/bogus.intoto.jsonl
+    wrangle-attest: signing statement: verifying content: unable to unmarshal intoto statement from payload
+    wrangle-attest: failing closed.
+    [exit 2]
+check: non-statement JSON exits 2: 2
+check: no bogus bundle written: absent
 
 === re-running assemble refuses to clobber
 
