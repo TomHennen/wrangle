@@ -2,7 +2,6 @@ package main
 
 import (
 	"bytes"
-	"encoding/json"
 	"flag"
 	"fmt"
 	"io"
@@ -173,12 +172,10 @@ func signStatementFile(path, out, appendTo string, stderr io.Writer) int {
 	if err != nil {
 		return failClosed(stderr, fmt.Errorf("statement: %w", err))
 	}
-	trimmed := bytes.TrimSpace(raw)
-	if len(trimmed) == 0 {
+	// Early-out before the signer does TUF/OIDC work; SignStatement itself
+	// validates that the payload is an in-toto statement.
+	if len(bytes.TrimSpace(raw)) == 0 {
 		return failClosed(stderr, fmt.Errorf("statement file is empty: %s", path))
-	}
-	if trimmed[0] != '{' || !json.Valid(raw) {
-		return failClosed(stderr, fmt.Errorf("statement file is not a JSON object: %s", path))
 	}
 	if appendTo != "" {
 		if filepath.Clean(appendTo) == filepath.Clean(out) {
