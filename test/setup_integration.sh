@@ -98,8 +98,16 @@ if [[ -n "${GITHUB_PATH:-}" ]]; then
     printf '%s\n' "$WRANGLE_BIN_DIR" >> "$GITHUB_PATH"
 fi
 
+# Capture, then slice: `cmd | head -1` exits the reader early, and under pipefail
+# a tool still writing its banner takes SIGPIPE and fails the script with 141.
+first_line() {
+    local out
+    out="$("$@" 2>&1)"
+    printf '%s\n' "${out%%$'\n'*}"
+}
+
 printf 'setup_integration: installed tool versions:\n'
-osv-scanner --version | head -1
-ampel version | head -1
+first_line osv-scanner --version
+first_line ampel version
 cosign version 2>&1 | grep GitVersion
-zizmor --version | head -1
+first_line zizmor --version

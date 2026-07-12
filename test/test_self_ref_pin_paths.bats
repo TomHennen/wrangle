@@ -18,10 +18,12 @@ setup() {
     source "$LIB"
     mapfile -t paths < <(wrangle_self_ref_pin_paths)
     [ "${#paths[@]}" -gt 0 ]
-    printf '%s\n' "${paths[@]}" | grep -qx '.github/workflows'
-    printf '%s\n' "${paths[@]}" | grep -qx 'actions'
-    printf '%s\n' "${paths[@]}" | grep -qx 'build'
-    printf '%s\n' "${paths[@]}" | grep -qx 'tools'
+    # Space-delimited containment, not `printf | grep -q`: grep exits on the match
+    # while printf is still writing, and under pipefail that SIGPIPE is a 141.
+    local want
+    for want in '.github/workflows' 'actions' 'build' 'tools'; do
+        [[ " ${paths[*]} " == *" $want "* ]]
+    done
 }
 
 @test "self_ref_pin_paths: both pin tools source it rather than hardcoding paths" {
