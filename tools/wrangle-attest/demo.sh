@@ -162,6 +162,18 @@ demo_offline() {
         --bundle-dir bundles \
         --statements-out statements.jsonl
 
+    heading "fail closed: no provenance"
+
+    note "every bundle starts from the build's provenance, so assemble refuses to"
+    note "run without exactly one of --provenance / --provenance-referrers."
+    check_exit "missing provenance" 2 \
+        wrangle-attest assemble \
+        --metadata-root meta/sbom \
+        --subjects-file subjects.txt \
+        --sign \
+        --bundle-dir bundles \
+        --statements-out statements.jsonl
+
     check "no bundle directory was created" "$(present_or_absent bundles)" "absent"
 }
 
@@ -226,6 +238,18 @@ demo_signed() {
         --out vsa/vsa2.intoto.jsonl \
         --append bundles/does_not_exist.intoto.jsonl
     check "no stray --out written" "$(present_or_absent vsa/vsa2.intoto.jsonl)" "absent"
+
+    heading "fail closed: a --statement that is not an in-toto statement"
+
+    note "the payload is signed verbatim, so the engine checks it really is a"
+    note "statement before it signs arbitrary JSON."
+    demo_exec cat vsa/not-a-statement.json
+    check_exit "non-statement JSON" 2 \
+        wrangle-attest \
+        --sign \
+        --statement vsa/not-a-statement.json \
+        --out vsa/bogus.intoto.jsonl
+    check "no bogus bundle written" "$(present_or_absent vsa/bogus.intoto.jsonl)" "absent"
 
     heading "re-running assemble refuses to clobber"
 
