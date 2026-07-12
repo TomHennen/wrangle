@@ -32,16 +32,21 @@ done
 # database can't be disabled. go requires an absolute GOBIN, and env.sh's
 # local default for WRANGLE_BIN_DIR is CWD-relative.
 #
-# The stamp records the go.sum the binaries were built for: a warm bin dir
-# (a restored CI cache) with a matching stamp skips the rebuild, and a go.sum
-# change forces a fresh install so a stale cache can't serve mismatched tools.
+# The stamp records the build inputs — go.sum AND the in-repo tool sources
+# (wrangle-attest/wrangle-lint compile from tools/ itself, so a source-only
+# change leaves go.sum untouched): a warm bin dir (a restored CI cache) with a
+# matching stamp skips the rebuild, and any input change forces a fresh install
+# so a stale cache can't serve mismatched tools.
 TOOLS_STAMP="$WRANGLE_BIN_DIR/.go-tools.stamp"
-GOSUM_DIGEST="$(sha256sum "$REPO_ROOT/tools/go.sum" | cut -d' ' -f1)"
-if [[ -f "$TOOLS_STAMP" && "$(<"$TOOLS_STAMP")" == "$GOSUM_DIGEST" ]]; then
-    printf 'setup_integration: Go tools present for current go.sum, skipping install\n'
+TOOLS_DIGEST="$({
+    cat "$REPO_ROOT/tools/go.sum"
+    find "$REPO_ROOT/tools" -type f -name '*.go' -print0 | LC_ALL=C sort -z | xargs -0 cat
+} | sha256sum | cut -d' ' -f1)"
+if [[ -f "$TOOLS_STAMP" && "$(<"$TOOLS_STAMP")" == "$TOOLS_DIGEST" ]]; then
+    printf 'setup_integration: Go tools current for go.sum + tool sources, skipping install\n'
 else
     GOBIN="$(cd "$WRANGLE_BIN_DIR" && pwd)" go -C "$REPO_ROOT/tools" install tool
-    printf '%s\n' "$GOSUM_DIGEST" > "$TOOLS_STAMP"
+    printf '%s\n' "$TOOLS_DIGEST" > "$TOOLS_STAMP"
 fi
 
 # The lint-tool venvs the unit bats exercise (wrangle-shell-lint needs
