@@ -21,8 +21,20 @@ wrangle_sarif_adapter_exit() {
     local clean_exit="${3:-0}"
     local num_findings
 
+    if [[ ! "$clean_exit" =~ ^[01]$ ]]; then
+        printf '%s: clean exit status must be 0 or 1, got: %s\n' "$tool" "$clean_exit" >&2
+        exit 2
+    fi
+
     if ! jq empty "$sarif" 2>/dev/null; then
         printf '%s: produced invalid JSON in SARIF output\n' "$tool" >&2
+        exit 2
+    fi
+
+    # jq reports success for a concatenated JSON stream whose last document is
+    # sound, so the checks below are only trustworthy on a single document.
+    if ! jq -s -e 'length == 1' "$sarif" >/dev/null 2>&1; then
+        printf '%s: SARIF output is not a single JSON document\n' "$tool" >&2
         exit 2
     fi
 
@@ -32,7 +44,18 @@ wrangle_sarif_adapter_exit() {
         exit 2
     fi
 
-    if ! num_findings="$(jq '[.runs[]?.results[]?] | length' "$sarif" 2>/dev/null)"; then
+    # A run may omit results, but any other type under that key is malformed.
+    local count_results='[.runs[]
+        | if has("results") then .results else [] end
+        | if type == "array" then .[] else error("results is not an array") end
+        ] | length'
+    if ! num_findings="$(jq "$count_results" "$sarif" 2>/dev/null)"; then
+        printf '%s: failed to parse SARIF results\n' "$tool" >&2
+        exit 2
+    fi
+
+    # A non-numeric count would compare as 0 — a clean scan — in the test below.
+    if [[ ! "$num_findings" =~ ^[0-9]+$ ]]; then
         printf '%s: failed to parse SARIF results\n' "$tool" >&2
         exit 2
     fi

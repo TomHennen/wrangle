@@ -10,7 +10,7 @@ set -f  # disable globbing — adapter processes external input paths
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 # shellcheck source=../../lib/sarif_adapter_exit.sh
-source "$SCRIPT_DIR/../../lib/sarif_adapter_exit.sh"
+source "$SCRIPT_DIR/../../lib/sarif_adapter_exit.sh" || exit 2
 
 if [[ $# -ne 2 ]]; then
     printf 'Usage: adapter.sh <src_dir> <output_dir>\n' >&2

@@ -77,6 +77,42 @@ run_helper() {
     [ "$status" -eq 2 ]
 }
 
+@test "results is a string: exit 2" {
+    printf '{"runs":[{"results":"x"}]}\n' > "$SARIF"
+    run_helper 'wrangle/t' "$SARIF"
+    [ "$status" -eq 2 ]
+}
+
+@test "results is null: exit 2" {
+    printf '{"runs":[{"results":null}]}\n' > "$SARIF"
+    run_helper 'wrangle/t' "$SARIF"
+    [ "$status" -eq 2 ]
+}
+
+@test "results is an object: exit 2" {
+    printf '{"runs":[{"results":{"a":{},"b":{}}}]}\n' > "$SARIF"
+    run_helper 'wrangle/t' "$SARIF"
+    [ "$status" -eq 2 ]
+}
+
+@test "concatenated JSON documents: exit 2" {
+    printf '{}\n{"runs":[{"results":[{"ruleId":"X"}]}]}\n' > "$SARIF"
+    run_helper 'wrangle/t' "$SARIF"
+    [ "$status" -eq 2 ]
+}
+
+@test "empty file: exit 2" {
+    : > "$SARIF"
+    run_helper 'wrangle/t' "$SARIF"
+    [ "$status" -eq 2 ]
+}
+
+@test "clean_exit outside 0/1: exit 2" {
+    printf '{"runs":[{"results":[]}]}\n' > "$SARIF"
+    run_helper 'wrangle/t' "$SARIF" 128
+    [ "$status" -eq 2 ]
+}
+
 @test "missing SARIF file: exit 2" {
     run_helper 'wrangle/t' "$TMP_DIR/does-not-exist.sarif"
     [ "$status" -eq 2 ]
@@ -97,5 +133,11 @@ run_helper() {
 @test "clean_exit does not override a malformed SARIF" {
     printf 'not json\n' > "$SARIF"
     run_helper 'wrangle/t' "$SARIF" 0
+    [ "$status" -eq 2 ]
+}
+
+@test "concatenated JSON documents with a clean tail: exit 2" {
+    printf '{}\n{"runs":[{"results":[]}]}\n' > "$SARIF"
+    run_helper 'wrangle/t' "$SARIF"
     [ "$status" -eq 2 ]
 }
