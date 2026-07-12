@@ -46,16 +46,11 @@ wrangle_sarif_adapter_exit() {
 
     # A run may omit results, but any other type under that key is malformed.
     local count_results='[.runs[]
+        | if type != "object" then error("run is not an object") else . end
         | if has("results") then .results else [] end
         | if type == "array" then .[] else error("results is not an array") end
         ] | length'
     if ! num_findings="$(jq "$count_results" "$sarif" 2>/dev/null)"; then
-        printf '%s: failed to parse SARIF results\n' "$tool" >&2
-        exit 2
-    fi
-
-    # A non-numeric count would compare as 0 — a clean scan — in the test below.
-    if [[ ! "$num_findings" =~ ^[0-9]+$ ]]; then
         printf '%s: failed to parse SARIF results\n' "$tool" >&2
         exit 2
     fi

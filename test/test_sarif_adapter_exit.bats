@@ -77,6 +77,12 @@ run_helper() {
     [ "$status" -eq 2 ]
 }
 
+@test "runs holds null: exit 2" {
+    printf '{"runs":[null]}\n' > "$SARIF"
+    run_helper 'wrangle/t' "$SARIF"
+    [ "$status" -eq 2 ]
+}
+
 @test "results is a string: exit 2" {
     printf '{"runs":[{"results":"x"}]}\n' > "$SARIF"
     run_helper 'wrangle/t' "$SARIF"
