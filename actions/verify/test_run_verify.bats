@@ -3,10 +3,11 @@
 # Tests for actions/verify/run_verify.sh
 #
 # The arg-builder functions are validated against the shape the real
-# ampel/bnd/cosign CLIs accept. Full keyless bnd signing needs OIDC and cannot
-# run offline, so the sign path is checked at the argument-vector level only;
-# the emit and run paths are exercised end-to-end with tiny ampel/bnd/cosign
-# stubs on PATH to confirm the per-subject verify -> sign -> append-VSA plumbing
+# ampel/wrangle-attest/bnd/cosign CLIs accept. Full keyless signing needs OIDC
+# and cannot run offline, so the sign path is checked at the argument-vector
+# level only; the emit and run paths are exercised end-to-end with tiny
+# ampel/wrangle-attest/bnd/cosign stubs on PATH to confirm the per-subject
+# verify -> sign -> append-VSA plumbing
 # (verify appends the VSA to the attest-assembled bundle; assembly itself is
 # tested in test/test_sign_metadata.bats).
 #
@@ -26,6 +27,7 @@ setup() {
     AMPEL_BIN="$(command -v ampel || echo "${WRANGLE_BIN_DIR:-/nonexistent}/ampel")"
     BND_BIN="$(command -v bnd || echo "${WRANGLE_BIN_DIR:-/nonexistent}/bnd")"
     COSIGN_BIN="$(command -v cosign || echo "${WRANGLE_BIN_DIR:-/nonexistent}/cosign")"
+    WRANGLE_ATTEST_BIN="$(command -v wrangle-attest || echo "${WRANGLE_BIN_DIR:-/nonexistent}/wrangle-attest")"
 
     export SUBJECTS=$'dist/app-1.2.3.tgz'
     export POLICY="policies/release.json"
@@ -189,22 +191,24 @@ teardown() {
     [[ "$output" != *"unknown shorthand"* ]]
 }
 
-# --- bnd arg vector ---
+# --- wrangle-attest sign arg vector ---
 
-@test "run_verify: bnd sign args are 'statement <unsigned-path>'" {
-    mapfile -t args < <(wrangle_bnd_sign_args "$VSA.unsigned")
-    [[ "${args[0]}" == "statement" ]]
-    [[ "${args[1]}" == "$VSA.unsigned" ]]
-    [[ "${#args[@]}" -eq 2 ]]
+@test "run_verify: attest sign args are '--sign --statement=<unsigned> --out=<signed>'" {
+    mapfile -t args < <(wrangle_attest_sign_args "$VSA.unsigned" "$VSA")
+    [[ "${args[0]}" == "--sign" ]]
+    [[ "${args[1]}" == "--statement=$VSA.unsigned" ]]
+    [[ "${args[2]}" == "--out=$VSA" ]]
+    [[ "${#args[@]}" -eq 3 ]]
 }
 
-@test "run_verify: bnd sign args name a real bnd subcommand" {
-    if [[ ! -x "$BND_BIN" ]]; then skip_or_fail "real bnd not available"; fi
-    # `bnd statement --help` proves the subcommand exists without triggering
-    # the keyless signing flow (which blocks on OIDC offline).
-    run "$BND_BIN" statement --help
-    [[ "$status" -eq 0 ]]
-    [[ "$output" == *"in-toto attestation"* ]]
+@test "run_verify: attest sign arg vector is accepted by the real engine parser" {
+    if [[ ! -x "$WRANGLE_ATTEST_BIN" ]]; then skip_or_fail "real wrangle-attest not available"; fi
+    # A missing statement file fails closed AFTER flag parsing, so a "flag
+    # provided but not defined" error would mean the vector drifted from the CLI.
+    mapfile -t args < <(wrangle_attest_sign_args "$TEST_DIR/absent.json" "$TEST_DIR/out.json")
+    run "$WRANGLE_ATTEST_BIN" "${args[@]}"
+    [[ "$status" -ne 0 ]]
+    [[ "$output" != *"flag provided but not defined"* ]]
 }
 
 # --- cosign arg vectors (VSA referrer push) ---
@@ -446,9 +450,29 @@ _stage_bundle() {
     } > "$BUNDLE_IN/$name"
 }
 
+# Stub wrangle-attest: sign --statement into --out, wrapped over two lines so
+# the jq -c flatten in run stays load-bearing. Manifest mode (--metadata-root)
+# fails, proving verify never re-signs the attest job's metadata.
+_stub_attest_signer() {
+    cat > "$TEST_DIR/wrangle-attest" <<'STUB'
+#!/bin/bash
+stmt="" out=""
+for a in "$@"; do case "$a" in
+    --metadata-root=*) exit 1 ;;
+    --statement=*) stmt="${a#--statement=}" ;;
+    --out=*) out="${a#--out=}" ;;
+esac; done
+[[ -n "$stmt" && -n "$out" ]] || exit 1
+{ printf '{\n  "signed": '; cat "$stmt"; printf '}\n'; } > "$out"
+STUB
+    chmod +x "$TEST_DIR/wrangle-attest"
+}
+
 @test "run_verify: run verifies, signs, and appends one VSA line per subject" {
-    # Stub ampel/bnd so each subject produces a deterministic signed line; the
-    # completed bundle = the attest-assembled bundle plus one appended VSA.
+    # Stub ampel/wrangle-attest so each subject produces a deterministic signed
+    # line; the completed bundle = the attest-assembled bundle plus one appended
+    # VSA. bnd is push-only: it records the VSA it was handed so the test can
+    # prove the signed statement reached the store.
     cat > "$TEST_DIR/ampel" <<STUB
 #!/bin/bash
 # Emit a one-line JSON unsigned VSA naming the subject, where --results-path points.
@@ -459,13 +483,11 @@ for a in "\$@"; do case "\$a" in --subject-hash=*) subj="\${a#--subject-hash=}";
 for a in "\$@"; do case "\$a" in --results-path=*) printf '{"unsigned":"%s"}\n' "\$subj" > "\${a#--results-path=}";; esac; done
 printf 'report\n'
 STUB
-    # bnd "signs" (statement) by wrapping the unsigned statement over two lines
-    # (so the jq -c flatten in run is load-bearing); "push" records the VSA it
-    # was handed so the test can prove the signed statement reached the store.
+    _stub_attest_signer
     cat > "$TEST_DIR/bnd" <<STUB
 #!/bin/bash
-if [[ "\$1" == "push" ]]; then cat "\$4" >> "$TEST_DIR/pushed"; exit 0; fi
-printf '{\n  "signed": '; cat "\$2"; printf '}\n'
+[[ "\$1" == "push" ]] || exit 1
+cat "\$4" >> "$TEST_DIR/pushed"
 STUB
     chmod +x "$TEST_DIR/ampel" "$TEST_DIR/bnd"
     export PATH="$TEST_DIR:$PATH"
@@ -510,23 +532,20 @@ STUB
 @test "run_verify: run feeds the attest-assembled bundle to ampel as the collector" {
     # The bundle (provenance + signed SBOM/scan) is fed to ampel as the jsonl:
     # collector so the verdict/VSA cover those tenets; the VSA is appended to it.
-    # A wrangle-attest stub that fails proves verify never re-signs metadata.
+    # The signer stub rejects manifest mode, proving verify never re-signs metadata.
     cat > "$TEST_DIR/ampel" <<STUB
 #!/bin/bash
 printf '%s\n' "\$@" >> "$TEST_DIR/ampel-args"
 for a in "\$@"; do case "\$a" in --results-path=*) printf '{"unsigned":1}\n' > "\${a#--results-path=}";; esac; done
 printf 'report\n'
 STUB
+    _stub_attest_signer
     cat > "$TEST_DIR/bnd" <<STUB
 #!/bin/bash
-[[ "\$1" == "push" ]] && { cat "\$4" >> "$TEST_DIR/pushed"; exit 0; }
-printf '{"signed":'; cat "\$2"; printf '}\n'
+[[ "\$1" == "push" ]] || exit 1
+cat "\$4" >> "$TEST_DIR/pushed"
 STUB
-    cat > "$TEST_DIR/wrangle-attest" <<'STUB'
-#!/bin/bash
-exit 1
-STUB
-    chmod +x "$TEST_DIR/ampel" "$TEST_DIR/bnd" "$TEST_DIR/wrangle-attest"
+    chmod +x "$TEST_DIR/ampel" "$TEST_DIR/bnd"
     export PATH="$TEST_DIR:$PATH"
     export GITHUB_STEP_SUMMARY="$TEST_DIR/summary.md"; : > "$GITHUB_STEP_SUMMARY"
     : > "$TEST_DIR/ampel-args"; : > "$TEST_DIR/pushed"
@@ -575,10 +594,10 @@ STUB
 for a in "\$@"; do case "\$a" in --results-path=*) printf '{"vsa":1}\n' > "\${a#--results-path=}";; esac; done
 printf 'report\n'
 STUB
-    cat > "$TEST_DIR/bnd" <<STUB
+    _stub_attest_signer
+    cat > "$TEST_DIR/bnd" <<'STUB'
 #!/bin/bash
-[[ "\$1" == "push" ]] && exit 0
-cat "\$2"
+[[ "$1" == "push" ]] || exit 1
 STUB
     # Record the attach file so the test can prove it was the single VSA statement.
     {
@@ -623,10 +642,10 @@ STUB
 for a in "\$@"; do case "\$a" in --results-path=*) printf '{"vsa":1}\n' > "\${a#--results-path=}";; esac; done
 printf 'report\n'
 STUB
-    cat > "$TEST_DIR/bnd" <<STUB
+    _stub_attest_signer
+    cat > "$TEST_DIR/bnd" <<'STUB'
 #!/bin/bash
-[[ "\$1" == "push" ]] && exit 0
-cat "\$2"
+[[ "$1" == "push" ]] || exit 1
 STUB
     cat > "$TEST_DIR/cosign" <<'STUB'
 #!/bin/bash
@@ -1254,9 +1273,11 @@ _install_toolbox_shims() {
     cat > "$TEST_DIR/docker" <<EOF
 #!/bin/bash
 printf '%s\n' "\$*" > "$TEST_DIR/docker.args"
-# bnd statement (VSA signing) writes the signed statement to stdout; emit a
+# wrangle-attest (VSA signing) writes the signed statement to --out; emit a
 # placeholder so the caller's non-empty-output guard (empty = fail closed) is met.
-case "\$*" in *"bnd statement"*) printf '{"signed":"vsa"}\n' ;; esac
+case "\$*" in *" wrangle-attest "*)
+    for a in "\$@"; do case "\$a" in --out=*) printf '{"signed":"vsa"}\n' > "\${a#--out=}" ;; esac; done ;;
+esac
 EOF
     chmod +x "$TEST_DIR/docker"
     cat > "$TEST_DIR/gh" <<EOF
@@ -1345,10 +1366,10 @@ EOF
 
 @test "retry: ampel and the VSA sign both route through wrangle_retry_once" {
     grep -q 'wrangle_retry_once "$report" wrangle_ampel' "$SCRIPT"
-    grep -q 'wrangle_retry_once "$vsa" wrangle_toolbox_exec' "$SCRIPT"
+    grep -q 'wrangle_retry_once /dev/null wrangle_toolbox_exec' "$SCRIPT"
 }
 
-# ---- containerized VSA signing (bnd statement) ----
+# ---- containerized VSA signing (wrangle-attest) ----
 
 @test "wrangle_sign_vsa: signs in-container with a minted, name-threaded token" {
     _install_toolbox_shims
@@ -1357,9 +1378,9 @@ EOF
     printf 'unsigned-vsa\n' > "$VSA"
     PATH="$TEST_DIR:$PATH" GITHUB_TOKEN=registry-token run wrangle_sign_vsa "$VSA"
     [ "$status" -eq 0 ]
-    # The VSA gate ran, then bnd statement inside the toolbox image.
+    # The VSA gate ran, then wrangle-attest inside the toolbox image.
     grep -q "toolbox-image VSA verified PASSED" <<< "$output"
-    grep -q -- "$_toolbox_image bnd statement" "$TEST_DIR/docker.args"
+    grep -q -- "$_toolbox_image wrangle-attest --sign" "$TEST_DIR/docker.args"
     # The sigstore token is threaded by NAME only; its value is never on argv.
     grep -q -- "-e SIGSTORE_ID_TOKEN" "$TEST_DIR/docker.args"
     ! grep -q "MINTED-SIGSTORE-JWT" "$TEST_DIR/docker.args"
@@ -1369,21 +1390,21 @@ EOF
     ! grep -q -- "-e GITHUB_TOKEN" "$TEST_DIR/docker.args"
 }
 
-@test "wrangle_sign_vsa: a missing token: sigstore grant fails closed (no docker, no in-job bnd)" {
+@test "wrangle_sign_vsa: a missing token: sigstore grant fails closed (no docker, no in-job engine)" {
     _install_toolbox_shims
     _stub_toolbox_catalog   # no token grant
     _stub_mint_curl
-    cat > "$TEST_DIR/bnd" <<EOF
+    cat > "$TEST_DIR/wrangle-attest" <<EOF
 #!/bin/bash
-touch "$TEST_DIR/bnd.called"
+touch "$TEST_DIR/attest.called"
 EOF
-    chmod +x "$TEST_DIR/bnd"
+    chmod +x "$TEST_DIR/wrangle-attest"
     printf 'unsigned-vsa\n' > "$VSA"
     PATH="$TEST_DIR:$PATH" GITHUB_TOKEN=registry-token run wrangle_sign_vsa "$VSA"
     [ "$status" -ne 0 ]
     grep -q "capability required to sign" <<< "$output"
     [ ! -f "$TEST_DIR/docker.args" ]
-    [ ! -f "$TEST_DIR/bnd.called" ]
+    [ ! -f "$TEST_DIR/attest.called" ]
 }
 
 @test "wrangle_sign_vsa: a non-PASSED toolbox VSA fails closed (no docker)" {
@@ -1396,30 +1417,31 @@ EOF
     [ ! -f "$TEST_DIR/docker.args" ]
 }
 
-@test "wrangle_sign_vsa: a failed token mint fails closed (no docker, no in-job bnd)" {
+@test "wrangle_sign_vsa: a failed token mint fails closed (no docker, no in-job engine)" {
     _install_toolbox_shims
     _stub_toolbox_catalog "$_toolbox_image" sigstore
     # Grant present but the ambient OIDC request vars absent -> mint fails.
     unset ACTIONS_ID_TOKEN_REQUEST_URL ACTIONS_ID_TOKEN_REQUEST_TOKEN SIGSTORE_ID_TOKEN
-    cat > "$TEST_DIR/bnd" <<EOF
+    cat > "$TEST_DIR/wrangle-attest" <<EOF
 #!/bin/bash
-touch "$TEST_DIR/bnd.called"
+touch "$TEST_DIR/attest.called"
 EOF
-    chmod +x "$TEST_DIR/bnd"
+    chmod +x "$TEST_DIR/wrangle-attest"
     printf 'unsigned-vsa\n' > "$VSA"
     PATH="$TEST_DIR:$PATH" GITHUB_TOKEN=registry-token run wrangle_sign_vsa "$VSA"
     [ "$status" -ne 0 ]
     grep -q "lacks id-token: write" <<< "$output"
     [ ! -f "$TEST_DIR/docker.args" ]
-    [ ! -f "$TEST_DIR/bnd.called" ]
+    [ ! -f "$TEST_DIR/attest.called" ]
 }
 
-@test "run_verify: sign_vsa fails closed when bnd emits no output" {
-    # bnd can exit 0 yet write nothing; an empty signed VSA would silently append
-    # no VSA line to the bundle (jq -c on empty input yields nothing).
+@test "run_verify: sign_vsa fails closed when the engine emits no output" {
+    # An engine that exits 0 yet writes no --out file must abort; an empty signed
+    # VSA would silently append no VSA line to the bundle (jq -c on empty input
+    # yields nothing).
     local stub="$TEST_DIR/stubbin"; mkdir -p "$stub"
-    printf '#!/bin/bash\nexit 0\n' > "$stub/bnd"   # exit 0, empty stdout
-    chmod +x "$stub/bnd"
+    printf '#!/bin/bash\nexit 0\n' > "$stub/wrangle-attest"
+    chmod +x "$stub/wrangle-attest"
     printf '{"unsigned":"vsa"}' > "$VSA"
     PATH="$stub:$PATH" run wrangle_sign_vsa "$VSA"
     [ "$status" -ne 0 ]
