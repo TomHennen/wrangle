@@ -88,6 +88,18 @@ jobs:
       - name: Keyless sign integration test
         run: ./test/keyless_attest.sh
 
+      - name: Demo run
+        env:
+          WRANGLE_DEMO_TRANSCRIPT: ${{ runner.temp }}/demo-transcript.txt
+        run: ./tools/wrangle-attest/demo.sh
+
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        if: always()
+        with:
+          name: attest-demo-transcript
+          path: ${{ runner.temp }}/demo-transcript.txt
+          if-no-files-found: warn
+
   # End-to-end exercise of the verify-vsa composite action itself (the
   # script's logic is bats-covered; this covers the composite wiring: ampel
   # running in the attest-toolbox container, the bundle artifact download by

@@ -1,0 +1,9 @@
+{
+  "predicate-type": "https://github.com/TomHennen/wrangle/attestation/scan/v1",
+  "result-file": "output.sarif",
+  "tool": {
+    "name": "wrangle-lint",
+    "version": "0.4.0"
+  },
+  "result": "clean"
+}

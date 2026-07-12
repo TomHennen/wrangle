@@ -1,0 +1,26 @@
+{
+  "_type": "https://in-toto.io/Statement/v1",
+  "predicateType": "https://slsa.dev/verification_summary/v1",
+  "subject": [
+    {
+      "name": "wrangle_0.1.0_linux_amd64",
+      "digest": {
+        "sha256": "47d801ffad72f6bdb405dec1ead7c45a9d66697f4984d8f502d632c68bb63e66"
+      }
+    }
+  ],
+  "predicate": {
+    "verifier": {
+      "id": "https://github.com/TomHennen/wrangle"
+    },
+    "timeVerified": "2026-01-01T00:00:00Z",
+    "resourceUri": "pkg:github/TomHennen/wrangle-demo@v0.1.0",
+    "policy": {
+      "uri": "https://github.com/TomHennen/wrangle/policies/release.hjson"
+    },
+    "verificationResult": "PASSED",
+    "verifiedLevels": [
+      "SLSA_BUILD_LEVEL_3"
+    ]
+  }
+}
