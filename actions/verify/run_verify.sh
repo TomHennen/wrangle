@@ -112,9 +112,10 @@ wrangle_ampel_verify_args() {
     printf '%s\n' "${args[@]}"
 }
 
-# Build the bnd statement argument vector that signs a VSA in place.
-wrangle_bnd_sign_args() {
-    printf '%s\n' statement "$1"
+# Build the wrangle-attest argument vector that signs the statement at $1 into
+# a compact signed bundle line at $2.
+wrangle_attest_sign_args() {
+    printf '%s\n' --sign "--statement=$1" "--out=$2"
 }
 
 # Run ampel verify in the VSA-gated toolbox image. The bundle, results path, and
@@ -163,20 +164,21 @@ wrangle_verify_emit_vsa() {
     return "$rc"
 }
 
-# bnd-sign the unsigned VSA at $1 in place (in the toolbox container, minting a
-# step-local SIGSTORE_ID_TOKEN threaded by name); the signed statement lands at $1.
+# Sign the unsigned VSA at $1 in place via wrangle-attest (in the toolbox
+# container, minting a step-local SIGSTORE_ID_TOKEN threaded by name); the
+# signed statement lands at $1.
 wrangle_sign_vsa() {
     local vsa="$1"
     local args
-    mapfile -t args < <(wrangle_bnd_sign_args "$vsa.unsigned")
+    mapfile -t args < <(wrangle_attest_sign_args "$vsa.unsigned" "$vsa")
     mv "$vsa" "$vsa.unsigned"
     local rc=0
-    wrangle_retry_once "$vsa" wrangle_toolbox_exec \
-        --sigstore -- bnd "${args[@]}" || rc=$?
+    wrangle_retry_once /dev/null wrangle_toolbox_exec \
+        --sigstore -- wrangle-attest "${args[@]}" || rc=$?
     rm -f "$vsa.unsigned"
-    # bnd can exit 0 yet emit nothing; an empty output would silently append no
-    # VSA line to the bundle (jq -c on empty input yields nothing). Fail closed,
-    # matching the attest side (lib/sign_metadata.sh).
+    # An empty signed VSA would silently append no line to the bundle (jq -c on
+    # empty input yields nothing). Fail closed, matching the attest side
+    # (lib/sign_metadata.sh).
     if [[ "$rc" -eq 0 && ! -s "$vsa" ]]; then
         printf 'wrangle: VSA signing produced no output for %s\n' "$vsa" >&2
         return 1
@@ -234,13 +236,16 @@ wrangle_run() {
         # When BUNDLE_OUT == BUNDLE_IN (the metadata dir) the bundle is already in
         # place; otherwise stage attest's copy so the VSA appends to it.
         [[ "$src" -ef "$bundle" ]] || cp "$src" "$bundle"
+        # Truncate the reused temp so a prior subject's VSA can never survive an
+        # emit that exits 0 without writing.
+        : > "$tmp_vsa"
         # Verify against the policy, feeding the bundle (provenance + SBOM/scan) as
         # the jsonl collector so the verdict/VSA cover those tenets.
         wrangle_verify_emit_vsa "$subject" "$tmp_vsa" "$bundle"
         wrangle_sign_vsa "$tmp_vsa"
-        # Flatten bnd's pretty statement to one JSON line: appended to the bundle,
-        # posted to the store, and pushed alone as the OCI referrer (cosign attach
-        # rejects multi-line).
+        # Normalize the signed statement to one compact JSON line: appended to
+        # the bundle, posted to the store, and pushed alone as the OCI referrer
+        # (cosign attach rejects multi-line).
         jq -c . "$tmp_vsa" > "$vsa_line"
         cat "$vsa_line" >> "$bundle"
         wrangle_push_store "$vsa_line"

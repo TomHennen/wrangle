@@ -403,7 +403,7 @@ not a meaningful per-delivery signal.)
   **Status (#596 Track 2):** the toolbox image (`tools/attest-toolbox/`, all four binaries from
   `tools/go.mod`) is built and published like the scan images. Under the curated catalog's
   `attest-toolbox` grant (digest-pinned image, `network: egress`, `token: sigstore`) all
-  three sign sites run in it: the verify job's VSA sign (`bnd statement`) and referrer pushes,
+  three sign sites run in it: the verify job's VSA sign (`wrangle-attest --sign --statement`) and referrer pushes,
   `attest_provenance`'s `wrangle-attest --sign` + store push, and `attest_metadata_oci`'s sign + `cosign`
   OCI push/download — plus the `oci:` collector verify path (registry auth threaded in-container). The
   host mints the step-local `SIGSTORE_ID_TOKEN` and threads it (signing) or `GITHUB_TOKEN` (registry) by
