@@ -86,6 +86,11 @@ into a buffer before `--out` is touched, so a failure on the Nth manifest — a
 malformed manifest or a signing failure — never leaves a partial/unsigned file.
 Exit 0 on success; non-zero (fail closed) on any error.
 
+Signer construction and each sign call are retried once for transient Sigstore
+I/O (`WRANGLE_RETRY_DELAY` seconds between attempts, default 5). The retry
+wraps only that I/O — never statement building, digesting, manifest parsing, or
+file writes — so it can flip a transient failure but never manufacture output.
+
 ```
 wrangle-attest --sign --statement <file> --out <file> [--append <bundle>]
 ```

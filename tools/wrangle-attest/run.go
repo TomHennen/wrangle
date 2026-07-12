@@ -76,7 +76,7 @@ func run(args []string, stderr io.Writer) int {
 
 	var sg statementSigner
 	if *sign {
-		s, closeFn, err := newSigner()
+		s, closeFn, err := newRetrySigner(stderr)
 		if err != nil {
 			return failClosed(stderr, err)
 		}
@@ -185,7 +185,7 @@ func signStatementFile(path, out, appendTo string, stderr io.Writer) int {
 		}
 	}
 
-	sg, closeFn, err := newSigner()
+	sg, closeFn, err := newRetrySigner(stderr)
 	if err != nil {
 		return failClosed(stderr, err)
 	}
