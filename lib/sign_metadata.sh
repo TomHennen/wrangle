@@ -18,10 +18,11 @@ source "$_SIGN_METADATA_DIR/toolbox_run.sh"
 # referrers. The attest job signs + assembles; the verify job appends the VSA.
 #
 # Inputs (env): METADATA_ROOT (the metadata dir wrangle-attest reads), SUBJECTS
-# (newline-separated dist file paths / sha256: digests, read by
-# wrangle_read_subjects), GITHUB_REPOSITORY (store push target), GITHUB_TOKEN
-# (bnd reads it to auth the store push), COMMIT (scanned git commit woven into
-# the scan/v1 envelope). wrangle-attest keyless-signs via the caller's OIDC identity.
+# (newline-separated dist file paths / sha256: digests), GITHUB_REPOSITORY (store
+# push target), GITHUB_TOKEN (bnd reads it to auth the store push), COMMIT
+# (scanned git commit woven into the scan/v1 envelope), BUNDLE_OUT, and one of
+# BUNDLE_IN / OCI_TARGET (the provenance source). wrangle-attest keyless-signs
+# via the caller's OIDC identity.
 
 # Build the wrangle-attest arg vector (one arg per line for mapfile) that signs
 # every subject's build metadata and assembles the per-artifact bundles. $1 = the
@@ -60,8 +61,8 @@ wrangle_push_store() {
 
 # Build the cosign arg vector that pushes a single signed statement as an OCI
 # referrer. `attach attestation` uploads verbatim (no re-sign), preserving the
-# original signer; it accepts only one bundle line. $1 is the single-statement
-# file, $2 the image digest ref.
+# bnd signer; it accepts only one bundle line. $1 is the single-statement file,
+# $2 the image digest ref.
 wrangle_cosign_attach_args() {
     printf '%s\n' attach attestation \
         --attestation "$1" \
