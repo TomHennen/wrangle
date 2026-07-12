@@ -6,7 +6,8 @@
 # Build context is the repo root (the build needs tools/go.mod + tools/wrangle-lint + lib/).
 FROM golang:1.26.4@sha256:32c0e6e5c4f6707717051091b4d0b077464a679eaab563e11474efc5328e2aa5 AS build
 WORKDIR /src
-COPY tools/ ./tools/
+COPY tools/go.mod tools/go.sum ./tools/
+COPY tools/wrangle-lint/ ./tools/wrangle-lint/
 RUN cd tools && CGO_ENABLED=0 go build -trimpath \
       -o /out/wrangle-lint github.com/TomHennen/wrangle/tools/wrangle-lint
 
