@@ -9,6 +9,8 @@ set -f  # disable globbing — adapter processes external input paths
 # Exit: 0 = no findings, 1 = findings found, 2 = tool error
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+# shellcheck source=../../lib/sarif_adapter_exit.sh
+source "$SCRIPT_DIR/../../lib/sarif_adapter_exit.sh" || exit 2
 
 if [[ $# -ne 2 ]]; then
     printf 'Usage: adapter.sh <src_dir> <output_dir>\n' >&2
@@ -57,12 +59,6 @@ elif [[ "$osv_exit" -ge 2 ]] && [[ "$osv_exit" -ne 1 ]]; then
     exit 2
 fi
 
-# Validate SARIF output
-if ! jq empty "$SARIF_FILE" 2>/dev/null; then
-    printf 'wrangle/osv: produced invalid JSON in SARIF output\n' >&2
-    exit 2
-fi
-
 # Generate markdown summary from the SARIF we just produced. Using a local
 # render_md.sh (rather than a second osv-scanner invocation with
 # --format markdown) guarantees the summary and the SARIF-based check report
@@ -73,13 +69,6 @@ fi
 "$SCRIPT_DIR/render_md.sh" "$SARIF_FILE" > "$MD_FILE" 2>/dev/null || \
     printf 'wrangle/osv: failed to render markdown summary (SARIF still valid)\n' > "$MD_FILE"
 
-# Determine exit code from SARIF results
-if ! num_findings="$(jq '[.runs[].results[]] | length' "$SARIF_FILE" 2>/dev/null)"; then
-    printf 'wrangle/osv: failed to parse SARIF results\n' >&2
-    exit 2
-fi
-if [[ "$num_findings" -gt 0 ]]; then
-    exit 1
-fi
-
-exit "$osv_exit"
+# osv_exit as the no-findings status: osv-scanner signalling vulnerabilities the
+# SARIF does not carry must not report a clean scan.
+wrangle_sarif_adapter_exit 'wrangle/osv' "$SARIF_FILE" "$osv_exit"
