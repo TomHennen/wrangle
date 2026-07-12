@@ -31,8 +31,11 @@ wrangle_die() { printf 'finalize_pins: %s\n' "$1" >&2; return 1; }
 # where they started.
 wrangle_check_first_parent() {
     local sha="$1"
-    git -C "$REPO_ROOT" rev-list --first-parent origin/main \
-        | grep -qx "$sha" \
+    # Captured, not piped: grep -q exits on the first match and would SIGPIPE
+    # rev-list, which pipefail turns into a false failure (#771).
+    local first_parents
+    first_parents="$(git -C "$REPO_ROOT" rev-list --first-parent origin/main)"
+    grep -qx "$sha" <<<"$first_parents" \
         || wrangle_die "target ${sha:0:9} is not on origin/main's first-parent history — pass a merge commit from main"
 }
 

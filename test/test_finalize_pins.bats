@@ -83,3 +83,22 @@ teardown() { rm -rf "$TMP_DIR"; }
     run "$RUN" a b
     [[ "$status" -eq 2 ]]
 }
+
+@test "finalize_pins: a long first-parent history doesn't SIGPIPE the check" {
+    # REGRESSION. The check was `rev-list --first-parent | grep -qx "$sha"`.
+    # grep -q exits on the first match — and for HEAD the match IS the first
+    # line — so rev-list took SIGPIPE (141) and pipefail turned that into a
+    # false "not on first-parent history". It only reproduces when rev-list has
+    # more to write after grep exits, i.e. a history longer than a pipe buffer's
+    # worth of lines, which the other fixtures are too short to trigger (#771).
+    local i
+    for ((i = 0; i < 200; i++)); do
+        printf '%s\n' "$i" > "$REPO/f"
+        git -C "$REPO" add -A
+        git -C "$REPO" commit -qm "c$i"
+    done
+    git -C "$REPO" update-ref refs/remotes/origin/main HEAD
+    run "$RUN"
+    [[ "$status" -eq 0 ]]
+    grep -q 'label=main' "$BUMP_CALLS"
+}
