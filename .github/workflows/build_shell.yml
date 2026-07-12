@@ -101,7 +101,7 @@ jobs:
     permissions: {}    # guard reads env only — no workspace, no API, no secrets
     steps:
       # TODO: replace with $/actions/prep when GitHub ships $/ syntax (#136)
-      - uses: TomHennen/wrangle/actions/prep@232659d05c66563cf7a264c6389bfea90425c3cd # feat/482-vsa-sign-verify-flip 2026-07-12
+      - uses: TomHennen/wrangle/actions/prep@f900ff994ad20f5c62f32b79523996353d34a776 # feat/482-vsa-sign-verify-flip 2026-07-12
 
   # Source scan. A load-bearing (:fail) finding fails the run alongside
   # the shell build/test (there is no artifact to gate publishing of).
@@ -114,7 +114,7 @@ jobs:
       security-events: write
     steps:
       # TODO: replace with $/actions/scan when GitHub ships $/ syntax (#136)
-      - uses: TomHennen/wrangle/actions/scan@232659d05c66563cf7a264c6389bfea90425c3cd # feat/482-vsa-sign-verify-flip 2026-07-12
+      - uses: TomHennen/wrangle/actions/scan@f900ff994ad20f5c62f32b79523996353d34a776 # feat/482-vsa-sign-verify-flip 2026-07-12
         if: ${{ inputs.scan-tools != '' }}
         with:
           checkout: "true"
@@ -190,7 +190,7 @@ jobs:
         # bats-jobs input — the main-pinned version would ignore it and run
         # bats serially, so the dogfood run wouldn't exercise the fan-out.
         # Bump to main post-merge via tools/bump_action_pins.sh.
-        uses: TomHennen/wrangle/build/actions/shell@232659d05c66563cf7a264c6389bfea90425c3cd # feat/482-vsa-sign-verify-flip 2026-07-12
+        uses: TomHennen/wrangle/build/actions/shell@f900ff994ad20f5c62f32b79523996353d34a776 # feat/482-vsa-sign-verify-flip 2026-07-12
         with:
           scan-path: ${{ inputs.scan-path }}
           bats-path: ${{ inputs.bats-path }}

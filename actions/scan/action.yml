@@ -111,7 +111,7 @@ runs:
     # TODO: replace with $/tools/scorecard when $/ syntax ships (#136, #137)
     - name: Scorecard
       if: always() && contains(inputs.tools, 'scorecard') && github.event_name != 'pull_request'
-      uses: TomHennen/wrangle/tools/scorecard@232659d05c66563cf7a264c6389bfea90425c3cd # feat/482-vsa-sign-verify-flip 2026-07-12
+      uses: TomHennen/wrangle/tools/scorecard@f900ff994ad20f5c62f32b79523996353d34a776 # feat/482-vsa-sign-verify-flip 2026-07-12
 
     # Dependency Review is PR-only — the upstream action requires
     # github.event.pull_request.base.sha / head.sha to compute the diff.
@@ -123,7 +123,7 @@ runs:
     # The wrapper's inline defaults (fail-on-severity: high) still apply.
     - name: Dependency Review
       if: always() && contains(inputs.tools, 'dependency-review') && github.event_name == 'pull_request'
-      uses: TomHennen/wrangle/tools/dependency-review@232659d05c66563cf7a264c6389bfea90425c3cd # feat/482-vsa-sign-verify-flip 2026-07-12
+      uses: TomHennen/wrangle/tools/dependency-review@f900ff994ad20f5c62f32b79523996353d34a776 # feat/482-vsa-sign-verify-flip 2026-07-12
 
     - name: Generate step summary
       if: always()
