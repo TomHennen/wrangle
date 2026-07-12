@@ -20,7 +20,15 @@ $ cat subjects.txt
     sha256:1923631e35baf2fd56a54ceabea80af979e9ca59b597aa29f5fe679fe8ce8256
     [exit 0]
 
-# each tool leaves a metadata root: its manifest plus its native result file
+# each tool leaves its own metadata root: a manifest plus its native result
+# file. A real scan run produces one scan/v1 manifest per scanner.
+
+$ ls meta
+    osv-scanner
+    sbom
+    wrangle-lint
+    zizmor
+    [exit 0]
 
 $ cat meta/sbom/wrangle_attestation_metadata.json
     {
@@ -29,15 +37,39 @@ $ cat meta/sbom/wrangle_attestation_metadata.json
     }
     [exit 0]
 
-$ cat meta/scan/wrangle_attestation_metadata.json
+$ cat meta/osv-scanner/wrangle_attestation_metadata.json
+    {
+      "predicate-type": "https://github.com/TomHennen/wrangle/attestation/scan/v1",
+      "result-file": "output.sarif",
+      "tool": {
+        "name": "osv-scanner",
+        "version": "2.2.4"
+      },
+      "result": "findings"
+    }
+    [exit 0]
+
+$ cat meta/zizmor/wrangle_attestation_metadata.json
     {
       "predicate-type": "https://github.com/TomHennen/wrangle/attestation/scan/v1",
       "result-file": "output.sarif",
       "tool": {
         "name": "zizmor",
-        "version": "1.10.0"
+        "version": "1.16.0"
       },
       "result": "findings"
+    }
+    [exit 0]
+
+$ cat meta/wrangle-lint/wrangle_attestation_metadata.json
+    {
+      "predicate-type": "https://github.com/TomHennen/wrangle/attestation/scan/v1",
+      "result-file": "output.sarif",
+      "tool": {
+        "name": "wrangle-lint",
+        "version": "0.4.0"
+      },
+      "result": "clean"
     }
     [exit 0]
 
@@ -47,7 +79,9 @@ $ cat meta/scan/wrangle_attestation_metadata.json
 
 $ wrangle-attest assemble \
     --metadata-root meta/sbom \
-    --metadata-root meta/scan \
+    --metadata-root meta/osv-scanner \
+    --metadata-root meta/zizmor \
+    --metadata-root meta/wrangle-lint \
     --subjects-file bad-subjects.txt \
     --provenance provenance/provenance.fixture.intoto.jsonl \
     --sign \
@@ -132,14 +166,16 @@ check: provenance bundle lines: 1
 
 $ wrangle-attest assemble \
     --metadata-root meta/sbom \
-    --metadata-root meta/scan \
+    --metadata-root meta/osv-scanner \
+    --metadata-root meta/zizmor \
+    --metadata-root meta/wrangle-lint \
     --subjects-file subjects.txt \
     --provenance provenance/provenance.intoto.jsonl \
     --commit 0f4f2b3d3b7a1c8e5d9a6b4c2e1f0a9b8c7d6e5f \
     --sign \
     --bundle-dir bundles \
     --statements-out statements.jsonl
-    wrangle-attest: wrote 3 bundle(s) to bundles/ and 6 signed statement(s) to statements.jsonl
+    wrangle-attest: wrote 3 bundle(s) to bundles/ and 12 signed statement(s) to statements.jsonl
     [exit 0]
 
 === what came out
@@ -150,49 +186,77 @@ $ ls bundles
     wrangle_0.1.0_linux_amd64.intoto.jsonl
     [exit 0]
 check: bundles written: 3
-check: newly signed statements: 6
+check: newly signed statements: 12
 # every bundle: the shared provenance verbatim, then that artifact's own
-# signed statements. Decoded from the DSSE payload of each line.
+# signed statements - one scan/v1 per scanner, plus the SBOM. Decoded from
+# the DSSE payload of each line.
 
-  wrangle_0.1.0_linux_amd64.intoto.jsonl  (3 statement(s))
+  wrangle_0.1.0_linux_amd64.intoto.jsonl  (5 statement(s))
     1. predicateType: https://slsa.dev/provenance/v1
        subject:       sha256:47d801ffad72f6bdb405dec1ead7c45a9d66697f4984d8f502d632c68bb63e66
        subject:       sha256:c059e5962b766a11cc39854f0bacc2fac133b5c25e95b4a2380fa9abbb649cee
        subject:       sha256:1923631e35baf2fd56a54ceabea80af979e9ca59b597aa29f5fe679fe8ce8256
        material:      fulcio-cert + rekor-entry
-    2. predicateType: https://spdx.dev/Document
+    2. predicateType: https://github.com/TomHennen/wrangle/attestation/scan/v1
+       tool:          osv-scanner 2.2.4  (result: findings)
        subject:       sha256:47d801ffad72f6bdb405dec1ead7c45a9d66697f4984d8f502d632c68bb63e66
        material:      fulcio-cert + rekor-entry
-    3. predicateType: https://github.com/TomHennen/wrangle/attestation/scan/v1
+    3. predicateType: https://spdx.dev/Document
+       subject:       sha256:47d801ffad72f6bdb405dec1ead7c45a9d66697f4984d8f502d632c68bb63e66
+       material:      fulcio-cert + rekor-entry
+    4. predicateType: https://github.com/TomHennen/wrangle/attestation/scan/v1
+       tool:          wrangle-lint 0.4.0  (result: clean)
+       subject:       sha256:47d801ffad72f6bdb405dec1ead7c45a9d66697f4984d8f502d632c68bb63e66
+       material:      fulcio-cert + rekor-entry
+    5. predicateType: https://github.com/TomHennen/wrangle/attestation/scan/v1
+       tool:          zizmor 1.16.0  (result: findings)
        subject:       sha256:47d801ffad72f6bdb405dec1ead7c45a9d66697f4984d8f502d632c68bb63e66
        material:      fulcio-cert + rekor-entry
 
-  wrangle_0.1.0_darwin_arm64.intoto.jsonl  (3 statement(s))
+  wrangle_0.1.0_darwin_arm64.intoto.jsonl  (5 statement(s))
     1. predicateType: https://slsa.dev/provenance/v1
        subject:       sha256:47d801ffad72f6bdb405dec1ead7c45a9d66697f4984d8f502d632c68bb63e66
        subject:       sha256:c059e5962b766a11cc39854f0bacc2fac133b5c25e95b4a2380fa9abbb649cee
        subject:       sha256:1923631e35baf2fd56a54ceabea80af979e9ca59b597aa29f5fe679fe8ce8256
        material:      fulcio-cert + rekor-entry
-    2. predicateType: https://spdx.dev/Document
+    2. predicateType: https://github.com/TomHennen/wrangle/attestation/scan/v1
+       tool:          osv-scanner 2.2.4  (result: findings)
        subject:       sha256:c059e5962b766a11cc39854f0bacc2fac133b5c25e95b4a2380fa9abbb649cee
        material:      fulcio-cert + rekor-entry
-    3. predicateType: https://github.com/TomHennen/wrangle/attestation/scan/v1
+    3. predicateType: https://spdx.dev/Document
+       subject:       sha256:c059e5962b766a11cc39854f0bacc2fac133b5c25e95b4a2380fa9abbb649cee
+       material:      fulcio-cert + rekor-entry
+    4. predicateType: https://github.com/TomHennen/wrangle/attestation/scan/v1
+       tool:          wrangle-lint 0.4.0  (result: clean)
+       subject:       sha256:c059e5962b766a11cc39854f0bacc2fac133b5c25e95b4a2380fa9abbb649cee
+       material:      fulcio-cert + rekor-entry
+    5. predicateType: https://github.com/TomHennen/wrangle/attestation/scan/v1
+       tool:          zizmor 1.16.0  (result: findings)
        subject:       sha256:c059e5962b766a11cc39854f0bacc2fac133b5c25e95b4a2380fa9abbb649cee
        material:      fulcio-cert + rekor-entry
 
-  sha256-1923631e35baf2fd56a54ceabea80af979e9ca59b597aa29f5fe679fe8ce8256.intoto.jsonl  (3 statement(s))
+  sha256-1923631e35baf2fd56a54ceabea80af979e9ca59b597aa29f5fe679fe8ce8256.intoto.jsonl  (5 statement(s))
     1. predicateType: https://slsa.dev/provenance/v1
        subject:       sha256:47d801ffad72f6bdb405dec1ead7c45a9d66697f4984d8f502d632c68bb63e66
        subject:       sha256:c059e5962b766a11cc39854f0bacc2fac133b5c25e95b4a2380fa9abbb649cee
        subject:       sha256:1923631e35baf2fd56a54ceabea80af979e9ca59b597aa29f5fe679fe8ce8256
        material:      fulcio-cert + rekor-entry
-    2. predicateType: https://spdx.dev/Document
+    2. predicateType: https://github.com/TomHennen/wrangle/attestation/scan/v1
+       tool:          osv-scanner 2.2.4  (result: findings)
        subject:       sha256:1923631e35baf2fd56a54ceabea80af979e9ca59b597aa29f5fe679fe8ce8256
        material:      fulcio-cert + rekor-entry
-    3. predicateType: https://github.com/TomHennen/wrangle/attestation/scan/v1
+    3. predicateType: https://spdx.dev/Document
        subject:       sha256:1923631e35baf2fd56a54ceabea80af979e9ca59b597aa29f5fe679fe8ce8256
        material:      fulcio-cert + rekor-entry
-check: statements per bundle: 3
+    4. predicateType: https://github.com/TomHennen/wrangle/attestation/scan/v1
+       tool:          wrangle-lint 0.4.0  (result: clean)
+       subject:       sha256:1923631e35baf2fd56a54ceabea80af979e9ca59b597aa29f5fe679fe8ce8256
+       material:      fulcio-cert + rekor-entry
+    5. predicateType: https://github.com/TomHennen/wrangle/attestation/scan/v1
+       tool:          zizmor 1.16.0  (result: findings)
+       subject:       sha256:1923631e35baf2fd56a54ceabea80af979e9ca59b597aa29f5fe679fe8ce8256
+       material:      fulcio-cert + rekor-entry
+check: statements per bundle: 5
 
 === sign the VSA and append it to the artifact's bundle
 # what actions/verify does after the policy passes: one process signs the
@@ -207,23 +271,283 @@ $ wrangle-attest \
     wrangle-attest: appended signed statement to bundles/wrangle_0.1.0_linux_amd64.intoto.jsonl
     [exit 0]
 
-  wrangle_0.1.0_linux_amd64.intoto.jsonl  (4 statement(s))
+  wrangle_0.1.0_linux_amd64.intoto.jsonl  (6 statement(s))
     1. predicateType: https://slsa.dev/provenance/v1
        subject:       sha256:47d801ffad72f6bdb405dec1ead7c45a9d66697f4984d8f502d632c68bb63e66
        subject:       sha256:c059e5962b766a11cc39854f0bacc2fac133b5c25e95b4a2380fa9abbb649cee
        subject:       sha256:1923631e35baf2fd56a54ceabea80af979e9ca59b597aa29f5fe679fe8ce8256
        material:      fulcio-cert + rekor-entry
-    2. predicateType: https://spdx.dev/Document
+    2. predicateType: https://github.com/TomHennen/wrangle/attestation/scan/v1
+       tool:          osv-scanner 2.2.4  (result: findings)
        subject:       sha256:47d801ffad72f6bdb405dec1ead7c45a9d66697f4984d8f502d632c68bb63e66
        material:      fulcio-cert + rekor-entry
-    3. predicateType: https://github.com/TomHennen/wrangle/attestation/scan/v1
+    3. predicateType: https://spdx.dev/Document
        subject:       sha256:47d801ffad72f6bdb405dec1ead7c45a9d66697f4984d8f502d632c68bb63e66
        material:      fulcio-cert + rekor-entry
-    4. predicateType: https://slsa.dev/verification_summary/v1
+    4. predicateType: https://github.com/TomHennen/wrangle/attestation/scan/v1
+       tool:          wrangle-lint 0.4.0  (result: clean)
        subject:       sha256:47d801ffad72f6bdb405dec1ead7c45a9d66697f4984d8f502d632c68bb63e66
        material:      fulcio-cert + rekor-entry
-check: linux bundle after append: 4
-check: darwin bundle untouched: 3
+    5. predicateType: https://github.com/TomHennen/wrangle/attestation/scan/v1
+       tool:          zizmor 1.16.0  (result: findings)
+       subject:       sha256:47d801ffad72f6bdb405dec1ead7c45a9d66697f4984d8f502d632c68bb63e66
+       material:      fulcio-cert + rekor-entry
+    6. predicateType: https://slsa.dev/verification_summary/v1
+       subject:       sha256:47d801ffad72f6bdb405dec1ead7c45a9d66697f4984d8f502d632c68bb63e66
+       material:      fulcio-cert + rekor-entry
+check: linux bundle after append: 6
+check: darwin bundle untouched: 5
+
+=== what wrangle actually attests: the statements in full
+# the complete in-toto statement decoded from each line of the linux
+# bundle, exactly as signed. The other two bundles carry the same
+# statements bound to their own digest, and the provenance line is
+# byte-identical in all three, so they are not repeated here.
+
+--- wrangle_0.1.0_linux_amd64.intoto.jsonl, statement 1 ---
+{
+  "_type": "https://in-toto.io/Statement/v1",
+  "predicateType": "https://slsa.dev/provenance/v1",
+  "subject": [
+    {
+      "name": "wrangle_0.1.0_linux_amd64",
+      "digest": {
+        "sha256": "47d801ffad72f6bdb405dec1ead7c45a9d66697f4984d8f502d632c68bb63e66"
+      }
+    },
+    {
+      "name": "wrangle_0.1.0_darwin_arm64",
+      "digest": {
+        "sha256": "c059e5962b766a11cc39854f0bacc2fac133b5c25e95b4a2380fa9abbb649cee"
+      }
+    },
+    {
+      "name": "wrangle-demo-image",
+      "digest": {
+        "sha256": "1923631e35baf2fd56a54ceabea80af979e9ca59b597aa29f5fe679fe8ce8256"
+      }
+    }
+  ],
+  "predicate": {
+    "buildDefinition": {
+      "buildType": "https://slsa-framework.github.io/github-actions-buildtypes/workflow/v1",
+      "externalParameters": {
+        "workflow": {
+          "ref": "refs/tags/v0.1.0",
+          "repository": "https://github.com/TomHennen/wrangle-demo",
+          "path": ".github/workflows/release.yml"
+        }
+      }
+    },
+    "runDetails": {
+      "builder": {
+        "id": "https://github.com/actions/runner/github-hosted"
+      }
+    }
+  }
+}
+
+--- wrangle_0.1.0_linux_amd64.intoto.jsonl, statement 2 ---
+{
+  "_type": "https://in-toto.io/Statement/v1",
+  "predicate": {
+    "result": "findings",
+    "sarif": {
+      "$schema": "https://json.schemastore.org/sarif-2.1.0.json",
+      "runs": [
+        {
+          "results": [
+            {
+              "level": "error",
+              "locations": [
+                {
+                  "physicalLocation": {
+                    "artifactLocation": {
+                      "uri": "go.mod"
+                    }
+                  }
+                }
+              ],
+              "message": {
+                "text": "golang.org/x/net@0.23.0 is affected by GHSA-xxxx-yyyy-zzzz (fixed in 0.38.0)"
+              },
+              "ruleId": "GHSA-xxxx-yyyy-zzzz"
+            }
+          ],
+          "tool": {
+            "driver": {
+              "informationUri": "https://github.com/google/osv-scanner",
+              "name": "osv-scanner",
+              "version": "2.2.4"
+            }
+          }
+        }
+      ],
+      "version": "2.1.0"
+    },
+    "scannedCommit": "0f4f2b3d3b7a1c8e5d9a6b4c2e1f0a9b8c7d6e5f",
+    "tool": {
+      "name": "osv-scanner",
+      "version": "2.2.4"
+    }
+  },
+  "predicateType": "https://github.com/TomHennen/wrangle/attestation/scan/v1",
+  "subject": [
+    {
+      "digest": {
+        "sha256": "47d801ffad72f6bdb405dec1ead7c45a9d66697f4984d8f502d632c68bb63e66"
+      }
+    }
+  ]
+}
+
+--- wrangle_0.1.0_linux_amd64.intoto.jsonl, statement 3 ---
+{
+  "_type": "https://in-toto.io/Statement/v1",
+  "predicate": {
+    "SPDXID": "SPDXRef-DOCUMENT",
+    "name": "wrangle-demo-0.1.0",
+    "packages": [
+      {
+        "SPDXID": "SPDXRef-Package-wrangle",
+        "licenseDeclared": "Apache-2.0",
+        "name": "wrangle",
+        "versionInfo": "0.1.0"
+      }
+    ],
+    "spdxVersion": "SPDX-2.3"
+  },
+  "predicateType": "https://spdx.dev/Document",
+  "subject": [
+    {
+      "digest": {
+        "sha256": "47d801ffad72f6bdb405dec1ead7c45a9d66697f4984d8f502d632c68bb63e66"
+      }
+    }
+  ]
+}
+
+--- wrangle_0.1.0_linux_amd64.intoto.jsonl, statement 4 ---
+{
+  "_type": "https://in-toto.io/Statement/v1",
+  "predicate": {
+    "result": "clean",
+    "sarif": {
+      "$schema": "https://json.schemastore.org/sarif-2.1.0.json",
+      "runs": [
+        {
+          "results": [],
+          "tool": {
+            "driver": {
+              "informationUri": "https://github.com/TomHennen/wrangle",
+              "name": "wrangle-lint",
+              "version": "0.4.0"
+            }
+          }
+        }
+      ],
+      "version": "2.1.0"
+    },
+    "scannedCommit": "0f4f2b3d3b7a1c8e5d9a6b4c2e1f0a9b8c7d6e5f",
+    "tool": {
+      "name": "wrangle-lint",
+      "version": "0.4.0"
+    }
+  },
+  "predicateType": "https://github.com/TomHennen/wrangle/attestation/scan/v1",
+  "subject": [
+    {
+      "digest": {
+        "sha256": "47d801ffad72f6bdb405dec1ead7c45a9d66697f4984d8f502d632c68bb63e66"
+      }
+    }
+  ]
+}
+
+--- wrangle_0.1.0_linux_amd64.intoto.jsonl, statement 5 ---
+{
+  "_type": "https://in-toto.io/Statement/v1",
+  "predicate": {
+    "result": "findings",
+    "sarif": {
+      "$schema": "https://json.schemastore.org/sarif-2.1.0.json",
+      "runs": [
+        {
+          "results": [
+            {
+              "level": "warning",
+              "locations": [
+                {
+                  "physicalLocation": {
+                    "artifactLocation": {
+                      "uri": ".github/workflows/release.yml"
+                    },
+                    "region": {
+                      "startLine": 12
+                    }
+                  }
+                }
+              ],
+              "message": {
+                "text": "credential persistence through GitHub Actions artifacts"
+              },
+              "ruleId": "artipacked"
+            }
+          ],
+          "tool": {
+            "driver": {
+              "informationUri": "https://github.com/zizmorcore/zizmor",
+              "name": "zizmor",
+              "version": "1.16.0"
+            }
+          }
+        }
+      ],
+      "version": "2.1.0"
+    },
+    "scannedCommit": "0f4f2b3d3b7a1c8e5d9a6b4c2e1f0a9b8c7d6e5f",
+    "tool": {
+      "name": "zizmor",
+      "version": "1.16.0"
+    }
+  },
+  "predicateType": "https://github.com/TomHennen/wrangle/attestation/scan/v1",
+  "subject": [
+    {
+      "digest": {
+        "sha256": "47d801ffad72f6bdb405dec1ead7c45a9d66697f4984d8f502d632c68bb63e66"
+      }
+    }
+  ]
+}
+
+--- wrangle_0.1.0_linux_amd64.intoto.jsonl, statement 6 ---
+{
+  "_type": "https://in-toto.io/Statement/v1",
+  "predicateType": "https://slsa.dev/verification_summary/v1",
+  "subject": [
+    {
+      "name": "wrangle_0.1.0_linux_amd64",
+      "digest": {
+        "sha256": "47d801ffad72f6bdb405dec1ead7c45a9d66697f4984d8f502d632c68bb63e66"
+      }
+    }
+  ],
+  "predicate": {
+    "verifier": {
+      "id": "https://github.com/TomHennen/wrangle"
+    },
+    "timeVerified": "2026-01-01T00:00:00Z",
+    "resourceUri": "pkg:github/TomHennen/wrangle-demo@v0.1.0",
+    "policy": {
+      "uri": "https://github.com/TomHennen/wrangle/policies/release.hjson"
+    },
+    "verificationResult": "PASSED",
+    "verifiedLevels": [
+      "SLSA_BUILD_LEVEL_3"
+    ]
+  }
+}
 
 === fail closed: append to a bundle that does not exist
 
@@ -262,7 +586,9 @@ check: no bogus bundle written: absent
 
 $ wrangle-attest assemble \
     --metadata-root meta/sbom \
-    --metadata-root meta/scan \
+    --metadata-root meta/osv-scanner \
+    --metadata-root meta/zizmor \
+    --metadata-root meta/wrangle-lint \
     --subjects-file subjects.txt \
     --provenance provenance/provenance.intoto.jsonl \
     --sign \
@@ -272,7 +598,7 @@ $ wrangle-attest assemble \
     wrangle-attest: failing closed.
     [exit 2]
 check: re-run over a populated bundle-dir exits 2: 2
-check: linux bundle still intact: 4
+check: linux bundle still intact: 6
 
 === result
 all checks passed
