@@ -8,15 +8,10 @@ set -f
 # command as a user would type it, decodes what came out, and asserts the
 # properties. The normalized transcript is diffed against testdata/demo.golden.txt.
 #
-# The signing half is opt-in: keyless signing writes a PERMANENT PUBLIC entry to
-# the public-good Rekor transparency log under the signer's identity. Without the
-# opt-in the demo runs the offline half (fail-closed paths, subject and
-# bundle-name resolution), which drives the same binary and needs no credentials.
+# Signing is real: in CI the ambient GitHub OIDC token is exchanged at Fulcio; on
+# a laptop the signer runs the standard Sigstore browser/device flow, so the
+# identity on the cert is the human's.
 #
-#   tools/wrangle-attest/demo.sh                      # offline half
-#   tools/wrangle-attest/demo.sh --i-understand-this-is-public   # + real signing
-#
-# WRANGLE_DEMO_SIGN=1 is the same opt-in for unattended CI (ambient GitHub OIDC).
 # WRANGLE_DEMO_UPDATE_GOLDEN=1 rewrites the golden from this run.
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -115,21 +110,6 @@ describe_bundle() {
         index=$((index + 1))
         describe_line "$line" "$index"
     done < "$file"
-}
-
-signing_enabled() {
-    [[ "${WRANGLE_DEMO_SIGN:-0}" == "1" ]]
-}
-
-sign_warning() {
-    printf '\n'
-    printf '!!! wrangle-attest --sign does KEYLESS SIGNING against public-good Sigstore.\n'
-    printf '!!! Every signature publishes a PERMANENT, PUBLIC entry to the Rekor\n'
-    printf '!!! transparency log, bound to the identity you authenticate with (your\n'
-    printf '!!! email address on a local run; the workflow identity in CI).\n'
-    printf '!!!\n'
-    printf '!!! Re-run with --i-understand-this-is-public to sign. Running the offline\n'
-    printf '!!! half only.\n'
 }
 
 demo_offline() {
@@ -268,20 +248,13 @@ demo_signed() {
 
 demo_body() {
     printf 'wrangle-attest demo run\n'
-    if signing_enabled; then
-        printf 'mode: offline + real keyless signing (public Rekor entries published)\n'
-    else
-        printf 'mode: offline only (no signing; --i-understand-this-is-public enables it)\n'
-    fi
+    printf 'signing is real: --sign signs against public-good Sigstore, which writes a\n'
+    printf 'public Rekor transparency-log entry under the signing identity.\n'
     printf 'signatures, Fulcio certs and Rekor entries are never printed: they differ\n'
     printf 'every run. Everything below is deterministic.\n'
 
     demo_offline
-    if signing_enabled; then
-        demo_signed
-    else
-        sign_warning
-    fi
+    demo_signed
 
     heading "result"
     if [[ "$FAILURES" -eq 0 ]]; then
@@ -302,17 +275,6 @@ stage_fixtures() {
 }
 
 main() {
-    local arg
-    for arg in "$@"; do
-        case "$arg" in
-            --i-understand-this-is-public) WRANGLE_DEMO_SIGN=1 ;;
-            *)
-                printf 'demo.sh: unknown argument %s\n' "$arg" >&2
-                return 2
-                ;;
-        esac
-    done
-
     # shellcheck source=../../lib/env.sh
     source "$REPO_ROOT/lib/env.sh"
 
@@ -352,11 +314,6 @@ main() {
     if [[ "${WRANGLE_DEMO_UPDATE_GOLDEN:-0}" == "1" ]]; then
         cp "$transcript" "$GOLDEN"
         printf '\ndemo.sh: wrote %s\n' "$GOLDEN"
-        return 0
-    fi
-
-    if ! signing_enabled; then
-        printf '\ndemo.sh: offline half only; the golden covers the full signed run.\n'
         return 0
     fi
 

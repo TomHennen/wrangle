@@ -90,10 +90,9 @@ jobs:
 
       # The demo drives the real CLI end to end (assemble, --statement, --append,
       # the fail-closed paths) and diffs its transcript against the checked-in
-      # golden. Signing is opt-in because it publishes public Rekor entries.
+      # golden.
       - name: Demo run
         env:
-          WRANGLE_DEMO_SIGN: "1"
           WRANGLE_DEMO_TRANSCRIPT: ${{ runner.temp }}/demo-transcript.txt
         run: ./tools/wrangle-attest/demo.sh
 
