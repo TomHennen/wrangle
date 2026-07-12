@@ -318,8 +318,8 @@ main() {
     fi
 
     if [[ ! -f "$GOLDEN" ]]; then
-        printf '\ndemo.sh: no golden committed yet; capture this transcript into %s\n' "$GOLDEN" >&2
-        return 0
+        printf '\ndemo.sh: %s is missing; re-run with WRANGLE_DEMO_UPDATE_GOLDEN=1 to capture it.\n' "$GOLDEN" >&2
+        return 1
     fi
 
     if ! diff -u "$GOLDEN" "$transcript"; then
