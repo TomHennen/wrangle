@@ -5,7 +5,7 @@
 # stub was never invoked.
 
 setup() {
-    SCRIPT="$BATS_TEST_DIRNAME/../tools/cut_release.sh"
+    REAL_SCRIPT="$BATS_TEST_DIRNAME/../tools/cut_release.sh"
     TMP_DIR="$(mktemp -d)"
     STUB_BIN="$TMP_DIR/bin"
     mkdir -p "$STUB_BIN"
@@ -23,18 +23,32 @@ EOF
     PATH="$STUB_BIN:$PATH"
     export PATH
 
+    # cut_release calls its SCRIPT_DIR siblings; stub them so the tests exercise
+    # cut_release's own logic, not the real pin checks against a fixture repo.
+    mkdir -p "$TMP_DIR/tools"
+    cp "$REAL_SCRIPT" "$TMP_DIR/tools/"
+    for sib in check_pin_main_history.sh check_pin_freshness.sh; do
+        printf '#!/bin/bash\nexit 0\n' > "$TMP_DIR/tools/$sib"
+        chmod +x "$TMP_DIR/tools/$sib"
+    done
+    SCRIPT="$TMP_DIR/tools/cut_release.sh"
+
     NOTES="$TMP_DIR/notes.md"
     printf 'What you get in v9.9.9.\n' > "$NOTES"
 
     # A real git repo so the tag/ancestry checks operate on something.
     REPO="$TMP_DIR/repo"
     mkdir -p "$REPO"
-    git -C "$REPO" init -q
+    git -C "$REPO" init -qb main
     git -C "$REPO" config user.email t@t.t
     git -C "$REPO" config user.name t
     printf 'x\n' > "$REPO/f"
     git -C "$REPO" add -A
     git -C "$REPO" commit -qm init
+    # A real remote so the script's `git fetch origin` works — without it the
+    # fetch fails and every guard "passes" for the wrong reason.
+    git -C "$REPO" remote add origin "$REPO"
+    git -C "$REPO" update-ref refs/remotes/origin/main HEAD
     export WRANGLE_REPO_ROOT="$REPO"
 }
 
@@ -96,5 +110,24 @@ released() { grep -q "release create" "$GH_CALLS"; }
 @test "cut_release: usage error on missing arguments" {
     run "$SCRIPT" v9.9.9
     [[ "$status" -eq 2 ]]
+    ! released
+}
+
+@test "cut_release: refuses a target that is not the release branch's HEAD" {
+    # REGRESSION. workflow_dispatch takes a branch/tag ref, never a raw sha
+    # (`--ref <sha>` is a 422), so the gate can only be dispatched on a branch.
+    # If the target isn't that branch's HEAD, the gate would verify a different
+    # commit than the one being tagged. Found the hard way: cut_release.sh
+    # dispatched `--ref "$target"` and died mid-cut of v0.4.0.
+    local ancestor; ancestor="$(git -C "$REPO" rev-parse HEAD)"
+    printf 'z\n' > "$REPO/f2"
+    git -C "$REPO" add -A
+    git -C "$REPO" commit -qm newer
+    git -C "$REPO" update-ref refs/remotes/origin/main HEAD
+    # ancestor IS on origin/main, but is not its HEAD — so it passes the
+    # ancestry check and must be caught by the branch-HEAD guard.
+    run "$SCRIPT" v9.9.9 "$NOTES" --target "$ancestor"
+    [[ "$status" -ne 0 ]]
+    [[ "$output" == *"HEAD"* ]]
     ! released
 }
