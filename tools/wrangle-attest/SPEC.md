@@ -165,15 +165,23 @@ env is scrubbed of `SIGSTORE_ID_TOKEN`, `ACTIONS_ID_TOKEN_REQUEST_*`, and
 signing material, and it resolves policy context keys from `AMPEL_<KEY>`.
 
 The verdict is dual-checked, because ampel's exit code alone is not a safe
-PASS signal (exit 1 covers both a FAILED verdict and every tool error; exit 0
-also covers SOFTFAIL and an empty-chain soft-pass): signing requires ampel
-exit 0 AND that `--results-path` parses as an in-toto VSA statement bound to
-exactly the requested single-sha256 subject with
+PASS signal: ampel exits 1 for a FAILED verdict *and* for every tool error
+(`cmd/ampel/main.go` exits 1 on any returned error;
+`internal/cmd/verify.go` `os.Exit(1)` only on `StatusFAIL`), so exit 0 does
+not prove a VSA was written, bound to this subject, or well-formed. Signing
+therefore requires ampel exit 0 AND that `--results-path` parses as an in-toto
+VSA statement bound to exactly the requested single-sha256 subject with
 `predicate.verificationResult` exactly `PASSED`. With `--fail=false` (warn
 mode) ampel runs with `--exit-code=false` and an explicitly `FAILED` VSA is
 still signed and delivered; any other verdict value fails closed in both
 modes. Exit 0 = verified, signed, delivered; 1 = FAILED verdict with
 `--fail=true` (nothing signed); 2 = anything else (nothing signed).
+
+A `SOFTFAIL` (a policy group with `enforce: OFF` — wrangle's own advisory
+`wrangle-release-pinned` tenet is one) is **not** distinguishable from a PASS
+here: ampel exits 0 and maps SOFTFAIL to `verificationResult: PASSED`
+(`pkg/attest/vsa.go` `resultStringToSLSAResult`). That is the intended policy
+semantics, unchanged from the shell, not a gap this check closes.
 
 ## Testing
 
