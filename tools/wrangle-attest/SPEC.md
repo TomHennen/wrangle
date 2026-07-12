@@ -86,6 +86,17 @@ into a buffer before `--out` is touched, so a failure on the Nth manifest — a
 malformed manifest or a signing failure — never leaves a partial/unsigned file.
 Exit 0 on success; non-zero (fail closed) on any error.
 
+```
+wrangle-attest --sign --statement <file> --out <file>
+```
+
+Signs an existing in-toto statement file (the verify job's VSA) instead of
+discovering manifests: the raw file bytes become the DSSE payload verbatim —
+never re-marshaled — so the bundle is byte-identical to `bnd statement` on the
+same file, written as one compact bundle line. `--statement` is mutually
+exclusive with `--metadata-root`, `--subject`, `--artifact`, and `--commit`; a
+missing, empty, or non-JSON-object file fails closed before `--out` is touched.
+
 ## Testing
 
 `go test ./wrangle-attest/` — table-driven manifest parse/validate (fail-closed

@@ -35,6 +35,11 @@
 // GitHub OIDC -> Fulcio -> Rekor), producing a Sigstore bundle. Without it the
 // statements are emitted unsigned (offline-unit-testable).
 //
+// With --sign --statement <file> the engine instead signs one existing
+// statement file (the verify job's VSA) verbatim — no manifest discovery, the
+// raw file bytes are the DSSE payload — through the same signer, so the bundle
+// is byte-identical to `bnd statement`.
+//
 // Fail closed: a malformed/missing manifest, an unknown predicate-type, a
 // missing result file, a malformed subject, or a signing failure aborts with a
 // non-zero exit BEFORE any output is written, so a partial/unsigned/corrupt
