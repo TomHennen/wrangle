@@ -3,7 +3,7 @@
   "result-file": "output.sarif",
   "tool": {
     "name": "zizmor",
-    "version": "1.10.0"
+    "version": "1.16.0"
   },
   "result": "findings"
 }

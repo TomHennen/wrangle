@@ -1,0 +1,36 @@
+{
+  "$schema": "https://json.schemastore.org/sarif-2.1.0.json",
+  "version": "2.1.0",
+  "runs": [
+    {
+      "tool": {
+        "driver": {
+          "name": "zizmor",
+          "version": "1.16.0",
+          "informationUri": "https://github.com/zizmorcore/zizmor"
+        }
+      },
+      "results": [
+        {
+          "ruleId": "artipacked",
+          "level": "warning",
+          "message": {
+            "text": "credential persistence through GitHub Actions artifacts"
+          },
+          "locations": [
+            {
+              "physicalLocation": {
+                "artifactLocation": {
+                  "uri": ".github/workflows/release.yml"
+                },
+                "region": {
+                  "startLine": 12
+                }
+              }
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}

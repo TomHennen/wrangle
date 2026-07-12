@@ -5,25 +5,23 @@
     {
       "tool": {
         "driver": {
-          "name": "zizmor",
-          "version": "1.10.0"
+          "name": "osv-scanner",
+          "version": "2.2.4",
+          "informationUri": "https://github.com/google/osv-scanner"
         }
       },
       "results": [
         {
-          "ruleId": "artipacked",
-          "level": "warning",
+          "ruleId": "GHSA-xxxx-yyyy-zzzz",
+          "level": "error",
           "message": {
-            "text": "credential persistence in checkout"
+            "text": "golang.org/x/net@0.23.0 is affected by GHSA-xxxx-yyyy-zzzz (fixed in 0.38.0)"
           },
           "locations": [
             {
               "physicalLocation": {
                 "artifactLocation": {
-                  "uri": ".github/workflows/release.yml"
-                },
-                "region": {
-                  "startLine": 12
+                  "uri": "go.mod"
                 }
               }
             }

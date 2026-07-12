@@ -95,8 +95,23 @@ describe_line() {
           (if (.verificationMaterial.tlogEntries | length) > 0 then "rekor-entry" else empty end) ]
         | join(" + ")')"
     printf '    %d. predicateType: %s\n' "$index" "$(printf '%s' "$payload" | jq -r '.predicateType')"
+    printf '%s' "$payload" | jq -r '
+        if .predicate.tool.name then
+            "       tool:          " + .predicate.tool.name + " " + .predicate.tool.version
+                + "  (result: " + .predicate.result + ")"
+        else empty end'
     printf '%s' "$payload" | jq -r '.subject[] | "       subject:       sha256:" + .digest.sha256'
     printf '       material:      %s\n' "$material"
+}
+
+print_statements() {
+    local file="$1" line index=0 name
+    name="$(basename "$file")"
+    while IFS= read -r line; do
+        index=$((index + 1))
+        printf '\n--- %s, statement %d ---\n' "$name" "$index"
+        printf '%s' "$line" | jq -r '.dsseEnvelope.payload' | base64 -d | jq .
+    done < "$file"
 }
 
 describe_bundle() {
@@ -117,9 +132,13 @@ demo_offline() {
     note "subjects.txt - one subject per line, file paths are self-digested:"
     demo_exec cat subjects.txt
     printf '\n'
-    note "each tool leaves a metadata root: its manifest plus its native result file"
+    note "each tool leaves its own metadata root: a manifest plus its native result"
+    note "file. A real scan run produces one scan/v1 manifest per scanner."
+    demo_exec ls meta
     demo_exec cat meta/sbom/wrangle_attestation_metadata.json
-    demo_exec cat meta/scan/wrangle_attestation_metadata.json
+    demo_exec cat meta/osv-scanner/wrangle_attestation_metadata.json
+    demo_exec cat meta/zizmor/wrangle_attestation_metadata.json
+    demo_exec cat meta/wrangle-lint/wrangle_attestation_metadata.json
 
     heading "fail closed: a non-sha256 subject digest"
 
@@ -129,7 +148,9 @@ demo_offline() {
     check_exit "sha512 subject" 2 \
         wrangle-attest assemble \
         --metadata-root meta/sbom \
-        --metadata-root meta/scan \
+        --metadata-root meta/osv-scanner \
+        --metadata-root meta/zizmor \
+        --metadata-root meta/wrangle-lint \
         --subjects-file bad-subjects.txt \
         --provenance provenance/provenance.fixture.intoto.jsonl \
         --sign \
@@ -192,7 +213,9 @@ demo_signed() {
 
     demo_exec wrangle-attest assemble \
         --metadata-root meta/sbom \
-        --metadata-root meta/scan \
+        --metadata-root meta/osv-scanner \
+        --metadata-root meta/zizmor \
+        --metadata-root meta/wrangle-lint \
         --subjects-file subjects.txt \
         --provenance provenance/provenance.intoto.jsonl \
         --commit 0f4f2b3d3b7a1c8e5d9a6b4c2e1f0a9b8c7d6e5f \
@@ -204,15 +227,16 @@ demo_signed() {
 
     demo_exec ls bundles
     check "bundles written" "$(find bundles -maxdepth 1 -type f | wc -l | tr -d ' ')" "3"
-    check "newly signed statements" "$(statement_count statements.jsonl)" "6"
+    check "newly signed statements" "$(statement_count statements.jsonl)" "12"
 
     note "every bundle: the shared provenance verbatim, then that artifact's own"
-    note "signed statements. Decoded from the DSSE payload of each line."
+    note "signed statements - one scan/v1 per scanner, plus the SBOM. Decoded from"
+    note "the DSSE payload of each line."
     describe_bundle bundles/wrangle_0.1.0_linux_amd64.intoto.jsonl
     describe_bundle bundles/wrangle_0.1.0_darwin_arm64.intoto.jsonl
     describe_bundle "bundles/sha256-${CONTAINER_SUBJECT#sha256:}.intoto.jsonl"
     check "statements per bundle" \
-        "$(statement_count bundles/wrangle_0.1.0_linux_amd64.intoto.jsonl)" "3"
+        "$(statement_count bundles/wrangle_0.1.0_linux_amd64.intoto.jsonl)" "5"
 
     heading "sign the VSA and append it to the artifact's bundle"
 
@@ -225,9 +249,17 @@ demo_signed() {
         --append bundles/wrangle_0.1.0_linux_amd64.intoto.jsonl
     describe_bundle bundles/wrangle_0.1.0_linux_amd64.intoto.jsonl
     check "linux bundle after append" \
-        "$(statement_count bundles/wrangle_0.1.0_linux_amd64.intoto.jsonl)" "4"
+        "$(statement_count bundles/wrangle_0.1.0_linux_amd64.intoto.jsonl)" "6"
     check "darwin bundle untouched" \
-        "$(statement_count bundles/wrangle_0.1.0_darwin_arm64.intoto.jsonl)" "3"
+        "$(statement_count bundles/wrangle_0.1.0_darwin_arm64.intoto.jsonl)" "5"
+
+    heading "what wrangle actually attests: the statements in full"
+
+    note "the complete in-toto statement decoded from each line of the linux"
+    note "bundle, exactly as signed. The other two bundles carry the same"
+    note "statements bound to their own digest, and the provenance line is"
+    note "byte-identical in all three, so they are not repeated here."
+    print_statements bundles/wrangle_0.1.0_linux_amd64.intoto.jsonl
 
     heading "fail closed: append to a bundle that does not exist"
 
@@ -256,14 +288,16 @@ demo_signed() {
     check_exit "re-run over a populated bundle-dir" 2 \
         wrangle-attest assemble \
         --metadata-root meta/sbom \
-        --metadata-root meta/scan \
+        --metadata-root meta/osv-scanner \
+        --metadata-root meta/zizmor \
+        --metadata-root meta/wrangle-lint \
         --subjects-file subjects.txt \
         --provenance provenance/provenance.intoto.jsonl \
         --sign \
         --bundle-dir bundles \
         --statements-out statements.jsonl
     check "linux bundle still intact" \
-        "$(statement_count bundles/wrangle_0.1.0_linux_amd64.intoto.jsonl)" "4"
+        "$(statement_count bundles/wrangle_0.1.0_linux_amd64.intoto.jsonl)" "6"
 }
 
 demo_body() {
