@@ -98,6 +98,14 @@ on:
         required: false
         type: string
         default: sbom
+      attest-and-verify:
+        description: |
+          enabled (default): sign and verify SLSA provenance + a VSA for the
+          release. disabled: publish the release unattested (tests and scans
+          still gate it) — use on private repos, which can't attest (#600).
+        required: false
+        type: string
+        default: enabled
     outputs:
       hashes:
         description: "Base64-encoded SHA-256 hashes of built artifacts (for SLSA provenance)"
@@ -135,6 +143,7 @@ jobs:
     permissions: {}    # guard/gate/names read env only — no workspace, no API, no secrets
     outputs:
       should-release: ${{ steps.prep.outputs.should-release }}
+      should-attest: ${{ steps.prep.outputs.should-attest }}
       shortname: ${{ steps.prep.outputs.shortname }}
       dist: ${{ steps.prep.outputs.dist }}
       scan: ${{ steps.prep.outputs.scan }}
@@ -142,12 +151,13 @@ jobs:
       metadata-pre: ${{ steps.prep.outputs.metadata-pre }}
     steps:
       # TODO: replace with $/actions/prep when GitHub ships $/ syntax (#136)
-      - uses: TomHennen/wrangle/actions/prep@58114e5180fffef5af1af9fa5d458b7efc52cbc1 # main 2026-07-06
+      - uses: TomHennen/wrangle/actions/prep@b56333f2644bafcee4a08bd7b50124137d4c32bf # refactor/sarif-adapter-exit-lib 2026-07-12
         id: prep
         with:
           build-type: npm
           path: ${{ inputs.path }}
           release-events: ${{ inputs.release-events }}
+          attest-and-verify: ${{ inputs.attest-and-verify }}
 
   # Source scan. A load-bearing (:fail) finding fails this job, failing
   # the run so the caller's publish (gated on this workflow via needs:)
@@ -161,7 +171,7 @@ jobs:
       security-events: write
     steps:
       # TODO: replace with $/actions/scan when GitHub ships $/ syntax (#136)
-      - uses: TomHennen/wrangle/actions/scan@58114e5180fffef5af1af9fa5d458b7efc52cbc1 # main 2026-07-06
+      - uses: TomHennen/wrangle/actions/scan@b56333f2644bafcee4a08bd7b50124137d4c32bf # refactor/sarif-adapter-exit-lib 2026-07-12
         if: ${{ inputs.scan-tools != '' }}
         with:
           checkout: "true"
@@ -195,7 +205,7 @@ jobs:
           ref: ${{ inputs.ref || '' }}
 
       # TODO: replace with $/build/actions/npm when GitHub ships $/ syntax (#136)
-      - uses: TomHennen/wrangle/build/actions/npm@58114e5180fffef5af1af9fa5d458b7efc52cbc1 # main 2026-07-06
+      - uses: TomHennen/wrangle/build/actions/npm@b56333f2644bafcee4a08bd7b50124137d4c32bf # refactor/sarif-adapter-exit-lib 2026-07-12
         id: build
         with:
           path: ${{ inputs.path }}
@@ -246,23 +256,21 @@ jobs:
           name: ${{ needs.prep.outputs.scan }}
           path: ${{ steps.build.outputs.metadata-dir }}/scan/
 
-      # Non-release: this is the final unified metadata (sbom + scan/). On
-      # release the verify job appends the bundle and owns the final upload.
+      # On an attested release the verify job appends the signed bundle and owns
+      # the final metadata upload; otherwise (non-release or unattested) this
+      # sbom + scan/ is itself the final metadata artifact.
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
-          name: ${{ needs.prep.outputs.should-release == 'true' && needs.prep.outputs.metadata-pre || needs.prep.outputs.metadata }}
+          name: ${{ needs.prep.outputs.should-attest == 'true' && needs.prep.outputs.metadata-pre || needs.prep.outputs.metadata }}
           path: ${{ steps.build.outputs.metadata-dir }}/
           if-no-files-found: error
-          # Short-retain only the premeta transient (release path); the
-          # non-release artifact is the final deliverable, kept at repo default.
-          retention-days: ${{ needs.prep.outputs.should-release == 'true' && '1' || '' }}
 
   # Generate SLSA L3 build provenance via GitHub's attestation API, naming THIS
   # reusable workflow as builder.id (its job_workflow_ref) and the Sigstore
   # signing identity, then sign the SBOM + scan/v1 metadata over the built dist
   # and post it to the attestation store — persisted independent of the verdict
   attest:
-    if: ${{ needs.prep.outputs.should-release == 'true' }}
+    if: ${{ needs.prep.outputs.should-attest == 'true' }}
     # needs `scan` so a load-bearing finding blocks attestation + the caller's publish.
     needs: [prep, build, scan]
     runs-on: ubuntu-latest
@@ -274,7 +282,7 @@ jobs:
       bundles-artifact-name: ${{ steps.attest.outputs.bundles-artifact-name }}
     steps:
       # TODO: replace with $/actions/attest_provenance when GitHub ships $/ syntax (#136)
-      - uses: TomHennen/wrangle/actions/attest_provenance@58114e5180fffef5af1af9fa5d458b7efc52cbc1 # main 2026-07-06
+      - uses: TomHennen/wrangle/actions/attest_provenance@b56333f2644bafcee4a08bd7b50124137d4c32bf # refactor/sarif-adapter-exit-lib 2026-07-12
         id: attest
         with:
           build-type: npm
@@ -288,16 +296,15 @@ jobs:
   # caller's publish via needs: propagation. The SBOM + scan/v1 metadata is
   # signed in the attest job; verify evaluates it and binds the verdict.
   verify:
-    if: ${{ needs.prep.outputs.should-release == 'true' }}
+    if: ${{ needs.prep.outputs.should-attest == 'true' }}
     needs: [prep, build, attest]
     runs-on: ubuntu-latest
     permissions:
       id-token: write       # bnd keyless-signs each VSA via this workflow's OIDC identity
       attestations: write   # post each VSA to the GitHub attestation store
-      contents: write       # create the release if absent and attach the bundle on tag pushes
     steps:
       # TODO: replace with $/actions/verify_release when GitHub ships $/ syntax (#136)
-      - uses: TomHennen/wrangle/actions/verify_release@58114e5180fffef5af1af9fa5d458b7efc52cbc1 # main 2026-07-06
+      - uses: TomHennen/wrangle/actions/verify_release@b56333f2644bafcee4a08bd7b50124137d4c32bf # refactor/sarif-adapter-exit-lib 2026-07-12
         with:
           build-type: npm
           shortname: ${{ needs.prep.outputs.shortname }}
@@ -308,3 +315,24 @@ jobs:
           # each subject digest is the cryptographic bind.
           context: buildPoint:git+https://github.com/${{ github.repository }},vsa.resourceUri:${{ needs.build.outputs.resource-uri }}
           fail: "true"
+
+  # Least-privileged publish of the GitHub release: sole contents:write job, no
+  # signing scopes (npm-registry publish stays in the adopter's workflow). The if:
+  # gates publish on verify success; unattested mode skips verify, so should-attest guards that.
+  publish:
+    if: >
+      always() && !cancelled() &&
+      needs.prep.outputs.should-release == 'true' &&
+      needs.build.result == 'success' &&
+      (needs.prep.outputs.should-attest != 'true' || needs.verify.result == 'success')
+    needs: [prep, build, verify]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write   # create the release if absent and upload the asset set
+    steps:
+      # TODO: replace with $/actions/publish_release when GitHub ships $/ syntax (#136)
+      - uses: TomHennen/wrangle/actions/publish_release@b56333f2644bafcee4a08bd7b50124137d4c32bf # refactor/sarif-adapter-exit-lib 2026-07-12
+        with:
+          build-type: npm
+          shortname: ${{ needs.prep.outputs.shortname }}
+          attest-and-verify: ${{ inputs.attest-and-verify }}
