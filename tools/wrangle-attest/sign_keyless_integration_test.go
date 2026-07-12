@@ -144,7 +144,7 @@ func TestRunSignKeylessStatement(t *testing.T) {
 }
 
 // TestRunAssembleKeyless drives one assemble round-trip: the emitted bundle
-// must be the seed line verbatim followed by one verifiable Sigstore bundle
+// must be the provenance line verbatim followed by one verifiable Sigstore bundle
 // per discovered manifest, with --statements-out carrying the same lines.
 func TestRunAssembleKeyless(t *testing.T) {
 	// In CI this job has id-token: write; a missing token is a real gap, not a
@@ -157,8 +157,8 @@ func TestRunAssembleKeyless(t *testing.T) {
 	writeFile(t, dir, "meta/wrangle_attestation_metadata.json",
 		`{"predicate-type":"https://spdx.dev/Document","result-file":"sbom.spdx.json"}`)
 	writeFile(t, dir, "meta/sbom.spdx.json", `{"spdxVersion":"SPDX-2.3","name":"assemble"}`)
-	seedLine := `{"dsseEnvelope":{"payload":"seed"},"seeded":true}`
-	writeFile(t, dir, "seed.jsonl", seedLine+"\n")
+	provenanceLine := `{"dsseEnvelope":{"payload":"provenance"},"fromReferrer":true}`
+	writeFile(t, dir, "provenance.jsonl", provenanceLine+"\n")
 	writeFile(t, dir, "subjects", testArtifactDigest+"\n")
 	bundleDir := filepath.Join(dir, "bundles")
 	stmtsOut := filepath.Join(dir, "statements.jsonl")
@@ -167,7 +167,7 @@ func TestRunAssembleKeyless(t *testing.T) {
 	rc := run([]string{"assemble",
 		"--metadata-root", filepath.Join(dir, "meta"),
 		"--subjects-file", filepath.Join(dir, "subjects"),
-		"--seed", filepath.Join(dir, "seed.jsonl"),
+		"--provenance", filepath.Join(dir, "provenance.jsonl"),
 		"--sign",
 		"--bundle-dir", bundleDir,
 		"--statements-out", stmtsOut,
@@ -183,10 +183,10 @@ func TestRunAssembleKeyless(t *testing.T) {
 	}
 	lines := bytes.Split(bytes.TrimSuffix(data, []byte("\n")), []byte("\n"))
 	if len(lines) != 2 {
-		t.Fatalf("bundle lines = %d, want seed + one signed statement:\n%s", len(lines), data)
+		t.Fatalf("bundle lines = %d, want provenance + one signed statement:\n%s", len(lines), data)
 	}
-	if string(lines[0]) != seedLine {
-		t.Fatalf("seed not passed through verbatim:\n got: %q\nwant: %q", lines[0], seedLine)
+	if string(lines[0]) != provenanceLine {
+		t.Fatalf("provenance not passed through verbatim:\n got: %q\nwant: %q", lines[0], provenanceLine)
 	}
 
 	var bundle sbundle.Bundle

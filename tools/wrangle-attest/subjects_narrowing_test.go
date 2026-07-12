@@ -98,7 +98,7 @@ func TestRunSubjectNarrowingFailsClosed(t *testing.T) {
 // (nonexistent) path fails closed — never a silently mis-bound digest.
 func TestAssembleSubjectNarrowingFailsClosed(t *testing.T) {
 	meta := writeAssembleMeta(t)
-	seed := writeTempFile(t, "seed.jsonl", "{\"seed\":true}\n")
+	provenance := writeTempFile(t, "provenance.jsonl", "{\"provenance\":true}\n")
 
 	for _, tc := range narrowingCases {
 		t.Run(tc.name, func(t *testing.T) {
@@ -110,7 +110,7 @@ func TestAssembleSubjectNarrowingFailsClosed(t *testing.T) {
 			stmtsOut := filepath.Join(out, "statements.jsonl")
 
 			var stderr bytes.Buffer
-			rc := run(assembleArgs(meta, subjects, seed, bundleDir, stmtsOut), &stderr)
+			rc := run(assembleArgs(meta, subjects, provenance, bundleDir, stmtsOut), &stderr)
 			if rc != 2 {
 				t.Fatalf("subject %q: rc=%d, want fail-closed 2; stderr=%s", tc.subject, rc, stderr.String())
 			}

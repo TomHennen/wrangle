@@ -44,7 +44,7 @@
 // The assemble subcommand is the attest job's orchestration: it reads the
 // newline-separated subjects file, self-digests file subjects, signs every
 // discovered manifest per subject with one shared signer, and writes one
-// per-artifact bundle (the provenance seed verbatim + that subject's signed
+// per-artifact bundle (the provenance verbatim + that subject's signed
 // lines) plus a file of every newly signed line — all buffered, so validation
 // and signing failures write nothing; a write-phase failure exits non-zero and
 // a re-run refuses the partially written bundle dir.

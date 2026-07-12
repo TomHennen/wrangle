@@ -46,11 +46,11 @@ func writeAssembleMeta(t *testing.T) string {
 
 // assembleArgs builds a full valid assemble arg vector; callers override
 // fields by reslicing or appending.
-func assembleArgs(meta, subjectsFile, seed, bundleDir, statementsOut string) []string {
+func assembleArgs(meta, subjectsFile, provenance, bundleDir, statementsOut string) []string {
 	return []string{"assemble",
 		"--metadata-root", meta,
 		"--subjects-file", subjectsFile,
-		"--seed", seed,
+		"--provenance", provenance,
 		"--sign",
 		"--bundle-dir", bundleDir,
 		"--statements-out", statementsOut,
@@ -75,14 +75,14 @@ func TestAssembleGoldenBundles(t *testing.T) {
 	sum := sha256.Sum256([]byte("PKGBYTES"))
 	distDigest := hex.EncodeToString(sum[:])
 	subjects := writeTempFile(t, "subjects", dist+"\n"+testArtifactDigest+"\n")
-	const seedContent = "{\"seed\":true}\n"
-	seed := writeTempFile(t, "seed.jsonl", seedContent)
+	const provenanceContent = "{\"provenance\":true}\n"
+	provenance := writeTempFile(t, "provenance.jsonl", provenanceContent)
 	out := t.TempDir()
 	bundleDir := filepath.Join(out, "bundles")
 	stmtsOut := filepath.Join(out, "statements.jsonl")
 
 	var stderr bytes.Buffer
-	rc := run(append(assembleArgs(meta, subjects, seed, bundleDir, stmtsOut),
+	rc := run(append(assembleArgs(meta, subjects, provenance, bundleDir, stmtsOut),
 		"--commit", "deadbeef"), &stderr)
 	if rc != 0 {
 		t.Fatalf("run rc=%d stderr=%s", rc, stderr.String())
@@ -92,8 +92,8 @@ func TestAssembleGoldenBundles(t *testing.T) {
 	// (root SBOM before scan/osv).
 	lines := []string{`{"signed":1}`, `{"signed":2}`, `{"signed":3}`, `{"signed":4}`}
 	wantBundles := map[string]string{
-		"pkg.tgz.intoto.jsonl": seedContent + lines[0] + "\n" + lines[1] + "\n",
-		"sha256-011b95c8e47c538646a2c01df5373fe703381cd415c847357b3d563563eb1d95.intoto.jsonl": seedContent + lines[2] + "\n" + lines[3] + "\n",
+		"pkg.tgz.intoto.jsonl": provenanceContent + lines[0] + "\n" + lines[1] + "\n",
+		"sha256-011b95c8e47c538646a2c01df5373fe703381cd415c847357b3d563563eb1d95.intoto.jsonl": provenanceContent + lines[2] + "\n" + lines[3] + "\n",
 	}
 	for name, want := range wantBundles {
 		got, err := os.ReadFile(filepath.Join(bundleDir, name))
@@ -130,22 +130,22 @@ func TestAssembleGoldenBundles(t *testing.T) {
 	}
 }
 
-// A seed without a trailing newline must be reproduced verbatim: the first
-// signed line concatenates onto the seed's last line, exactly as the shell's
+// A provenance without a trailing newline must be reproduced verbatim: the first
+// signed line concatenates onto the provenance's last line, exactly as the shell's
 // cp + `printf '%s\n' >>` would.
-func TestAssembleSeedWithoutTrailingNewline(t *testing.T) {
+func TestAssembleProvenanceWithoutTrailingNewline(t *testing.T) {
 	ss := &seqSigner{}
 	swapSigner(t, func() (statementSigner, func(), error) { return ss, func() {}, nil })
 
 	meta := writeAssembleMeta(t)
 	subjects := writeTempFile(t, "subjects", testArtifactDigest+"\n")
-	seed := writeTempFile(t, "seed.jsonl", `{"seed":true}`)
+	provenance := writeTempFile(t, "provenance.jsonl", `{"provenance":true}`)
 	out := t.TempDir()
 	bundleDir := filepath.Join(out, "bundles")
 	stmtsOut := filepath.Join(out, "statements.jsonl")
 
 	var stderr bytes.Buffer
-	if rc := run(assembleArgs(meta, subjects, seed, bundleDir, stmtsOut), &stderr); rc != 0 {
+	if rc := run(assembleArgs(meta, subjects, provenance, bundleDir, stmtsOut), &stderr); rc != 0 {
 		t.Fatalf("run rc=%d stderr=%s", rc, stderr.String())
 	}
 	got, err := os.ReadFile(filepath.Join(bundleDir,
@@ -153,7 +153,7 @@ func TestAssembleSeedWithoutTrailingNewline(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if want := `{"seed":true}{"signed":1}` + "\n" + `{"signed":2}` + "\n"; string(got) != want {
+	if want := `{"provenance":true}{"signed":1}` + "\n" + `{"signed":2}` + "\n"; string(got) != want {
 		t.Fatalf("bundle mismatch:\n got: %q\nwant: %q", got, want)
 	}
 }
@@ -164,12 +164,12 @@ func TestAssembleSubjectsBlankLinesDropped(t *testing.T) {
 
 	meta := writeAssembleMeta(t)
 	subjects := writeTempFile(t, "subjects", "\n \t\n"+testArtifactDigest+"\n\n   \n")
-	seed := writeTempFile(t, "seed.jsonl", "{\"seed\":true}\n")
+	provenance := writeTempFile(t, "provenance.jsonl", "{\"provenance\":true}\n")
 	out := t.TempDir()
 	bundleDir := filepath.Join(out, "bundles")
 
 	var stderr bytes.Buffer
-	if rc := run(assembleArgs(meta, subjects, seed, bundleDir,
+	if rc := run(assembleArgs(meta, subjects, provenance, bundleDir,
 		filepath.Join(out, "statements.jsonl")), &stderr); rc != 0 {
 		t.Fatalf("run rc=%d stderr=%s", rc, stderr.String())
 	}
@@ -183,8 +183,8 @@ func TestAssembleSubjectsBlankLinesDropped(t *testing.T) {
 }
 
 func TestAssembleFailClosed(t *testing.T) {
-	newFixture := func(t *testing.T) (meta, seed string) {
-		return writeAssembleMeta(t), writeTempFile(t, "seed.jsonl", "{\"seed\":true}\n")
+	newFixture := func(t *testing.T) (meta, provenance string) {
+		return writeAssembleMeta(t), writeTempFile(t, "provenance.jsonl", "{\"provenance\":true}\n")
 	}
 
 	// Every failing case must leave the bundle dir uncreated and the
@@ -213,20 +213,20 @@ func TestAssembleFailClosed(t *testing.T) {
 	}
 
 	t.Run("empty subjects file", func(t *testing.T) {
-		meta, seed := newFixture(t)
+		meta, provenance := newFixture(t)
 		subjects := writeTempFile(t, "subjects", "\n  \n\t\n")
 		runWantFail(t, []string{"assemble", "--metadata-root", meta,
-			"--subjects-file", subjects, "--seed", seed, "--sign"}, "no subjects to sign")
+			"--subjects-file", subjects, "--provenance", provenance, "--sign"}, "no subjects to sign")
 	})
 
 	t.Run("missing subjects file", func(t *testing.T) {
-		meta, seed := newFixture(t)
+		meta, provenance := newFixture(t)
 		runWantFail(t, []string{"assemble", "--metadata-root", meta,
-			"--subjects-file", filepath.Join(t.TempDir(), "nope"), "--seed", seed, "--sign"}, "")
+			"--subjects-file", filepath.Join(t.TempDir(), "nope"), "--provenance", provenance, "--sign"}, "")
 	})
 
 	t.Run("subject classification", func(t *testing.T) {
-		meta, seed := newFixture(t)
+		meta, provenance := newFixture(t)
 		sha512Hex := strings.Repeat("ab", 64)
 		cases := []struct {
 			name    string
@@ -241,13 +241,13 @@ func TestAssembleFailClosed(t *testing.T) {
 			t.Run(tc.name, func(t *testing.T) {
 				subjects := writeTempFile(t, "subjects", tc.subject+"\n")
 				runWantFail(t, []string{"assemble", "--metadata-root", meta,
-					"--subjects-file", subjects, "--seed", seed, "--sign"}, tc.wantErr)
+					"--subjects-file", subjects, "--provenance", provenance, "--sign"}, tc.wantErr)
 			})
 		}
 	})
 
 	t.Run("duplicate bundle basename in set", func(t *testing.T) {
-		meta, seed := newFixture(t)
+		meta, provenance := newFixture(t)
 		a := filepath.Join(t.TempDir(), "pkg.tgz")
 		b := filepath.Join(t.TempDir(), "pkg.tgz")
 		for _, p := range []string{a, b} {
@@ -257,32 +257,32 @@ func TestAssembleFailClosed(t *testing.T) {
 		}
 		subjects := writeTempFile(t, "subjects", a+"\n"+b+"\n")
 		runWantFail(t, []string{"assemble", "--metadata-root", meta,
-			"--subjects-file", subjects, "--seed", seed, "--sign"}, "duplicate bundle basename")
+			"--subjects-file", subjects, "--provenance", provenance, "--sign"}, "duplicate bundle basename")
 	})
 
 	t.Run("zero manifests", func(t *testing.T) {
-		_, seed := newFixture(t)
+		_, provenance := newFixture(t)
 		subjects := writeTempFile(t, "subjects", testArtifactDigest+"\n")
 		runWantFail(t, []string{"assemble", "--metadata-root", t.TempDir(),
-			"--subjects-file", subjects, "--seed", seed, "--sign"}, "no signed metadata produced for")
+			"--subjects-file", subjects, "--provenance", provenance, "--sign"}, "no signed metadata produced for")
 	})
 
-	t.Run("missing seed", func(t *testing.T) {
+	t.Run("missing provenance", func(t *testing.T) {
 		meta, _ := newFixture(t)
 		subjects := writeTempFile(t, "subjects", testArtifactDigest+"\n")
 		runWantFail(t, []string{"assemble", "--metadata-root", meta,
-			"--subjects-file", subjects, "--seed", filepath.Join(t.TempDir(), "nope"), "--sign"}, "seed")
+			"--subjects-file", subjects, "--provenance", filepath.Join(t.TempDir(), "nope"), "--sign"}, "provenance")
 	})
 
-	t.Run("empty seed", func(t *testing.T) {
+	t.Run("empty provenance", func(t *testing.T) {
 		meta, _ := newFixture(t)
 		subjects := writeTempFile(t, "subjects", testArtifactDigest+"\n")
 		runWantFail(t, []string{"assemble", "--metadata-root", meta,
-			"--subjects-file", subjects, "--seed", writeTempFile(t, "seed", ""), "--sign"}, "empty")
+			"--subjects-file", subjects, "--provenance", writeTempFile(t, "provenance", ""), "--sign"}, "empty")
 	})
 
 	t.Run("signer fails on last statement", func(t *testing.T) {
-		meta, seed := newFixture(t)
+		meta, provenance := newFixture(t)
 		dist := writeTempFile(t, "pkg.tgz", "PKGBYTES")
 		subjects := writeTempFile(t, "subjects", dist+"\n"+testArtifactDigest+"\n")
 		// 2 subjects x 2 manifests: calls 1-3 succeed, the last one fails.
@@ -293,7 +293,7 @@ func TestAssembleFailClosed(t *testing.T) {
 		stmtsOut := filepath.Join(out, "statements.jsonl")
 		var stderr bytes.Buffer
 		if rc := run([]string{"assemble", "--metadata-root", meta,
-			"--subjects-file", subjects, "--seed", seed, "--sign",
+			"--subjects-file", subjects, "--provenance", provenance, "--sign",
 			"--bundle-dir", bundleDir, "--statements-out", stmtsOut}, &stderr); rc != 2 {
 			t.Fatalf("rc=%d, want fail-closed 2; stderr=%s", rc, stderr.String())
 		}
@@ -324,12 +324,12 @@ func TestAssembleUppercaseDigestIsFilePath(t *testing.T) {
 	}
 	sum := sha256.Sum256([]byte("FILEBYTES"))
 	subjects := writeTempFile(t, "subjects", subjectFile+"\n")
-	seed := writeTempFile(t, "seed.jsonl", "{\"seed\":true}\n")
+	provenance := writeTempFile(t, "provenance.jsonl", "{\"provenance\":true}\n")
 	out := t.TempDir()
 	bundleDir := filepath.Join(out, "bundles")
 
 	var stderr bytes.Buffer
-	if rc := run(assembleArgs(meta, subjects, seed, bundleDir,
+	if rc := run(assembleArgs(meta, subjects, provenance, bundleDir,
 		filepath.Join(out, "statements.jsonl")), &stderr); rc != 0 {
 		t.Fatalf("run rc=%d stderr=%s", rc, stderr.String())
 	}
@@ -347,7 +347,7 @@ func TestAssembleRefusesPreexistingBundle(t *testing.T) {
 
 	meta := writeAssembleMeta(t)
 	subjects := writeTempFile(t, "subjects", testArtifactDigest+"\n")
-	seed := writeTempFile(t, "seed.jsonl", "{\"seed\":true}\n")
+	provenance := writeTempFile(t, "provenance.jsonl", "{\"provenance\":true}\n")
 	out := t.TempDir()
 	bundleDir := filepath.Join(out, "bundles")
 	const bundleName = "sha256-011b95c8e47c538646a2c01df5373fe703381cd415c847357b3d563563eb1d95.intoto.jsonl"
@@ -355,7 +355,7 @@ func TestAssembleRefusesPreexistingBundle(t *testing.T) {
 	stmtsOut := filepath.Join(out, "statements.jsonl")
 
 	var stderr bytes.Buffer
-	if rc := run(assembleArgs(meta, subjects, seed, bundleDir, stmtsOut), &stderr); rc != 2 {
+	if rc := run(assembleArgs(meta, subjects, provenance, bundleDir, stmtsOut), &stderr); rc != 2 {
 		t.Fatalf("rc=%d, want fail-closed 2; stderr=%s", rc, stderr.String())
 	}
 	if !strings.Contains(stderr.String(), "refusing to clobber") {
@@ -379,7 +379,7 @@ func referrerLine(t *testing.T, predicateType, marker string) string {
 	return fmt.Sprintf(`{"dsseEnvelope": {"payload": %q},  "marker": %q}`, payload, marker)
 }
 
-func TestAssembleSeedReferrers(t *testing.T) {
+func TestAssembleProvenanceReferrers(t *testing.T) {
 	ss := &seqSigner{}
 	swapSigner(t, func() (statementSigner, func(), error) { return ss, func() {}, nil })
 
@@ -395,7 +395,7 @@ func TestAssembleSeedReferrers(t *testing.T) {
 
 	var stderr bytes.Buffer
 	rc := run([]string{"assemble", "--metadata-root", meta, "--subjects-file", subjects,
-		"--seed-referrers", referrers, "--sign",
+		"--provenance-referrers", referrers, "--sign",
 		"--bundle-dir", bundleDir, "--statements-out", stmtsOut}, &stderr)
 	if rc != 0 {
 		t.Fatalf("run rc=%d stderr=%s", rc, stderr.String())
@@ -411,7 +411,7 @@ func TestAssembleSeedReferrers(t *testing.T) {
 	}
 }
 
-func TestAssembleSeedReferrersFailClosed(t *testing.T) {
+func TestAssembleProvenanceReferrersFailClosed(t *testing.T) {
 	meta := writeAssembleMeta(t)
 	prov := referrerLine(t, "https://slsa.dev/provenance/v1", "prov")
 
@@ -440,7 +440,7 @@ func TestAssembleSeedReferrersFailClosed(t *testing.T) {
 			bundleDir := filepath.Join(out, "bundles")
 			var stderr bytes.Buffer
 			rc := run([]string{"assemble", "--metadata-root", meta, "--subjects-file", subjects,
-				"--seed-referrers", referrers, "--sign",
+				"--provenance-referrers", referrers, "--sign",
 				"--bundle-dir", bundleDir, "--statements-out", filepath.Join(out, "statements.jsonl")}, &stderr)
 			if rc != 2 {
 				t.Fatalf("rc=%d, want fail-closed 2; stderr=%s", rc, stderr.String())
@@ -452,7 +452,7 @@ func TestAssembleSeedReferrersFailClosed(t *testing.T) {
 				t.Fatalf("bundle dir created despite failure, stat err=%v", err)
 			}
 			if ss.calls != 0 {
-				t.Fatalf("sign calls = %d, want 0 (seed validated before signing)", ss.calls)
+				t.Fatalf("sign calls = %d, want 0 (provenance validated before signing)", ss.calls)
 			}
 		})
 	}
@@ -464,12 +464,12 @@ func TestAssembleFlagValidation(t *testing.T) {
 
 	meta := writeAssembleMeta(t)
 	subjects := writeTempFile(t, "subjects", testArtifactDigest+"\n")
-	seed := writeTempFile(t, "seed.jsonl", "{\"seed\":true}\n")
+	provenance := writeTempFile(t, "provenance.jsonl", "{\"provenance\":true}\n")
 	out := t.TempDir()
 	bundleDir := filepath.Join(out, "bundles")
 	stmtsOut := filepath.Join(out, "statements.jsonl")
 
-	base := func() []string { return assembleArgs(meta, subjects, seed, bundleDir, stmtsOut) }
+	base := func() []string { return assembleArgs(meta, subjects, provenance, bundleDir, stmtsOut) }
 	drop := func(flag string) []string {
 		var args []string
 		src := base()
@@ -491,16 +491,16 @@ func TestAssembleFlagValidation(t *testing.T) {
 	}{
 		{"no metadata-root", drop("--metadata-root")},
 		{"no subjects-file", drop("--subjects-file")},
-		{"no seed at all", drop("--seed")},
-		{"both seed and seed-referrers", append(base(), "--seed-referrers", seed)},
+		{"no provenance at all", drop("--provenance")},
+		{"both provenance and provenance-referrers", append(base(), "--provenance-referrers", provenance)},
 		{"no sign", drop("--sign")},
 		{"no bundle-dir", drop("--bundle-dir")},
 		{"no statements-out", drop("--statements-out")},
 		{"rejects --subject", append(base(), "--subject", testArtifactDigest)},
-		{"rejects --artifact", append(base(), "--artifact", seed)},
-		{"rejects --statement", append(base(), "--statement", seed)},
+		{"rejects --artifact", append(base(), "--artifact", provenance)},
+		{"rejects --statement", append(base(), "--statement", provenance)},
 		{"rejects --out", append(base(), "--out", stmtsOut)},
-		{"rejects --append", append(base(), "--append", seed)},
+		{"rejects --append", append(base(), "--append", provenance)},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {

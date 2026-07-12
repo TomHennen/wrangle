@@ -25,28 +25,29 @@ var shellDigestRe = regexp.MustCompile(`^[a-z0-9]+:[a-f0-9]+$`)
 
 var blankLineRe = regexp.MustCompile(`^[[:space:]]*$`)
 
-// provenancePredicate is the predicate --seed-referrers filters to, so a re-run
-// drops prior VSA referrers and rebuilds the same seed (idempotent round-trip).
+// provenancePredicate is the predicate --provenance-referrers filters to, so a
+// re-run drops prior VSA referrers and rebuilds the same bundle (idempotent
+// round-trip).
 const provenancePredicate = "https://slsa.dev/provenance/v1"
 
 // runAssemble is the attest job's orchestration: sign every subject's
 // build-metadata statements with one shared signer and assemble one
-// per-artifact <artifact>.intoto.jsonl bundle (the provenance seed verbatim +
+// per-artifact <artifact>.intoto.jsonl bundle (the provenance verbatim +
 // that subject's signed lines) under --bundle-dir, plus every newly signed
 // line to --statements-out. Everything is buffered and validated first —
-// subjects, digests, bundle-name collisions, the seed, every signature — so a
+// subjects, digests, bundle-name collisions, the provenance, every signature — so a
 // validation or signing failure (including on the last statement) writes
 // nothing; a write-phase failure exits non-zero and a re-run refuses the
 // partially written --bundle-dir via the pre-existence check.
 //
-// The "seed" is the one SLSA provenance bundle the build emits over ALL
-// subjects at once. Consumers fetch a single <artifact>.intoto.jsonl per
-// artifact, so that shared bundle is copied verbatim as each bundle's first
-// line, and the artifact's own signed statements follow it (verify appends the
-// VSA later). --seed provides it as a bundle file; --seed-referrers is the
-// container path, taking raw `cosign attestation-download` output and filtering
-// it to the provenancePredicate line. Verbatim: the seed's bytes are never
-// re-encoded, so its signature keeps verifying.
+// The build emits one SLSA provenance covering ALL subjects at once, while
+// consumers fetch a single <artifact>.intoto.jsonl per artifact — so the shared
+// provenance is copied verbatim as each bundle's first line, and the artifact's
+// own signed statements follow it (verify appends the VSA later). --provenance
+// takes it as a bundle file; --provenance-referrers is the container path,
+// taking raw `cosign attestation-download` output and filtering it to the
+// provenancePredicate line. Its bytes are never re-encoded, so its signature
+// keeps verifying.
 func runAssemble(args []string, stderr io.Writer) int {
 	fs := flag.NewFlagSet("wrangle-attest assemble", flag.ContinueOnError)
 	fs.SetOutput(stderr)
@@ -54,8 +55,8 @@ func runAssemble(args []string, stderr io.Writer) int {
 	var roots metadataRoots
 	fs.Var(&roots, "metadata-root", "directory holding a top-level wrangle_attestation_metadata.json (repeatable)")
 	subjectsFile := fs.String("subjects-file", "", "file of newline-separated subjects (dist file paths / sha256:<hex> digests)")
-	seed := fs.String("seed", "", "provenance seed bundle copied verbatim into every per-artifact bundle")
-	seedReferrers := fs.String("seed-referrers", "", "raw cosign attestation-download output to filter to the SLSA provenance seed")
+	provenance := fs.String("provenance", "", "SLSA provenance bundle copied verbatim into every per-artifact bundle")
+	provenanceReferrers := fs.String("provenance-referrers", "", "raw cosign attestation-download output, filtered to the SLSA provenance")
 	commit := fs.String("commit", "", "scanned git commit, woven into the scan/v1 envelope only")
 	sign := fs.Bool("sign", false, "keyless-sign each statement (required)")
 	bundleDir := fs.String("bundle-dir", "", "directory the per-artifact <artifact>.intoto.jsonl bundles are written to")
@@ -64,7 +65,7 @@ func runAssemble(args []string, stderr io.Writer) int {
 	if err := fs.Parse(args); err != nil {
 		return 2
 	}
-	if err := validateAssembleFlags(roots, *subjectsFile, *seed, *seedReferrers, *sign, *bundleDir, *statementsOut); err != nil {
+	if err := validateAssembleFlags(roots, *subjectsFile, *provenance, *provenanceReferrers, *sign, *bundleDir, *statementsOut); err != nil {
 		return failClosed(stderr, err)
 	}
 
@@ -77,7 +78,7 @@ func runAssemble(args []string, stderr io.Writer) int {
 		return failClosed(stderr, err)
 	}
 
-	seedBytes, err := loadSeed(*seed, *seedReferrers)
+	provenanceBytes, err := loadProvenance(*provenance, *provenanceReferrers)
 	if err != nil {
 		return failClosed(stderr, err)
 	}
@@ -102,7 +103,7 @@ func runAssemble(args []string, stderr io.Writer) int {
 	var stmtsOut bytes.Buffer
 	for i, spec := range specs {
 		buf := &bytes.Buffer{}
-		buf.Write(seedBytes)
+		buf.Write(provenanceBytes)
 		for _, m := range manifests {
 			stmt, err := buildStatement(m, spec.descriptor, *commit)
 			if err != nil {
@@ -142,15 +143,15 @@ func runAssemble(args []string, stderr io.Writer) int {
 	return 0
 }
 
-func validateAssembleFlags(roots []string, subjectsFile, seed, seedReferrers string, sign bool, bundleDir, statementsOut string) error {
+func validateAssembleFlags(roots []string, subjectsFile, provenance, provenanceReferrers string, sign bool, bundleDir, statementsOut string) error {
 	if len(roots) == 0 {
 		return fmt.Errorf("at least one --metadata-root is required")
 	}
 	if subjectsFile == "" {
 		return fmt.Errorf("--subjects-file is required")
 	}
-	if (seed == "") == (seedReferrers == "") {
-		return fmt.Errorf("exactly one of --seed or --seed-referrers is required")
+	if (provenance == "") == (provenanceReferrers == "") {
+		return fmt.Errorf("exactly one of --provenance or --provenance-referrers is required")
 	}
 	if !sign {
 		return fmt.Errorf("assemble requires --sign")
@@ -256,18 +257,18 @@ func bundleName(subject string) string {
 	return strings.ReplaceAll(base, ":", "-") + ".intoto.jsonl"
 }
 
-// loadSeed returns the provenance seed bytes: --seed verbatim (never
-// re-encoded or newline-normalized), or --seed-referrers filtered to the SLSA
-// provenance envelopes. A missing/empty/malformed seed fails closed — every
+// loadProvenance returns the provenance bytes: --provenance verbatim (never
+// re-encoded or newline-normalized), or --provenance-referrers filtered to the SLSA
+// provenance envelopes. A missing/empty/malformed provenance fails closed — every
 // bundle starts from it.
-func loadSeed(seedPath, referrersPath string) ([]byte, error) {
-	if seedPath != "" {
-		data, err := os.ReadFile(seedPath)
+func loadProvenance(provenancePath, referrersPath string) ([]byte, error) {
+	if provenancePath != "" {
+		data, err := os.ReadFile(provenancePath)
 		if err != nil {
-			return nil, fmt.Errorf("seed: %w", err)
+			return nil, fmt.Errorf("provenance: %w", err)
 		}
 		if len(data) == 0 {
-			return nil, fmt.Errorf("provenance seed %s is empty", seedPath)
+			return nil, fmt.Errorf("provenance %s is empty", provenancePath)
 		}
 		return data, nil
 	}
@@ -281,7 +282,7 @@ func loadSeed(seedPath, referrersPath string) ([]byte, error) {
 func filterProvenanceReferrers(path string) ([]byte, error) {
 	data, err := os.ReadFile(path)
 	if err != nil {
-		return nil, fmt.Errorf("seed-referrers: %w", err)
+		return nil, fmt.Errorf("provenance-referrers: %w", err)
 	}
 	var out bytes.Buffer
 	kept := 0
@@ -291,7 +292,7 @@ func filterProvenanceReferrers(path string) ([]byte, error) {
 		}
 		predicateType, err := referrerPredicateType(line)
 		if err != nil {
-			return nil, fmt.Errorf("seed-referrers %s: %w", path, err)
+			return nil, fmt.Errorf("provenance-referrers %s: %w", path, err)
 		}
 		if predicateType != provenancePredicate {
 			continue
