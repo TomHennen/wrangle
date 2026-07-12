@@ -42,20 +42,17 @@ tools/converge_action_pins.sh          # bump → commit → repeat until reacha
   Land them via a PR merged as a **merge commit — never a squash** (direct pushes to
   `main` are blocked by branch protection), or the intermediate branch-SHA pins re-orphan
   and `main` goes red.
-- **Footgun — pin labels.** `bump_action_pins.sh` writes `# main` only when the target
-  SHA is an ancestor of local `main`; otherwise it writes the *current branch name*. So
-  bump/converge **after** the content is on `main` (or run detached at `origin/main`) to
-  get `# main` labels. A pin labelled `# some-branch` is the tell that this was skipped.
+- **Then finalize onto the merge commit.** A converge lands its pins on commits that
+  live on the merge's *second-parent* line — reachable and content-fresh, but never on
+  `main`'s first-parent history. `main`'s first-parent line is all merge commits, and a
+  merge SHA does not exist until the merge does, so the pins can only reach it in a
+  second step: once the converge PR is merged, run `tools/bump_action_pins.sh <merge-sha>`
+  and land that as a one-line PR. Do this **once per release**, here — not after every
+  action PR; day-to-day, pins sitting on branch commits are harmless.
 - **`check_pin_freshness` is content-based** — it ignores pin-SHA-only diffs, so CI can
-  be green while the pin SHAs/labels are stale. Green CI does **not** prove pins are on
-  `main`. Confirm by eye:
-
-```bash
-# subshell keeps self_ref_pin_paths.sh's `set -euo pipefail`/`set -f` out of your shell
-mapfile -t dirs < <(bash -c 'source tools/self_ref_pin_paths.sh; wrangle_self_ref_pin_paths')
-git grep -nE 'TomHennen/wrangle.*@[0-9a-f]{40}' -- "${dirs[@]}" \
-  | grep -vE '# main' || echo "all self-ref pins labelled # main"
-```
+  be green while the pin SHAs/labels are stale. Green CI does **not** prove the pins are
+  on `main`. `tools/check_pin_main_history.sh` is what proves it (run by the preflight
+  below): it fails any pin that is merged but off first-parent history, or mislabelled.
 
 > Until the pin-on-`main` release guard (#592) lands, this check is **manual** — do it.
 
@@ -105,11 +102,19 @@ All three must hold before you ask the owner to cut. Do not shortcut.
    `showcase` concurrency group; cancel a hung job (releases persist) to free the queue.
 2. **Explicit owner sign-off on release contents.** Present exactly what's in the release
    (the milestone, the diff highlights) and get an explicit yes — separate from "cut it".
-   Also confirm the curated tool-image catalog is fresh (the §11 release precondition):
-   dispatch the **Catalog Release Gate** workflow (`.github/workflows/catalog_release_gate.yml`,
-   `workflow_dispatch`) on the release commit and require a green run — it runs both freshness
-   checks below fail-closed (any non-zero, including exit 2 registry-unreachable, blocks). The
-   commands below are the same checks, for reading the failure and driving remediation locally.
+   Also confirm every code-level precondition: dispatch the **Release Gate** workflow
+   (`.github/workflows/release_gate.yml`, `workflow_dispatch`) on the release commit and
+   require a green run. It runs `tools/release_preflight.sh` fail-closed — the self-ref pin
+   checks (reachability, content freshness, **main first-parent history**) and both
+   catalog-freshness checks. Any non-zero blocks, including exit 2 (backend unreachable =
+   precondition UNVERIFIED). Run the same thing locally to read a failure and drive
+   remediation:
+
+   ```bash
+   make release-preflight     # or: ./tools/release_preflight.sh
+   ```
+
+   Each gate prints its own remediation. The two that need a judgement call:
 
    Adoption lag — no entry is behind its published `:latest`:
 

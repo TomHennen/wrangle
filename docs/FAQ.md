@@ -67,37 +67,39 @@ Dependabot and the examples under
 
 ## Can I use wrangle with immutable releases?
 
-Not yet, on the build types that attach assets to a GitHub Release. Wrangle
-attaches the signed VSA (and, for Go, the attested archives) *after* the
-release is published, which
+Yes, for the releases wrangle creates. Wrangle creates the tag's release as a
+**draft**, attaches every asset (archives, checksums, and the signed
+`.intoto.jsonl` bundles), and only then **publishes** it — the flow
 [immutable releases](https://docs.github.com/en/code-security/concepts/supply-chain-security/immutable-releases)
-forbid. Effect by build type:
+require, since a release is frozen once published.
 
-- **Go** — always fails: the release is published before wrangle attaches the
-  attested archives, so the asset upload hits an immutable release every time.
-- **Python / npm** — fails only when a published GitHub Release already exists
-  for the tag (the artifact itself goes to PyPI / npmjs.org regardless).
-- **Container** — unaffected: the VSA is an OCI referrer on the image digest,
-  never a release asset.
-
-Leave immutable releases off on repos using wrangle's Go/Python/npm build types
-until [#407](https://github.com/TomHennen/wrangle/issues/407) moves the attach
-to a draft → attach → publish flow.
+The one case that still fails is a release that is **already published before
+wrangle runs** — e.g. your own job (or a goreleaser publisher) published the tag
+first. Let wrangle own the release: with the Go build type keep goreleaser's
+`--skip=publish` (wrangle's default), and don't pre-create a published release
+for the tag. Container is unaffected — its VSA is an OCI referrer on the image
+digest, not a release asset.
 
 ## Can I use wrangle on a private repo?
 
-The **source-only** and **shell** workflows run anywhere. The build pipelines
-(Go, Python, npm, Container) don't work on a **user-owned private repo** yet:
-each one persists SLSA provenance to
-[GitHub's attestation store](https://docs.github.com/rest/repos/attestations#create-an-attestation),
-which GitHub doesn't offer for user-owned private repos. The release fails with
-`Failed to persist attestation: Feature not available for user-owned private
-repositories`, and nothing is published.
+Yes, with one limit on the build pipelines. The **source-only** and **shell**
+workflows run anywhere. The build pipelines (Go, Python, npm, Container) can't
+attest a build on a private repo yet — doing so would publish the repo's
+identity and build timing to a public transparency log — so they fail closed by
+default.
 
-Run a build pipeline on a **public repo**, or on a **private repo owned by an
-org** with a plan that includes private attestations. Scan-tool specifics for
-private repos without Advanced Security are [below](#im-on-a-private-repo-without-advanced-security--which-scan-tools-work).
-Tracking: [#597](https://github.com/TomHennen/wrangle/issues/597).
+To ship from a private repo, set **`attest-and-verify: disabled`**: you still
+get tests, scanning, an SBOM, and a published release with checksums — just no
+SLSA provenance or VSA. The default (`enabled`) instead fails the run with a
+message telling you to switch. Public repos attest as before.
+
+Pick one mode per tag: switching an existing release between attested and
+unattested is unsupported.
+
+Scan-tool specifics for private repos without Advanced Security are
+[below](#im-on-a-private-repo-without-advanced-security--which-scan-tools-work).
+Full private-repo attestation is tracked in
+[#600](https://github.com/TomHennen/wrangle/issues/600).
 
 ## I'm on a private repo without Advanced Security — which scan tools work?
 
