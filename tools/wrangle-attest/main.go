@@ -36,11 +36,10 @@
 // statements are emitted unsigned (offline-unit-testable).
 //
 // With --sign --statement <file> the engine instead signs one existing
-// statement file (the verify job's VSA) verbatim — no manifest discovery, the
-// raw file bytes are the DSSE payload — through the same signer, so the bundle
-// is byte-identical to `bnd statement`. --append also appends the identical
-// signed line to an existing per-artifact bundle, which must be non-empty (a
-// VSA-only bundle is impossible).
+// statement file (the verify job's VSA) through the same signer — no manifest
+// discovery; the DSSE payload is the statement file bytes verbatim. --append
+// also appends the identical signed line to an existing per-artifact bundle,
+// which must be non-empty (a VSA-only bundle is impossible).
 //
 // The assemble subcommand is the attest job's orchestration: it reads the
 // newline-separated subjects file, self-digests file subjects, signs every

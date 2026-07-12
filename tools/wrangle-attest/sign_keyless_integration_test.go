@@ -91,7 +91,7 @@ func TestRunSignKeyless(t *testing.T) {
 
 // TestRunSignKeylessStatement signs an existing statement file via --statement
 // and asserts the emitted Sigstore bundle's DSSE payload is the file bytes
-// verbatim — the byte-identity contract with `bnd statement`.
+// verbatim.
 func TestRunSignKeylessStatement(t *testing.T) {
 	// In CI this job has id-token: write; a missing token is a real gap, not a
 	// skip — keyless must actually run here.

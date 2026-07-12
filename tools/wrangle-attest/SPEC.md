@@ -79,8 +79,9 @@ all to `--out` as JSONL. `--commit` is woven into the `scan/v1` envelope only;
 passthrough predicates ignore it.
 
 With `--sign` each statement is keyless-signed (one shared signer — ambient
-GitHub OIDC → Fulcio → Rekor; the bundle is byte-identical to `bnd statement`)
-and the compact Sigstore bundle is emitted; without it the statements are
+GitHub OIDC → Fulcio → Rekor, the same signing path as `bnd statement`: the
+DSSE payload is the statement bytes verbatim) and the compact Sigstore bundle
+is emitted; without it the statements are
 emitted unsigned (fully offline-unit-testable). Statements are built and signed
 into a buffer before `--out` is touched, so a failure on the Nth manifest — a
 malformed manifest or a signing failure — never leaves a partial/unsigned file.
@@ -97,10 +98,10 @@ wrangle-attest --sign --statement <file> --out <file> [--append <bundle>]
 
 Signs an existing in-toto statement file (the verify job's VSA) instead of
 discovering manifests: the raw file bytes become the DSSE payload verbatim —
-never re-marshaled — so the bundle is byte-identical to `bnd statement` on the
-same file, written as one compact bundle line. `--statement` is mutually
-exclusive with `--metadata-root`, `--subject`, `--artifact`, and `--commit`; a
-missing, empty, or non-JSON-object file fails closed before `--out` is touched.
+never re-marshaled — written as one compact bundle line. `--statement` is
+mutually exclusive with `--metadata-root`, `--subject`, `--artifact`, and
+`--commit`; a missing, empty, or non-JSON-object file fails closed before
+`--out` is touched.
 
 `--append` additionally appends the identical signed line + `\n` to the
 existing bundle at `<bundle>` (the attest-assembled per-artifact bundle). It
@@ -142,9 +143,13 @@ refuses the partially written `--bundle-dir` via the pre-existence check.
 cases), subject parsing (single sha256, fail-closed on multi/short/wrong-algo;
 `--artifact` self-digest), golden Statements (`testdata/`) for the SBOM
 passthrough and the SARIF thin-envelope shapes, and hermetic `--sign` (local
-ephemeral key: DSSE shape + signature + fail-closed). `--append`, the retry,
-and `assemble` are covered hermetically with fake signers (byte-exact bundle
-goldens, retry-once accounting, buffer-then-write fail-closed). Regenerate
-goldens with `go test ./wrangle-attest/ -update`. The real keyless path is
-covered by the dispatch e2e (`actions/attest_provenance` and
-`actions/attest_metadata_oci` bats cover the `sign_metadata.sh` glue).
+ephemeral key: DSSE shape + signature + fail-closed). `--statement` mode is
+covered by a recording signer pinning the payload to the file bytes verbatim, a
+local-key payload round-trip, a fail-closed table (including a signing failure
+leaving a pre-existing `--out` untouched), and the tag-gated keyless
+integration test. `--append`, the retry, and `assemble` are covered
+hermetically with fake signers (byte-exact bundle goldens, retry-once
+accounting, buffer-then-write fail-closed). Regenerate goldens with
+`go test ./wrangle-attest/ -update`. The real keyless path is covered by the
+dispatch e2e (`actions/attest_provenance` and `actions/attest_metadata_oci` bats
+cover the `sign_metadata.sh` glue).
