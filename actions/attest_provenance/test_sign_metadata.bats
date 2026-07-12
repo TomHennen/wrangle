@@ -2,13 +2,15 @@
 
 # Tests for the attest-job metadata signing (issue #550):
 #   resolve_subjects.sh — derive the dist subjects (go checksums / npm-python glob)
-#   sign_metadata.sh     — wrangle-attest --sign per subject + bnd store push
+#   sign_metadata.sh     — wrangle-attest assemble + bnd store push
 #
-# wrangle-attest runs for real (it self-digests offline); bnd is stubbed because
-# the keyless --sign + store push need OIDC/network. The M4 invariant — attest
-# binds the SAME sha256 subject the verify job binds the VSA to — is asserted by
-# comparing the attest statement's subject digest to the sha256sum the verify
-# subject builder (run_verify.sh wrangle_subject_arg) computes from the same file.
+# wrangle-attest runs for real where it needs no signer (statement emission, the
+# fail-closed manifest parse, the assemble flag parse); the signing paths run
+# against a stub because keyless --sign and the store push need OIDC/network. The
+# M4 invariant — attest binds the SAME sha256 subject the verify job binds the VSA
+# to — is asserted by comparing the attest statement's subject digest to the
+# sha256sum the verify subject builder (run_verify.sh wrangle_subject_arg)
+# computes from the same file.
 load "../../test/lib/bats_helpers"
 
 setup() {
@@ -101,24 +103,6 @@ STUB
 
 # ---- sign_metadata.sh (arg shape, no real tools) ----
 
-@test "sign_metadata: a file subject is self-digested via --artifact and signed" {
-    export METADATA_ROOT="$META" COMMIT="abc123" WRANGLE_RETRY_DELAY=0
-    # A stub wrangle-attest records its args so we can assert the derived flags.
-    STUB_BIN="$TEST_DIR/stubbin"; mkdir -p "$STUB_BIN"
-    cat > "$STUB_BIN/wrangle-attest" << STUBA
-#!/usr/bin/env bash
-printf '%s\n' "\$@" > "$TEST_DIR/attest-args"
-for a in "\$@"; do case "\$a" in --out=*) printf '{}' > "\${a#--out=}";; esac; done
-STUBA
-    chmod +x "$STUB_BIN/wrangle-attest"
-    # shellcheck source=sign_metadata.sh
-    source "$SIGN"
-    PATH="$STUB_BIN:$PATH" wrangle_sign_metadata_statements "dist/app-1.2.3.tgz" "/tmp/out.jsonl"
-    grep -qx -- "--artifact=dist/app-1.2.3.tgz" "$TEST_DIR/attest-args"
-    grep -qx -- "--sign" "$TEST_DIR/attest-args"
-    grep -qx -- "--out=/tmp/out.jsonl" "$TEST_DIR/attest-args"
-}
-
 @test "sign_metadata: bnd push targets the GitHub store by repo" {
     # shellcheck source=sign_metadata.sh
     source "$SIGN"
@@ -129,63 +113,32 @@ STUBA
     [ "${args[3]}" = "/tmp/stmt.json" ]
 }
 
-@test "sign_metadata: attest args carry the metadata-root, subject arg, commit, sign, and out" {
-    export METADATA_ROOT="$TEST_DIR/meta" COMMIT="deadbeef"
-    # shellcheck source=sign_metadata.sh
-    source "$SIGN"
-    mapfile -t args < <(wrangle_attest_args "--subject=sha256:abc" "$TEST_DIR/out.jsonl")
-    printf '%s\n' "${args[@]}" | grep -qx -- "--metadata-root=$TEST_DIR/meta"
-    printf '%s\n' "${args[@]}" | grep -qx -- "--subject=sha256:abc"
-    printf '%s\n' "${args[@]}" | grep -qx -- "--commit=deadbeef"
-    printf '%s\n' "${args[@]}" | grep -qx -- "--sign"
-    printf '%s\n' "${args[@]}" | grep -qx -- "--out=$TEST_DIR/out.jsonl"
-}
-
-@test "sign_metadata: attest args pass an --artifact subject arg through verbatim" {
-    export METADATA_ROOT="$TEST_DIR/meta"
-    # shellcheck source=sign_metadata.sh
-    source "$SIGN"
-    mapfile -t args < <(wrangle_attest_args "--artifact=$TEST_DIR/dist/a.tgz" "$TEST_DIR/out.jsonl")
-    printf '%s\n' "${args[@]}" | grep -qx -- "--artifact=$TEST_DIR/dist/a.tgz"
-}
-
-@test "sign_metadata: attest arg vector is accepted by the real wrangle-attest parser" {
+@test "sign_metadata: assemble arg vector is accepted by the real wrangle-attest parser" {
     # The real engine rejects an unknown flag; a run that gets past flag parsing
-    # (failing later on the bogus subject/root) proves every flag name matches.
+    # (failing later on the absent subjects file) proves every flag name matches.
     [[ -x "$ATTEST_BIN" ]] || skip_or_fail "wrangle-attest not built"
-    export METADATA_ROOT="$TEST_DIR/meta"
+    export METADATA_ROOT="$META" COMMIT="deadbeef" BUNDLE_OUT="$TEST_DIR/bundles" OCI_TARGET=""
     # shellcheck source=sign_metadata.sh
     source "$SIGN"
-    mapfile -t args < <(wrangle_attest_args "--subject=sha256:abc" "$TEST_DIR/out.jsonl")
+    mapfile -t args < <(wrangle_assemble_args "$TEST_DIR/absent-subjects" "$TEST_DIR/provenance" "$TEST_DIR/stmts")
     run "$ATTEST_BIN" "${args[@]}"
     [ "$status" -ne 0 ]
     [[ "$output" != *"flag provided but not defined"* ]]
+    [[ "$output" == *"subjects-file"* ]]
 }
 
-# ---- end-to-end with real wrangle-attest (unsigned-statement variant via stub bnd) ----
-# wrangle-attest --sign needs OIDC; to exercise the per-subject statement +
-# assembly + push plumbing offline we drive the real engine without --sign by
-# stubbing it to emit the unsigned statement, and stub bnd to record the push.
+# ---- end-to-end through the wrapper (stubbed engine + bnd) ----
 
 @test "sign_metadata: signs every subject's metadata and assembles its bundle" {
-    [[ -x "$ATTEST_BIN" ]] || skip_or_fail "wrangle-attest not built"
     stub_bnd
-    # A wrapper that forwards to the real engine but drops --sign (offline).
-    cat > "$STUB_BIN/wrangle-attest" << STUBA
-#!/usr/bin/env bash
-set -euo pipefail
-args=()
-for a in "\$@"; do [[ "\$a" == "--sign" ]] || args+=("\$a"); done
-exec "$ATTEST_BIN" "\${args[@]}"
-STUBA
-    chmod +x "$STUB_BIN/wrangle-attest"
+    wrangle_stub_attest_assemble "$STUB_BIN"
 
     printf '{"provenance":1}\n' > "$TEST_DIR/provenance.jsonl"
     PATH="$STUB_BIN:$PATH" SUBJECTS="$DIST/app-1.2.3.tgz" METADATA_ROOT="$META" \
         BUNDLE_IN="$TEST_DIR/provenance.jsonl" BUNDLE_OUT="$TEST_DIR/bundles" \
         GITHUB_REPOSITORY="o/r" COMMIT="abc123" run "$SIGN"
     [ "$status" -eq 0 ]
-    # One per-artifact bundle (provenance seed + signed metadata) and one push.
+    # One per-artifact bundle (provenance + signed metadata) and one push.
     local bundle="$TEST_DIR/bundles/app-1.2.3.tgz.intoto.jsonl"
     [ -s "$bundle" ]
     [ "$(head -n1 "$bundle")" = '{"provenance":1}' ]
@@ -209,18 +162,23 @@ STUBA
 }
 
 @test "sign_metadata: fails closed when the real engine sees a malformed manifest" {
-    # The real engine fails closed at discoverManifests — before newSigner — so a
-    # malformed top-level manifest aborts hermetically (no OIDC/network).
+    # The real engine fails closed at discoverManifests — before the signer is
+    # constructed — so a malformed top-level manifest aborts hermetically
+    # (no OIDC/network) with no bundle written.
     [[ -x "$ATTEST_BIN" ]] || skip_or_fail "wrangle-attest not built"
     local dir="$TEST_DIR/wrangle-attest-bin"; mkdir -p "$dir"
     ln -sf "$ATTEST_BIN" "$dir/wrangle-attest"
     local root="$TEST_DIR/badmeta"; mkdir -p "$root"
     printf 'not json\n' > "$root/wrangle_attestation_metadata.json"
+    printf '{"provenance":1}\n' > "$TEST_DIR/provenance.jsonl"
     # shellcheck source=sign_metadata.sh
     source "$SIGN"
-    PATH="$dir:$PATH" METADATA_ROOT="$root" WRANGLE_RETRY_DELAY=0 \
-        run wrangle_sign_metadata_statements "sha256:$(printf '0%.0s' {1..64})" "$TEST_DIR/out.jsonl"
+    PATH="$dir:$PATH" METADATA_ROOT="$root" SUBJECTS="sha256:$(printf '0%.0s' {1..64})" \
+        BUNDLE_IN="$TEST_DIR/provenance.jsonl" BUNDLE_OUT="$TEST_DIR/bundles" \
+        GITHUB_REPOSITORY="o/r" OCI_TARGET="" \
+        run wrangle_sign_and_assemble_bundles
     [ "$status" -ne 0 ]
+    [ ! -e "$TEST_DIR/bundles" ]
 }
 
 # ---- M4: attest binds the SAME subject digest the verify VSA binds ----
