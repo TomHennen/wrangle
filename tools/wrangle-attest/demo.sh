@@ -31,7 +31,7 @@ FAILURES=0
 DEMO_TMP=""
 
 heading() {
-    printf '\n=== %s\n\n' "$1"
+    printf '\n=== %s\n' "$1"
 }
 
 note() {
