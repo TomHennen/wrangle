@@ -38,7 +38,16 @@
 // With --sign --statement <file> the engine instead signs one existing
 // statement file (the verify job's VSA) verbatim — no manifest discovery, the
 // raw file bytes are the DSSE payload — through the same signer, so the bundle
-// is byte-identical to `bnd statement`.
+// is byte-identical to `bnd statement`. --append also appends the identical
+// signed line to an existing per-artifact bundle, which must be non-empty (a
+// VSA-only bundle is impossible).
+//
+// The assemble subcommand is the attest job's orchestration: it reads the
+// newline-separated subjects file, self-digests file subjects, signs every
+// discovered manifest per subject with one shared signer, and writes one
+// per-artifact bundle (the provenance seed verbatim + that subject's signed
+// lines) plus a file of every newly signed line — all buffered, so a failure
+// anywhere writes nothing.
 //
 // Fail closed: a malformed/missing manifest, an unknown predicate-type, a
 // missing result file, a malformed subject, or a signing failure aborts with a

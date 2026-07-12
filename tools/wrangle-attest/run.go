@@ -24,10 +24,15 @@ func (r *metadataRoots) Set(v string) error {
 // shared signer, so the OIDC+Fulcio flow runs once) and the Sigstore bundle is
 // emitted; without it the statements are emitted unsigned. With --statement it
 // instead signs one existing statement file verbatim, optionally appending the
-// signed line to an existing bundle via --append. The file is written whole
-// (buffer first) so a mid-run failure — including a Fulcio error on the Nth
-// statement — never leaves a partial/unsigned bundle on disk.
+// signed line to an existing bundle via --append. An `assemble` first argument
+// dispatches to the attest-job orchestration (runAssemble). The file is written
+// whole (buffer first) so a mid-run failure — including a Fulcio error on the
+// Nth statement — never leaves a partial/unsigned bundle on disk.
 func run(args []string, stderr io.Writer) int {
+	if len(args) > 0 && args[0] == "assemble" {
+		return runAssemble(args[1:], stderr)
+	}
+
 	fs := flag.NewFlagSet("wrangle-attest", flag.ContinueOnError)
 	fs.SetOutput(stderr)
 

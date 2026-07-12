@@ -108,13 +108,39 @@ requires `--statement`, and a missing or empty append target fails closed
 before signing — a VSA-only bundle is impossible. On any failure neither
 `--out` nor the append target is modified.
 
+```
+wrangle-attest assemble --metadata-root <dir>... --subjects-file <file> \
+    (--seed <file> | --seed-referrers <file>) [--commit <hex-sha>] --sign \
+    --bundle-dir <dir> --statements-out <file>
+```
+
+The attest job's orchestration. `--subjects-file` is newline-separated
+subjects (blank lines dropped; an empty set fails closed): a `algo:hex`
+digest-form subject must be `sha256:<64-hex>` (any other digest errors, it is
+never reinterpreted as a path), anything else is a dist file the engine
+self-digests. For each subject, every discovered manifest is built and signed
+with one shared signer (one OIDC/Fulcio flow total; zero manifests fails
+closed), and `<bundle-dir>/<basename, ':'→'-'>.intoto.jsonl` is written as the
+provenance seed verbatim plus one signed line per statement; `--statements-out`
+collects every newly signed line in the same order. `--seed` is copied
+byte-for-byte; `--seed-referrers` filters raw `cosign download attestation`
+output to the SLSA provenance envelopes, keeping each surviving line's
+original bytes (zero matches or a malformed line fails closed). A bundle-name
+collision — within the subject set or with a file already under
+`--bundle-dir` — fails closed. Everything is buffered and validated before
+anything is written, so a failure anywhere (including on the last signature)
+leaves no file on disk. `assemble` requires `--sign` and rejects `--subject`,
+`--artifact`, `--statement`, `--out`, and `--append`.
+
 ## Testing
 
 `go test ./wrangle-attest/` — table-driven manifest parse/validate (fail-closed
 cases), subject parsing (single sha256, fail-closed on multi/short/wrong-algo;
 `--artifact` self-digest), golden Statements (`testdata/`) for the SBOM
 passthrough and the SARIF thin-envelope shapes, and hermetic `--sign` (local
-ephemeral key: DSSE shape + signature + fail-closed). Regenerate goldens with
-`go test ./wrangle-attest/ -update`. The real keyless path is covered by the
-dispatch e2e (`actions/attest_provenance` and `actions/attest_metadata_oci` bats
-cover the `sign_metadata.sh` glue).
+ephemeral key: DSSE shape + signature + fail-closed). `--append`, the retry,
+and `assemble` are covered hermetically with fake signers (byte-exact bundle
+goldens, retry-once accounting, buffer-then-write fail-closed). Regenerate
+goldens with `go test ./wrangle-attest/ -update`. The real keyless path is
+covered by the dispatch e2e (`actions/attest_provenance` and
+`actions/attest_metadata_oci` bats cover the `sign_metadata.sh` glue).
