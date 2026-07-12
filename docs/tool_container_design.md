@@ -478,7 +478,14 @@ release does not rebuild or re-tag tool images.**
   rebuilds (wrangle's own `ghcr.io/tomhennen/wrangle/*`) are **exempt from the 7-day community-vetting
   cooldown** — that delay exists to let the community vet *third-party* updates for supply-chain attacks,
   which a rebuild of wrangle's own reviewed source is not — so the bump merges on CI/review latency and
-  keeps the catalog current. One source PR + one bump PR — not a manual double-bump. The publish trigger is
+  keeps the catalog current. One source PR + one bump PR — not a manual double-bump.
+
+  The bot's commit carries `tools/catalog.json` and nothing else, because `GITHUB_TOKEN` cannot push
+  `.github/workflows/**` (that needs the `workflows` scope, which no `permissions:` block grants). The
+  catalog is inside every self-ref pin's freshness scope, so the bump PR **arrives red on
+  `check_pin_freshness` by design**: whoever picks it up runs `make converge-action-pins`, pushes the
+  convergence commits to the bump branch, and lands it as a merge commit (never a squash — see
+  [e2e_testing.md](e2e_testing.md)). The publish trigger is
   a path glob that matches `tools/catalog.json`, so a catalog-only digest change would re-trigger a rebuild;
   the trigger excludes `tools/catalog.json`, which is what keeps the bump from looping.
 - **Release tag** — precondition: the catalog is fresh. `check_catalog_freshness.sh` proves the shipped
