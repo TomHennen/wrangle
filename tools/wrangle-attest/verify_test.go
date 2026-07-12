@@ -186,8 +186,11 @@ func TestVerifyVSAFailClosedTable(t *testing.T) {
 		name string
 		vsa  string
 	}{
-		{"empty verdict (ampel --pid edge)", fakeVSA(testDigestHex, "")},
-		{"SOFTFAIL leaks through verbatim", fakeVSA(testDigestHex, "SOFTFAIL")},
+		// ampel maps an unknown status to "" (pkg/attest/vsa.go
+		// resultStringToSLSAResult); any value that is not PASSED/FAILED is
+		// refused rather than guessed at.
+		{"empty verdict", fakeVSA(testDigestHex, "")},
+		{"unknown verdict value", fakeVSA(testDigestHex, "SOFTFAIL")},
 		{"wrong subject digest", fakeVSA(strings.Repeat("ab", 32), "PASSED")},
 		{"multi-digest subject", `{"_type":"https://in-toto.io/Statement/v1","subject":[{"digest":{"sha256":"` + testDigestHex + `","sha512":"aa"}}],"predicateType":"https://slsa.dev/verification_summary/v1","predicate":{"verificationResult":"PASSED"}}`},
 		{"two subjects", `{"_type":"https://in-toto.io/Statement/v1","subject":[{"digest":{"sha256":"` + testDigestHex + `"}},{"digest":{"sha256":"` + testDigestHex + `"}}],"predicateType":"https://slsa.dev/verification_summary/v1","predicate":{"verificationResult":"PASSED"}}`},

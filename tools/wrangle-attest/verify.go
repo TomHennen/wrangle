@@ -258,12 +258,14 @@ func vsaVerdict(raw []byte) string {
 	return stmt.Predicate.VerificationResult
 }
 
-// validateVSA is the fail-closed half of the verdict protocol: ampel's exit
-// code alone is not a safe PASS signal (exit 0 also covers SOFTFAIL and other
-// non-FAIL statuses), so the emitted VSA must independently agree. The
-// statement must be a VSA bound to exactly the requested single-sha256
-// subject, and its verificationResult must be PASSED — or, with fail=false
-// (where a FAILED verdict is still signed and delivered), explicitly FAILED.
+// validateVSA is the fail-closed half of the verdict protocol: ampel exits
+// nonzero only on StatusFAIL, so exit 0 alone does not prove a VSA was written,
+// bound to this subject, or well-formed. The statement must be a VSA bound to
+// exactly the requested single-sha256 subject, and its verificationResult must
+// be PASSED — or, with fail=false (where a FAILED verdict is still signed and
+// delivered), explicitly FAILED. A SOFTFAIL (a policy group with enforce: OFF,
+// which wrangle's own advisory tenets use) is PASSED to ampel and to us alike;
+// it is not distinguishable here, by design.
 func validateVSA(raw []byte, subjectArg string, failMode bool) error {
 	var stmt vsaStatement
 	if err := json.Unmarshal(raw, &stmt); err != nil {
