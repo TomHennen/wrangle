@@ -38,6 +38,15 @@ const provenancePredicate = "https://slsa.dev/provenance/v1"
 // validation or signing failure (including on the last statement) writes
 // nothing; a write-phase failure exits non-zero and a re-run refuses the
 // partially written --bundle-dir via the pre-existence check.
+//
+// The "seed" is the one SLSA provenance bundle the build emits over ALL
+// subjects at once. Consumers fetch a single <artifact>.intoto.jsonl per
+// artifact, so that shared bundle is copied verbatim as each bundle's first
+// line, and the artifact's own signed statements follow it (verify appends the
+// VSA later). --seed provides it as a bundle file; --seed-referrers is the
+// container path, taking raw `cosign attestation-download` output and filtering
+// it to the provenancePredicate line. Verbatim: the seed's bytes are never
+// re-encoded, so its signature keeps verifying.
 func runAssemble(args []string, stderr io.Writer) int {
 	fs := flag.NewFlagSet("wrangle-attest assemble", flag.ContinueOnError)
 	fs.SetOutput(stderr)
@@ -158,6 +167,13 @@ func validateAssembleFlags(roots []string, subjectsFile, seed, seedReferrers str
 // readSubjectsFile splits the subjects file into lines, dropping blank
 // (whitespace-only) lines. An empty set fails closed: a release subject is
 // always present, so zero means a wiring bug.
+//
+// One subject per line — either a dist file path (self-digested) or an
+// already-known sha256 digest (the container image):
+//
+//	dist/example_0.1.0_linux_amd64.tar.gz
+//	dist/example_0.1.0_darwin_arm64.tar.gz
+//	sha256:9f86d081884c7d659a2feaa0c55ad015a3bf4f1b2b0b822cd15d6c15b0f00a08
 func readSubjectsFile(path string) ([]string, error) {
 	data, err := os.ReadFile(path)
 	if err != nil {
@@ -188,6 +204,9 @@ type bundleSpec struct {
 // self-digest) and derives its bundle name, failing closed on a non-sha256
 // digest, an unreadable file, an in-set bundle-name collision, or a name
 // already present under bundleDir.
+//
+//	dist/example_0.1.0_linux_amd64.tar.gz  self-digested  -> example_0.1.0_linux_amd64.tar.gz.intoto.jsonl
+//	sha256:9f86d081…0a08                   passes through -> sha256-9f86d081…0a08.intoto.jsonl
 func resolveBundleSpecs(subjects []string, bundleDir string) ([]bundleSpec, error) {
 	specs := make([]bundleSpec, 0, len(subjects))
 	seen := make(map[string]bool, len(subjects))
