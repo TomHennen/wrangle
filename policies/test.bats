@@ -278,7 +278,7 @@ expect_fail_closed() {
 }
 
 # The verify job (actions/verify) feeds ampel TWO collectors: the provenance
-# seed and a second jsonl: of the engine-signed SBOM/scan statements. This is
+# and a second jsonl: of the engine-signed SBOM/scan statements. This is
 # the #541 regression — evaluating against the provenance-only collector failed
 # every scan tenet. Reproduce the exact wiring: provenance in one collector, the
 # four metadata statements in a second, and assert the verdict matches the
