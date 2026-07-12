@@ -199,3 +199,47 @@ func tamperPayload(t *testing.T, bundleBytes []byte) []byte {
 type testWriter struct{ b []byte }
 
 func (w *testWriter) Write(p []byte) (int, error) { w.b = append(w.b, p...); return len(p), nil }
+
+// The keyless (sigstore) backend — the only backend wrangle signs with —
+// rejects a payload that is not an in-toto statement before it reaches Fulcio.
+// This is the signer's own check, not one of ours: the engine passes the file
+// bytes through untouched, so a valid JSON object that is merely not a
+// statement must still fail closed with --out untouched.
+func TestRunSignKeylessRejectsNonStatement(t *testing.T) {
+	if os.Getenv("ACTIONS_ID_TOKEN_REQUEST_URL") == "" {
+		t.Fatal("ACTIONS_ID_TOKEN_REQUEST_URL unset; keyless signing needs ambient GitHub OIDC")
+	}
+
+	dir := t.TempDir()
+	prior := []byte("PRE-EXISTING\n")
+	for _, tc := range []struct{ name, content string }{
+		{"valid JSON object that is not an in-toto statement", `{"hello":"world"}`},
+		{"JSON array", `[{"a":1}]`},
+		{"JSON null", `null`},
+		{"truncated JSON object", `{"a":`},
+		{"not JSON at all", `not json`},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			path := filepath.Join(dir, "stmt.json")
+			if err := os.WriteFile(path, []byte(tc.content), 0o644); err != nil {
+				t.Fatal(err)
+			}
+			out := filepath.Join(dir, "out.json")
+			if err := os.WriteFile(out, prior, 0o644); err != nil {
+				t.Fatal(err)
+			}
+
+			var stderr testWriter
+			if rc := run([]string{"--sign", "--statement", path, "--out", out}, &stderr); rc != 2 {
+				t.Fatalf("rc=%d, want fail-closed 2; stderr=%s", rc, stderr.b)
+			}
+			data, err := os.ReadFile(out)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if !bytes.Equal(data, prior) {
+				t.Fatalf("pre-existing --out changed on a rejected statement: %q", data)
+			}
+		})
+	}
+}
