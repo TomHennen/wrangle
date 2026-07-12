@@ -41,8 +41,13 @@ the whole run closed; scan output is untrusted input.
 | `https://scorecard.dev/result/v0.1` | scorecard JSON | passthrough |
 | `https://github.com/TomHennen/wrangle/attestation/scan/v1` | `output.sarif` | thin envelope `{tool, scannedCommit, result, sarif}` |
 
-Passthrough embeds the result file verbatim as the predicate (it must be a JSON
-object). The thin envelope hoists `tool`/`result`/`scannedCommit` to the top
+Passthrough embeds the result file's JSON object as the predicate. It is
+re-encoded, not byte-preserved: the predicate is a protobuf `Struct` (a map), so
+key order is normalized and the attested bytes are semantically identical to the
+result file but not identical to it. Same for the SARIF nested in the scan/v1
+envelope. Compare the predicate as JSON, never as bytes. Byte-preservation holds
+only where it is stated below: `--statement`'s payload and `assemble`'s
+`--provenance`. The thin envelope hoists `tool`/`result`/`scannedCommit` to the top
 level so policy filters on `predicate.tool.name` / `predicate.result` without
 parsing nested SARIF. SBOM (passthrough) and the SARIF tools osv, zizmor,
 wrangle-lint, and dependency-review (scan/v1 envelope) ship with producers; the
