@@ -18,7 +18,7 @@ jobs:
     permissions: {}    # guard reads env only — no workspace, no API, no secrets
     steps:
       # TODO: replace with $/actions/prep when GitHub ships $/ syntax (#136)
-      - uses: TomHennen/wrangle/actions/prep@db1545850d4b4eafbdac54d2c4d683320c3ab2a2 # refactor/sarif-adapter-exit-lib 2026-07-12
+      - uses: TomHennen/wrangle/actions/prep@b56333f2644bafcee4a08bd7b50124137d4c32bf # refactor/sarif-adapter-exit-lib 2026-07-12
 
   check-change:
     needs: [prep]
@@ -36,7 +36,7 @@ jobs:
       # empty and the name is just "scan".
       # TODO: replace with $/actions/scan when GitHub ships $/ syntax (#136)
       - name: Source scan
-        uses: TomHennen/wrangle/actions/scan@db1545850d4b4eafbdac54d2c4d683320c3ab2a2 # refactor/sarif-adapter-exit-lib 2026-07-12
+        uses: TomHennen/wrangle/actions/scan@b56333f2644bafcee4a08bd7b50124137d4c32bf # refactor/sarif-adapter-exit-lib 2026-07-12
         with:
           checkout: "true"
           tools: ${{ inputs.tools }}
