@@ -48,35 +48,35 @@ digest (see below). Adopters can suppress the attach with the verify action's
 wrangle creates the Release for the tag automatically if none exists; pre-create
 one yourself only for custom notes or a draft — see the per-language build READMEs.
 
-### A real example (the curated v0.3.1 Go release)
+### A real example (the curated v0.4.0 Go release)
 
 The [`wrangle-test`](https://github.com/TomHennen/wrangle-test) showcase
-publishes a curated Go release — built with wrangle pinned at the `v0.3.1`
-release tag — that you can verify yourself. Its `v0.3.1` tag includes, for the
+publishes a curated Go release — built with wrangle pinned at the `v0.4.0`
+release tag — that you can verify yourself. Its `v0.4.0` tag includes, for the
 Go build:
 
-- `wrangle-test-fixture-go_0.3.1_linux_amd64.tar.gz` — the archive
-- `wrangle-test-fixture-go_0.3.1_linux_amd64.tar.gz.intoto.jsonl` — its bundle (provenance + VSA)
+- `wrangle-test-fixture-go_0.4.0_linux_amd64.tar.gz` — the archive
+- `wrangle-test-fixture-go_0.4.0_linux_amd64.tar.gz.intoto.jsonl` — its bundle (provenance + VSA)
 - `go-metadata-go.zip` — the [unified metadata](metadata_layout.md) (SBOM + scan results)
 - `checksums.txt` — goreleaser's archive checksums
 
 Download the archive and its bundle:
 
 ```bash
-base=https://github.com/TomHennen/wrangle-test/releases/download/v0.3.1
-curl -sSLO "$base/wrangle-test-fixture-go_0.3.1_linux_amd64.tar.gz"
-curl -sSLO "$base/wrangle-test-fixture-go_0.3.1_linux_amd64.tar.gz.intoto.jsonl"
+base=https://github.com/TomHennen/wrangle-test/releases/download/v0.4.0
+curl -sSLO "$base/wrangle-test-fixture-go_0.4.0_linux_amd64.tar.gz"
+curl -sSLO "$base/wrangle-test-fixture-go_0.4.0_linux_amd64.tar.gz.intoto.jsonl"
 ```
 
-Built at the `v0.3.1` tag, its VSA carries a `@refs/tags/v0.3.1` signer
+Built at the `v0.4.0` tag, its VSA carries a `@refs/tags/v0.4.0` signer
 identity, so the strict `wrangle-vsa-consumer-v1` policy verifies it — the same
 command you run against your own tag-built releases:
 
 ```bash
-ampel verify --subject wrangle-test-fixture-go_0.3.1_linux_amd64.tar.gz \
+ampel verify --subject wrangle-test-fixture-go_0.4.0_linux_amd64.tar.gz \
   --policy git+https://github.com/TomHennen/wrangle@v0.4.0#policies/wrangle-vsa-consumer-v1.hjson \
-  --collector jsonl:wrangle-test-fixture-go_0.3.1_linux_amd64.tar.gz.intoto.jsonl \
-  --context expectedResourceUri:pkg:golang/github.com/tomhennen/wrangle-test/go@v0.3.1 \
+  --collector jsonl:wrangle-test-fixture-go_0.4.0_linux_amd64.tar.gz.intoto.jsonl \
+  --context expectedResourceUri:pkg:golang/github.com/tomhennen/wrangle-test/go@v0.4.0 \
   --context sourceRepo:https://github.com/TomHennen/wrangle-test
 ```
 
