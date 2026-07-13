@@ -91,11 +91,11 @@ teardown() { rm -rf "$TMP_DIR"; }
     # false "not on first-parent history". It only reproduces when rev-list has
     # more to write after grep exits, i.e. a history longer than a pipe buffer's
     # worth of lines, which the other fixtures are too short to trigger (#771).
+    # Empty commits: the check only walks first-parent shas, so no tree churn is
+    # needed — and 200 working-tree writes under parallel bats corrupted the repo.
     local i
     for ((i = 0; i < 200; i++)); do
-        printf '%s\n' "$i" > "$REPO/f"
-        git -C "$REPO" add -A
-        git -C "$REPO" commit -qm "c$i"
+        git -C "$REPO" commit -q --allow-empty -m "c$i"
     done
     git -C "$REPO" update-ref refs/remotes/origin/main HEAD
     run "$RUN"
