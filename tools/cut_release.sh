@@ -75,13 +75,25 @@ wrangle_check_pins_finalized() {
     return 1
 }
 
-# Dispatch the Release Gate on the target and poll it. A locally-run preflight
-# cannot substitute: the pin gates read origin/main's history, so a stale or
-# shallow checkout can produce a confident false green.
+# Dispatch the Release Gate and poll it. A locally-run preflight cannot
+# substitute: the pin gates read origin/main's history, so a stale or shallow
+# checkout can produce a confident false green.
+#
+# workflow_dispatch takes a BRANCH or TAG ref, never a raw sha (`--ref <sha>` is
+# a 422). So dispatch the branch and then assert the run that came back actually
+# ran on the target — otherwise a merge racing the dispatch would green-light a
+# commit that is not the one being tagged.
 wrangle_release_gate_green() {
     local sha="$1"
-    printf 'cut_release: dispatching %s on %s\n' "$GATE_WORKFLOW" "${sha:0:8}"
-    gh workflow run "$GATE_WORKFLOW" --ref "$sha" >/dev/null \
+    local branch="${WRANGLE_RELEASE_BRANCH:-main}"
+
+    local head
+    head="$(git -C "$REPO_ROOT" rev-parse "origin/$branch")"
+    [[ "$head" == "$sha" ]] || wrangle_die \
+        "target ${sha:0:8} is not origin/$branch's HEAD (${head:0:8}) — the gate can only be dispatched on a branch, so it would verify the wrong commit"
+
+    printf 'cut_release: dispatching %s on %s (%s)\n' "$GATE_WORKFLOW" "$branch" "${sha:0:8}"
+    gh workflow run "$GATE_WORKFLOW" --ref "$branch" >/dev/null \
         || wrangle_die "could not dispatch $GATE_WORKFLOW"
 
     local id="" i
