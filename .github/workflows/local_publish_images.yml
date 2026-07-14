@@ -1,22 +1,35 @@
 name: publish tool images
 
 # Build, publish, and attest wrangle's containerized tool images. One matrix
-# entry per tool — enroll a new tool by adding a line. The trigger is
-# deliberately broad (any tools/ or lib/ change) so we over-build rather than
-# miss a build: a tool image's build context is the repo root (the Dockerfile
-# builds from tools/go.mod and bundles adapter glue from lib/). See
+# entry per tool — enroll a new tool by adding a line. See
 # docs/tool_container_design.md.
 
 on:
   workflow_dispatch:
   push:
     branches: [main]
+    # Every path any image Dockerfile reads from the build context (the repo
+    # root). A missed rebuild ships a stale image while CI stays green, so the
+    # set is over-broad by design and test/test_publish_trigger_coverage.bats
+    # fails if a Dockerfile grows an input this list does not match.
     paths:
-      - tools/**
+      - tools/*/Dockerfile
+      - tools/*/adapter.sh
+      - tools/*/install.sh
+      - tools/*/render_md.sh
+      - tools/*/requirements.txt
+      - tools/go.mod
+      - tools/go.sum
+      - tools/wrangle-attest/**
+      - tools/wrangle-lint/**
+      # Any Go source a first-party binary could compile in, wherever it lands
+      # (`**` does not stand in for zero directories here, so both forms).
+      - tools/*.go
+      - "tools/**/*.go"
       - lib/**
-      # A catalog-only push is a digest bump, not a source change: excluding it
-      # keeps the auto-bump below from looping. Must stay after `tools/**` —
-      # last matching pattern wins, so reordering silently reopens the loop.
+      # A catalog-only push is a digest bump, not a source change: triggering on
+      # it would loop the auto-bump below. No pattern above matches it; this is
+      # the backstop if one ever does.
       - "!tools/catalog.json"
 
 permissions: {}

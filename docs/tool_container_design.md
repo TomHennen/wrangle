@@ -485,14 +485,15 @@ release does not rebuild or re-tag tool images.**
   catalog is inside every self-ref pin's freshness scope, so the bump PR **arrives red on
   `check_pin_freshness` by design**: whoever picks it up runs `make converge-action-pins`, pushes the
   convergence commits to the bump branch, and lands it as a merge commit (never a squash — see
-  [e2e_testing.md](e2e_testing.md)). The publish trigger is
-  a path glob that matches `tools/catalog.json`, so a catalog-only digest change would re-trigger a rebuild;
-  the trigger excludes `tools/catalog.json`, which is what keeps the bump from looping.
+  [e2e_testing.md](e2e_testing.md)). The trigger excludes `tools/catalog.json`, which is what keeps the
+  bump from looping: a catalog-only digest change would otherwise re-trigger a rebuild.
 - **Release tag** — precondition: the catalog is fresh. `check_catalog_freshness.sh` proves the shipped
   half — no digest is behind its published `:latest` (adoption lag); `check_catalog_provenance_freshness.sh`
   proves the stronger half — every digest is the image built from the current tool source, read from each
-  image's signed provenance over a coarse `tools/`+`lib/` diff-set (it over-flags a harmless rebuild
-  rather than miss a stale image). Both are blocking release gates that fail closed on a backend error
+  image's signed provenance and diffed over the same build-input path set the publish workflow triggers on
+  (`test/test_publish_trigger_coverage.bats` derives that set from the Dockerfiles and holds the two in
+  agreement, so a flagged image is always one a push to main already rebuilt). Both are blocking release
+  gates that fail closed on a backend error
   (exit 2 = precondition unverified); source-freshness also runs as a **weekly advisory**, and is **not**
   a per-signing-run blocker (that would false-block signing during the normal bump window). Then tag. No
   image is built or re-tagged at release time.

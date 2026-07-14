@@ -15,7 +15,8 @@
 # Build context is the repo root (the build needs tools/go.mod + go.sum).
 FROM golang:1.26.4@sha256:32c0e6e5c4f6707717051091b4d0b077464a679eaab563e11474efc5328e2aa5 AS build
 WORKDIR /src
-COPY tools/ ./tools/
+COPY tools/go.mod tools/go.sum ./tools/
+COPY tools/wrangle-attest/ ./tools/wrangle-attest/
 ENV CGO_ENABLED=0
 RUN cd tools \
  && go build -trimpath -o /out/ampel github.com/carabiner-dev/ampel/cmd/ampel \

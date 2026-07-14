@@ -25,9 +25,25 @@ PROVENANCE_PREDICATE_TYPE='https://slsa.dev/provenance/v1'
 COMMIT_RE='^[0-9a-f]{40}$'
 # A build commit is trusted only from a resolvedDependency on wrangle's own repo.
 WRANGLE_SOURCE_URI_PREFIX='git+https://github.com/tomhennen/wrangle@'
-# Whole tools/ so a binary built from a sibling package counts; minus the catalog
-# file, so a digest bump can't flag its own image stale.
-PROVENANCE_DIFF_PATHS=(tools lib ':(exclude)tools/catalog.json')
+# Every path an image Dockerfile reads from the build context — the set
+# local_publish_images.yml rebuilds on, so anything flagged stale here is
+# something a push to main already rebuilt (test/test_publish_trigger_coverage.bats
+# keeps the two in agreement). Minus the catalog, so a digest bump can't flag its
+# own image stale.
+PROVENANCE_DIFF_PATHS=(
+    ':(glob)tools/*/Dockerfile'
+    ':(glob)tools/*/adapter.sh'
+    ':(glob)tools/*/install.sh'
+    ':(glob)tools/*/render_md.sh'
+    ':(glob)tools/*/requirements.txt'
+    tools/go.mod
+    tools/go.sum
+    tools/wrangle-attest
+    tools/wrangle-lint
+    ':(glob)tools/**/*.go'
+    lib
+    ':(exclude)tools/catalog.json'
+)
 
 # provenance_build_commit <image> — print the single wrangle build commit from
 # <image>'s signed provenance. Returns 2 on a read failure, 1 if no single
