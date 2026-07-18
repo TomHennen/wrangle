@@ -41,6 +41,12 @@
 // also appends the identical signed line to an existing per-artifact bundle,
 // which must be non-empty (a VSA-only bundle is impossible).
 //
+// The verify subcommand is the verify job's orchestration: it execs the
+// sibling ampel binary to evaluate the policy over one subject, fails closed
+// unless ampel's exit code AND the VSA it emitted agree the verdict is
+// PASSED, then signs the VSA verbatim and appends the signed line to that
+// subject's per-artifact bundle.
+//
 // The assemble subcommand is the attest job's orchestration: it reads the
 // newline-separated subjects file, self-digests file subjects, signs every
 // discovered manifest per subject with one shared signer, and writes one

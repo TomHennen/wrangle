@@ -141,6 +141,48 @@ refuses the partially written `--bundle-dir` via the pre-existence check.
 `assemble` requires `--sign` and rejects `--subject`, `--artifact`,
 `--statement`, `--out`, and `--append`.
 
+```
+wrangle-attest verify (--subject sha256:<hex> | --artifact <file>) \
+    --policy <path-or-locator> --bundle <file> [--collector <c>]... \
+    [--context <kv>] [--attestation <file>] [--fail=<bool>] --out <file>
+```
+
+The verify job's orchestration: evaluate the policy over one subject by
+exec-ing the sibling `ampel` binary (both ship in the attest-toolbox image),
+then keyless-sign the VSA ampel emitted — the raw file bytes verbatim, the
+same signer path as `--statement` — and deliver it. `--bundle` is the
+attest-assembled per-artifact bundle: it is fed to the policy as ampel's
+`jsonl:` collector and, on success, appended with the identical signed line
+(same append semantics as `--append`: non-empty precheck before ampel runs,
+must not alias `--out`, a failed append removes the just-written `--out`).
+A file subject is self-digested to the single sha256 and passed as ampel's
+`--subject-hash`; a digest subject passes through as `--subject`. ampel's
+report (`--format=html`, stdout) passes through to stdout for the step
+summary; the exec is retried once for transient collector I/O, with the
+results file removed and the report buffer reset between attempts. The child
+env is scrubbed of `SIGSTORE_ID_TOKEN`, `ACTIONS_ID_TOKEN_REQUEST_*`, and
+`AMPEL_*` — ampel parses semi-trusted attestations and must never hold
+signing material, and it resolves policy context keys from `AMPEL_<KEY>`.
+
+The verdict is dual-checked, because ampel's exit code alone is not a safe
+PASS signal: ampel exits 1 for a FAILED verdict *and* for every tool error
+(`cmd/ampel/main.go` exits 1 on any returned error;
+`internal/cmd/verify.go` `os.Exit(1)` only on `StatusFAIL`), so exit 0 does
+not prove a VSA was written, bound to this subject, or well-formed. Signing
+therefore requires ampel exit 0 AND that `--results-path` parses as an in-toto
+VSA statement bound to exactly the requested single-sha256 subject with
+`predicate.verificationResult` exactly `PASSED`. With `--fail=false` (warn
+mode) ampel runs with `--exit-code=false` and an explicitly `FAILED` VSA is
+still signed and delivered; any other verdict value fails closed in both
+modes. Exit 0 = verified, signed, delivered; 1 = FAILED verdict with
+`--fail=true` (nothing signed); 2 = anything else (nothing signed).
+
+A `SOFTFAIL` (a policy group with `enforce: OFF` — wrangle's own advisory
+`wrangle-release-pinned` tenet is one) is **not** distinguishable from a PASS
+here: ampel exits 0 and maps SOFTFAIL to `verificationResult: PASSED`
+(`pkg/attest/vsa.go` `resultStringToSLSAResult`). That is the intended policy
+semantics, unchanged from the shell, not a gap this check closes.
+
 ## Testing
 
 `go test ./wrangle-attest/` — table-driven manifest parse/validate (fail-closed
@@ -152,7 +194,10 @@ covered by a recording signer pinning the payload to the file bytes verbatim, a
 local-key payload round-trip, a fail-closed table (including a signing failure
 leaving a pre-existing `--out` untouched), and the tag-gated keyless
 integration test. `--append` and `assemble` are covered hermetically with fake
-signers (byte-exact bundle goldens, buffer-then-write fail-closed). Regenerate
+signers (byte-exact bundle goldens, buffer-then-write fail-closed). `verify`
+is covered with a scripted fake ampel + fake signer (the exit-code x VSA
+verdict matrix, env scrub, argv shape, retry); the real ampel CLI contract is
+pinned by the bats real-parser test and the dispatch e2e. Regenerate
 goldens with
 `go test ./wrangle-attest/ -update`. The real keyless path is covered by the
 dispatch e2e (`actions/attest_provenance` and `actions/attest_metadata_oci` bats
