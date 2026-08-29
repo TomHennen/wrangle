@@ -34,3 +34,8 @@ reason = "docker/docker (pulled in by osv-scanner's own module graph) has no pat
 id = "GO-2026-5932"
 ignoreUntil = 2026-10-11T00:00:00Z
 reason = "x/crypto/openpgp, reached through wrangle-attest's PGP path (rekor pki/pgp), has no patched version: x/crypto froze openpgp as deprecated and unmaintained. The only exit is dropping the PGP path, which no advisory will ever signal — so the ignoreUntil revisit is what forces reconsideration."
+
+[[IgnoredVulns]]
+id = "GO-2026-6225"
+ignoreUntil = 2026-10-11T00:00:00Z
+reason = "docker-credential-acr-env (an Azure ACR credential helper in cosign's module graph) has no patched version: every version is affected and the module has a single 2023 pseudo-version with no fix upstream. It is also unreachable — `go mod why` reports the package is not needed by any built tool — so the credential-leak path is never linked; osv flags it only because it scans the require list. Remove this entry when cosign drops the dependency or a fixed version ships."
