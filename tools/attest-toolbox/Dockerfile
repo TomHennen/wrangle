@@ -27,7 +27,7 @@ RUN cd tools \
 # binary here makes outbound TLS calls (Sigstore, Rekor, the attestation store,
 # the registry). jq is bundled because the verify/attest glue normalizes the
 # tools' JSON output; bash for any wrapper invocation.
-FROM cgr.dev/chainguard/wolfi-base@sha256:0b613d8101fae27cf76186351db831ab3db25bfb2ec7161e897cd7e22c6413a3
+FROM cgr.dev/chainguard/wolfi-base@sha256:03c6561658909fc4eadd0b2dc717375df40a22cc05455b8f82f1f1974e7e4427
 RUN apk add --no-cache bash jq ca-certificates \
  && adduser -D -u 1000 wrangle
 COPY --from=build /out/ampel /out/bnd /out/cosign /out/wrangle-attest /usr/local/bin/

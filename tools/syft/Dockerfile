@@ -5,7 +5,7 @@
 # shipped verified rather than rebuilt because no package manager ships syft's
 # adapter and Anchore's image is unsigned (tool_container_design.md §3.4).
 # Build context is the repo root (needs tools/syft + lib/).
-FROM cgr.dev/chainguard/wolfi-base@sha256:0b613d8101fae27cf76186351db831ab3db25bfb2ec7161e897cd7e22c6413a3 AS build
+FROM cgr.dev/chainguard/wolfi-base@sha256:03c6561658909fc4eadd0b2dc717375df40a22cc05455b8f82f1f1974e7e4427 AS build
 # install.sh needs cosign + curl + coreutils + gawk; tar is a busybox applet.
 RUN apk add --no-cache bash curl cosign coreutils gawk
 COPY lib/download_verify.sh /build/lib/download_verify.sh
@@ -13,7 +13,7 @@ COPY tools/syft/install.sh /build/tools/syft/install.sh
 RUN WRANGLE_BIN_DIR=/out /build/tools/syft/install.sh
 
 # Minimal hardened base; the adapter entrypoint needs a shell + jq.
-FROM cgr.dev/chainguard/wolfi-base@sha256:0b613d8101fae27cf76186351db831ab3db25bfb2ec7161e897cd7e22c6413a3
+FROM cgr.dev/chainguard/wolfi-base@sha256:03c6561658909fc4eadd0b2dc717375df40a22cc05455b8f82f1f1974e7e4427
 RUN apk add --no-cache bash jq ca-certificates \
  && adduser -D -u 1000 wrangle
 COPY --from=build /out/syft /usr/local/bin/syft
