@@ -1035,8 +1035,8 @@ github.com/sigstore/fulcio v1.8.6 h1:vkvRpdhVAZjZHa0ltiJeLSILG9U8ADJoe5Z+RdZSLJk
 github.com/sigstore/fulcio v1.8.6/go.mod h1:7RwoGdMM0xpc9qc382sjSw7P9OLKbKIwQZXvYz4JPb4=
 github.com/sigstore/gitsign v0.16.0 h1:TapySQRakT+wZ/k73GrNz2cTltAf85KoFnW9vv4hgGQ=
 github.com/sigstore/gitsign v0.16.0/go.mod h1:wuO13bQ/dyACiCRhxhDTH6mxykF5nLfWFXEKk6Egd2M=
-github.com/sigstore/protobuf-specs v0.5.1 h1:/5OPaNuolRJmQfeZLayJGFXMpsRJEdgC6ah1/+7Px7U=
-github.com/sigstore/protobuf-specs v0.5.1/go.mod h1:DRBzpFuE+LnvQMN10/dU6nBeKwVLGEQ6o2FovN2Rats=
+github.com/sigstore/protobuf-specs v0.5.2 h1:RSWWUY8QrVTxbYH00jY/jg2e7YnjzrpwP+PeHTMll0E=
+github.com/sigstore/protobuf-specs v0.5.2/go.mod h1:DRBzpFuE+LnvQMN10/dU6nBeKwVLGEQ6o2FovN2Rats=
 github.com/sigstore/rekor v1.5.3 h1:0Tyolw3zreRgm7PUW8dccFLXGBThi08278jI8EXNSr4=
 github.com/sigstore/rekor v1.5.3/go.mod h1:h3GK5dDqCcWJJZUJwdpKGSSmEV2GEjPUjJy3WTjBwzA=
 github.com/sigstore/rekor-tiles/v2 v2.3.0 h1:HhMgH61UP0t899V8Fjt7pz1YdgOBptbaQdnCF+79cdc=
