@@ -18,7 +18,7 @@ jobs:
     permissions: {}    # guard reads env only — no workspace, no API, no secrets
     steps:
       # TODO: replace with $/actions/prep when GitHub ships $/ syntax (#136)
-      - uses: TomHennen/wrangle/actions/prep@6b12de5ddd99cdab515baf7da75a0f9542b4f31f # main 2026-09-05
+      - uses: TomHennen/wrangle/actions/prep@bfbdf106512b7762621b100160352529fd849130 # main 2026-09-05
 
   check-change:
     needs: [prep]
@@ -36,7 +36,7 @@ jobs:
       # empty and the name is just "scan".
       # TODO: replace with $/actions/scan when GitHub ships $/ syntax (#136)
       - name: Source scan
-        uses: TomHennen/wrangle/actions/scan@6b12de5ddd99cdab515baf7da75a0f9542b4f31f # main 2026-09-05
+        uses: TomHennen/wrangle/actions/scan@bfbdf106512b7762621b100160352529fd849130 # main 2026-09-05
         with:
           checkout: "true"
           tools: ${{ inputs.tools }}
