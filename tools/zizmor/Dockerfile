@@ -5,7 +5,7 @@
 # runs the wrangle zizmor adapter as the contract entrypoint:
 #   docker run <image> <src> <output>  ->  <output>/output.sarif, exit 0/1/2
 # Build context is the repo root (the build needs tools/zizmor/ + lib/).
-FROM cgr.dev/chainguard/wolfi-base@sha256:03c6561658909fc4eadd0b2dc717375df40a22cc05455b8f82f1f1974e7e4427 AS build
+FROM cgr.dev/chainguard/wolfi-base@sha256:1d95114038f76513a9ace6fca107d5582b08c65981f81f61cb56bf7fd2ef216d AS build
 RUN apk add --no-cache python-3.13 py3.13-pip
 COPY tools/zizmor/requirements.txt /tmp/requirements.txt
 # Hermetic, hash-verified install into a self-contained prefix copied below.
@@ -14,7 +14,7 @@ RUN python3 -m pip install --require-hashes --no-deps \
 
 # Minimal hardened base; the adapter entrypoint needs a shell + jq, and zizmor
 # (a Rust binary wheel) needs the Python runtime its console script launches.
-FROM cgr.dev/chainguard/wolfi-base@sha256:03c6561658909fc4eadd0b2dc717375df40a22cc05455b8f82f1f1974e7e4427
+FROM cgr.dev/chainguard/wolfi-base@sha256:1d95114038f76513a9ace6fca107d5582b08c65981f81f61cb56bf7fd2ef216d
 RUN apk add --no-cache bash jq ca-certificates python-3.13 \
  && adduser -D -u 1000 wrangle
 COPY --from=build /opt/zizmor /opt/zizmor
