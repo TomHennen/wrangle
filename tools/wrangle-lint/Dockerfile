@@ -4,7 +4,7 @@
 # deps) and runs its adapter as the contract entrypoint:
 #   docker run <image> <src> <output>  ->  <output>/output.sarif, exit 0/1/2
 # Build context is the repo root (the build needs tools/go.mod + tools/wrangle-lint + lib/).
-FROM golang:1.26.4@sha256:32c0e6e5c4f6707717051091b4d0b077464a679eaab563e11474efc5328e2aa5 AS build
+FROM golang:1.26.8@sha256:6c2a5538f964f1c82f97ad14988bf05de100d922d159d0e398b54c7b0ca0c6c9 AS build
 WORKDIR /src
 COPY tools/ ./tools/
 RUN cd tools && CGO_ENABLED=0 go build -trimpath \
@@ -12,7 +12,7 @@ RUN cd tools && CGO_ENABLED=0 go build -trimpath \
 
 # Minimal hardened base (Chainguard wolfi); the adapter entrypoint needs a
 # shell + jq, which distroless lacks.
-FROM cgr.dev/chainguard/wolfi-base@sha256:03c6561658909fc4eadd0b2dc717375df40a22cc05455b8f82f1f1974e7e4427
+FROM cgr.dev/chainguard/wolfi-base@sha256:1d95114038f76513a9ace6fca107d5582b08c65981f81f61cb56bf7fd2ef216d
 RUN apk add --no-cache bash jq ca-certificates \
  && adduser -D -u 1000 wrangle
 COPY --from=build /out/wrangle-lint /usr/local/bin/wrangle-lint

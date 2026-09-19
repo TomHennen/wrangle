@@ -19,7 +19,7 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 # shellcheck source=../../lib/download_verify.sh
 source "${SCRIPT_DIR}/../../lib/download_verify.sh"
 
-VERSION="${1:-1.42.4}"
+VERSION="${1:-1.51.1}"
 TOOL_NAME="syft"
 SOURCE_REPO="anchore/syft"
 BIN_DIR="${WRANGLE_BIN_DIR:-${RUNNER_TEMP:-.}/.wrangle/bin}"

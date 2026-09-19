@@ -126,7 +126,7 @@ jobs:
       scan: ${{ steps.prep.outputs.scan }}
     steps:
       # TODO: replace with $/actions/prep when GitHub ships $/ syntax (#136)
-      - uses: TomHennen/wrangle/actions/prep@5d364e686de625ccb61a0fd5b12f9b25e1ab1d41 # main 2026-08-30
+      - uses: TomHennen/wrangle/actions/prep@0ddb5375a5dd7a27a0f3b290289d012cf42a25f2 # deps/release-prep-v041-sept 2026-09-19
         id: prep
         with:
           build-type: container
@@ -146,7 +146,7 @@ jobs:
       security-events: write
     steps:
       # TODO: replace with $/actions/scan when GitHub ships $/ syntax (#136)
-      - uses: TomHennen/wrangle/actions/scan@5d364e686de625ccb61a0fd5b12f9b25e1ab1d41 # main 2026-08-30
+      - uses: TomHennen/wrangle/actions/scan@0ddb5375a5dd7a27a0f3b290289d012cf42a25f2 # deps/release-prep-v041-sept 2026-09-19
         if: ${{ inputs.scan-tools != '' }}
         with:
           checkout: "true"
@@ -172,7 +172,7 @@ jobs:
     # TODO: replace with $/build/actions/container when GitHub ships $/ syntax (#136)
     - name: "build and publish"
       id: build
-      uses: TomHennen/wrangle/build/actions/container@5d364e686de625ccb61a0fd5b12f9b25e1ab1d41 # main 2026-08-30
+      uses: TomHennen/wrangle/build/actions/container@0ddb5375a5dd7a27a0f3b290289d012cf42a25f2 # deps/release-prep-v041-sept 2026-09-19
       with:
         path: ${{ inputs.path }}
         dockerfile: ${{ inputs.dockerfile }}
@@ -236,7 +236,7 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
-      - uses: actions/attest-build-provenance@0f67c3f4856b2e3261c31976d6725780e5e4c373 # v4.1.1
+      - uses: actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8 # v4.2.2
         id: attest
         with:
           subject-name: ${{ needs.build.outputs.imagename }}
@@ -248,7 +248,7 @@ jobs:
       # image's bundle the verify job appends the VSA to. cosign is built from
       # tools/go.mod here.
       # TODO: replace with $/actions/attest_metadata_oci when GitHub ships $/ syntax (#136)
-      - uses: TomHennen/wrangle/actions/attest_metadata_oci@5d364e686de625ccb61a0fd5b12f9b25e1ab1d41 # main 2026-08-30
+      - uses: TomHennen/wrangle/actions/attest_metadata_oci@0ddb5375a5dd7a27a0f3b290289d012cf42a25f2 # deps/release-prep-v041-sept 2026-09-19
         with:
           shortname: ${{ needs.prep.outputs.shortname }}
           subject-digest: ${{ needs.build.outputs.digest }}
@@ -275,7 +275,7 @@ jobs:
       - uses: sigstore/cosign-installer@6f9f17788090df1f26f669e9d70d6ae9567deba6 # v4.1.2
         with:
           # Must match the cosign built from tools/go.mod — the version the suite tests.
-          cosign-release: v3.0.6
+          cosign-release: v3.1.3
 
       # Use the job's own GITHUB_TOKEN (packages: write above), like the build job.
       - name: Log in to ghcr for the VSA referrer push
@@ -287,7 +287,7 @@ jobs:
 
       # oci-target pushes the VSA referrer; the dist download is skipped (the image is the artifact).
       # TODO: replace with $/actions/verify_release when GitHub ships $/ syntax (#136)
-      - uses: TomHennen/wrangle/actions/verify_release@5d364e686de625ccb61a0fd5b12f9b25e1ab1d41 # main 2026-08-30
+      - uses: TomHennen/wrangle/actions/verify_release@0ddb5375a5dd7a27a0f3b290289d012cf42a25f2 # deps/release-prep-v041-sept 2026-09-19
         with:
           build-type: container
           shortname: ${{ needs.prep.outputs.shortname }}

@@ -1,4 +1,4 @@
-FROM ubuntu:26.04@sha256:2260313b31c8c011cd2eebe728008efac1b3982be73eb71348ea2648d2c0e09b
+FROM ubuntu:26.04@sha256:513c074113a871b51a8d16ab445c88779d6452d937a164fb5cc479f32668a41d
 
 RUN apt-get update -q && \
     apt-get install -y -q --no-install-recommends \
@@ -55,9 +55,9 @@ RUN set -euo pipefail && \
 # tests don't need Go; cost is ~80MB on the image but avoids the
 # cross-repo wrangle-test dispatch loop for catching regressions in
 # run_checks.sh and friends.
-ARG GO_VERSION=1.26.4
-ARG GO_CHECKSUM_ARM64=ef758ae7c6cf9267c9c0ef080b8965f453d89ab2d25d9eb22de4405925238768
-ARG GO_CHECKSUM_AMD64=1153d3d50e0ac764b447adfe05c2bcf08e889d42a02e0fe0259bd47f6733ad7f
+ARG GO_VERSION=1.26.8
+ARG GO_CHECKSUM_ARM64=211ffced9dcb9633a55eac6364816ec0ddd951389a740e88fa8b3337971bdda0
+ARG GO_CHECKSUM_AMD64=d0f743b33e8d8945e6b1f432edd15785c70507121d6e2a723b21285eddf8b57b
 RUN set -euo pipefail && \
     ARCH="$(uname -m)" && \
     case "$ARCH" in \

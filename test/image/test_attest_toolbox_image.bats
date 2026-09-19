@@ -66,7 +66,7 @@ wrangle_ampel_verify_in_image() {
 @test "attest-toolbox: cosign reports its version" {
     run docker run --rm "$IMG" cosign version
     [ "$status" -eq 0 ]
-    [[ "$output" == *v3.0.6* ]]
+    [[ "$output" == *v3.1.3* ]]
 }
 
 @test "attest-toolbox: bnd reports its version" {
