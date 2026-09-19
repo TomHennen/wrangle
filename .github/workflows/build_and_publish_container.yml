@@ -248,7 +248,7 @@ jobs:
       # image's bundle the verify job appends the VSA to. cosign is built from
       # tools/go.mod here.
       # TODO: replace with $/actions/attest_metadata_oci when GitHub ships $/ syntax (#136)
-      - uses: TomHennen/wrangle/actions/attest_metadata_oci@caf0de05382851b90296a7ef4136f5678addb38f # main 2026-09-19
+      - uses: TomHennen/wrangle/actions/attest_metadata_oci@dcaa540afe674e712ebcaaf843e67f6b5e74b9da # main 2026-09-19
         with:
           shortname: ${{ needs.prep.outputs.shortname }}
           subject-digest: ${{ needs.build.outputs.digest }}
