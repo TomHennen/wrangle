@@ -128,7 +128,7 @@ jobs:
       metadata-pre: ${{ steps.prep.outputs.metadata-pre }}
     steps:
       # TODO: replace with $/actions/prep when GitHub ships $/ syntax (#136)
-      - uses: TomHennen/wrangle/actions/prep@d70cdb1cbcb9f1922dc6244590fb3386431a8d6a # chore/catalog-bump-v041-2 2026-09-19
+      - uses: TomHennen/wrangle/actions/prep@caf0de05382851b90296a7ef4136f5678addb38f # main 2026-09-19
         id: prep
         with:
           build-type: python
@@ -148,7 +148,7 @@ jobs:
       security-events: write
     steps:
       # TODO: replace with $/actions/scan when GitHub ships $/ syntax (#136)
-      - uses: TomHennen/wrangle/actions/scan@d70cdb1cbcb9f1922dc6244590fb3386431a8d6a # chore/catalog-bump-v041-2 2026-09-19
+      - uses: TomHennen/wrangle/actions/scan@caf0de05382851b90296a7ef4136f5678addb38f # main 2026-09-19
         if: ${{ inputs.scan-tools != '' }}
         with:
           checkout: "true"
@@ -180,7 +180,7 @@ jobs:
           ref: ${{ inputs.ref || '' }}
 
       # TODO: replace with $/build/actions/python when GitHub ships $/ syntax (#136)
-      - uses: TomHennen/wrangle/build/actions/python@d70cdb1cbcb9f1922dc6244590fb3386431a8d6a # chore/catalog-bump-v041-2 2026-09-19
+      - uses: TomHennen/wrangle/build/actions/python@caf0de05382851b90296a7ef4136f5678addb38f # main 2026-09-19
         id: build
         with:
           path: ${{ inputs.path }}
@@ -268,7 +268,7 @@ jobs:
       bundles-artifact-name: ${{ steps.attest.outputs.bundles-artifact-name }}
     steps:
       # TODO: replace with $/actions/attest_provenance when GitHub ships $/ syntax (#136)
-      - uses: TomHennen/wrangle/actions/attest_provenance@d70cdb1cbcb9f1922dc6244590fb3386431a8d6a # chore/catalog-bump-v041-2 2026-09-19
+      - uses: TomHennen/wrangle/actions/attest_provenance@caf0de05382851b90296a7ef4136f5678addb38f # main 2026-09-19
         id: attest
         with:
           build-type: python
@@ -290,7 +290,7 @@ jobs:
       attestations: write   # post each VSA to the GitHub attestation store
     steps:
       # TODO: replace with $/actions/verify_release when GitHub ships $/ syntax (#136)
-      - uses: TomHennen/wrangle/actions/verify_release@d70cdb1cbcb9f1922dc6244590fb3386431a8d6a # chore/catalog-bump-v041-2 2026-09-19
+      - uses: TomHennen/wrangle/actions/verify_release@caf0de05382851b90296a7ef4136f5678addb38f # main 2026-09-19
         with:
           build-type: python
           shortname: ${{ needs.prep.outputs.shortname }}
@@ -317,7 +317,7 @@ jobs:
       contents: write   # create the release if absent and upload the asset set
     steps:
       # TODO: replace with $/actions/publish_release when GitHub ships $/ syntax (#136)
-      - uses: TomHennen/wrangle/actions/publish_release@d70cdb1cbcb9f1922dc6244590fb3386431a8d6a # chore/catalog-bump-v041-2 2026-09-19
+      - uses: TomHennen/wrangle/actions/publish_release@caf0de05382851b90296a7ef4136f5678addb38f # main 2026-09-19
         with:
           build-type: python
           shortname: ${{ needs.prep.outputs.shortname }}
