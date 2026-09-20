@@ -30,7 +30,7 @@ _init_repo() {
     git -C "$REPO" config user.email t@example.com
     git -C "$REPO" config user.name test
     printf 'FROM scratch\n' > "$REPO/tools/osv/Dockerfile"
-    printf 'echo hi\n' > "$REPO/lib/foo.sh"
+    printf 'echo hi\n' > "$REPO/lib/sanitize.sh"
     printf 'module wrangle/tools\n' > "$REPO/tools/go.mod"
     printf 'h1:abc\n' > "$REPO/tools/go.sum"
     git -C "$REPO" add -A
@@ -85,9 +85,9 @@ RUN true'
     [[ "$output" == *"source changed"* ]]
 }
 
-@test "provenance freshness: a later lib/ change is stale (exit 1)" {
+@test "provenance freshness: a later change to a bundled lib is stale (exit 1)" {
     install_gh
-    _commit lib/foo.sh 'echo changed'
+    _commit lib/sanitize.sh 'echo changed'
     cd "$REPO"
     SHIM_COMMIT="$C1" run "$SCRIPT"
     [ "$status" -eq 1 ]
@@ -104,24 +104,24 @@ require x v1.2.3'
     [[ "$output" == *"source changed"* ]]
 }
 
-@test "provenance freshness: an unrelated later change is still fresh (exit 0)" {
+@test "provenance freshness: a later change to a tools/ dev script is still fresh (exit 0)" {
+    # No image Dockerfile reads it, so it is not a build input and no push to
+    # main rebuilds for it — flagging it would red the release unclearably.
     install_gh
-    _commit README.md 'hello'
+    _commit tools/cut_release.sh 'echo changed'
     cd "$REPO"
     SHIM_COMMIT="$C1" run "$SCRIPT"
     [ "$status" -eq 0 ]
     [[ "$output" == *"built from current source"* ]]
 }
 
-@test "provenance freshness: a change to a sibling source package the image compiles is stale (exit 1)" {
+@test "provenance freshness: a change inside a bundled package dir is stale (exit 1)" {
     install_gh
-    mkdir -p "$REPO/tools/sibpkg"
-    printf 'package main\n' > "$REPO/tools/sibpkg/sign.go"
-    git -C "$REPO" add -A && git -C "$REPO" commit -qm sibpkg
+    mkdir -p "$REPO/tools/wrangle-attest"
+    printf 'package main\n' > "$REPO/tools/wrangle-attest/sign.go"
+    git -C "$REPO" add -A && git -C "$REPO" commit -qm wrangle-attest
     local base; base="$(git -C "$REPO" rev-parse HEAD)"
-    # sibtool's source lives in the sibling dir, not osv/.
-    _catalog "ghcr.io/tomhennen/wrangle/sibtool@$DIGEST"
-    _commit tools/sibpkg/sign.go 'package main
+    _commit tools/wrangle-attest/sign.go 'package main
 // changed'
     cd "$REPO"
     SHIM_COMMIT="$base" run "$SCRIPT"
@@ -200,14 +200,10 @@ RUN true'
 }
 
 @test "provenance freshness: a stale image wins over a second tool's backend error (exit 1)" {
-    # The fake gh fails only for toolb; toola is made stale.
-    mkdir -p "$REPO/tools/toola" "$REPO/tools/toolb"
-    printf 'FROM scratch\n' > "$REPO/tools/toola/Dockerfile"
-    printf 'FROM scratch\n' > "$REPO/tools/toolb/Dockerfile"
-    git -C "$REPO" add -A && git -C "$REPO" commit -qm tools
+    # The fake gh fails only for toolb; the shared source moves, so toola is stale.
     local base; base="$(git -C "$REPO" rev-parse HEAD)"
-    _commit tools/toola/Dockerfile 'FROM scratch
-RUN true'  # toola now stale vs base
+    _commit tools/osv/Dockerfile 'FROM scratch
+RUN true'
     cat > "$CATALOG" <<JSON
 {"tools":{
   "toola":{"kind":"scan","image":"ghcr.io/tomhennen/wrangle/toola@$DIGEST"},

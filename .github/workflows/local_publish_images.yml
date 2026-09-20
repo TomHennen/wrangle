@@ -1,23 +1,34 @@
 name: publish tool images
 
 # Build, publish, and attest wrangle's containerized tool images. One matrix
-# entry per tool — enroll a new tool by adding a line. The trigger is
-# deliberately broad (any tools/ or lib/ change) so we over-build rather than
-# miss a build: a tool image's build context is the repo root (the Dockerfile
-# builds from tools/go.mod and bundles adapter glue from lib/). See
+# entry per tool — enroll a new tool by adding a line. See
 # docs/tool_container_design.md.
 
 on:
   workflow_dispatch:
   push:
     branches: [main]
+    # Every path an image Dockerfile reads from the build context; a missed
+    # rebuild ships a stale image behind green CI, so test/check_publish_trigger.py
+    # holds this list, the Dockerfiles and the release gate's diff-set in agreement.
     paths:
-      - tools/**
-      - lib/**
-      # A catalog-only push is a digest bump, not a source change: excluding it
-      # keeps the auto-bump below from looping. Must stay after `tools/**` —
-      # last matching pattern wins, so reordering silently reopens the loop.
-      - "!tools/catalog.json"
+      - lib/download_verify.sh
+      - lib/sanitize.sh
+      - lib/sarif_adapter_exit.sh
+      - tools/attest-toolbox/Dockerfile
+      - tools/go.mod
+      - tools/go.sum
+      - tools/osv/Dockerfile
+      - tools/osv/adapter.sh
+      - tools/osv/render_md.sh
+      - tools/syft/Dockerfile
+      - tools/syft/adapter.sh
+      - tools/syft/install.sh
+      - tools/wrangle-attest/**
+      - tools/wrangle-lint/**
+      - tools/zizmor/Dockerfile
+      - tools/zizmor/adapter.sh
+      - tools/zizmor/requirements.txt
 
 permissions: {}
 

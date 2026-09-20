@@ -477,15 +477,17 @@ release does not rebuild or re-tag tool images.**
   which a rebuild of wrangle's own reviewed source is not — so the bump merges on CI/review latency and
   keeps the catalog current. One source PR + one bump PR — not a manual double-bump.
 
-  The bot's commit carries `tools/catalog.json` and nothing else. The publish trigger is
-  a path glob that matches `tools/catalog.json`, so a catalog-only digest change would re-trigger a rebuild;
-  the trigger excludes `tools/catalog.json`, which is what keeps the bump from looping.
+  The bot's commit carries `tools/catalog.json` and nothing else. The publish trigger lists only the
+  paths an image Dockerfile reads from the build context, and the catalog is not one of them — so a
+  catalog-only digest change rebuilds nothing and the bump cannot loop.
 - **Release tag** — precondition: the catalog is fresh. `check_catalog_freshness.sh` proves the shipped
   half — no digest is behind its published `:latest` (adoption lag); `check_catalog_provenance_freshness.sh`
   proves the stronger half — every digest is the image built from the current tool source, read from each
-  image's signed provenance over a coarse `tools/`+`lib/` diff-set (it over-flags a harmless rebuild
-  rather than miss a stale image). Both are blocking release gates that fail closed on a backend error
-  (exit 2 = precondition unverified); source-freshness also runs as a **weekly advisory**, and is **not**
+  image's signed provenance and diffed over the same build-input paths the publish workflow triggers on
+  (`test/check_publish_trigger.py` derives that set from the Dockerfiles and holds trigger and gate in
+  agreement, so a flagged image is always one a push to main already rebuilt). Both are blocking release
+  gates that fail closed on a backend error (exit 2 = precondition unverified);
+  source-freshness also runs as a **weekly advisory**, and is **not**
   a per-signing-run blocker (that would false-block signing during the normal bump window). Then tag. No
   image is built or re-tagged at release time.
 

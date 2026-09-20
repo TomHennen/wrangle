@@ -18,8 +18,8 @@ set -f  # disable globbing — handles external tool names
 #       with unchanged source (container builds aren't bit-reproducible); the
 #       remediation (a digest bump) is harmless then.
 #     - False negative: a source change that doesn't republish the image leaves
-#       :latest unchanged. The publish trigger covers tools/** and lib/**, so the
-#       window is small but real.
+#       :latest unchanged. The publish trigger covers every Dockerfile build
+#       input, so the window is small but real.
 #
 # Digest resolution is an anonymous GHCR registry-API call over curl (the curated
 # images are public); the index media types in Accept return the same multi-arch

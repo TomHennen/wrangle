@@ -114,9 +114,11 @@ whatever is already set.
   registry calls off PRs). It proves adoption-lag only;
   `tools/check_catalog_provenance_freshness.sh` proves the stronger half — it
   reads each pinned digest's signed SLSA provenance, takes the build commit, and
-  fails if any image build input (`tools/` + `lib/`, the publish trigger's paths,
-  excluding the catalog file) changed between that commit and HEAD (also a release
-  gate, needs full git history). After a publish, `local_publish_images.yml`
+  fails if any image build input changed between that commit and HEAD (also a
+  release gate, needs full git history). Its diff-set is the publish trigger's
+  path set; `test/check_publish_trigger.py` derives that set from the Dockerfiles
+  and fails if the trigger, the gate, or a Dockerfile `COPY` drifts from it.
+  After a publish, `local_publish_images.yml`
   auto-**opens** (never auto-merges) a bump PR — `tools/bump_catalog_to_latest.sh`
   repoints each drifted `ghcr.io/tomhennen/wrangle/*` entry to its new `:latest`,
   `tools/open_catalog_bump_pr.sh` opens the PR (requires the repo setting *"Allow
