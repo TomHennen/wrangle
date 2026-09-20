@@ -1,6 +1,6 @@
 #!/bin/bash
-# Validates inputs to the Go checks composite: path + cache enum,
-# plus go.mod presence in the project directory.
+# Validates inputs to the Go checks composite: path, cache and
+# govulncheck enums, plus go.mod presence in the project directory.
 #
 # Does NOT require `.goreleaser.yml` — the checks composite runs
 # quality gates that are useful even on projects that haven't yet
@@ -8,21 +8,28 @@
 # enforces .goreleaser.yml presence at that side of the pipeline.
 #
 # Usage: build/actions/go/checks/validate_inputs.sh <path> <cache>
+#                                                   <govulncheck>
 
 set -euo pipefail
 set -f  # processes external arguments — disable globbing per CLAUDE.md
 
-if [[ $# -ne 2 ]]; then
-    printf 'Usage: %s <path> <cache>\n' "$0" >&2
+if [[ $# -ne 3 ]]; then
+    printf 'Usage: %s <path> <cache> <govulncheck>\n' "$0" >&2
     exit 1
 fi
 
 INPUT_PATH="$1"
 INPUT_CACHE="$2"
+INPUT_GOVULNCHECK="$3"
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
 if [[ "$INPUT_CACHE" != "enabled" && "$INPUT_CACHE" != "disabled" ]]; then
     printf 'Error: cache input must be one of enabled|disabled (got: %s)\n' "$INPUT_CACHE" >&2
+    exit 1
+fi
+
+if [[ "$INPUT_GOVULNCHECK" != "fail" && "$INPUT_GOVULNCHECK" != "info" ]]; then
+    printf 'Error: govulncheck input must be one of fail|info (got: %s)\n' "$INPUT_GOVULNCHECK" >&2
     exit 1
 fi
 

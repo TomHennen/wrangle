@@ -43,7 +43,7 @@ Push a `v`-prefixed semver tag (e.g. `v1.2.3`) and wrangle runs the full pipelin
 ## What you get
 
 - **Source scan** built in — vulnerable dependencies (OSV), unsafe workflow patterns (Zizmor), and more ([details](../../../actions/scan/README.md)); a load-bearing finding blocks the release. No separate scan workflow needed.
-- **Checks before bytes ship** — gofmt, `go vet`, `go test`, govulncheck run in a read-only job; a failure blocks the release job.
+- **Checks before bytes ship** — gofmt, `go vet`, `go test`, govulncheck run in a read-only job; a failure blocks the release job. govulncheck blocks only on a vulnerability your code actually *calls* — Go stdlib ones included, which dependency scanners never show you.
 - **An SPDX SBOM, scan findings (incl. govulncheck), and the signed bundle** in one `go-metadata-<sn>` workflow artifact ([what's in it](../../../docs/metadata_layout.md)).
 - **SLSA Build L3 provenance** tying each artifact to the workflow that built it ([the requirements it meets](../../../docs/REQUIREMENTS_MAPPING.md)).
 - **Release assets on tag pushes** — wrangle uploads the dist archives, `checksums.txt`, each `<archive>.intoto.jsonl` bundle (signed VSA + provenance), and a `go-metadata-<sn>.zip` with the SBOM + scan results to the tag's release (created if absent). Only attested bytes are published. Downstream users verify with one command.
@@ -56,6 +56,7 @@ Push a `v`-prefixed semver tag (e.g. `v1.2.3`) and wrangle runs the full pipelin
 - **Private repos** — wrangle can't attest a private repo (it would leak the repo to a public transparency log), so set `attest-and-verify: disabled` to ship an unattested release (tests, scans, SBOM, checksums — no provenance or VSA). See [the FAQ](../../../docs/FAQ.md#can-i-use-wrangle-on-a-private-repo).
 - **Provenance covers everything in `checksums.txt`** — the archives wrangle publishes. goreleaser's Docker/Homebrew/deb/rpm/announce verbs don't run under wrangle (it publishes only what it can attest); pair with the [container build type](../container/README.md) for attested images.
 - **`pull_request_target` can't trigger this workflow** — that trigger (and `workflow_run` chained from it) is a common exploit vector, so wrangle blocks both at startup.
+- **When govulncheck goes red**, upgrade the affected module — or, for a stdlib finding, the `go` directive in your `go.mod`. If upstream has no fix, add an `[[IgnoredVulns]]` entry with a `reason` and an `ignoreUntil` to the `osv-scanner.toml` next to your `go.mod`; the same file already drives OSV's suppressions, and the expiry brings the finding back so you re-decide instead of forgetting. Need the whole check advisory-only? Pass `govulncheck: info`. Details in [`SPEC.md`](./SPEC.md) "Failure semantics".
 - **`release-events`** (default: `tag-only`) controls which events run the full pipeline — see [`docs/SPEC.md`](../../../docs/SPEC.md) "Release-events gating".
 - **Workflow outputs** are documented in [`build_and_publish_go.yml`](../../../.github/workflows/build_and_publish_go.yml) itself.
 - **Enable Dependabot too** — copy [`dependabot.yml`](../../../gh_workflow_examples/dependabot.yml) to `.github/` and uncomment the `gomod` entry. Its `github-actions` entry also keeps your `uses: TomHennen/wrangle/...` pin current.

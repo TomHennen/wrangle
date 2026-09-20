@@ -48,6 +48,16 @@ inputs:
       cover the adopter's generators.
     required: false
     default: "true"
+  govulncheck:
+    description: |
+      How govulncheck findings are treated, mirroring the scan
+      action's `:info` idiom. "fail" (default) fails this job on a
+      finding govulncheck traced to a called symbol, unless
+      `<path>/osv-scanner.toml` suppresses its id. "info" reports
+      those findings without failing. Findings that could not be
+      traced to a symbol are always warnings only.
+    required: false
+    default: "fail"
   govulncheck-version:
     description: |
       Pinned semver for govulncheck (e.g., "v1.1.4"). Wrangle does
@@ -73,9 +83,10 @@ runs:
       env:
         INPUT_PATH: ${{ inputs.path }}
         INPUT_CACHE: ${{ inputs.cache }}
+        INPUT_GOVULNCHECK: ${{ inputs.govulncheck }}
       run: |
         set -euo pipefail
-        "${{ github.action_path }}/validate_inputs.sh" "$INPUT_PATH" "$INPUT_CACHE"
+        "${{ github.action_path }}/validate_inputs.sh" "$INPUT_PATH" "$INPUT_CACHE" "$INPUT_GOVULNCHECK"
 
     - name: Compute metadata
       id: metadata
@@ -105,10 +116,11 @@ runs:
         INPUT_PATH: ${{ inputs.path }}
         METADATA_DIR: ${{ steps.metadata.outputs.metadata-dir }}
         GOVULN_VERSION: ${{ inputs.govulncheck-version }}
+        GOVULN_MODE: ${{ inputs.govulncheck }}
         RUN_RACE: ${{ inputs.run-race-detector }}
         RUN_GOFMT: ${{ inputs.run-gofmt-check }}
       run: |
         set -euo pipefail
         mkdir -p "$METADATA_DIR"
         "${{ github.action_path }}/../../../../lib/stop_commands_guard.sh" run \
-          "${{ github.action_path }}/run_checks.sh" "$INPUT_PATH" "$METADATA_DIR" "$GOVULN_VERSION" "$RUN_RACE" "$RUN_GOFMT"
+          "${{ github.action_path }}/run_checks.sh" "$INPUT_PATH" "$METADATA_DIR" "$GOVULN_VERSION" "$RUN_RACE" "$RUN_GOFMT" "$GOVULN_MODE"

@@ -133,6 +133,32 @@ The permission cascade lesson from python ([HOW_TO_ADD_A_BUILD_TYPE.md "Permissi
 
 `pkg.go.dev` indexing is automatic — `proxy.golang.org` discovers tags within minutes of `git push --tags`. No publish step, no auth.
 
+## Failure semantics
+
+The `checks` job runs four gates, and each one that fails blocks the `release` job.
+
+- **gofmt, `go vet`, `go test`** — a failure fails the job.
+- **`govulncheck`** — a finding whose innermost trace frame names a function (govulncheck's *symbol* level: the vulnerable symbol is reachable from the module's own code) fails the job. `govulncheck -format json` exits 0 whatever it finds, so the gate decides from the stream and treats a non-zero exit, unparseable output, or an unreadable suppression config as a failure — it never passes on an error it cannot interpret.
+- **Findings below the symbol level** — module- and package-level records, which is how govulncheck reports an advisory whose OSV entry carries no affected symbol (Go toolchain advisories among them) — are printed as warnings with their ids and never fail the job.
+
+The JSON is written to `<metadata_dir>/govulncheck.json` and folded into the unified metadata either way.
+
+Both scanners ship because they complement rather than compete: `osv-scanner` reads `go.sum` in `actions/scan` and catches vulnerable dependency versions the callgraph misses, while `govulncheck` is callgraph-based and catches reachable ones — including Go stdlib advisories, which osv never reports. Gating on osv but not govulncheck would be backwards: `actions/scan` runs `osv` at its default `:fail`, and a govulncheck symbol-level finding is the *more* precise of the two signals (a proven call path), so it is the one least likely to be a false positive.
+
+### Suppressing a finding
+
+wrangle reads `[[IgnoredVulns]]` entries — `id`, plus an optional `ignoreUntil` — from the `osv-scanner.toml` **beside the scanned `go.mod`** (i.e. `<path>/osv-scanner.toml`), mirroring [osv-scanner's own config discovery](https://google.github.io/osv-scanner/configuration/): the config applies to the manifests in its own directory, and wrangle does not walk parent directories. One file therefore suppresses an advisory for both scanners, and the shared `GO-…` ids line up. An `ignoreUntil` that has passed stops suppressing, so a suppression is re-decided rather than inherited; `ignoreUntil` accepts osv-scanner's documented bare date as well as a TOML datetime, and a value with no offset is read as UTC.
+
+Parsing that file needs `python3` ≥ 3.11 (`tomllib`), which the GitHub-hosted runner images provide. If the file exists and no such interpreter does, the gate fails rather than scanning without the allowlist.
+
+### Opting out
+
+The `govulncheck: fail|info` input (on both the composite and `build_and_publish_go.yml`) mirrors the scan action's `:info` suffix: `info` keeps the full report but never fails the job. It is validated against the `fail|info` allowlist in `validate_inputs.sh` before it reaches the script.
+
+### govulncheck version pinning
+
+The version adopters run is the `govulncheck-version` default on the checks composite, and `test/Dockerfile`'s `GOVULNCHECK_VERSION` installs the same one so the unit suite proves out the shipped version; `test/test_govulncheck_pin_consistency.bats` fails when the two drift. `tools/go.mod`'s `golang.org/x/vuln` is a third, independent site — it builds the govulncheck that wrangle's *integration* toolchain installs (`test/setup_integration.sh`), moves on Dependabot's schedule, and is never what the composite installs.
+
 ## Validation-only sub-shape (non-binary repos) — deferred to v0.2.x
 
 Library-only modules and `go install`-pattern repos that don't produce a binary at release time are *not* permanently out of scope. The value-add wrangle would offer them — SBOM (`syft dir:.` against the source tree), `go test ./...`, vulnscan via `osv-scanner` against `go.sum` (or `govulncheck` as a Go-aware alternative), and lint (`gofmt`, `golangci-lint`) — is real, and the surface is structurally similar to wrangle's existing `shell` build type (validation-only, no artifact, no provenance). What this sub-shape doesn't add is SLSA build provenance — there's no build artifact wrangle produces, so there's nothing to attest; `sum.golang.org`'s tlog already serves source integrity for `go install`-style consumers, and SLSA source-track attestations (a separate workstream) cover the "this tag was reviewed/tested/scanned by my CI" property orthogonally.
@@ -183,7 +209,6 @@ Practical notes for whoever picks up the implementation PR.
 - **Binary vs. validate-only as one action or two.** See "Validation-only sub-shape." Decide in the implementation PR.
 - **Lint placement is decided: source-stage only.** Lint runs in `actions/scan` alongside OSV/Zizmor/Scorecard, not in the Go build action. Wrangle-wide; python and container should adopt source-stage lint too in the same iteration to stay consistent.
 - **`.goreleaser.yml` template ownership.** Should wrangle ship a starter `.goreleaser.yml` for adopters (with `-trimpath` / `-buildvcs=false` baked in), or require adopters to bring their own and validate it has the reproducibility flags? Python doesn't ship a starter `pyproject.toml`; consistency with python argues "require adopters to bring their own."
-- **`govulncheck` for Go-aware vulnscan, complementary to OSV-Scanner.** Recommendation is to support `govulncheck` for Go projects — it's Go-aware (callgraph-based), so it has a lower false-positive rate than lockfile scanning by reporting only vulnerabilities actually reachable from the project's code. OSV-Scanner against `go.sum` stays as a candidate too (it complements rather than competes — OSV catches vulnerable deps the callgraph misses). Decide whether to ship both or just `govulncheck` in the implementation PR; not load-bearing for Phase 1.
 
 ## Follow-ups tracked separately
 

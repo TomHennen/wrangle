@@ -60,6 +60,23 @@ jobs:
           WRANGLE_TEST_IMAGE_PREBUILT: "1"
         run: ./test.sh
 
+  # Dogfood the Go checks action on wrangle's own Go module: a vulnerability
+  # reachable from tools/ — Go stdlib ones included, which osv never reports
+  # — blocks a wrangle PR. Its gofmt/vet/test overlap `make gotest`; running
+  # the action adopters run is the point.
+  go-checks:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          persist-credentials: false
+
+      - uses: $/build/actions/go/checks
+        with:
+          path: tools
+
   # Real keyless signing through the engine: the unit suite is hermetic
   # (local-key) and the dispatch e2e proves the full bnd-push + ampel round-trip,
   # so this job covers the one path neither does — that wrangle-attest --sign

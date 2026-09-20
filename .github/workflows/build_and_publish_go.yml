@@ -51,6 +51,17 @@ on:
         required: false
         type: boolean
         default: true
+      govulncheck:
+        description: |
+          How govulncheck findings are treated, mirroring the scan
+          tools' `:info` idiom. `fail` (default) fails the checks job
+          on a vulnerability govulncheck traced to a called symbol,
+          unless `<path>/osv-scanner.toml` suppresses its id. `info`
+          reports those findings without failing. Findings that could
+          not be traced to a symbol are always warnings only.
+        required: false
+        type: string
+        default: fail
       release-events:
         description: |
           Which events should trigger wrangle's full pipeline (build,
@@ -217,6 +228,7 @@ jobs:
           go-version: ${{ inputs.go-version }}
           run-race-detector: ${{ inputs.run-race-detector }}
           run-gofmt-check: ${{ inputs.run-gofmt-check }}
+          govulncheck: ${{ inputs.govulncheck }}
           # Caches are disabled on release builds (the same `should-release`
           # signal that gates the attest/verify jobs) — Go's build cache trusts pre-
           # derived compiled output without re-derivation (same shape as
@@ -230,7 +242,7 @@ jobs:
         with:
           name: ${{ needs.prep.outputs.checks }}
           path: ${{ steps.checks.outputs.metadata-dir }}/
-          if-no-files-found: warn   # govulncheck JSON is informational; not having it is OK
+          if-no-files-found: warn
           retention-days: 1
 
   # Goreleaser invocation (--skip=publish) + SBOM + hash. contents: read

@@ -13,7 +13,8 @@
 # cannot push to the repo even if compromised.
 #
 # Pure decision functions (`is_generated_file`, `list_unformatted`,
-# `count_findings`) live alongside main() so test.bats can source
+# `suppressed_ids`, `reachable_ids`, `unreached_ids`,
+# `govulncheck_verdict`) live alongside main() so test.bats can source
 # this file and call them directly, mirroring
 # build/actions/npm/build_and_pack.sh's three-layer pattern (pure
 # function tests, behavioral tests against fixture dirs, integration
@@ -21,16 +22,19 @@
 #
 # Failure semantics:
 #   - gofmt/vet/test failures fail the build (these are quality gates).
-#   - govulncheck findings are INFORMATIONAL: counted, summarized to
-#     $GITHUB_STEP_SUMMARY and the JSON written to <metadata_dir>/
-#     govulncheck.json, but do NOT fail the build. Matches OSV-Scanner's
-#     posture in actions/scan. Reasoning in build/actions/go/SPEC.md
-#     "Failure semantics."
-#   - govulncheck tool errors (network, infra) still propagate.
+#   - a govulncheck finding traced to a called symbol fails the build
+#     unless <path>/osv-scanner.toml suppresses its id; govulncheck_mode
+#     "info" downgrades that to a report.
+#   - findings govulncheck could not trace to a symbol are printed as
+#     warnings and never fail the build.
+#   - tool, parse, and config errors propagate (fail closed).
+#   The JSON is written to <metadata_dir>/govulncheck.json either way.
+#   Reasoning in build/actions/go/SPEC.md "Failure semantics."
 #
 # Usage: build/actions/go/checks/run_checks.sh <path> <metadata_dir>
 #                                              <govulncheck_version>
 #                                              <run_race> <run_gofmt>
+#                                              <govulncheck_mode>
 #
 #   path:                 project directory (already validated by
 #                         the composite's validate_inputs.sh)
@@ -47,6 +51,10 @@
 #   run_gofmt:            "true" → run gofmt check (with the
 #                         generated-file auto-skip below);
 #                         anything else → skip gofmt entirely.
+#   govulncheck_mode:     "fail" → an unsuppressed reachable finding
+#                         fails the build; "info" → report only.
+#                         Validated by the composite's
+#                         validate_inputs.sh.
 
 set -euo pipefail
 set -f  # processes external arguments — disable globbing per CLAUDE.md
@@ -94,32 +102,123 @@ list_unformatted() {
     )
 }
 
-# Pure function: count the number of finding records in a
-# govulncheck -json output file. Each finding emits a JSON object
-# with a top-level `finding` key. We parse the JSON stream with jq
-# rather than grep — a literal grep on `"finding"` would drift on
-# any future govulncheck schema addition like `findings_url`,
-# `finding_count`, or a vuln ID containing the substring.
+# Pure function: vulnerability ids <osv_config> still suppresses at
+# <now> (RFC 3339 UTC), one per line. An entry whose `ignoreUntil` has
+# passed no longer suppresses, matching osv-scanner: the expiry is a
+# forced-revisit tripwire, not an inherited pass. A missing config
+# suppresses nothing; an unreadable one fails closed.
 #
-# govulncheck -json emits a stream of JSON objects (one per
-# protocol message, NDJSON-style). `jq -s` reads the whole stream
-# as an array; the filter selects elements where `.finding` is
-# non-null and prints the length.
+# Args: <osv_config> <now>
+suppressed_ids() {
+    local config="$1" now="$2"
+    [[ -f "$config" ]] || return 0
+    if ! command -v python3 >/dev/null 2>&1 || ! python3 -c 'import tomllib' >/dev/null 2>&1; then
+        printf 'govulncheck: reading %s needs python3 >= 3.11 (tomllib), which is not available.\n' "$config" >&2
+        return 2
+    fi
+    python3 -c '
+import datetime, sys, tomllib
+
+# osv-scanner documents ignoreUntil as a bare date; TOML also admits a datetime,
+# with or without an offset. Normalise all three to an aware UTC datetime.
+def as_utc(value):
+    if not isinstance(value, datetime.datetime):
+        value = datetime.datetime.combine(value, datetime.time.min)
+    if value.tzinfo is None:
+        value = value.replace(tzinfo=datetime.timezone.utc)
+    return value
+
+with open(sys.argv[1], "rb") as fh:
+    config = tomllib.load(fh)
+now = as_utc(datetime.datetime.fromisoformat(sys.argv[2]))
+for entry in config.get("IgnoredVulns", []):
+    until = entry.get("ignoreUntil")
+    if until is None or as_utc(until) > now:
+        print(entry["id"])
+' "$config" "$now"
+}
+
+# Pure function: vulnerability ids govulncheck proved a call path to —
+# a trace whose innermost frame names a function is its symbol level.
+# Module- and package-level findings are excluded; see unreached_ids.
 #
-# govulncheck -json ALWAYS exits 0 on a successful scan regardless
-# of findings; tool errors (network, infra) are the only non-zero
-# exit signal. So a missing file just means no scan happened —
-# return 0 rather than failing.
+# govulncheck -json emits a stream of JSON objects (one per protocol
+# message, NDJSON-style), so `jq -rs` reads the whole stream as an
+# array. Parsing with jq rather than grep keeps a schema addition like
+# `findings_url` from being mistaken for a finding, and makes malformed
+# output a non-zero exit instead of a silent pass.
 #
 # Args: <json_path>
-# Prints: integer >= 0
-count_findings() {
-    local json="$1"
-    if [[ ! -s "$json" ]]; then
-        printf '0\n'
-        return
+reachable_ids() {
+    jq -rs '[.[] | select(.finding.trace[0].function != null) | .finding.osv] | unique | .[]' "$1"
+}
+
+# Pure function: vulnerability ids reported only below the symbol
+# level. Module level is how govulncheck reports an advisory carrying
+# no affected symbol — a Go toolchain advisory among them — so these
+# are surfaced rather than dropped.
+#
+# Args: <json_path>
+unreached_ids() {
+    jq -rs '
+        [.[] | select(.finding != null) | .finding] as $findings
+        | ([$findings[] | select(.trace[0].function != null) | .osv] | unique) as $called
+        | [$findings[] | select(.trace[0].function == null) | .osv]
+        | unique | map(select(IN($called[]) | not)) | .[]' "$1"
+}
+
+# Decide the outcome of a finished govulncheck scan: prints the human
+# report to stderr and the step-summary cell to stdout, and returns 1
+# when <mode> is "fail" and an unsuppressed symbol-level finding
+# remains. Errors reading either input propagate (fail closed).
+#
+# Args: <json_path> <osv_config> <mode> <now>
+govulncheck_verdict() {
+    local json="$1" config="$2" mode="$3" now="$4"
+
+    # Explicit `|| return`: main calls this through `||`, which suppresses
+    # errexit for the whole call, so a parse failure must be handled here.
+    local suppressed_list reachable_list unreached_list
+    suppressed_list="$(suppressed_ids "$config" "$now" | LC_ALL=C sort -u)" || return $?
+    reachable_list="$(reachable_ids "$json" | LC_ALL=C sort -u)" || return $?
+    unreached_list="$(unreached_ids "$json" | LC_ALL=C sort -u)" || return $?
+
+    local id
+    while IFS= read -r id; do
+        [[ -n "$id" ]] || continue
+        printf 'govulncheck: %s is reachable but suppressed by %s\n' "$id" "$config" >&2
+    done < <(LC_ALL=C comm -12 <(printf '%s\n' "$reachable_list") <(printf '%s\n' "$suppressed_list"))
+
+    while IFS= read -r id; do
+        [[ -n "$id" ]] || continue
+        printf 'govulncheck: warning: %s affects a required module but no call to it was traced — https://pkg.go.dev/vuln/%s\n' "$id" "$id" >&2
+    done < <(LC_ALL=C comm -23 <(printf '%s\n' "$unreached_list") <(printf '%s\n' "$suppressed_list"))
+
+    local -a blocking=()
+    while IFS= read -r id; do
+        [[ -n "$id" ]] || continue
+        blocking+=("$id")
+    done < <(LC_ALL=C comm -23 <(printf '%s\n' "$reachable_list") <(printf '%s\n' "$suppressed_list"))
+
+    if (( ${#blocking[@]} == 0 )); then
+        printf 'govulncheck: no unsuppressed reachable vulnerabilities.\n' >&2
+        printf 'no unsuppressed reachable findings\n'
+        return 0
     fi
-    jq -s '[.[] | select(.finding != null)] | length' "$json"
+
+    printf 'govulncheck: reachable vulnerabilities with no entry in %s:\n' "$config" >&2
+    for id in "${blocking[@]}"; do
+        printf '  %s  https://pkg.go.dev/vuln/%s\n' "$id" "$id" >&2
+    done
+    printf 'Upgrade the affected module (or the Go toolchain, for a stdlib finding). If upstream\n' >&2
+    printf 'has no fix, add an [[IgnoredVulns]] entry with a reason and an ignoreUntil to %s.\n' "$config" >&2
+
+    if [[ "$mode" != "fail" ]]; then
+        printf '%d reachable finding(s) — informational (govulncheck: info)\n' "${#blocking[@]}"
+        return 0
+    fi
+    printf 'FAILED — %d unsuppressed reachable finding(s)\n' "${#blocking[@]}"
+    return 1
 }
 
 # Pure function: install govulncheck via `go install` at the pinned
@@ -244,22 +343,24 @@ run_test_step() {
 }
 
 # Install govulncheck, run it, write JSON to <metadata_dir>/govulncheck.json,
-# and print the finding count. Findings are informational (never
-# fail the build); tool errors propagate.
-# Args: <input_path> <metadata_dir_abs> <govulncheck_version>
-# Prints: integer finding count to stdout (caller can capture)
+# and hand the stream to govulncheck_verdict. Prints the step-summary
+# cell to stdout; the report goes to stderr. Tool errors propagate.
+# The suppression allowlist is the osv-scanner.toml beside the scanned
+# go.mod, which is where osv-scanner itself looks for it.
+# Args: <input_path> <metadata_dir_abs> <govulncheck_version> <mode>
 run_govulncheck_step() {
     local input_path="$1"
     local metadata_dir_abs="$2"
     local version="$3"
+    local mode="$4"
     printf '\n== govulncheck ==\n' >&2
     local govuln_bin govuln_out
-    govuln_bin="$(install_govulncheck "$version")"
+    govuln_bin="$(install_govulncheck "$version")" || return $?
     govuln_out="$metadata_dir_abs/govulncheck.json"
 
     # govulncheck -json exits 0 even on findings (findings live in
     # the JSON, not the exit code); non-zero means a tool error
-    # (network, infra). Tool errors propagate; findings don't fail.
+    # (network, infra), so the gate decides from the stream.
     set +e
     ( cd "$input_path" && "$govuln_bin" -json ./... ) > "$govuln_out"
     local status=$?
@@ -267,28 +368,21 @@ run_govulncheck_step() {
 
     if (( status != 0 )); then
         printf 'govulncheck: tool error (exit %d). JSON output: %s\n' "$status" "$govuln_out" >&2
-        exit "$status"
+        return "$status"
     fi
 
-    local findings
-    findings="$(count_findings "$govuln_out")"
-    if (( findings == 0 )); then
-        printf 'govulncheck: no reachable vulnerabilities.\n' >&2
-    else
-        printf 'govulncheck: %s reachable vulnerability finding(s) (informational; not failing the build).\n' "$findings" >&2
-        printf 'JSON output: %s\n' "$govuln_out" >&2
-        # shellcheck disable=SC2016 # backticks here are human-readable formatting, not command substitution
-        printf 'Re-run locally with `govulncheck ./...` for human-readable findings.\n' >&2
-    fi
-    printf '%s\n' "$findings"
+    printf 'JSON output: %s\n' "$govuln_out" >&2
+    local now
+    now="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+    govulncheck_verdict "$govuln_out" "$input_path/osv-scanner.toml" "$mode" "$now"
 }
 
 # Append the quality-checks step summary block to $GITHUB_STEP_SUMMARY.
-# Args: <run_gofmt> <run_race> <findings>
+# Args: <run_gofmt> <run_race> <govulncheck_cell>
 write_step_summary() {
     local run_gofmt="$1"
     local run_race="$2"
-    local findings="$3"
+    local govulncheck_cell="$3"
     [[ -n "${GITHUB_STEP_SUMMARY:-}" ]] || return 0
     {
         printf '## Go quality checks\n\n'
@@ -304,15 +398,15 @@ write_step_summary() {
         else
             printf '| go test | passed |\n'
         fi
-        printf '| govulncheck | %s reachable finding(s) — informational |\n' "$findings"
+        printf '| govulncheck | %s |\n' "$govulncheck_cell"
     } >> "$GITHUB_STEP_SUMMARY"
 }
 
 # --- main orchestrator -----------------------------------------------
 
 main() {
-    if [[ $# -ne 5 ]]; then
-        printf 'Usage: %s <path> <metadata_dir> <govulncheck_version> <run_race> <run_gofmt>\n' "$0" >&2
+    if [[ $# -ne 6 ]]; then
+        printf 'Usage: %s <path> <metadata_dir> <govulncheck_version> <run_race> <run_gofmt> <govulncheck_mode>\n' "$0" >&2
         exit 1
     fi
 
@@ -321,6 +415,7 @@ main() {
     local govulncheck_version="$3"
     local run_race="$4"
     local run_gofmt="$5"
+    local govulncheck_mode="$6"
 
     # Resolve the metadata path BEFORE any cd, so subsequent writes
     # resolve to the workspace root. realpath -m handles trailing
@@ -335,10 +430,13 @@ main() {
     run_vet_step "$input_path"
     run_test_step "$input_path" "$run_race"
 
-    local findings
-    findings="$(run_govulncheck_step "$input_path" "$metadata_dir_abs" "$govulncheck_version")"
+    local govulncheck_cell govulncheck_status=0
+    govulncheck_cell="$(run_govulncheck_step "$input_path" "$metadata_dir_abs" \
+        "$govulncheck_version" "$govulncheck_mode")" || govulncheck_status=$?
+    [[ -n "$govulncheck_cell" ]] || govulncheck_cell="errored — see the step log"
 
-    write_step_summary "$run_gofmt" "$run_race" "$findings"
+    write_step_summary "$run_gofmt" "$run_race" "$govulncheck_cell"
+    return "$govulncheck_status"
 }
 
 # Sourcing guard: tests source this file to call decision functions

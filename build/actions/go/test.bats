@@ -8,8 +8,8 @@ load "../../../test/lib/bats_helpers"
 #
 # Three layers, matching the npm build_and_pack.sh pattern:
 #   1. Pure-function tests that source the scripts and call decision
-#      functions directly (is_generated_file, list_unformatted,
-#      count_findings, encode_hashes). No shims.
+#      functions directly (is_generated_file, list_unformatted, the
+#      govulncheck gate functions, encode_hashes). No shims.
 #   2. Behavioral tests that invoke validate_inputs.sh and the main
 #      orchestrators against fixture project directories.
 #   3. Structural greps over the action.yml files and the reusable
@@ -18,7 +18,7 @@ load "../../../test/lib/bats_helpers"
 #   4. Integration tests against the real Go toolchain + real
 #      govulncheck binary — the test image (see test/Dockerfile)
 #      pre-installs both, so list_unformatted, run_checks.sh main(),
-#      count_findings, and install_govulncheck idempotency get
+#      and install_govulncheck idempotency get
 #      exercised against actual tools rather than shims. The Go-
 #      requiring tests skip cleanly when run outside the test image
 #      (e.g., on a developer's machine without Go), so non-Docker
@@ -99,26 +99,232 @@ func main() {}
     [[ "$status" -ne 0 ]]
 }
 
-@test "go.checks: count_findings returns 0 on missing file" {
-    run bash -c 'source "$1"; count_findings "$2"' -- "$CHECKS_DIR/run_checks.sh" "$BATS_TEST_TMPDIR/missing.json"
-    [[ "$status" -eq 0 ]]
-    [[ "$output" == "0" ]]
+# --- govulncheck gate decision functions -----------------------------
+#
+# Hermetic: each function is driven with a fixture govulncheck JSON
+# stream or osv-scanner.toml, so the gate's behaviour is pinned without
+# the vulnerability database or a real scan. Ported from #847.
+
+suppressed() {
+    run bash -c 'source "$1"; suppressed_ids "$2" "$3"' -- "$CHECKS_DIR/run_checks.sh" "$1" "$2"
 }
 
-@test "go.checks: count_findings returns 0 on empty file" {
-    local f="$BATS_TEST_TMPDIR/empty.json"
-    : > "$f"
-    run bash -c 'source "$1"; count_findings "$2"' -- "$CHECKS_DIR/run_checks.sh" "$f"
-    [[ "$status" -eq 0 ]]
-    [[ "$output" == "0" ]]
+reachable() {
+    run bash -c 'source "$1"; reachable_ids "$2"' -- "$CHECKS_DIR/run_checks.sh" "$1"
 }
 
-@test "go.checks: count_findings counts \"finding\" key occurrences" {
-    local f="$BATS_TEST_TMPDIR/findings.json"
-    printf '{"x": 1}\n{"finding": {"id": "A"}}\n{"finding": {"id": "B"}}\n{"other": 1}\n' > "$f"
-    run bash -c 'source "$1"; count_findings "$2"' -- "$CHECKS_DIR/run_checks.sh" "$f"
+unreached() {
+    run bash -c 'source "$1"; unreached_ids "$2"' -- "$CHECKS_DIR/run_checks.sh" "$1"
+}
+
+verdict() {
+    run bash -c 'source "$1"; govulncheck_verdict "$2" "$3" "$4" "$5"' \
+        -- "$CHECKS_DIR/run_checks.sh" "$1" "$2" "$3" "$4"
+}
+
+@test "go.checks: suppressed_ids honours an unexpired entry" {
+    local config="$BATS_TEST_TMPDIR/osv-scanner.toml"
+    printf '[[IgnoredVulns]]\nid = "GO-2026-5932"\nignoreUntil = 2026-10-11T00:00:00Z\nreason = "no fix upstream"\n' > "$config"
+    suppressed "$config" "2026-09-20T00:00:00Z"
     [[ "$status" -eq 0 ]]
-    [[ "$output" == "2" ]]
+    [[ "$output" == "GO-2026-5932" ]]
+}
+
+@test "go.checks: suppressed_ids stops honouring an expired entry" {
+    local config="$BATS_TEST_TMPDIR/osv-scanner.toml"
+    printf '[[IgnoredVulns]]\nid = "GO-2026-5932"\nignoreUntil = 2026-10-11T00:00:00Z\nreason = "no fix upstream"\n' > "$config"
+    suppressed "$config" "2026-10-11T00:00:01Z"
+    [[ "$status" -eq 0 ]]
+    [[ -z "$output" ]]
+}
+
+@test "go.checks: suppressed_ids honours an entry with no ignoreUntil indefinitely" {
+    local config="$BATS_TEST_TMPDIR/osv-scanner.toml"
+    printf '[[IgnoredVulns]]\nid = "GO-2026-6225"\nreason = "no fix upstream"\n' > "$config"
+    suppressed "$config" "2099-01-01T00:00:00Z"
+    [[ "$status" -eq 0 ]]
+    [[ "$output" == "GO-2026-6225" ]]
+}
+
+@test "go.checks: suppressed_ids does not suppress an id quoted inside a reason" {
+    local config="$BATS_TEST_TMPDIR/osv-scanner.toml"
+    printf '[[IgnoredVulns]]\nid = "GO-2026-5932"\nignoreUntil = 2026-10-11T00:00:00Z\nreason = "supersedes id = \\"GO-1999-0001\\" upstream"\n' > "$config"
+    suppressed "$config" "2026-09-20T00:00:00Z"
+    [[ "$status" -eq 0 ]]
+    [[ "$output" == "GO-2026-5932" ]]
+}
+
+@test "go.checks: suppressed_ids reads a bare-date ignoreUntil as UTC midnight" {
+    # osv-scanner's own docs write ignoreUntil as a bare date, so a copied
+    # entry must compare cleanly rather than raise.
+    local config="$BATS_TEST_TMPDIR/osv-scanner.toml"
+    printf '[[IgnoredVulns]]\nid = "GO-2026-5932"\nignoreUntil = 2026-10-11\nreason = "no fix upstream"\n' > "$config"
+    suppressed "$config" "2026-10-10T23:59:59Z"
+    [[ "$status" -eq 0 ]]
+    [[ "$output" == "GO-2026-5932" ]]
+
+    suppressed "$config" "2026-10-11T00:00:01Z"
+    [[ "$status" -eq 0 ]]
+    [[ -z "$output" ]]
+}
+
+@test "go.checks: suppressed_ids reads an offset-less ignoreUntil as UTC" {
+    local config="$BATS_TEST_TMPDIR/osv-scanner.toml"
+    printf '[[IgnoredVulns]]\nid = "GO-2026-5932"\nignoreUntil = 2026-10-11T06:00:00\nreason = "no fix upstream"\n' > "$config"
+    suppressed "$config" "2026-10-11T05:00:00Z"
+    [[ "$status" -eq 0 ]]
+    [[ "$output" == "GO-2026-5932" ]]
+}
+
+@test "go.checks: suppressed_ids suppresses nothing when no config exists" {
+    suppressed "$BATS_TEST_TMPDIR/absent.toml" "2026-09-20T00:00:00Z"
+    [[ "$status" -eq 0 ]]
+    [[ -z "$output" ]]
+}
+
+@test "go.checks: suppressed_ids fails closed on an entry with no id" {
+    local config="$BATS_TEST_TMPDIR/osv-scanner.toml"
+    printf '[[IgnoredVulns]]\nignoreUntil = 2026-10-11T00:00:00Z\nreason = "no fix upstream"\n' > "$config"
+    suppressed "$config" "2026-09-20T00:00:00Z"
+    [[ "$status" -ne 0 ]]
+}
+
+@test "go.checks: suppressed_ids fails closed on an unparseable config" {
+    local config="$BATS_TEST_TMPDIR/osv-scanner.toml"
+    printf 'this is not toml {{\n' > "$config"
+    suppressed "$config" "2026-09-20T00:00:00Z"
+    [[ "$status" -ne 0 ]]
+}
+
+@test "go.checks: reachable_ids reports symbol-level findings only" {
+    local f="$BATS_TEST_TMPDIR/govulncheck.json"
+    {
+        printf '{"config":{"scanner_name":"govulncheck"}}\n'
+        printf '{"osv":{"id":"GO-1000-0001"}}\n'
+        printf '{"finding":{"osv":"GO-1000-0001","trace":[{"module":"example.com/m"}]}}\n'
+        printf '{"finding":{"osv":"GO-1000-0002","trace":[{"module":"example.com/m","package":"example.com/m/p"}]}}\n'
+        printf '{"finding":{"osv":"GO-1000-0003","trace":[{"module":"example.com/m","package":"example.com/m/p","function":"Bad"}]}}\n'
+    } > "$f"
+    reachable "$f"
+    [[ "$status" -eq 0 ]]
+    [[ "$output" == "GO-1000-0003" ]]
+}
+
+@test "go.checks: reachable_ids deduplicates an id reported on several traces" {
+    local f="$BATS_TEST_TMPDIR/govulncheck.json"
+    {
+        printf '{"finding":{"osv":"GO-1000-0003","trace":[{"module":"example.com/m","function":"A"}]}}\n'
+        printf '{"finding":{"osv":"GO-1000-0003","trace":[{"module":"example.com/m","function":"B"}]}}\n'
+    } > "$f"
+    reachable "$f"
+    [[ "$status" -eq 0 ]]
+    [[ "$output" == "GO-1000-0003" ]]
+}
+
+@test "go.checks: reachable_ids reports nothing for a scan with no findings" {
+    local f="$BATS_TEST_TMPDIR/govulncheck.json"
+    printf '{"config":{"scanner_name":"govulncheck"}}\n' > "$f"
+    reachable "$f"
+    [[ "$status" -eq 0 ]]
+    [[ -z "$output" ]]
+}
+
+@test "go.checks: reachable_ids ignores keys that only look like findings" {
+    # A `findings_url` field, or an advisory URL containing "finding",
+    # is not a finding record — the regression a literal grep would hit.
+    local f="$BATS_TEST_TMPDIR/govulncheck.json"
+    {
+        printf '{"osv":{"id":"GO-1000-0001","references":[{"url":"https://example.com/finding/path"}]}}\n'
+        printf '{"summary":{"findings_url":"https://example.com/findings"}}\n'
+    } > "$f"
+    reachable "$f"
+    [[ "$status" -eq 0 ]]
+    [[ -z "$output" ]]
+}
+
+@test "go.checks: reachable_ids fails closed on a malformed stream" {
+    local f="$BATS_TEST_TMPDIR/govulncheck.json"
+    printf '{"finding": \n' > "$f"
+    reachable "$f"
+    [[ "$status" -ne 0 ]]
+}
+
+@test "go.checks: unreached_ids reports module- and package-level findings" {
+    local f="$BATS_TEST_TMPDIR/govulncheck.json"
+    {
+        printf '{"config":{"scanner_name":"govulncheck"}}\n'
+        printf '{"finding":{"osv":"GO-1000-0001","trace":[{"module":"example.com/m"}]}}\n'
+        printf '{"finding":{"osv":"GO-1000-0002","trace":[{"module":"example.com/m","package":"example.com/m/p"}]}}\n'
+    } > "$f"
+    unreached "$f"
+    [[ "$status" -eq 0 ]]
+    [[ "$output" == "GO-1000-0001
+GO-1000-0002" ]]
+}
+
+@test "go.checks: unreached_ids leaves an id also seen at symbol level to reachable_ids" {
+    local f="$BATS_TEST_TMPDIR/govulncheck.json"
+    {
+        printf '{"finding":{"osv":"GO-1000-0003","trace":[{"module":"example.com/m"}]}}\n'
+        printf '{"finding":{"osv":"GO-1000-0003","trace":[{"module":"example.com/m","package":"example.com/m/p","function":"Bad"}]}}\n'
+    } > "$f"
+    unreached "$f"
+    [[ "$status" -eq 0 ]]
+    [[ -z "$output" ]]
+}
+
+@test "go.checks: govulncheck_verdict fails on an unsuppressed reachable finding" {
+    local f="$BATS_TEST_TMPDIR/govulncheck.json"
+    printf '{"finding":{"osv":"GO-1000-0003","trace":[{"module":"example.com/m","function":"Bad"}]}}\n' > "$f"
+    verdict "$f" "$BATS_TEST_TMPDIR/absent.toml" "fail" "2026-09-20T00:00:00Z"
+    [[ "$status" -eq 1 ]]
+    [[ "$output" == *"GO-1000-0003"* ]]
+    [[ "$output" == *"FAILED"* ]]
+}
+
+@test "go.checks: govulncheck_verdict passes when the osv config suppresses the id" {
+    local f="$BATS_TEST_TMPDIR/govulncheck.json"
+    local config="$BATS_TEST_TMPDIR/osv-scanner.toml"
+    printf '{"finding":{"osv":"GO-1000-0003","trace":[{"module":"example.com/m","function":"Bad"}]}}\n' > "$f"
+    printf '[[IgnoredVulns]]\nid = "GO-1000-0003"\nignoreUntil = 2026-10-11T00:00:00Z\nreason = "no fix upstream"\n' > "$config"
+    verdict "$f" "$config" "fail" "2026-09-20T00:00:00Z"
+    [[ "$status" -eq 0 ]]
+    [[ "$output" == *"reachable but suppressed"* ]]
+}
+
+@test "go.checks: govulncheck_verdict fails again once the suppression expires" {
+    local f="$BATS_TEST_TMPDIR/govulncheck.json"
+    local config="$BATS_TEST_TMPDIR/osv-scanner.toml"
+    printf '{"finding":{"osv":"GO-1000-0003","trace":[{"module":"example.com/m","function":"Bad"}]}}\n' > "$f"
+    printf '[[IgnoredVulns]]\nid = "GO-1000-0003"\nignoreUntil = 2026-10-11T00:00:00Z\nreason = "no fix upstream"\n' > "$config"
+    verdict "$f" "$config" "fail" "2026-10-11T00:00:01Z"
+    [[ "$status" -eq 1 ]]
+}
+
+@test "go.checks: govulncheck_verdict reports without failing in info mode" {
+    local f="$BATS_TEST_TMPDIR/govulncheck.json"
+    printf '{"finding":{"osv":"GO-1000-0003","trace":[{"module":"example.com/m","function":"Bad"}]}}\n' > "$f"
+    verdict "$f" "$BATS_TEST_TMPDIR/absent.toml" "info" "2026-09-20T00:00:00Z"
+    [[ "$status" -eq 0 ]]
+    [[ "$output" == *"GO-1000-0003"* ]]
+    [[ "$output" == *"informational"* ]]
+}
+
+@test "go.checks: govulncheck_verdict warns on a non-symbol finding without failing" {
+    local f="$BATS_TEST_TMPDIR/govulncheck.json"
+    printf '{"finding":{"osv":"GO-1000-0001","trace":[{"module":"example.com/m"}]}}\n' > "$f"
+    verdict "$f" "$BATS_TEST_TMPDIR/absent.toml" "fail" "2026-09-20T00:00:00Z"
+    [[ "$status" -eq 0 ]]
+    [[ "$output" == *"warning: GO-1000-0001"* ]]
+}
+
+@test "go.checks: govulncheck_verdict fails closed on an unreadable osv config" {
+    local f="$BATS_TEST_TMPDIR/govulncheck.json"
+    local config="$BATS_TEST_TMPDIR/osv-scanner.toml"
+    printf '{"config":{"scanner_name":"govulncheck"}}\n' > "$f"
+    printf 'this is not toml {{\n' > "$config"
+    verdict "$f" "$config" "fail" "2026-09-20T00:00:00Z"
+    [[ "$status" -ne 0 ]]
 }
 
 # Step-function tests (these wrap real tool invocations, but the gofmt
@@ -137,7 +343,7 @@ func main() {}
     GITHUB_STEP_SUMMARY="$BATS_TEST_TMPDIR/summary.md"
     : > "$GITHUB_STEP_SUMMARY"
     export GITHUB_STEP_SUMMARY
-    bash -c 'source "$1"; write_step_summary "true" "true" "3"' -- "$CHECKS_DIR/run_checks.sh"
+    bash -c 'source "$1"; write_step_summary "true" "true" "3 reachable finding(s)"' -- "$CHECKS_DIR/run_checks.sh"
     grep -q "Go quality checks" "$GITHUB_STEP_SUMMARY"
     grep -q "gofmt | passed" "$GITHUB_STEP_SUMMARY"
     grep -q "go test | passed (with race detector)" "$GITHUB_STEP_SUMMARY"
@@ -233,7 +439,7 @@ func main() {}
     local proj="$BATS_TEST_TMPDIR/proj"
     write_gomod "$proj"
     cd "$BATS_TEST_TMPDIR"
-    run "$CHECKS_DIR/validate_inputs.sh" "proj" "enabled"
+    run "$CHECKS_DIR/validate_inputs.sh" "proj" "enabled" "fail"
     [[ "$status" -eq 0 ]]
 }
 
@@ -243,7 +449,7 @@ func main() {}
     local proj="$BATS_TEST_TMPDIR/proj"
     write_gomod "$proj"
     cd "$BATS_TEST_TMPDIR"
-    run "$CHECKS_DIR/validate_inputs.sh" "proj" "enabled"
+    run "$CHECKS_DIR/validate_inputs.sh" "proj" "enabled" "fail"
     [[ "$status" -eq 0 ]]
 }
 
@@ -251,7 +457,7 @@ func main() {}
     local proj="$BATS_TEST_TMPDIR/proj"
     mkdir -p "$proj"
     cd "$BATS_TEST_TMPDIR"
-    run "$CHECKS_DIR/validate_inputs.sh" "proj" "enabled"
+    run "$CHECKS_DIR/validate_inputs.sh" "proj" "enabled" "fail"
     [[ "$status" -ne 0 ]]
     [[ "$output" == *"no go.mod found"* ]]
 }
@@ -304,7 +510,7 @@ func main() {}
 }
 
 @test "go.checks: validate_inputs.sh rejects absolute path" {
-    run "$CHECKS_DIR/validate_inputs.sh" "/abs/path" "enabled"
+    run "$CHECKS_DIR/validate_inputs.sh" "/abs/path" "enabled" "fail"
     [[ "$status" -ne 0 ]]
     [[ "$output" == *"path must be relative"* ]]
 }
@@ -315,7 +521,7 @@ func main() {}
     local proj="$BATS_TEST_TMPDIR/proj"
     write_gomod "$proj"
     cd "$BATS_TEST_TMPDIR"
-    run "$CHECKS_DIR/validate_inputs.sh" "proj" "garbage"
+    run "$CHECKS_DIR/validate_inputs.sh" "proj" "garbage" "fail"
     [[ "$status" -ne 0 ]]
     [[ "$output" == *"cache input must be one of enabled|disabled"* ]]
 }
@@ -324,7 +530,24 @@ func main() {}
     local proj="$BATS_TEST_TMPDIR/proj"
     write_gomod "$proj"
     cd "$BATS_TEST_TMPDIR"
-    run "$CHECKS_DIR/validate_inputs.sh" "proj" "disabled"
+    run "$CHECKS_DIR/validate_inputs.sh" "proj" "disabled" "fail"
+    [[ "$status" -eq 0 ]]
+}
+
+@test "go.checks: validate_inputs.sh rejects an invalid govulncheck value" {
+    local proj="$BATS_TEST_TMPDIR/proj"
+    write_gomod "$proj"
+    cd "$BATS_TEST_TMPDIR"
+    run "$CHECKS_DIR/validate_inputs.sh" "proj" "enabled" "garbage"
+    [[ "$status" -ne 0 ]]
+    [[ "$output" == *"govulncheck input must be one of fail|info"* ]]
+}
+
+@test "go.checks: validate_inputs.sh accepts govulncheck=info" {
+    local proj="$BATS_TEST_TMPDIR/proj"
+    write_gomod "$proj"
+    cd "$BATS_TEST_TMPDIR"
+    run "$CHECKS_DIR/validate_inputs.sh" "proj" "enabled" "info"
     [[ "$status" -eq 0 ]]
 }
 
@@ -659,6 +882,15 @@ func main() {}
     [[ "$status" -eq 0 ]]
 }
 
+@test "go: workflow threads govulncheck through to the checks composite" {
+    # An input the workflow declares but never passes on would leave the
+    # opt-out silently inert, with the gate still failing the job.
+    run grep -E '^      govulncheck:$' "$WORKFLOW"
+    [[ "$status" -eq 0 ]]
+    run grep -F 'govulncheck: ${{ inputs.govulncheck }}' "$WORKFLOW"
+    [[ "$status" -eq 0 ]]
+}
+
 @test "go: workflow exports hashes, metadata artifact names" {
     # govulncheck folds into the unified metadata artifact, so there is no
     # separate checks-metadata-artifact-name output (#469).
@@ -861,52 +1093,6 @@ return    "gen"
     [[ "$output" != *"zz_generated.go"* ]]
 }
 
-# --- count_findings against real govulncheck -------------------------
-
-@test "go.checks (L4): count_findings returns 0 on a govulncheck-style stream with no findings" {
-    need_go
-    # Simulate govulncheck's actual -json shape: a stream of objects
-    # where the config + sbom + osv records contain various keys but
-    # not `finding`.
-    local f="$BATS_TEST_TMPDIR/nofindings.json"
-    cat > "$f" <<'EOF'
-{"config":{"protocol_version":"v1.0.0","scanner_name":"govulncheck"}}
-{"sbom":{"go_version":"go1.26.3","modules":[]}}
-{"osv":{"id":"GO-2025-9999","summary":"a hypothetical vuln"}}
-EOF
-    run bash -c 'source "$1"; count_findings "$2"' -- "$CHECKS_DIR/run_checks.sh" "$f"
-    [[ "$status" -eq 0 ]]
-    [[ "$output" == "0" ]]
-}
-
-@test "go.checks (L4): count_findings ignores key substrings that aren't actual finding records" {
-    need_go
-    # A field named `findings_url` or a value mentioning `finding`
-    # must NOT be counted. This is the regression the literal-grep
-    # implementation would fail.
-    local f="$BATS_TEST_TMPDIR/decoys.json"
-    cat > "$f" <<'EOF'
-{"osv":{"id":"GO-2025-9999","references":[{"url":"https://example.com/finding/path"}]}}
-{"summary":{"findings_url":"https://example.com/findings"}}
-EOF
-    run bash -c 'source "$1"; count_findings "$2"' -- "$CHECKS_DIR/run_checks.sh" "$f"
-    [[ "$status" -eq 0 ]]
-    [[ "$output" == "0" ]]
-}
-
-@test "go.checks (L4): count_findings counts actual finding records" {
-    need_go
-    local f="$BATS_TEST_TMPDIR/findings.json"
-    cat > "$f" <<'EOF'
-{"config":{"scanner_name":"govulncheck"}}
-{"finding":{"osv":"GO-2025-9999","trace":[{"module":"stdlib"}]}}
-{"finding":{"osv":"GO-2025-9998","trace":[{"module":"stdlib"}]}}
-EOF
-    run bash -c 'source "$1"; count_findings "$2"' -- "$CHECKS_DIR/run_checks.sh" "$f"
-    [[ "$status" -eq 0 ]]
-    [[ "$output" == "2" ]]
-}
-
 # --- install_govulncheck idempotency ---------------------------------
 
 @test "go.checks (L4): install_govulncheck is idempotent (cached install is fast)" {
@@ -1060,6 +1246,11 @@ SH
 }
 
 # --- run_checks.sh main() against real fixtures ----------------------
+#
+# The fixtures below are about main()'s plumbing, not the vulnerability
+# gate, and they run "info" so the ambient Go toolchain's own stdlib
+# advisories can't decide their result. The gate itself is covered by
+# the hermetic govulncheck_verdict tests plus the propagation test below.
 
 @test "go.checks (L4): main() succeeds on a clean fixture" {
     need_go
@@ -1068,7 +1259,7 @@ SH
     init_go_module "$proj"
     GITHUB_STEP_SUMMARY="$BATS_TEST_TMPDIR/summary.md"
     export GITHUB_STEP_SUMMARY
-    run "$CHECKS_DIR/run_checks.sh" "$proj" "$metadata" "v1.1.4" "true" "true"
+    run "$CHECKS_DIR/run_checks.sh" "$proj" "$metadata" "v1.1.4" "true" "true" "info"
     [[ "$status" -eq 0 ]]
     [[ -f "$metadata/govulncheck.json" ]]
     # Step summary should be populated.
@@ -1085,7 +1276,7 @@ SH
 
 func Dirty(   ) string{return "dirty"}
 '
-    run "$CHECKS_DIR/run_checks.sh" "$proj" "$metadata" "v1.1.4" "true" "true"
+    run "$CHECKS_DIR/run_checks.sh" "$proj" "$metadata" "v1.1.4" "true" "true" "info"
     [[ "$status" -ne 0 ]]
     [[ "$output" == *"not gofmt-clean"* ]]
     [[ "$output" == *"dirty.go"* ]]
@@ -1104,7 +1295,7 @@ func Dirty(   ) string{return "dirty"}
     # and the build continues. go vet WILL still parse this — but the
     # file is syntactically valid Go (just badly formatted), so vet
     # passes. Tests don't reference Dirty so they pass too.
-    run "$CHECKS_DIR/run_checks.sh" "$proj" "$metadata" "v1.1.4" "true" "false"
+    run "$CHECKS_DIR/run_checks.sh" "$proj" "$metadata" "v1.1.4" "true" "false" "info"
     [[ "$status" -eq 0 ]]
     [[ "$output" == *"Skipped (run-gofmt-check: false)"* ]]
 }
@@ -1123,7 +1314,7 @@ func TestFails(t *testing.T) {
     t.Fatal("intentional failure")
 }
 '
-    run "$CHECKS_DIR/run_checks.sh" "$proj" "$metadata" "v1.1.4" "true" "true"
+    run "$CHECKS_DIR/run_checks.sh" "$proj" "$metadata" "v1.1.4" "true" "true" "info"
     [[ "$status" -ne 0 ]]
 }
 
@@ -1134,29 +1325,39 @@ func TestFails(t *testing.T) {
     init_go_module "$proj"
     GITHUB_STEP_SUMMARY="$BATS_TEST_TMPDIR/summary.md"
     export GITHUB_STEP_SUMMARY
-    run "$CHECKS_DIR/run_checks.sh" "$proj" "$metadata" "v1.1.4" "false" "true"
+    run "$CHECKS_DIR/run_checks.sh" "$proj" "$metadata" "v1.1.4" "false" "true" "info"
     [[ "$status" -eq 0 ]]
     [[ "$output" == *"race detector skipped via run-race-detector: false"* ]]
 }
 
-@test "go.checks (L4): main() govulncheck reports findings as informational (does not fail build)" {
+@test "go.checks (L4): main() in info mode does not fail on findings" {
     need_go
-    # govulncheck on a project that pins an older Go version often
-    # surfaces stdlib findings — informational under wrangle's
-    # posture. Build must NOT fail on these.
     local proj="$BATS_TEST_TMPDIR/proj"
     local metadata="$BATS_TEST_TMPDIR/metadata/go/_"
     init_go_module "$proj"
-    # Drop go.mod to an older version that has known stdlib findings
-    # so govulncheck has something to report (otherwise the test
-    # could be vacuously true on a clean Go release).
+    # An older Go version has known stdlib findings, so the info path is
+    # exercised rather than being vacuously true on a clean toolchain.
     printf 'module example.com/wrangle-test-go\n\ngo 1.22\n' > "$proj/go.mod"
-    run "$CHECKS_DIR/run_checks.sh" "$proj" "$metadata" "v1.1.4" "true" "true"
+    run "$CHECKS_DIR/run_checks.sh" "$proj" "$metadata" "v1.1.4" "true" "true" "info"
     [[ "$status" -eq 0 ]]
-    # Output should mention govulncheck whether or not findings show
-    # up (informational either way).
     [[ "$output" == *"govulncheck:"* ]]
     [[ -f "$metadata/govulncheck.json" ]]
+}
+
+@test "go.checks (L4): main() propagates a failing govulncheck verdict" {
+    need_go
+    # An unreadable osv-scanner.toml is the deterministic way to make the
+    # verdict fail on any toolchain; without the propagation, main()
+    # would write its summary and exit 0, silently dropping the gate.
+    local proj="$BATS_TEST_TMPDIR/proj"
+    local metadata="$BATS_TEST_TMPDIR/metadata/go/_"
+    init_go_module "$proj"
+    printf 'this is not toml {{\n' > "$proj/osv-scanner.toml"
+    GITHUB_STEP_SUMMARY="$BATS_TEST_TMPDIR/summary.md"
+    export GITHUB_STEP_SUMMARY
+    run "$CHECKS_DIR/run_checks.sh" "$proj" "$metadata" "v1.1.4" "true" "true" "fail"
+    [[ "$status" -ne 0 ]]
+    grep -q "Go quality checks" "$GITHUB_STEP_SUMMARY"
 }
 
 @test "go.checks (L4): main() with metadata_dir trailing slash resolves correctly (realpath -m)" {
@@ -1168,7 +1369,7 @@ func TestFails(t *testing.T) {
     local proj="$BATS_TEST_TMPDIR/proj"
     local metadata="$BATS_TEST_TMPDIR/metadata/go/_/"   # trailing slash
     init_go_module "$proj"
-    run "$CHECKS_DIR/run_checks.sh" "$proj" "$metadata" "v1.1.4" "true" "true"
+    run "$CHECKS_DIR/run_checks.sh" "$proj" "$metadata" "v1.1.4" "true" "true" "info"
     [[ "$status" -eq 0 ]]
     # JSON should be at metadata/go/_/govulncheck.json (without the
     # trailing slash collapsing the path one level up).
