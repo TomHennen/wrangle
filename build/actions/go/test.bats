@@ -122,8 +122,85 @@ verdict() {
         -- "$CHECKS_DIR/run_checks.sh" "$1" "$2" "$3" "$4"
 }
 
-write_ignore_entry() {
-    printf '[[IgnoredVulns]]\nid = "%s"\nignoreUntil = %s\nreason = "no fix upstream"\n' "$2" "$3" > "$1"
+# Drive run_govulncheck_step against a fixture stream: which suppression
+# file it reads is the property under test, and no real scan emits a
+# chosen advisory id on demand. Prints STATUS=<code> after the report.
+# Args: <project_dir> <stream_path> <mode>
+run_step_with_stream() {
+    local proj="$1" stream="$2" mode="$3"
+    local fake="$BATS_TEST_TMPDIR/fake-govulncheck"
+    local meta="$BATS_TEST_TMPDIR/meta"
+    mkdir -p "$meta"
+    {
+        printf '#!/bin/bash\n'
+        printf 'cat %q\n' "$stream"
+    } > "$fake"
+    chmod +x "$fake"
+    run bash -c '
+        source "$1"
+        FAKE="$2"
+        install_govulncheck() { printf "%s\n" "$FAKE"; }
+        st=0
+        run_govulncheck_step "$3" "$4" "v1.1.4" "$5" >/dev/null || st=$?
+        printf "STATUS=%s\n" "$st"
+    ' -- "$CHECKS_DIR/run_checks.sh" "$fake" "$proj" "$meta" "$mode"
+}
+
+write_reachable_stream() {
+    local out="$1"
+    shift
+    printf '{"config":{"scanner_name":"govulncheck"}}\n' > "$out"
+    local id
+    for id in "$@"; do
+        printf '{"finding":{"osv":"%s","trace":[{"module":"example.com/m","package":"example.com/m/p","function":"Bad"}]}}\n' \
+            "$id" >> "$out"
+    done
+}
+
+write_ignore_file() {
+    printf '[[IgnoredVulns]]\nid = "%s"\nignoreUntil = 2099-01-01T00:00:00Z\nreason = "no fix upstream"\n' "$2" > "$1"
+}
+
+# The osv entry "we don't call the vulnerable code" must never silence the
+# scanner that checks that claim, so the two files stay separate. wrangle's
+# own repo cannot prove this — tools/osv-scanner.toml carries the same id
+# the govulncheck file does, so the dogfood job is green either way.
+
+@test "go.checks: an osv-scanner.toml entry does NOT suppress a reachable finding" {
+    local proj="$BATS_TEST_TMPDIR/proj"
+    mkdir -p "$proj"
+    write_reachable_stream "$BATS_TEST_TMPDIR/stream.json" "GO-1000-0003"
+    write_ignore_file "$proj/osv-scanner.toml" "GO-1000-0003"
+    run_step_with_stream "$proj" "$BATS_TEST_TMPDIR/stream.json" "fail"
+    [[ "$output" == *"STATUS=1"* ]]
+    [[ "$output" == *"GO-1000-0003"* ]]
+}
+
+@test "go.checks: a govulncheck-ignore.toml entry DOES suppress a reachable finding" {
+    local proj="$BATS_TEST_TMPDIR/proj"
+    mkdir -p "$proj"
+    write_reachable_stream "$BATS_TEST_TMPDIR/stream.json" "GO-1000-0003"
+    write_ignore_file "$proj/govulncheck-ignore.toml" "GO-1000-0003"
+    run_step_with_stream "$proj" "$BATS_TEST_TMPDIR/stream.json" "fail"
+    [[ "$output" == *"STATUS=0"* ]]
+    [[ "$output" == *"GO-1000-0003 is reachable but suppressed"* ]]
+}
+
+@test "go.checks: with both files present only the govulncheck one is honoured" {
+    local proj="$BATS_TEST_TMPDIR/proj"
+    mkdir -p "$proj"
+    write_reachable_stream "$BATS_TEST_TMPDIR/stream.json" "GO-1000-0003" "GO-1000-0004"
+    write_ignore_file "$proj/govulncheck-ignore.toml" "GO-1000-0003"
+    write_ignore_file "$proj/osv-scanner.toml" "GO-1000-0004"
+    run_step_with_stream "$proj" "$BATS_TEST_TMPDIR/stream.json" "fail"
+    [[ "$output" == *"STATUS=1"* ]]
+    [[ "$output" == *"GO-1000-0003 is reachable but suppressed"* ]]
+    [[ "$output" == *'id = "GO-1000-0004"'* ]]
+}
+
+@test "go.checks: run_checks.sh never names osv-scanner.toml" {
+    run grep -F 'osv-scanner.toml' "$CHECKS_DIR/run_checks.sh"
+    [[ "$status" -ne 0 ]]
 }
 
 @test "go.checks: suppressed_ids honours an unexpired entry" {
@@ -379,7 +456,6 @@ GO-1000-0002" ]]
         -- "$CHECKS_DIR/run_checks.sh" "$f" "$config"
     [[ "$output" == "1" ]]
 }
-
 
 # Step-function tests (these wrap real tool invocations, but the gofmt
 # branch in particular is testable without Go: list_unformatted is
