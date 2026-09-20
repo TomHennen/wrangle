@@ -25,20 +25,41 @@ suppressed_ids() {
     python3 -c '
 import datetime, sys, tomllib
 
+# osv-scanner documents ignoreUntil as a bare date; TOML also admits a datetime,
+# with or without an offset. Normalise all three to an aware UTC datetime.
+def as_utc(value):
+    if not isinstance(value, datetime.datetime):
+        value = datetime.datetime.combine(value, datetime.time.min)
+    if value.tzinfo is None:
+        value = value.replace(tzinfo=datetime.timezone.utc)
+    return value
+
 with open(sys.argv[1], "rb") as fh:
     config = tomllib.load(fh)
-now = datetime.datetime.fromisoformat(sys.argv[2])
+now = as_utc(datetime.datetime.fromisoformat(sys.argv[2]))
 for entry in config.get("IgnoredVulns", []):
     until = entry.get("ignoreUntil")
-    if until is None or until > now:
+    if until is None or as_utc(until) > now:
         print(entry["id"])
 ' "$config" "$now"
 }
 
-# Vulnerability ids govulncheck found reachable: a trace whose innermost frame
-# names a function is its symbol level, the only one that proves a call path.
+# Vulnerability ids govulncheck proved a call path to: a trace whose innermost
+# frame names a function is its symbol level. Module- and package-level findings
+# are excluded — see unreached_ids, which reports them instead.
 reachable_ids() {
     jq -rs '[.[] | select(.finding.trace[0].function != null) | .finding.osv] | unique | .[]' "$1"
+}
+
+# Vulnerability ids reported only below the symbol level. Module level is how
+# govulncheck reports an advisory carrying no affected symbol — a Go toolchain
+# advisory among them — so these are surfaced rather than dropped.
+unreached_ids() {
+    jq -rs '
+        [.[] | select(.finding != null) | .finding] as $findings
+        | ([$findings[] | select(.trace[0].function != null) | .osv] | unique) as $called
+        | [$findings[] | select(.trace[0].function == null) | .osv]
+        | unique | map(select(IN($called[]) | not)) | .[]' "$1"
 }
 
 require_tool() {
@@ -65,15 +86,21 @@ main() {
     local now
     now="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
 
-    local suppressed_list reachable_list
+    local suppressed_list reachable_list unreached_list
     suppressed_list="$(suppressed_ids "$OSV_CONFIG" "$now" | LC_ALL=C sort -u)"
     reachable_list="$(reachable_ids "$JSON_OUT" | LC_ALL=C sort -u)"
+    unreached_list="$(unreached_ids "$JSON_OUT" | LC_ALL=C sort -u)"
 
     local id
     while IFS= read -r id; do
         [[ -n "$id" ]] || continue
         printf 'check_go_vulns: %s is reachable but suppressed by tools/osv-scanner.toml\n' "$id"
     done < <(comm -12 <(printf '%s\n' "$reachable_list") <(printf '%s\n' "$suppressed_list"))
+
+    while IFS= read -r id; do
+        [[ -n "$id" ]] || continue
+        printf 'check_go_vulns: warning: %s affects a required module but govulncheck traced no call to it — https://pkg.go.dev/vuln/%s\n' "$id" "$id" >&2
+    done < <(comm -23 <(printf '%s\n' "$unreached_list") <(printf '%s\n' "$suppressed_list"))
 
     local -a unsuppressed=()
     while IFS= read -r id; do
