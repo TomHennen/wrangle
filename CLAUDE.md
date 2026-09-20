@@ -4,7 +4,7 @@ Wrangle is a composable CI/CD security framework for GitHub Actions. Because it 
 
 Read `docs/SPEC.md` before contributing. It is the source of truth for architecture and contracts; this file covers conventions and judgment calls that are not yet mechanically enforced.
 
-Before starting work, check for open issues labeled [`wrangle-alert`](https://github.com/TomHennen/wrangle/issues?q=is%3Aissue+is%3Aopen+label%3Awrangle-alert) — it means an unattended check (showcase, scheduled freshness, post-release tag run) is red.
+Before starting work, run `make release-preflight` — a red gate (showcase, catalog freshness) is the first thing to fix or report.
 
 ## How to think about wrangle conventions
 

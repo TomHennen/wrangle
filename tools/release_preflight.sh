@@ -3,7 +3,9 @@ set -euo pipefail
 set -f
 
 # release_preflight.sh — run every code-level gate that must hold before a
-# release tag is cut, and report one line per gate.
+# release tag is cut, and report one line per gate. Every gate is read-only
+# (no `gh` writes, no local mutations) and fast, so it's safe to run anytime
+# from any checkout — not just right before a release.
 #
 # The tag is immutable once created, so a check that fires on the tag is too
 # late: the frozen tag already embeds whatever digests were there.

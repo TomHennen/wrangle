@@ -9,8 +9,6 @@ name: Catalog Freshness
 # git-only pin checks which block directly — a failed run notifies. The blocking
 # release precondition is release_gate.yml, which runs the same check
 # fail-closed on exit 2.
-#
-# A real failure (exit 1) files a `wrangle-alert` issue via tools/run_scheduled_check.sh (#839); exit 2 only warns.
 
 on:
   schedule:
@@ -25,14 +23,21 @@ jobs:
     timeout-minutes: 10
     permissions:
       contents: read
-      # tools/wrangle_alert.sh files/clears a wrangle-alert issue.
-      issues: write
     steps:
       - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
         with:
           persist-credentials: false
 
-      - name: Check catalog image freshness (and keep the wrangle-alert issue in sync)
-        env:
-          GH_TOKEN: ${{ github.token }}
-        run: ./tools/run_scheduled_check.sh catalog-freshness "Catalog freshness check is red" ./tools/check_catalog_freshness.sh
+      # Drift (exit 1) fails the run as the actionable signal; a transient
+      # registry-unreachable (exit 2) warns but does not, so a registry blip
+      # can't page on a false negative.
+      - name: Check catalog image freshness
+        run: |
+          set +e
+          ./tools/check_catalog_freshness.sh
+          rc=$?
+          if [[ "$rc" -eq 2 ]]; then
+            printf '::warning::registry unreachable; catalog freshness undetermined this run\n'
+            exit 0
+          fi
+          exit "$rc"
