@@ -13,7 +13,7 @@ Rollout is three PRs landed back-to-back over roughly a week ([§7](#7-rollout-p
 
 ## TL;DR
 
-- **AMPEL inside wrangle, VSA at the boundary.** Consumers trust only the signed SLSA Verification Summary Attestation (`predicateType: https://slsa.dev/verification_summary/v1`). Two validated complete-check options: (a) **`ampel verify` against a wrangle-hosted consumer PolicySet** (`policies/wrangle-vsa-consumer-v1.hjson`), one command — recommended, needs ampel; (b) **`cosign verify-blob-attestation --new-bundle-format` + a `jq` predicate check** — no ampel. AMPEL downstream is an accepted *option*, not lock-in; the cosign path keeps a no-ampel route. `slsa-verifier verify-vsa` does **not** work (keyless VSAs; see §8 R11).
+- **AMPEL inside wrangle, VSA at the boundary.** Consumers trust only the signed SLSA Verification Summary Attestation (`predicateType: https://slsa.dev/verification_summary/v1`). Two validated complete-check options: (a) **`ampel verify` against a wrangle-hosted consumer PolicySet** (`policies/wrangle-vsa-consumer-v1.hjson`), one command — recommended, needs ampel; (b) **`cosign verify-blob-attestation` + a `jq` predicate check** — no ampel. AMPEL downstream is an accepted *option*, not lock-in; the cosign path keeps a no-ampel route. `slsa-verifier verify-vsa` does **not** work (keyless VSAs; see §8 R11).
 - **AMPEL is the right engine for the multi-attestation job slsa-verifier cannot do**, despite being young — v1.2.1, ~49 stars, primarily one maintainer ([§3](#3-ampel-maturity-is-the-dominant-risk)). It natively emits VSAs and ships a working e2e demo. Other engines were considered ([§4](#4-paths-not-taken)).
 - **Ship in three back-to-back PRs over roughly a week, not a multi-quarter migration** ([§7](#7-rollout-plan)).
 
@@ -47,7 +47,7 @@ The output VSA conforms to SLSA v1.0/v1.1 `https://slsa.dev/verification_summary
 
 This is exactly what `slsa-verifier verify-vsa` consumes. Google publishes VSAs for GKE Container-Optimized OS images via the same flow (`cli/slsa-verifier/testdata/vsa/gce/v1/gke-gce-pre.bcid-vsa.jsonl`).
 
-Nothing in the consumer-side verification path requires AMPEL as the *only* option: a no-AMPEL path verifies with `cosign verify-blob-attestation --bundle <artifact>.intoto.jsonl --new-bundle-format …` plus a `jq` predicate-field check (cosign does not inspect predicate fields). `slsa-verifier verify-vsa` is **not** an option — it requires `--public-key-path` and verifies only key-signed VSAs, while wrangle's are keyless (see §8, R11). The AMPEL-specific bits (HJSON+CEL, transformers, `predicates[].data…` runtime, `context.foo` interpolation) are *internal* to wrangle. This is the architectural split the rollout bets on — keep it intact and the engine stays swappable; expose AMPEL-specific semantics to consumers and the bet breaks, which matters given AMPEL's youth (§3).
+Nothing in the consumer-side verification path requires AMPEL as the *only* option: a no-AMPEL path verifies with `cosign verify-blob-attestation --bundle <artifact>.intoto.jsonl …` plus a `jq` predicate-field check (cosign does not inspect predicate fields). `slsa-verifier verify-vsa` is **not** an option — it requires `--public-key-path` and verifies only key-signed VSAs, while wrangle's are keyless (see §8, R11). The AMPEL-specific bits (HJSON+CEL, transformers, `predicates[].data…` runtime, `context.foo` interpolation) are *internal* to wrangle. This is the architectural split the rollout bets on — keep it intact and the engine stays swappable; expose AMPEL-specific semantics to consumers and the bet breaks, which matters given AMPEL's youth (§3).
 
 ### 3. AMPEL maturity is the dominant risk
 
@@ -193,7 +193,6 @@ Three layers, documented in `build/actions/{python,npm,container}/README.md`:
 gh release download v1.2.3 --repo my-org/my-app -p '*.intoto.jsonl' -p 'my-app-*.tgz'
 cosign verify-blob-attestation \
   --bundle my-app-1.2.3.tgz.intoto.jsonl \
-  --new-bundle-format \
   --certificate-oidc-issuer https://token.actions.githubusercontent.com \
   --certificate-identity-regexp '^https://github\.com/TomHennen/wrangle/\.github/workflows/build_and_publish_npm\.yml@refs/tags/v' \
   --certificate-github-workflow-repository my-org/my-app \

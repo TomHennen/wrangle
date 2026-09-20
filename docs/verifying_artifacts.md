@@ -170,7 +170,7 @@ jq -c "select(.dsseEnvelope.payload | @base64d | fromjson
   and any(.subject[]; .digest.sha256 == \"$digest\"))" \
   <artifact>.intoto.jsonl > vsa.intoto.jsonl
 
-cosign verify-blob-attestation --bundle vsa.intoto.jsonl --new-bundle-format \
+cosign verify-blob-attestation --bundle vsa.intoto.jsonl \
   --certificate-oidc-issuer https://token.actions.githubusercontent.com \
   --certificate-identity-regexp '^https://github\.com/TomHennen/wrangle/\.github/workflows/build_and_publish_<type>\.yml@refs/tags/v[0-9.]+$' \
   --certificate-github-workflow-repository <your-org>/<your-repo> \
@@ -196,9 +196,9 @@ release. `--type` must be the full URI — cosign rejects the
 For container images the VSA is an OCI 1.1 referrer on the image digest, not a
 `sha256-<digest>.att` tag. cosign v3's `cosign verify-attestation` resolves it
 directly by digest; the recipe below uses `cosign download attestation` +
-`cosign verify-blob-attestation --new-bundle-format` instead, because that one
-recipe also covers the combined workflow-artifact bundle (the npm/go/python
-delivery vehicle). Pull the VSA referrer bundle with `cosign download
+`cosign verify-blob-attestation` instead, because that one recipe also covers
+the combined workflow-artifact bundle (the npm/go/python delivery vehicle).
+Pull the VSA referrer bundle with `cosign download
 attestation` (which lists each referrer bundle on its own line), select the VSA
 line, then bind it to the image digest — a digest subject has no file blob, so
 pass `--digest`/`--digestAlg` in place of a path:
@@ -210,7 +210,7 @@ cosign download attestation "$imagename@sha256:$digest" \
   | jq -c "select(.dsseEnvelope.payload | @base64d | fromjson
     | .predicateType == \"https://slsa.dev/verification_summary/v1\")" > vsa.intoto.jsonl
 
-cosign verify-blob-attestation --bundle vsa.intoto.jsonl --new-bundle-format \
+cosign verify-blob-attestation --bundle vsa.intoto.jsonl \
   --certificate-oidc-issuer https://token.actions.githubusercontent.com \
   --certificate-identity-regexp '^https://github\.com/TomHennen/wrangle/\.github/workflows/build_and_publish_container\.yml@refs/tags/v[0-9.]+$' \
   --certificate-github-workflow-repository <your-org>/<your-repo> \

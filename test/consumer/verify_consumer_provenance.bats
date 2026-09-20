@@ -72,7 +72,7 @@ _payload() { jq -r '.dsseEnvelope.payload' "$1" | base64 -d; }
     [[ -x "$COSIGN_BIN" ]] || skip_or_fail "real cosign not available"
     require_sigstore
     run "$COSIGN_BIN" verify-blob-attestation \
-        --bundle "$FIX/npm-provenance.intoto.jsonl" --new-bundle-format \
+        --bundle "$FIX/npm-provenance.intoto.jsonl" \
         --certificate-oidc-issuer "$ISSUER" \
         --certificate-identity-regexp '^https://github\.com/TomHennen/wrangle/\.github/workflows/build_and_publish_npm\.yml@' \
         --certificate-github-workflow-repository "$SIGNER_REPO" \
@@ -86,7 +86,7 @@ _payload() { jq -r '.dsseEnvelope.payload' "$1" | base64 -d; }
     [[ -x "$COSIGN_BIN" ]] || skip_or_fail "real cosign not available"
     require_sigstore
     run "$COSIGN_BIN" verify-blob-attestation \
-        --bundle "$FIX/go-provenance.intoto.jsonl" --new-bundle-format \
+        --bundle "$FIX/go-provenance.intoto.jsonl" \
         --certificate-oidc-issuer "$ISSUER" \
         --certificate-identity-regexp '^https://github\.com/TomHennen/wrangle/\.github/workflows/build_and_publish_go\.yml@' \
         --certificate-github-workflow-repository "$SIGNER_REPO" \
@@ -100,7 +100,7 @@ _payload() { jq -r '.dsseEnvelope.payload' "$1" | base64 -d; }
     [[ -x "$COSIGN_BIN" ]] || skip_or_fail "real cosign not available"
     require_sigstore
     run "$COSIGN_BIN" verify-blob-attestation \
-        --bundle "$FIX/python-provenance.intoto.jsonl" --new-bundle-format \
+        --bundle "$FIX/python-provenance.intoto.jsonl" \
         --certificate-oidc-issuer "$ISSUER" \
         --certificate-identity-regexp '^https://github\.com/TomHennen/wrangle/\.github/workflows/build_and_publish_python\.yml@' \
         --certificate-github-workflow-repository "$SIGNER_REPO" \
@@ -114,7 +114,7 @@ _payload() { jq -r '.dsseEnvelope.payload' "$1" | base64 -d; }
     [[ -x "$COSIGN_BIN" ]] || skip_or_fail "real cosign not available"
     require_sigstore
     run "$COSIGN_BIN" verify-blob-attestation \
-        --bundle "$FIX/npm-provenance.intoto.jsonl" --new-bundle-format \
+        --bundle "$FIX/npm-provenance.intoto.jsonl" \
         --certificate-oidc-issuer "$ISSUER" \
         --certificate-identity-regexp '^https://github\.com/attacker/repo/' \
         --type "$PROVENANCE_PREDICATE" \
