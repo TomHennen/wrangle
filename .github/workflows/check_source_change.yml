@@ -17,8 +17,7 @@ jobs:
     runs-on: ubuntu-latest
     permissions: {}    # guard reads env only — no workspace, no API, no secrets
     steps:
-      # TODO: replace with $/actions/prep when GitHub ships $/ syntax (#136)
-      - uses: TomHennen/wrangle/actions/prep@caf0de05382851b90296a7ef4136f5678addb38f # main 2026-09-19
+      - uses: $/actions/prep
 
   check-change:
     needs: [prep]
@@ -34,9 +33,8 @@ jobs:
       # no build to fold into, so the artifact is the consumer-facing `scan`.
       # This workflow scans the whole repo (root path), so the shortname is
       # empty and the name is just "scan".
-      # TODO: replace with $/actions/scan when GitHub ships $/ syntax (#136)
       - name: Source scan
-        uses: TomHennen/wrangle/actions/scan@caf0de05382851b90296a7ef4136f5678addb38f # main 2026-09-19
+        uses: $/actions/scan
         with:
           checkout: "true"
           tools: ${{ inputs.tools }}

@@ -1,0 +1,5 @@
+paths:
+  .github/workflows/**/*.yml:
+    ignore:
+      # actionlint predates GitHub's `$/` self-repository syntax (rhysd/actionlint#711).
+      - 'specifying action "\$/[^"]+" in invalid format because ref is missing'

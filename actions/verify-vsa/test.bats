@@ -226,7 +226,7 @@ EOF
     grep -q 'artifact-name: ${{ steps.names.outputs.metadata }}' "$RELEASE"
     WF_DIR="$ACTION_DIR/../../.github/workflows"
     for type in npm python go container; do
-        grep -q 'TomHennen/wrangle/actions/verify_release@' "$WF_DIR/build_and_publish_$type.yml"
+        grep -q '[$]/actions/verify_release' "$WF_DIR/build_and_publish_$type.yml"
     done
 }
 

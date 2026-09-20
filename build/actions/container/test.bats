@@ -218,7 +218,7 @@ teardown() {
     local wf="$REPO_ROOT/.github/workflows/build_and_publish_container.yml"
     run grep -E "^  scan:" "$wf"
     [[ "$status" -eq 0 ]]
-    run bash -c "sed -n '/^  scan:/,/^  [a-z]/p' \"$wf\" | grep -E 'uses:[[:space:]]*TomHennen/wrangle/actions/scan@'"
+    run bash -c "sed -n '/^  scan:/,/^  [a-z]/p' \"$wf\" | grep -E 'uses:[[:space:]]*[$]/actions/scan'"
     [[ "$status" -eq 0 ]]
 }
 
@@ -453,7 +453,7 @@ FAKE
     local wf="$REPO_ROOT/.github/workflows/build_and_publish_container.yml"
     run grep -E '^  prep:' "$wf"
     [[ "$status" -eq 0 ]]
-    run grep -E 'TomHennen/wrangle/actions/prep@' "$wf"
+    run grep -E '[$]/actions/prep' "$wf"
     [[ "$status" -eq 0 ]]
 }
 
@@ -573,7 +573,7 @@ FAKE
 
 @test "container: attest job no longer references the verify_attestation action" {
     local wf="$REPO_ROOT/.github/workflows/build_and_publish_container.yml"
-    run bash -c "sed -n '/^  attest:/,/^  [a-z]/p' \"$wf\" | grep 'TomHennen/wrangle/actions/verify_attestation@'"
+    run bash -c "sed -n '/^  attest:/,/^  [a-z]/p' \"$wf\" | grep 'actions/verify_attestation'"
     [[ "$status" -ne 0 ]]
 }
 

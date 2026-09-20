@@ -77,7 +77,7 @@ job_block() {
     # actions/prep/test.bats).
     for wf in "${REUSABLE_WORKFLOWS[@]}"; do
         block="$(job_block "$WORKFLOWS_DIR/$wf" prep)"
-        echo "$block" | grep -qE 'uses:[[:space:]]*TomHennen/wrangle/actions/prep@' || {
+        echo "$block" | grep -qE 'uses:[[:space:]]*[$]/actions/prep' || {
             printf 'prep job in %s does not use TomHennen/wrangle/actions/prep\n' "$wf" >&2
             printf '%s\n' "$block" >&2
             return 1

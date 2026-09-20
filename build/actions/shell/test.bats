@@ -45,7 +45,7 @@ setup() {
     local wf="$REPO_ROOT/.github/workflows/build_shell.yml"
     run grep -E '^  scan:' "$wf"
     [[ "$status" -eq 0 ]]
-    run bash -c "sed -n '/^  scan:/,/^  [a-z]/p' \"$wf\" | grep -E 'uses:[[:space:]]*TomHennen/wrangle/actions/scan@'"
+    run bash -c "sed -n '/^  scan:/,/^  [a-z]/p' \"$wf\" | grep -E 'uses:[[:space:]]*[$]/actions/scan'"
     [[ "$status" -eq 0 ]]
 }
 

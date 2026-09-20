@@ -406,7 +406,7 @@ write_pyproject() {
 @test "python: workflow has a scan job using the scan action" {
     run grep -E '^  scan:' "$WORKFLOW"
     [[ "$status" -eq 0 ]]
-    run bash -c "sed -n '/^  scan:/,/^  [a-z]/p' \"$WORKFLOW\" | grep -E 'uses:[[:space:]]*TomHennen/wrangle/actions/scan@'"
+    run bash -c "sed -n '/^  scan:/,/^  [a-z]/p' \"$WORKFLOW\" | grep -E 'uses:[[:space:]]*[$]/actions/scan'"
     [[ "$status" -eq 0 ]]
 }
 
@@ -430,7 +430,7 @@ write_pyproject() {
 @test "python: workflow has prep job calling the prep action" {
     run grep -E '^  prep:' "$WORKFLOW"
     [[ "$status" -eq 0 ]]
-    run grep -E 'TomHennen/wrangle/actions/prep@' "$WORKFLOW"
+    run grep -E '[$]/actions/prep' "$WORKFLOW"
     [[ "$status" -eq 0 ]]
 }
 
@@ -493,7 +493,7 @@ write_pyproject() {
     # Root build ('.') stays suffix-less.
     run grep -F 'source lib/shortname.sh' "$WORKFLOW"
     [[ "$status" -ne 0 ]]
-    run grep -F 'TomHennen/wrangle/actions/prep@' "$WORKFLOW"
+    run grep -F '$/actions/prep' "$WORKFLOW"
     [[ "$status" -eq 0 ]]
     run grep -F 'build-type: python' "$WORKFLOW"
     [[ "$status" -eq 0 ]]
@@ -545,7 +545,7 @@ write_pyproject() {
     # The bundle-out/metadata-dir/artifact-name wiring lives in the composite;
     # the workflow just names the build type + shortname (verify_release test.bats
     # covers the staging + verify wiring).
-    run bash -c "sed -n '/^  verify:/,\$p' \"$WORKFLOW\" | grep -F 'TomHennen/wrangle/actions/verify_release@'"
+    run bash -c "sed -n '/^  verify:/,\$p' \"$WORKFLOW\" | grep -F '\$/actions/verify_release'"
     [[ "$status" -eq 0 ]]
     run bash -c "sed -n '/^  verify:/,\$p' \"$WORKFLOW\" | grep -E 'build-type: python'"
     [[ "$status" -eq 0 ]]
@@ -630,14 +630,14 @@ write_pyproject() {
 # --- attest-build-provenance (wrangle builder identity, #316) ---
 
 @test "python: attest job delegates to attest_provenance with dist/* subject" {
-    run bash -c "sed -n '/^  attest:/,/^  [a-z]/p' \"$WORKFLOW\" | grep -F 'TomHennen/wrangle/actions/attest_provenance@'"
+    run bash -c "sed -n '/^  attest:/,/^  [a-z]/p' \"$WORKFLOW\" | grep -F '\$/actions/attest_provenance'"
     [[ "$status" -eq 0 ]]
     run bash -c "sed -n '/^  attest:/,/^  [a-z]/p' \"$WORKFLOW\" | grep -F 'subject-path: dist/*'"
     [[ "$status" -eq 0 ]]
 }
 
 @test "python: attest job no longer references the verify_attestation action" {
-    run bash -c "sed -n '/^  attest:/,/^  [a-z]/p' \"$WORKFLOW\" | grep 'TomHennen/wrangle/actions/verify_attestation@'"
+    run bash -c "sed -n '/^  attest:/,/^  [a-z]/p' \"$WORKFLOW\" | grep 'actions/verify_attestation'"
     [[ "$status" -ne 0 ]]
 }
 
@@ -721,7 +721,7 @@ write_pyproject() {
     job="$(awk '/^  [a-z][a-z_-]*:$/ { in_section = ($0 == "  publish:") } in_section' "$WORKFLOW")"
     grep -qE '^      contents: write([[:space:]]|$)' <<<"$job"
     ! grep -qE '^      (id-token|attestations):' <<<"$job"
-    grep -qF 'TomHennen/wrangle/actions/publish_release@' <<<"$job"
+    grep -qF '$/actions/publish_release' <<<"$job"
     grep -qF 'attest-and-verify: ${{ inputs.attest-and-verify }}' <<<"$job"
 }
 
