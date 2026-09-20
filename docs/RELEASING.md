@@ -54,9 +54,9 @@ where both repos are at known commits.
 - `TEST_REPO_PAT` secret on this repo, exposed to the
   `integration-test` environment. A fine-grained PAT (or GitHub App
   installation token) scoped to `contents: write` on `tomhennen/wrangle-test`
-  plus `actions: read` so `release.yml` can read the curated showcase
-  run's verdict, and nothing else. The same secret powers
-  `integration-test.yml` and `release.yml`.
+  and nothing else. The same secret powers `integration-test.yml`; the
+  release-showcase and release workflows reuse it because the required
+  scope is identical.
 - The `integration-test` environment must permit `main` as a deployment
   branch (it does today; verify after editing the environment's branch
   rules).
@@ -92,10 +92,13 @@ controls (below) are already configured on the repo.
    from the commit being tagged, never from anyone's disk.
 3. Run `make cut-release VERSION=vX.Y.Z`. It prechecks, requires a green
    Release Gate on the target, and dispatches
-   [`release.yml`](../.github/workflows/release.yml); its tag job runs under
-   the `release` environment, so GitHub holds it at "Waiting for review" until
-   the owner approves that deployment. The job re-verifies every precondition
-   itself rather than trusting the dispatcher, then publishes the Release.
+   [`release.yml`](../.github/workflows/release.yml). That run first verifies
+   the target and writes the version, the commit, the Release Gate run and the
+   full notes to its summary — read it, it is what approving publishes. The tag
+   job then runs under the `release` environment, so GitHub holds it at
+   "Waiting for review" until the owner approves that deployment; it
+   re-verifies every precondition itself rather than trusting the dispatcher or
+   the preview, then publishes the Release.
    Never ship a bare `git tag && git push` — it creates no Release, so no
    attestation.
 4. Once the Release exists, the same workflow pushes `vX.Y.Z` to the companion
@@ -112,9 +115,12 @@ controls (below) are already configured on the repo.
    fixtures — come from a separate tag-pinned showcase path, not by repointing
    the heartbeat ([`wrangle-test#10`](https://github.com/TomHennen/wrangle-test/issues/10)).
 
-**The `release` environment — one-time setup.** The repository owner is its
-sole required reviewer (self-review allowed), which is what makes the tag
-job's pause a human gate, and `main` must be an allowed deployment branch.
+**The `release` environment — one-time setup.** Two settings make the tag
+job's pause a real gate: the repository owner is its **sole required
+reviewer** (self-review allowed, admins cannot bypass), and its
+**deployment-branch policy is restricted to `main`** — left unrestricted,
+any branch could raise an approval prompt for its own copy of the workflow.
+`cut_release.sh` refuses to dispatch when either is missing.
 
 **Tag immutability — two controls, already enabled (one-time setup; not
 re-done per release):**

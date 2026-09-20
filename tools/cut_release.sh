@@ -21,7 +21,9 @@ set -f
 #      (never --generate-notes: the runbook wants benefit-first prose)
 #   5. the companion's curated showcase already pins wrangle at <version>, so the
 #      post-release run exercises this release rather than the previous one
-#   6. the Release Gate is green ON THAT COMMIT — dispatched here and polled,
+#   6. the `release` environment still gates the tag job on the owner's review and
+#      on main, so the dispatch cannot skip the human gate
+#   7. the Release Gate is green ON THAT COMMIT — dispatched here and polled,
 #      because the gate is the only thing that proves the curated tool-image
 #      digests are release-worthy, and a local run cannot prove it (a stale or
 #      shallow checkout yields a confident false green)
@@ -32,6 +34,8 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="${WRANGLE_REPO_ROOT:-$(cd "$SCRIPT_DIR/.." && pwd)}"
 GATE_WORKFLOW="${WRANGLE_RELEASE_GATE:-release_gate.yml}"
 RELEASE_WORKFLOW="${WRANGLE_RELEASE_WORKFLOW:-release.yml}"
+RELEASE_REPO="${GITHUB_REPOSITORY:-TomHennen/wrangle}"
+RELEASE_ENVIRONMENT="release"
 SHOWCASE_SCRIPT="${WRANGLE_SHOWCASE_SCRIPT:-$SCRIPT_DIR/../test/integration/run_release_showcase.sh}"
 NOTES_DIR="docs/release-notes"
 
@@ -72,6 +76,34 @@ wrangle_check_target_on_main() {
 wrangle_check_showcase_pin() {
     "$SHOWCASE_SCRIPT" --check-pin "$1" \
         || wrangle_die "the companion showcase does not pin wrangle at $1 — land that bump first"
+}
+
+# The environment is the human gate and it lives in repo settings, where nothing
+# else in this repo can notice it being relaxed.
+wrangle_check_release_environment() {
+    local env_json reviewers policy branches
+    env_json="$(gh api "repos/$RELEASE_REPO/environments/$RELEASE_ENVIRONMENT")" \
+        || wrangle_die "no $RELEASE_ENVIRONMENT environment on $RELEASE_REPO — the tag job would run unreviewed"
+
+    reviewers="$(printf '%s' "$env_json" \
+        | jq -r '[.protection_rules[]? | select(.type == "required_reviewers")] | length')" \
+        || wrangle_die "could not read the $RELEASE_ENVIRONMENT environment"
+    [[ "$reviewers" -gt 0 ]] \
+        || wrangle_die "the $RELEASE_ENVIRONMENT environment has no required reviewer — the tag would publish unapproved"
+
+    policy="$(printf '%s' "$env_json" | jq -r '.deployment_branch_policy | if . == null then "none" elif .custom_branch_policies then "custom" else "protected" end')" \
+        || wrangle_die "could not read the $RELEASE_ENVIRONMENT environment"
+    case "$policy" in
+        none) wrangle_die "the $RELEASE_ENVIRONMENT environment allows every branch — restrict its deployment branches to main" ;;
+        custom)
+            branches="$(gh api "repos/$RELEASE_REPO/environments/$RELEASE_ENVIRONMENT/deployment-branch-policies")" \
+                || wrangle_die "could not read the $RELEASE_ENVIRONMENT deployment-branch policies"
+            branches="$(printf '%s' "$branches" | jq -r '[.branch_policies[].name] | sort | join(",")')" \
+                || wrangle_die "could not read the $RELEASE_ENVIRONMENT deployment-branch policies"
+            [[ "$branches" == "main" ]] \
+                || wrangle_die "the $RELEASE_ENVIRONMENT environment deploys from [$branches] — restrict it to main"
+            ;;
+    esac
 }
 
 # Dispatch the Release Gate on the target and poll it. A locally-run preflight
@@ -125,9 +157,8 @@ wrangle_dispatch_release() {
     before="$(gh run list --workflow "$RELEASE_WORKFLOW" --limit 1 \
         --json databaseId -q '.[0].databaseId' 2>/dev/null || true)"
 
-    local -a args=(--ref main -f "version=$version" -f "target=$sha")
-    if [[ "$dry_run" == "true" ]]; then args+=(-f dry-run=true); fi
-    gh workflow run "$RELEASE_WORKFLOW" "${args[@]}" >/dev/null \
+    gh workflow run "$RELEASE_WORKFLOW" --ref main \
+        -f "version=$version" -f "target=$sha" -f "dry-run=$dry_run" >/dev/null \
         || wrangle_die "could not dispatch $RELEASE_WORKFLOW"
 
     for ((i = 0; i < 24; i++)); do
@@ -166,6 +197,7 @@ wrangle_cut_release() {
     wrangle_check_target_on_main "$target"
     wrangle_check_notes "$target" "$version"
     wrangle_check_showcase_pin "$version"
+    wrangle_check_release_environment
     wrangle_release_gate_green "$target"
     wrangle_dispatch_release "$version" "$target" "$dry_run"
 }

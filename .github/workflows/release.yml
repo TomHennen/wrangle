@@ -4,7 +4,11 @@ name: Release
 # prechecks; the `release` environment then holds the tag job at "Waiting for
 # review" until the repository owner approves the deployment — that approval is
 # the human gate on an irreversible step, so the job re-verifies every
-# precondition itself instead of trusting the dispatcher.
+# precondition itself instead of trusting the dispatcher or the preview job.
+#
+# The preview job runs before the gate and renders what approving would publish,
+# so the approver reads the version, the commit and the notes on the run page
+# rather than taking the dispatcher's word for them.
 #
 # After the Release is published, the companion repo's curated showcase runs at
 # the new tag: the only thing that exercises a wrangle release the way adopters
@@ -24,9 +28,9 @@ on:
         required: true
         type: string
       dry-run:
-        description: Run every check and stop before creating the Release
+        description: Verify only — unset this to publish the Release
         type: boolean
-        default: false
+        default: true
 
 concurrency:
   group: release
@@ -35,7 +39,29 @@ concurrency:
 permissions: {}
 
 jobs:
+  preview:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: read
+      actions: read     # read the Release Gate run's conclusion on the target
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          persist-credentials: false
+          # The target's ancestry and its release-notes blob are read from local
+          # history — no job checks the target out.
+          fetch-depth: 0
+
+      - name: Verify the target and render what approval publishes
+        env:
+          GH_TOKEN: ${{ github.token }}
+          VERSION: ${{ inputs.version }}
+          TARGET: ${{ inputs.target }}
+        run: ./tools/release_tag.sh "$VERSION" "$TARGET" --preview
+
   tag:
+    needs: [preview]
     runs-on: ubuntu-latest
     timeout-minutes: 15
     environment: release
@@ -46,8 +72,6 @@ jobs:
       - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
         with:
           persist-credentials: false
-          # The target's ancestry and its release-notes blob are read from local
-          # history — the job never checks the target out.
           fetch-depth: 0
 
       - name: Verify the target and publish the Release
@@ -55,12 +79,8 @@ jobs:
           GH_TOKEN: ${{ github.token }}
           VERSION: ${{ inputs.version }}
           TARGET: ${{ inputs.target }}
-          DRY_RUN: ${{ inputs['dry-run'] }}
-        run: |
-          if [[ "$DRY_RUN" == "true" ]]; then
-            exec ./tools/release_tag.sh "$VERSION" "$TARGET" --dry-run
-          fi
-          exec ./tools/release_tag.sh "$VERSION" "$TARGET"
+          RELEASE_DRY_RUN: ${{ inputs['dry-run'] }}
+        run: ./tools/release_tag.sh "$VERSION" "$TARGET"
 
   showcase:
     needs: [tag]
@@ -69,7 +89,7 @@ jobs:
     timeout-minutes: 60
     environment: integration-test
     permissions:
-      contents: read   # checkout only; the companion tag is pushed with TEST_REPO_PAT
+      contents: read
     steps:
       - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
         with:
@@ -77,7 +97,10 @@ jobs:
 
       - name: Run the companion showcase at the new tag
         env:
-          GH_TOKEN: ${{ secrets.TEST_REPO_PAT }}
+          GH_TOKEN: ${{ github.token }}
+          # The companion tag must be pushed by a PAT: a GITHUB_TOKEN-created tag
+          # does not fire the companion's `on: push: tags` workflow.
+          COMPANION_PUSH_TOKEN: ${{ secrets.TEST_REPO_PAT }}
           VERSION: ${{ inputs.version }}
         run: ./test/integration/run_release_showcase.sh "$VERSION"
 

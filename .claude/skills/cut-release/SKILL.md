@@ -138,12 +138,14 @@ Then, from a clean checkout of `main` whose HEAD is the commit to tag:
 make cut-release VERSION=vX.Y.Z          # or: ./tools/cut_release.sh vX.Y.Z --dry-run
 ```
 
-It prechecks (semver, tag free, notes, companion pin), dispatches the **Release Gate** on
-the target and waits for a green run, then dispatches
-`.github/workflows/release.yml` and prints its run URL. **It never tags.** The tag job
-runs under the `release` environment, so GitHub holds it at "Waiting for review": tell
-the owner the approval is waiting and where. On approval the job re-verifies everything
-itself and publishes the Release; `--dry-run` runs every check and stops short of it.
+It prechecks (semver, tag free, notes, companion pin, `release` environment still
+owner-reviewed and main-only), dispatches the **Release Gate** on the target and waits
+for a green run, then dispatches `.github/workflows/release.yml` and prints its run URL.
+**It never tags.** The run's summary shows the version, the commit and the notes it
+would publish; the tag job then waits at "Waiting for review" under the `release`
+environment, so tell the owner the approval is waiting and where. On approval the job
+re-verifies everything itself and publishes the Release. `--dry-run` takes the same path
+and stops short of publishing.
 
 `goreleaser` needs a semver-parseable tag — `vX.Y.Z` is fine; never a `pr-<n>` form. Tag
 immutability (immutable releases + a no-bypass tag ruleset) is already configured on the

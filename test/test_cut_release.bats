@@ -26,6 +26,8 @@ case "$*" in
     *"run view 111 --json status"*) printf 'completed\n' ;;
     *"run view 111 --json conclusion"*) printf 'success\n' ;;
     *"run view 222 --json url"*) printf 'https://github.test/run/222\n' ;;
+    *"environments/release/deployment-branch-policies"*) printf '%s\n' "${ENV_BRANCHES_JSON:?}" ;;
+    *"environments/release"*) printf '%s\n' "${ENV_JSON:?}" ;;
 esac
 exit 0
 EOF
@@ -48,6 +50,10 @@ exit "${SHOWCASE_PIN_STATUS:-0}"
 EOF
     chmod +x "$SHOWCASE_STUB"
     export WRANGLE_SHOWCASE_SCRIPT="$SHOWCASE_STUB"
+
+    # The configured state of the `release` environment: owner-reviewed, main only.
+    export ENV_JSON='{"protection_rules":[{"type":"required_reviewers"}],"deployment_branch_policy":{"protected_branches":false,"custom_branch_policies":true}}'
+    export ENV_BRANCHES_JSON='{"branch_policies":[{"name":"main"}]}'
 
     # A real git repo so the tag/ancestry/notes checks operate on something.
     REPO="$TMP_DIR/repo"
@@ -135,6 +141,34 @@ dispatched() { grep -q "workflow run release.yml" "$GH_CALLS"; }
     ! dispatched
 }
 
+@test "cut_release: refuses when the release environment allows every branch" {
+    # LOAD-BEARING. An unrestricted environment lets a branch copy of the
+    # workflow raise the same approval prompt, and the prompt does not show the
+    # ref the approver is approving.
+    ENV_JSON='{"protection_rules":[{"type":"required_reviewers"}],"deployment_branch_policy":null}' \
+        run "$SCRIPT" v9.9.9
+    [[ "$status" -ne 0 ]]
+    [[ "$output" == *"allows every branch"* ]]
+    ! dispatched
+}
+
+@test "cut_release: refuses when the release environment deploys from more than main" {
+    ENV_BRANCHES_JSON='{"branch_policies":[{"name":"main"},{"name":"release/*"}]}' \
+        run "$SCRIPT" v9.9.9
+    [[ "$status" -ne 0 ]]
+    [[ "$output" == *"restrict it to main"* ]]
+    ! dispatched
+}
+
+@test "cut_release: refuses when the release environment has no required reviewer" {
+    # LOAD-BEARING. Without a reviewer the tag job would publish unapproved.
+    ENV_JSON='{"protection_rules":[],"deployment_branch_policy":{"custom_branch_policies":true}}' \
+        run "$SCRIPT" v9.9.9
+    [[ "$status" -ne 0 ]]
+    [[ "$output" == *"no required reviewer"* ]]
+    ! dispatched
+}
+
 @test "cut_release: dispatches the release workflow and never creates a release itself" {
     # LOAD-BEARING. The script's whole job is to hand the irreversible step to
     # the environment-gated workflow; it must never tag or release directly.
@@ -143,6 +177,7 @@ dispatched() { grep -q "workflow run release.yml" "$GH_CALLS"; }
     dispatched
     grep -q -- "-f version=v9.9.9" "$GH_CALLS"
     grep -q -- "-f target=$(git -C "$REPO" rev-parse HEAD)" "$GH_CALLS"
+    grep -q -- "-f dry-run=false" "$GH_CALLS"
     ! grep -q "release create" "$GH_CALLS"
     [[ "$output" == *"approval is waiting"* ]]
 }

@@ -1,7 +1,8 @@
 name: Release Gate
 
-# Blocking release precondition (#596): the operator runs this by hand before
-# `gh release create` (cut-release runbook Phase 3) and cuts only on a green run.
+# Blocking release precondition (#596): `tools/cut_release.sh` dispatches this on
+# the release target and refuses to go on unless it is green, and release.yml's
+# tag job re-reads its conclusion on that exact commit before publishing.
 # It runs tools/release_preflight.sh, which sequences every code-level gate — the
 # catalog checks, plus whether the wrangle-test showcase's latest completed
 # tracking-tag run was green (#839) — fail-closed. Any non-zero blocks: exit 1
@@ -12,10 +13,9 @@ name: Release Gate
 # can't page — correct for a heads-up, wrong for a gate. Those two freshness
 # checks are deliberately not re-gated by run history (see release_preflight.sh).
 #
-# Dispatch-only on purpose: there is no automated release/tag workflow to hook
-# (releases are a manual `gh release create` against an immutable tag), and a
-# push/tag trigger would run after the tag exists (too late to block) and paint a
-# transient exit-2 red X on an already-cut, legitimately-vetted release.
+# Dispatch-only on purpose: a push/tag trigger would run after the tag exists
+# (too late to block) and paint a transient exit-2 red X on an already-cut,
+# legitimately-vetted release.
 
 on:
   workflow_dispatch:

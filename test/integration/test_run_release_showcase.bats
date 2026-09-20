@@ -12,12 +12,15 @@ setup() {
     mkdir -p "$STUB_BIN"
 
     export GH_CALLS="$TMP_DIR/gh-calls"
+    export TOKENS_SEEN="$TMP_DIR/gh-tokens"
     export TAG_CREATED="$TMP_DIR/tag-created"
     : > "$GH_CALLS"
+    : > "$TOKENS_SEEN"
 
     cat > "$STUB_BIN/gh" <<'EOF'
 #!/bin/bash
 printf '%s\n' "$*" >> "$GH_CALLS"
+printf '%s %s\n' "$*" "${GH_TOKEN:-}" >> "$TOKENS_SEEN"
 case "$*" in
     *"contents/.github/workflows/showcase-curated.yml"*) printf '%s\n' "${WORKFLOW_SRC:-}" ;;
     *"git/ref/tags/"*) exit "${TAG_EXISTS_STATUS:-1}" ;;
@@ -32,7 +35,8 @@ EOF
     PATH="$STUB_BIN:$PATH"
     export PATH
 
-    export GH_TOKEN="stub-token"
+    export GH_TOKEN="read-token"
+    export COMPANION_PUSH_TOKEN="push-token"
     export WRANGLE_SHOWCASE_POLL_SECONDS=0
     export WRANGLE_SHOWCASE_POLL_ATTEMPTS=2
     export WORKFLOW_SRC
@@ -63,10 +67,10 @@ tagged() { [[ -f "$TAG_CREATED" ]]; }
     ! tagged
 }
 
-@test "run_release_showcase: fails fast when GH_TOKEN is unset" {
-    run env -u GH_TOKEN "$SCRIPT" v9.9.9
+@test "run_release_showcase: fails fast when the companion push token is unset" {
+    run env -u COMPANION_PUSH_TOKEN "$SCRIPT" v9.9.9
     [[ "$status" -eq 2 ]]
-    [[ "$output" == *"GH_TOKEN"* ]]
+    [[ "$output" == *"COMPANION_PUSH_TOKEN"* ]]
     ! tagged
 }
 
@@ -106,6 +110,15 @@ tagged() { [[ -f "$TAG_CREATED" ]]; }
     tagged
     grep -q "ref=refs/tags/v9.9.9" "$GH_CALLS"
     grep -q "run watch 4242" "$GH_CALLS"
+}
+
+@test "run_release_showcase: spends the companion push token on the tag push alone" {
+    # LOAD-BEARING. Every other call is a public read; the write credential is
+    # the one thing here that can change the companion.
+    run "$SCRIPT" v9.9.9
+    [[ "$status" -eq 0 ]]
+    [[ "$(grep -c 'push-token' "$TOKENS_SEEN")" -eq 1 ]]
+    grep -qE "git/refs .*--method POST.* push-token$" "$TOKENS_SEEN"
 }
 
 @test "run_release_showcase: watches the existing run instead of recreating the tag" {

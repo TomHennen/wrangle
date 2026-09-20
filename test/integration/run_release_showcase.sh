@@ -18,9 +18,10 @@ set -f  # disable globbing — processes external input (version arg)
 # so the job can be re-run after a transient failure.
 #
 # Environment:
-#   GH_TOKEN         PAT with contents:write (push the tag) and actions:read
-#                    (read the run's verdict) on the companion repo
-#   COMPANION_REPO   owner/repo of the companion (default: tomhennen/wrangle-test)
+#   GH_TOKEN               any token; every read here is public companion data
+#   COMPANION_PUSH_TOKEN   PAT with contents:write on the companion, used for the
+#                          tag push alone
+#   COMPANION_REPO         owner/repo of the companion (default: tomhennen/wrangle-test)
 #
 # Exit: 0 showcase passed (or the pin matches), 1 it did not, 2 bad usage.
 
@@ -64,7 +65,7 @@ push_tag() {
     fi
     target="$(gh api "repos/${COMPANION_REPO}/git/ref/heads/main" --jq .object.sha)" \
         || die "could not resolve ${COMPANION_REPO} main HEAD"
-    gh api "repos/${COMPANION_REPO}/git/refs" \
+    GH_TOKEN="$COMPANION_PUSH_TOKEN" gh api "repos/${COMPANION_REPO}/git/refs" \
         --method POST \
         --field "ref=refs/tags/${version}" \
         --field "sha=${target}" >/dev/null \
@@ -81,7 +82,7 @@ find_run() {
         [[ -n "$id" ]] && break
         sleep "$START_POLL_SECONDS"
     done
-    [[ -n "$id" ]] || die "no ${CURATED_WORKFLOW} run appeared for ${version} on ${COMPANION_REPO} — does the token carry actions:read there?"
+    [[ -n "$id" ]] || die "no ${CURATED_WORKFLOW} run appeared for ${version} on ${COMPANION_REPO}"
     printf '%s' "$id"
 }
 
@@ -101,8 +102,8 @@ main() {
     esac
 
     check_version "$version"
-    [[ -n "${GH_TOKEN:-}" ]] || {
-        printf 'run_release_showcase: GH_TOKEN not set (need contents:write on %s)\n' \
+    [[ -n "${COMPANION_PUSH_TOKEN:-}" ]] || {
+        printf 'run_release_showcase: COMPANION_PUSH_TOKEN not set (need contents:write on %s)\n' \
             "$COMPANION_REPO" >&2
         exit 2
     }

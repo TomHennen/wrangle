@@ -38,3 +38,16 @@ count() { grep -c "$1" "$WORKFLOW" || true; }
 @test "release.yml grants no workflow-level permissions" {
     grep -q '^permissions: {}' "$WORKFLOW"
 }
+
+@test "release.yml verifies and renders the target before the approval gate" {
+    # The approval prompt names only the environment, so the preview has to run
+    # first for the owner to see what they are approving.
+    job_block tag | grep -q 'needs: \[preview\]'
+    job_block preview | grep -q -- '--preview'
+    ! job_block preview | grep -q 'environment:'
+}
+
+@test "release.yml defaults a dispatch to a dry run" {
+    # A hand-dispatch from the Actions UI must not publish by accident.
+    grep -A3 "^      dry-run:" "$WORKFLOW" | grep -q 'default: true'
+}

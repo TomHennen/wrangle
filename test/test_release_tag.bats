@@ -44,7 +44,7 @@ EOF
     export WRANGLE_REPO_ROOT="$REPO"
     export GITHUB_REF="refs/heads/main"
     export GITHUB_REPOSITORY="test/wrangle"
-    export GATE_RUNS_JSON="[{\"headSha\":\"$TARGET\",\"status\":\"completed\",\"conclusion\":\"success\"}]"
+    export GATE_RUNS_JSON="[{\"headSha\":\"$TARGET\",\"status\":\"completed\",\"conclusion\":\"success\",\"url\":\"https://github.test/gate\"}]"
 }
 
 teardown() {
@@ -96,7 +96,7 @@ released() { grep -q "release create" "$GH_CALLS"; }
 @test "release_tag: accepts a tag name that only prefixes an existing tag" {
     # matching-refs is a prefix query: v9.9.9 must not be refused because
     # v9.9.90 exists.
-    TAG_REFS_JSON='[{"ref":"refs/tags/v9.9.90"}]' run "$SCRIPT" v9.9.9 "$TARGET" --dry-run
+    TAG_REFS_JSON='[{"ref":"refs/tags/v9.9.90"}]' run "$SCRIPT" v9.9.9 "$TARGET"
     [[ "$status" -eq 0 ]]
     ! released
 }
@@ -109,7 +109,7 @@ released() { grep -q "release create" "$GH_CALLS"; }
     git -C "$REPO" commit -qm side
     off_main="$(git -C "$REPO" rev-parse HEAD)"
     git -C "$REPO" checkout -q main
-    GATE_RUNS_JSON="[{\"headSha\":\"$off_main\",\"status\":\"completed\",\"conclusion\":\"success\"}]" \
+    GATE_RUNS_JSON="[{\"headSha\":\"$off_main\",\"status\":\"completed\",\"conclusion\":\"success\",\"url\":\"https://github.test/gate\"}]" \
         run "$SCRIPT" v9.9.9 "$off_main"
     [[ "$status" -ne 0 ]]
     [[ "$output" == *"not on origin/main"* ]]
@@ -119,7 +119,7 @@ released() { grep -q "release create" "$GH_CALLS"; }
 @test "release_tag: refuses when the Release Gate ran on a different commit" {
     # LOAD-BEARING. A green gate on main's tip says nothing about the commit
     # being tagged.
-    GATE_RUNS_JSON='[{"headSha":"0000000000000000000000000000000000000000","status":"completed","conclusion":"success"}]' \
+    GATE_RUNS_JSON='[{"headSha":"0000000000000000000000000000000000000000","status":"completed","conclusion":"success","url":"https://github.test/gate"}]' \
         run "$SCRIPT" v9.9.9 "$TARGET"
     [[ "$status" -ne 0 ]]
     [[ "$output" == *"no completed, successful"* ]]
@@ -150,7 +150,7 @@ released() { grep -q "release create" "$GH_CALLS"; }
     git -C "$REPO" rm -q docs/release-notes/v9.9.9.md
     git -C "$REPO" commit -qm "drop notes"
     local head; head="$(git -C "$REPO" rev-parse HEAD)"
-    GATE_RUNS_JSON="[{\"headSha\":\"$head\",\"status\":\"completed\",\"conclusion\":\"success\"}]" \
+    GATE_RUNS_JSON="[{\"headSha\":\"$head\",\"status\":\"completed\",\"conclusion\":\"success\",\"url\":\"https://github.test/gate\"}]" \
         run "$SCRIPT" v9.9.9 "$head"
     [[ "$status" -ne 0 ]]
     [[ "$output" == *"no release notes"* ]]
@@ -161,7 +161,7 @@ released() { grep -q "release create" "$GH_CALLS"; }
     printf '\n \t\n' > "$REPO/docs/release-notes/v9.9.9.md"
     git -C "$REPO" commit -qam blank
     local head; head="$(git -C "$REPO" rev-parse HEAD)"
-    GATE_RUNS_JSON="[{\"headSha\":\"$head\",\"status\":\"completed\",\"conclusion\":\"success\"}]" \
+    GATE_RUNS_JSON="[{\"headSha\":\"$head\",\"status\":\"completed\",\"conclusion\":\"success\",\"url\":\"https://github.test/gate\"}]" \
         run "$SCRIPT" v9.9.9 "$head"
     [[ "$status" -ne 0 ]]
     [[ "$output" == *"empty"* ]]
@@ -178,20 +178,52 @@ released() { grep -q "release create" "$GH_CALLS"; }
     ! released
 }
 
-@test "release_tag: dry run verifies everything and creates nothing" {
-    run "$SCRIPT" v9.9.9 "$TARGET" --dry-run
-    [[ "$status" -eq 0 ]]
-    [[ "$output" == *"dry run"* ]]
-    ! released
+@test "release_tag: only the literal false publishes" {
+    # LOAD-BEARING. Every spelling that isn't exactly "false" — unset, empty, a
+    # capitalized boolean, a typo — must verify and stop, because the failure it
+    # would otherwise cause is an immutable tag.
+    local spelling
+    for spelling in UNSET '' true True TRUE False FALSE no 0 fals; do
+        : > "$GH_CALLS"
+        if [[ "$spelling" == "UNSET" ]]; then
+            run env -u RELEASE_DRY_RUN "$SCRIPT" v9.9.9 "$TARGET"
+        else
+            RELEASE_DRY_RUN="$spelling" run "$SCRIPT" v9.9.9 "$TARGET"
+        fi
+        [[ "$status" -eq 0 ]]
+        [[ "$output" == *"dry run"* ]]
+        ! released
+    done
 }
 
 @test "release_tag: publishes the Release at the target with the committed notes" {
-    run "$SCRIPT" v9.9.9 "$TARGET"
+    RELEASE_DRY_RUN=false run "$SCRIPT" v9.9.9 "$TARGET"
     [[ "$status" -eq 0 ]]
     released
     grep -q -- "--latest" "$GH_CALLS"
     grep -q -- "--target $TARGET" "$GH_CALLS"
     ! grep -q -- "--generate-notes" "$GH_CALLS"
+}
+
+@test "release_tag: --preview renders the version, commit, gate run and notes" {
+    # What the approver reads on the run page; a wrong-but-valid target passes
+    # every other check, so this is where it becomes visible.
+    local summary="$TMP_DIR/summary.md"
+    GITHUB_STEP_SUMMARY="$summary" RELEASE_DRY_RUN=false run "$SCRIPT" v9.9.9 "$TARGET" --preview
+    [[ "$status" -eq 0 ]]
+    ! released
+    grep -q "v9.9.9" "$summary"
+    grep -q "$TARGET" "$summary"
+    grep -q "https://github.test/gate" "$summary"
+    grep -q "What you get in v9.9.9." "$summary"
+}
+
+@test "release_tag: --preview refuses a target that fails a check" {
+    GATE_RUNS_JSON='[]' GITHUB_STEP_SUMMARY="$TMP_DIR/summary.md" \
+        run "$SCRIPT" v9.9.9 "$TARGET" --preview
+    [[ "$status" -ne 0 ]]
+    [[ ! -f "$TMP_DIR/summary.md" ]]
+    ! released
 }
 
 @test "release_tag: usage error on missing arguments" {
