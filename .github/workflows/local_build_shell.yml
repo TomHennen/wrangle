@@ -26,7 +26,7 @@ jobs:
       security-events: write
     # ./ resolves to this repo at the PR branch ref, so PR CI tests
     # the actual code in the PR (not main).
-    uses: ./.github/workflows/build_shell.yml
+    uses: ./.github/workflows/build_shell.yml # zizmor: ignore[self-repository] - actionlint type-checks inputs on `./` calls, not yet on `$/`
     with:
       # bats-path is left empty on purpose: auto-detect runs EVERY .bats in
       # the tree — unit and integration suites alike — with their tool
