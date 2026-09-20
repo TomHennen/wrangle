@@ -5,6 +5,9 @@ on:
     branches: ["main"]
   pull_request:
     branches: ["**"]
+  # Lets the bump-PR job run this suite on the bot branch; a GITHUB_TOKEN-opened
+  # PR fires no `pull_request` event, but a dispatch always creates a run.
+  workflow_dispatch:
 
 # Cancel superseded PR runs; the run_id fallback keeps each main push in its own group (never cancelled).
 concurrency:

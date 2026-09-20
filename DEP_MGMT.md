@@ -94,7 +94,7 @@ whatever is already set.
 | Python tool | `==version --hash=sha256:` in `requirements.txt` |
 | Binary with no package manager | version pinned in the install script |
 | Container base image | OCI `@sha256:` digest |
-| Curated tool image (`tools/catalog.json`) | `ghcr.io/tomhennen/wrangle/<tool>@sha256:` digest — static-checked by `tools/check_catalog.sh` (per-PR), adoption-lag-checked by `tools/check_catalog_freshness.sh` and source-freshness-checked by `tools/check_catalog_provenance_freshness.sh` (release gates). Rationale: [docs/tool_container_design.md](docs/tool_container_design.md) §8, §11 |
+| Curated tool image (`tools/catalog.json`) | `ghcr.io/tomhennen/wrangle/<tool>@sha256:` digest — static-checked by `tools/check_catalog.sh` and, on a catalog-only PR, reproducibility-checked against the registry by `tools/check_catalog_bump_pr.sh` (both per-PR); adoption-lag-checked by `tools/check_catalog_freshness.sh` and source-freshness-checked by `tools/check_catalog_provenance_freshness.sh` (release gates). Rationale: [docs/tool_container_design.md](docs/tool_container_design.md) §8, §11 |
 
 `@main` MUST NOT appear in any `uses:` line, anywhere — including examples and docs.
 
@@ -119,12 +119,17 @@ whatever is already set.
   gate, needs full git history). After a publish, `local_publish_images.yml`
   auto-**opens** (never auto-merges) a bump PR — `tools/bump_catalog_to_latest.sh`
   repoints each drifted `ghcr.io/tomhennen/wrangle/*` entry to its new `:latest`,
-  `tools/open_catalog_bump_pr.sh` opens the PR (requires the repo setting *"Allow
-  GitHub Actions to create and approve pull requests"*). First-party curated-image
-  bumps are **cooldown-exempt** — a rebuild of wrangle's own reviewed source is not
-  a third-party update — so they merge on review latency; an adopter override is
-  not exempt. A digest cooldown remains deferred (#623); when it lands it keys on
-  the `ghcr.io/tomhennen/wrangle/*` namespace so only third-party overrides wait.
+  `tools/open_catalog_bump_pr.sh` opens the PR and dispatches main's required-check
+  workflows onto the bot branch (requires the repo setting *"Allow GitHub Actions to
+  create and approve pull requests"*). `tools/check_catalog_bump_pr.sh` then proves
+  the PR reproducible — catalog-only diff, nothing but curated digests moved, each
+  digest the registry's current `:latest` — which is what lets it merge on green CI
+  without an owner `LGTM` (the one exception; see CLAUDE.md). Nothing auto-merges it.
+  First-party curated-image bumps are **cooldown-exempt** — a rebuild of wrangle's
+  own reviewed source is not a third-party update — so they merge on review latency;
+  an adopter override is not exempt. A digest cooldown remains deferred (#623); when
+  it lands it keys on the `ghcr.io/tomhennen/wrangle/*` namespace so only third-party
+  overrides wait.
 - **Manual today:** the binary+provenance installs (branch 2) and the base-image
   digest. Automating that surface is #264.
 
@@ -146,7 +151,9 @@ likewise, by `tools/go.mod`). Known unguarded duplicates are tracked in #286.
    self-refs, no bare `@main`; a pinned version in the manifest or script.
 5. **No undocumented drift** — a pin literal you touched that also appears
    elsewhere must move together or be guarded.
-6. **No auto-merge** — dependency updates wait out the cooldown and get a human review.
+6. **No auto-merge** — dependency updates wait out the cooldown and get a human
+   review. A catalog-bump PR skips the human read only when `catalog-bump` is
+   green; it is still merged by hand.
 
 ## Tracking
 

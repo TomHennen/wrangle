@@ -95,6 +95,29 @@ SHIM
     [ "$output" = "tools/catalog.json" ]
 }
 
+@test "open_catalog_bump_pr: the required checks are dispatched onto the bump branch" {
+    printf '{"tools":{"osv":{"image":"x"}}}\n' > "$WORK/tools/catalog.json"
+    run "$SCRIPT"
+    [ "$status" -eq 0 ]
+    grep -q 'workflow run local_build_shell.yml .* --ref bot/catalog-autobump' "$GH_LOG"
+    grep -q 'workflow run test.yml .* --ref bot/catalog-autobump' "$GH_LOG"
+}
+
+# A dispatched workflow that lost its workflow_dispatch trigger would leave the
+# bump PR permanently unchecked, with nothing else to notice.
+@test "open_catalog_bump_pr: every dispatched workflow exists and is dispatchable" {
+    local repo_root workflows
+    repo_root="$(cd "$TOOLS_DIR/.." && pwd)"
+    run bash -c 'source "$1"; printf "%s\n" "${CHECK_WORKFLOWS[@]}"' _ "$SCRIPT"
+    [ "$status" -eq 0 ]
+    workflows="$output"
+    [ -n "$workflows" ]
+    while IFS= read -r wf; do
+        [ -f "$repo_root/.github/workflows/$wf" ]
+        grep -qE '^[[:space:]]*workflow_dispatch:' "$repo_root/.github/workflows/$wf"
+    done <<< "$workflows"
+}
+
 @test "open_catalog_bump_pr: an already-open PR is refreshed, not recreated" {
     printf '{"tools":{"osv":{"image":"x"}}}\n' > "$WORK/tools/catalog.json"
     SHIM_PR_EXISTS=1 run "$SCRIPT"

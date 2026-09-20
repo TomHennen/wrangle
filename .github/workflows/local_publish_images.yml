@@ -72,6 +72,7 @@ jobs:
     permissions:
       contents: write        # push the bump branch
       pull-requests: write   # open the bump PR
+      actions: write         # dispatch the required checks onto the bump branch
     steps:
       # persist-credentials: false — the push authenticates with GH_TOKEN via an
       # explicit push URL (open_catalog_bump_pr.sh), so no git credential is left
@@ -92,7 +93,7 @@ jobs:
             printf '::warning::a curated image could not be resolved; its digest was left as-is\n'
           fi
 
-      - name: Open the catalog bump PR
+      - name: Open the catalog bump PR and dispatch its checks
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           WRANGLE_AUTOBUMP_GH_REPO: ${{ github.repository }}

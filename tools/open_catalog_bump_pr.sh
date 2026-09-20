@@ -7,7 +7,8 @@ set -f
 # Runs after bump_catalog_to_latest.sh in the post-publish workflow: it takes the
 # already-modified tools/catalog.json in the working tree, commits it to a
 # dedicated bot branch, and opens a PR (or force-updates the existing one, so a
-# rolling publish keeps a single PR rather than piling up). No-op when the catalog
+# rolling publish keeps a single PR rather than piling up), then dispatches the
+# workflows carrying main's required checks onto the branch. No-op when the catalog
 # is unchanged. First-party rebuilds are cooldown-exempt (§11), so the PR is meant
 # to be reviewed and merged on CI/review latency, not held for the 7-day
 # community-vetting delay. Uses git + the gh CLI with the ambient GITHUB_TOKEN.
@@ -24,6 +25,10 @@ BASE="${WRANGLE_AUTOBUMP_BASE:-main}"
 CATALOG_REL="tools/catalog.json"
 BOT_NAME="github-actions[bot]"
 BOT_EMAIL="41898282+github-actions[bot]@users.noreply.github.com"
+# The workflows carrying main's required checks. A GITHUB_TOKEN-opened PR fires
+# no `pull_request` event, but a `workflow_dispatch` always creates a run, and
+# its check runs land on the branch head SHA the PR points at.
+CHECK_WORKFLOWS=(local_build_shell.yml test.yml)
 
 pr_title() {
     printf 'chore(catalog): bump curated tool-image digests to :latest'
@@ -39,13 +44,16 @@ repoints each drifted first-party entry to the digest just published.
 
 **First-party, cooldown-exempt.** These are rebuilds of wrangle's own reviewed
 source under `ghcr.io/tomhennen/wrangle/*`, not third-party updates — the 7-day
-community-vetting cooldown does not apply. Review the digests and merge on
-CI/review latency to keep the catalog current.
+community-vetting cooldown does not apply.
+
+The `catalog-bump` check re-resolves every digest against the registry and fails
+unless this PR is exactly what `tools/bump_catalog_to_latest.sh` produces, so it
+may be merged on green CI without an owner `LGTM`.
 
 Adopter-override entries (a foreign namespace) are never touched here; those
 pins stay adopter-owned.
 
-Refs #619, #596, #767.
+Refs #619, #596, #767, #843.
 BODY
 }
 
@@ -81,6 +89,14 @@ open_or_update_pr() {
         --title "$(pr_title)" --body "$(pr_body)"
 }
 
+# dispatch_checks — run the required-check workflows against $BRANCH.
+dispatch_checks() {
+    local wf
+    for wf in "${CHECK_WORKFLOWS[@]}"; do
+        gh workflow run "$wf" --repo "$WRANGLE_AUTOBUMP_GH_REPO" --ref "$BRANCH" || return 1
+    done
+}
+
 main() {
     local repo_root
     repo_root="$(git rev-parse --show-toplevel)" || return 2
@@ -98,6 +114,7 @@ main() {
         commit -m "$(pr_title)" >/dev/null || { printf 'open_catalog_bump_pr: commit failed\n' >&2; return 2; }
     push_branch || { printf 'open_catalog_bump_pr: push failed\n' >&2; return 2; }
     open_or_update_pr || { printf 'open_catalog_bump_pr: gh pr open failed\n' >&2; return 2; }
+    dispatch_checks || { printf 'open_catalog_bump_pr: dispatching the checks failed\n' >&2; return 2; }
 }
 
 if [[ "${BASH_SOURCE[0]}" == "${0}" ]]; then

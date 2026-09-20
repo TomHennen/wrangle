@@ -64,3 +64,27 @@ jobs:
       # so it runs every PR; the registry adoption-lag check is a release gate.
       - name: Validate tool catalog
         run: ./tools/check_catalog.sh
+
+  # On a catalog-only change, green means the change is exactly what
+  # bump_catalog_to_latest.sh produces against the registry — the one case
+  # CLAUDE.md lets merge without an owner LGTM. A wider change is out of scope:
+  # it passes here and still needs the LGTM.
+  catalog-bump:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+
+      # The base ref's copy decides scope, so a change that also rewrites the
+      # check, the bump script or the catalog reader cannot vouch for itself.
+      - name: Verify catalog bump reproducibility
+        env:
+          BASE_REF: ${{ github.event.pull_request.base.sha || 'origin/main' }}
+          HEAD_REF: ${{ github.event.pull_request.head.sha || github.sha }}
+        run: |
+          git worktree add --detach "$RUNNER_TEMP/base-ref" "$BASE_REF"
+          "$RUNNER_TEMP/base-ref/tools/check_catalog_bump_pr.sh" "$BASE_REF" "$HEAD_REF"
