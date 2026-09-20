@@ -2,33 +2,42 @@
 set -euo pipefail
 set -f
 
-# cut_release.sh — cut a wrangle release tag (cut-release runbook, Phase 4).
+# cut_release.sh — dispatch wrangle's release workflow (cut-release runbook, Phase 4).
 #
-# Usage: cut_release.sh <version> <notes-file> [--target <sha>]
-#          e.g. cut_release.sh v0.4.0 release-notes.md
+# Usage: cut_release.sh <version> [--target <sha>] [--dry-run]
+#          e.g. cut_release.sh v0.4.2
 #
-# The tag is immutable once created and there is no undo, so every precondition
-# is checked BEFORE `gh release create` and any failure aborts without tagging:
+# This script never tags. It checks what can be checked cheaply, then dispatches
+# .github/workflows/release.yml, whose tag job waits for the owner to approve the
+# `release` environment deployment and re-verifies everything before
+# `gh release create` — the tag is immutable and there is no undo:
 #
 #   1. version is vX.Y.Z (goreleaser needs a semver-parseable tag)
 #   2. the tag does not already exist, locally or on the remote
-#   3. the notes file exists and is non-empty (never --generate-notes: the runbook
-#      wants benefit-first prose, not an auto-changelog)
-#   4. the target commit is on origin/main
-#   5. the Release Gate workflow is green ON THAT COMMIT — dispatched here and
-#      polled, because the gate is the only thing that proves the curated
-#      tool-image digests are release-worthy, and a local run cannot prove it
-#      (a stale or shallow checkout yields a confident false green)
-#   6. the operator confirms, interactively, with the version
+#   3. the target commit is origin/main's HEAD — workflow_dispatch only accepts a
+#      branch or tag ref, so the Release Gate can only be dispatched on main, and
+#      a target that is not main's HEAD would have the gate verify another commit
+#   4. docs/release-notes/<version>.md exists at the target and is non-empty
+#      (never --generate-notes: the runbook wants benefit-first prose)
+#   5. the companion's curated showcase already pins wrangle at <version>, so the
+#      post-release run exercises this release rather than the previous one
+#   6. the `release` environment still gates the tag job on the owner's review and
+#      on main, so the dispatch cannot skip the human gate
+#   7. the Release Gate is green ON THAT COMMIT — dispatched here and polled,
+#      because the gate is the only thing that proves the curated tool-image
+#      digests are release-worthy, and a local run cannot prove it (a stale or
+#      shallow checkout yields a confident false green)
 #
-# It does NOT write the release notes and it does NOT decide to release: the tag
-# is the owner's call.
-#
-# Exit: 0 released, 1 a precondition failed (nothing tagged), 2 usage.
+# Exit: 0 dispatched, 1 a precheck failed (nothing dispatched), 2 usage.
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="${WRANGLE_REPO_ROOT:-$(cd "$SCRIPT_DIR/.." && pwd)}"
 GATE_WORKFLOW="${WRANGLE_RELEASE_GATE:-release_gate.yml}"
+RELEASE_WORKFLOW="${WRANGLE_RELEASE_WORKFLOW:-release.yml}"
+RELEASE_REPO="${GITHUB_REPOSITORY:-TomHennen/wrangle}"
+RELEASE_ENVIRONMENT="release"
+SHOWCASE_SCRIPT="${WRANGLE_SHOWCASE_SCRIPT:-$SCRIPT_DIR/../test/integration/run_release_showcase.sh}"
+NOTES_DIR="docs/release-notes"
 
 wrangle_die() { printf 'cut_release: %s\n' "$1" >&2; return 1; }
 
@@ -47,13 +56,14 @@ wrangle_check_tag_free() {
     fi
 }
 
-# Hand-written, benefit-first prose. An empty file is a wiring error, not a
-# release with no notes.
+# Read from the target commit, not the working tree: the workflow reads the same
+# blob out of its own checkout, and the tagged content is what ships.
 wrangle_check_notes() {
-    local f="$1"
-    [[ -f "$f" ]] || wrangle_die "notes file not found: $f"
-    [[ -s "$f" ]] || wrangle_die "notes file is empty: $f"
-    [[ -n "$(tr -d '[:space:]' < "$f")" ]] || wrangle_die "notes file is whitespace only: $f"
+    local sha="$1" v="$2" body
+    body="$(git -C "$REPO_ROOT" show "$sha:$NOTES_DIR/$v.md" 2>/dev/null)" \
+        || wrangle_die "no release notes at $NOTES_DIR/$v.md in ${sha:0:8}"
+    [[ -n "$(printf '%s' "$body" | tr -d '[:space:]')" ]] \
+        || wrangle_die "release notes $NOTES_DIR/$v.md are empty"
 }
 
 wrangle_check_target_on_main() {
@@ -61,6 +71,39 @@ wrangle_check_target_on_main() {
     git -C "$REPO_ROOT" fetch -q --no-tags origin +refs/heads/main:refs/remotes/origin/main
     git -C "$REPO_ROOT" merge-base --is-ancestor "$sha" origin/main 2>/dev/null \
         || wrangle_die "target $sha is not on origin/main"
+}
+
+wrangle_check_showcase_pin() {
+    "$SHOWCASE_SCRIPT" --check-pin "$1" \
+        || wrangle_die "the companion showcase does not pin wrangle at $1 — land that bump first"
+}
+
+# The environment is the human gate and it lives in repo settings, where nothing
+# else in this repo can notice it being relaxed.
+wrangle_check_release_environment() {
+    local env_json reviewers policy branches
+    env_json="$(gh api "repos/$RELEASE_REPO/environments/$RELEASE_ENVIRONMENT")" \
+        || wrangle_die "no $RELEASE_ENVIRONMENT environment on $RELEASE_REPO — the tag job would run unreviewed"
+
+    reviewers="$(printf '%s' "$env_json" \
+        | jq -r '[.protection_rules[]? | select(.type == "required_reviewers")] | length')" \
+        || wrangle_die "could not read the $RELEASE_ENVIRONMENT environment"
+    [[ "$reviewers" -gt 0 ]] \
+        || wrangle_die "the $RELEASE_ENVIRONMENT environment has no required reviewer — the tag would publish unapproved"
+
+    policy="$(printf '%s' "$env_json" | jq -r '.deployment_branch_policy | if . == null then "none" elif .custom_branch_policies then "custom" else "protected" end')" \
+        || wrangle_die "could not read the $RELEASE_ENVIRONMENT environment"
+    case "$policy" in
+        none) wrangle_die "the $RELEASE_ENVIRONMENT environment allows every branch — restrict its deployment branches to main" ;;
+        custom)
+            branches="$(gh api "repos/$RELEASE_REPO/environments/$RELEASE_ENVIRONMENT/deployment-branch-policies")" \
+                || wrangle_die "could not read the $RELEASE_ENVIRONMENT deployment-branch policies"
+            branches="$(printf '%s' "$branches" | jq -r '[.branch_policies[].name] | sort | join(",")')" \
+                || wrangle_die "could not read the $RELEASE_ENVIRONMENT deployment-branch policies"
+            [[ "$branches" == "main" ]] \
+                || wrangle_die "the $RELEASE_ENVIRONMENT environment deploys from [$branches] — restrict it to main"
+            ;;
+    esac
 }
 
 # Dispatch the Release Gate on the target and poll it. A locally-run preflight
@@ -101,68 +144,84 @@ wrangle_release_gate_green() {
     local conclusion
     conclusion="$(gh run view "$id" --json conclusion -q .conclusion 2>/dev/null || true)"
     if [[ "$conclusion" != "success" ]]; then
-        wrangle_die "Release Gate is ${conclusion:-not finished} on ${sha:0:8} — refusing to tag"
+        wrangle_die "Release Gate is ${conclusion:-not finished} on ${sha:0:8} — refusing to dispatch the release"
     fi
     printf 'cut_release: Release Gate green on %s\n' "${sha:0:8}"
 }
 
-# The tag is the owner's call and it cannot be undone.
-wrangle_confirm() {
-    local v="$1" sha="$2"
-    if [[ ! -t 0 ]]; then
-        wrangle_die "refusing to cut non-interactively — the tag is immutable and is the owner's call"
+# The tag itself is the owner's call, made by approving the `release` deployment.
+wrangle_dispatch_release() {
+    local version="$1" sha="$2" dry_run="$3"
+    local before url="" id="" i
+
+    before="$(gh run list --workflow "$RELEASE_WORKFLOW" --limit 1 \
+        --json databaseId -q '.[0].databaseId' 2>/dev/null || true)"
+
+    gh workflow run "$RELEASE_WORKFLOW" --ref main \
+        -f "version=$version" -f "target=$sha" -f "dry-run=$dry_run" >/dev/null \
+        || wrangle_die "could not dispatch $RELEASE_WORKFLOW"
+
+    for ((i = 0; i < 24; i++)); do
+        sleep 5
+        id="$(gh run list --workflow "$RELEASE_WORKFLOW" --limit 1 \
+            --json databaseId -q '.[0].databaseId' 2>/dev/null || true)"
+        if [[ -n "$id" && "$id" != "$before" ]]; then
+            url="$(gh run view "$id" --json url -q .url 2>/dev/null || true)"
+            break
+        fi
+    done
+
+    printf 'cut_release: dispatched %s for %s at %s\n' "$RELEASE_WORKFLOW" "$version" "${sha:0:8}"
+    if [[ -n "$url" ]]; then
+        printf 'cut_release: %s\n' "$url"
+    else
+        printf 'cut_release: the run is on the Actions tab (%s)\n' "$RELEASE_WORKFLOW"
     fi
-    printf '\nAbout to cut %s at %s (immutable, no undo).\nType the version to confirm: ' "$v" "${sha:0:8}"
-    local reply
-    read -r reply
-    [[ "$reply" == "$v" ]] || wrangle_die "confirmation did not match — nothing tagged"
+    printf 'An approval is waiting: the owner must approve the release deployment on that run. Nothing is tagged until they do.\n'
 }
 
 wrangle_cut_release() {
-    local version="$1" notes="$2" target="${3:-}"
+    local version="$1" target="${2:-}" dry_run="${3:-false}"
 
     wrangle_check_version "$version"
-    wrangle_check_notes "$notes"
     wrangle_check_tag_free "$version"
 
+    # The workflow takes a 40-hex sha and nothing else, so resolve here.
     if [[ -z "$target" ]]; then
         git -C "$REPO_ROOT" fetch -q --no-tags origin +refs/heads/main:refs/remotes/origin/main
         target="$(git -C "$REPO_ROOT" rev-parse origin/main)"
+    else
+        target="$(git -C "$REPO_ROOT" rev-parse --verify --quiet "$target^{commit}")" \
+            || wrangle_die "unknown target commit: $target"
     fi
     wrangle_check_target_on_main "$target"
+    wrangle_check_notes "$target" "$version"
+    wrangle_check_showcase_pin "$version"
+    wrangle_check_release_environment
     wrangle_release_gate_green "$target"
-    wrangle_confirm "$version" "$target"
-
-    gh release create "$version" \
-        --target "$target" \
-        --title "$version" \
-        --notes-file "$notes" \
-        --latest \
-        || wrangle_die "gh release create failed"
-
-    printf 'cut_release: released %s at %s\n' "$version" "${target:0:8}"
+    wrangle_dispatch_release "$version" "$target" "$dry_run"
 }
 
 main() {
-    local version="" notes="" target=""
+    local version="" target="" dry_run="false"
     while [[ $# -gt 0 ]]; do
         case "$1" in
             --target) target="${2:-}"; shift 2 ;;
+            --dry-run) dry_run="true"; shift ;;
             -*) printf 'cut_release: unknown flag: %s\n' "$1" >&2; exit 2 ;;
             *)
                 if [[ -z "$version" ]]; then version="$1"
-                elif [[ -z "$notes" ]]; then notes="$1"
                 else printf 'cut_release: unexpected argument: %s\n' "$1" >&2; exit 2
                 fi
                 shift
                 ;;
         esac
     done
-    if [[ -z "$version" || -z "$notes" ]]; then
-        printf 'Usage: cut_release.sh <version> <notes-file> [--target <sha>]\n' >&2
+    if [[ -z "$version" ]]; then
+        printf 'Usage: cut_release.sh <version> [--target <sha>] [--dry-run]\n' >&2
         exit 2
     fi
-    wrangle_cut_release "$version" "$notes" "$target"
+    wrangle_cut_release "$version" "$target" "$dry_run"
 }
 
 if [[ "${BASH_SOURCE[0]}" == "$0" ]]; then

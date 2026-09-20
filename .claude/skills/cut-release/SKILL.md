@@ -18,11 +18,12 @@ tag-immutability controls, ordering constraints) lives in
 ## Ground rules (non-negotiable)
 
 - **The tag is the owner's call.** Do every prep step, then stop and wait for an
-  explicit "cut it" from the repository owner. Never tag on your own initiative.
+  explicit "cut it" from the repository owner. Even then you only dispatch: the tag job
+  waits on the owner's own approval of the `release` environment deployment.
 - **No merge without an owner `LGTM`.** Green CI is never authorization to merge. Every
   release-prep PR follows the normal review path, including adversarial subagent review.
 - **A bare `git tag && git push` is not a release.** It creates a loose tag with no
-  GitHub Release and therefore no attestation. Always `gh release create vX.Y.Z`.
+  GitHub Release and therefore no attestation. Always go through `make cut-release`.
 - Run from a **clean checkout of `main`** (`git status` clean, `gh auth status` good).
   Do not drive a release from a nested worktree.
 
@@ -120,22 +121,40 @@ All three must hold before you ask the owner to cut. Do not shortcut.
 
 ## Phase 4 — Cut the tag and publish the Release
 
-Only after the owner says "cut it". First write the notes **benefit-first, second
-person** — what the adopter gains, not a changelog of internal wins or code structure;
-mention the producer/consumer policies that let adopters check the evidence. Then:
+Only after the owner says "cut it". Two things must already be **merged**, because both
+are read from the commit being tagged, not from your disk:
+
+- `docs/release-notes/vX.Y.Z.md` — **benefit-first, second person**: what the adopter
+  gains, not a changelog of internal wins or code structure; mention the
+  producer/consumer policies that let adopters check the evidence. Never
+  `--generate-notes`.
+- the companion's `showcase-curated.yml` wrangle pin, bumped to `vX.Y.Z` (a `uses:` ref
+  can't be an expression, so it is hand-bumped) — otherwise the post-release showcase
+  exercises the previous release.
+
+Then, from a clean checkout of `main` whose HEAD is the commit to tag:
 
 ```bash
-gh release create vX.Y.Z --target <commit> --title vX.Y.Z --notes-file release-notes.md --latest
+make cut-release VERSION=vX.Y.Z          # or: ./tools/cut_release.sh vX.Y.Z --dry-run
 ```
 
-- Pick the exact `main` commit that carries the bumped refs and the fresh catalog.
-- Pass the hand-written notes via `--notes-file`. Don't use `--generate-notes` for the
-  final notes — it emits an auto-changelog, not the benefit-first prose.
-- Tag immutability (immutable releases + a no-bypass tag ruleset) is **already configured
-  on the repo** — one-time setup, not redone per release (see RELEASING.md).
-- `goreleaser` needs a semver-parseable tag — `vX.Y.Z` is fine; never a `pr-<n>` form.
+It prechecks (semver, tag free, notes, companion pin, `release` environment still
+owner-reviewed and main-only), dispatches the **Release Gate** on the target and waits
+for a green run, then dispatches `.github/workflows/release.yml` and prints its run URL.
+**It never tags.** The run's summary shows the version, the commit and the notes it
+would publish; the tag job then waits at "Waiting for review" under the `release`
+environment, so tell the owner the approval is waiting and where. On approval the job
+re-verifies everything itself and publishes the Release. `--dry-run` takes the same path
+and stops short of publishing.
+
+`goreleaser` needs a semver-parseable tag — `vX.Y.Z` is fine; never a `pr-<n>` form. Tag
+immutability (immutable releases + a no-bypass tag ruleset) is already configured on the
+repo (see RELEASING.md).
 
 ## After cutting
 
+- The same run pushes `vX.Y.Z` to the companion and waits for the curated showcase; watch
+  it to the end. A failure turns the run red and names the companion run — the tag is
+  immutable, so the remedy is the next patch release, never a retag.
 - Confirm `gh release view vX.Y.Z` shows `--latest` and the showcase links resolve.
 - Roll deferred work into the next milestone; file follow-ups rather than holding the tag.

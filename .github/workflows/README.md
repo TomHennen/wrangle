@@ -8,7 +8,8 @@ Wrangle aims to provide _both_:
 Wrangle also has its own workflows that it uses to manage itself. Its dogfooding
 callers are prefixed `local_` (e.g. `local_build_shell.yml`,
 `local_publish_images.yml`); other internal workflows (`test.yml`,
-`integration-test.yml`, `release-showcase.yml`, the catalog-freshness checks) are
+`integration-test.yml`, `release.yml`, `release-showcase.yml`, the
+catalog-freshness checks) are
 not. Adopter-facing example workflows live in [`../../gh_workflow_examples/`](../../gh_workflow_examples/).
 
 ## build_and_publish_*.yml
