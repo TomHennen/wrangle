@@ -44,7 +44,7 @@ count() { grep -c "$1" "$WORKFLOW" || true; }
     # first for the owner to see what they are approving.
     job_block tag | grep -q 'needs: \[preview\]'
     job_block preview | grep -q -- '--preview'
-    ! job_block preview | grep -q 'environment:'
+    if job_block preview | grep -q 'environment:'; then return 1; fi
 }
 
 @test "release.yml defaults a dispatch to a dry run" {

@@ -55,23 +55,33 @@ teardown() {
 
 tagged() { [[ -f "$TAG_CREATED" ]]; }
 
+# A bare `! cmd` is exempt from set -e unless it is a test's last command, so
+# negative assertions return 1 explicitly instead.
+refute_tagged() {
+    if tagged; then printf 'the companion tag was created\n' >&2; return 1; fi
+}
+
+refute_call() {
+    if grep -q -- "$1" "$GH_CALLS"; then printf 'unexpected gh call: %s\n' "$1" >&2; return 1; fi
+}
+
 @test "run_release_showcase: rejects a non-semver version" {
     run "$SCRIPT" v9.9
     [[ "$status" -eq 2 ]]
-    ! tagged
+    refute_tagged
 }
 
 @test "run_release_showcase: usage error with no arguments" {
     run "$SCRIPT"
     [[ "$status" -eq 2 ]]
-    ! tagged
+    refute_tagged
 }
 
 @test "run_release_showcase: fails fast when the companion push token is unset" {
     run env -u COMPANION_PUSH_TOKEN "$SCRIPT" v9.9.9
     [[ "$status" -eq 2 ]]
     [[ "$output" == *"COMPANION_PUSH_TOKEN"* ]]
-    ! tagged
+    refute_tagged
 }
 
 @test "run_release_showcase: refuses when the companion pins another release" {
@@ -81,27 +91,27 @@ tagged() { [[ -f "$TAG_CREATED" ]]; }
     WORKFLOW_SRC="$(companion_workflow v9.9.8)" run "$SCRIPT" v9.9.9
     [[ "$status" -eq 1 ]]
     [[ "$output" == *"v9.9.8"* ]]
-    ! tagged
+    refute_tagged
 }
 
 @test "run_release_showcase: refuses when the companion pins no wrangle workflow" {
     WORKFLOW_SRC='jobs: {}' run "$SCRIPT" v9.9.9
     [[ "$status" -eq 1 ]]
     [[ "$output" == *"no wrangle pin"* ]]
-    ! tagged
+    refute_tagged
 }
 
 @test "run_release_showcase: --check-pin verifies the pin without tagging" {
     run "$SCRIPT" --check-pin v9.9.9
     [[ "$status" -eq 0 ]]
-    ! tagged
-    ! grep -q "run watch" "$GH_CALLS"
+    refute_tagged
+    refute_call "run watch"
 }
 
 @test "run_release_showcase: --check-pin reports a stale pin" {
     WORKFLOW_SRC="$(companion_workflow v9.9.8)" run "$SCRIPT" --check-pin v9.9.9
     [[ "$status" -eq 1 ]]
-    ! tagged
+    refute_tagged
 }
 
 @test "run_release_showcase: pushes the tag and reports a passing run" {
@@ -126,7 +136,7 @@ tagged() { [[ -f "$TAG_CREATED" ]]; }
     # transient failure.
     TAG_EXISTS_STATUS=0 run "$SCRIPT" v9.9.9
     [[ "$status" -eq 0 ]]
-    ! tagged
+    refute_tagged
     grep -q "run watch 4242" "$GH_CALLS"
 }
 

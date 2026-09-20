@@ -53,11 +53,21 @@ teardown() {
 
 released() { grep -q "release create" "$GH_CALLS"; }
 
+# A bare `! cmd` is exempt from set -e unless it is a test's last command, so
+# negative assertions return 1 explicitly instead.
+refute_released() {
+    if released; then printf 'gh release create was reached\n' >&2; return 1; fi
+}
+
+refute_call() {
+    if grep -q -- "$1" "$GH_CALLS"; then printf 'unexpected gh call: %s\n' "$1" >&2; return 1; fi
+}
+
 @test "release_tag: rejects a non-semver version without tagging" {
     run "$SCRIPT" 9.9.9 "$TARGET"
     [[ "$status" -ne 0 ]]
     [[ "$output" == *"must be vX.Y.Z"* ]]
-    ! released
+    refute_released
 }
 
 @test "release_tag: rejects a target that is not a 40-hex sha" {
@@ -66,14 +76,14 @@ released() { grep -q "release create" "$GH_CALLS"; }
     run "$SCRIPT" v9.9.9 main
     [[ "$status" -ne 0 ]]
     [[ "$output" == *"40-character hex sha"* ]]
-    ! released
+    refute_released
 }
 
 @test "release_tag: refuses to run off a branch other than main" {
     GITHUB_REF="refs/heads/attacker" run "$SCRIPT" v9.9.9 "$TARGET"
     [[ "$status" -ne 0 ]]
     [[ "$output" == *"runs on main"* ]]
-    ! released
+    refute_released
 }
 
 @test "release_tag: refuses when the tag already exists locally" {
@@ -81,7 +91,7 @@ released() { grep -q "release create" "$GH_CALLS"; }
     run "$SCRIPT" v9.9.9 "$TARGET"
     [[ "$status" -ne 0 ]]
     [[ "$output" == *"already exists"* ]]
-    ! released
+    refute_released
 }
 
 @test "release_tag: refuses when the tag already exists on the remote" {
@@ -90,7 +100,7 @@ released() { grep -q "release create" "$GH_CALLS"; }
     TAG_REFS_JSON='[{"ref":"refs/tags/v9.9.9"}]' run "$SCRIPT" v9.9.9 "$TARGET"
     [[ "$status" -ne 0 ]]
     [[ "$output" == *"already exists"* ]]
-    ! released
+    refute_released
 }
 
 @test "release_tag: accepts a tag name that only prefixes an existing tag" {
@@ -98,7 +108,7 @@ released() { grep -q "release create" "$GH_CALLS"; }
     # v9.9.90 exists.
     TAG_REFS_JSON='[{"ref":"refs/tags/v9.9.90"}]' run "$SCRIPT" v9.9.9 "$TARGET"
     [[ "$status" -eq 0 ]]
-    ! released
+    refute_released
 }
 
 @test "release_tag: refuses a target that is not on main" {
@@ -113,7 +123,7 @@ released() { grep -q "release create" "$GH_CALLS"; }
         run "$SCRIPT" v9.9.9 "$off_main"
     [[ "$status" -ne 0 ]]
     [[ "$output" == *"not on origin/main"* ]]
-    ! released
+    refute_released
 }
 
 @test "release_tag: refuses when the Release Gate ran on a different commit" {
@@ -123,27 +133,27 @@ released() { grep -q "release create" "$GH_CALLS"; }
         run "$SCRIPT" v9.9.9 "$TARGET"
     [[ "$status" -ne 0 ]]
     [[ "$output" == *"no completed, successful"* ]]
-    ! released
+    refute_released
 }
 
 @test "release_tag: refuses when the Release Gate run is still in progress" {
     GATE_RUNS_JSON="[{\"headSha\":\"$TARGET\",\"status\":\"in_progress\",\"conclusion\":null}]" \
         run "$SCRIPT" v9.9.9 "$TARGET"
     [[ "$status" -ne 0 ]]
-    ! released
+    refute_released
 }
 
 @test "release_tag: refuses when the Release Gate failed on the target" {
     GATE_RUNS_JSON="[{\"headSha\":\"$TARGET\",\"status\":\"completed\",\"conclusion\":\"failure\"}]" \
         run "$SCRIPT" v9.9.9 "$TARGET"
     [[ "$status" -ne 0 ]]
-    ! released
+    refute_released
 }
 
 @test "release_tag: refuses when there are no gate runs at all" {
     GATE_RUNS_JSON='[]' run "$SCRIPT" v9.9.9 "$TARGET"
     [[ "$status" -ne 0 ]]
-    ! released
+    refute_released
 }
 
 @test "release_tag: refuses when the notes file is missing at the target" {
@@ -154,7 +164,7 @@ released() { grep -q "release create" "$GH_CALLS"; }
         run "$SCRIPT" v9.9.9 "$head"
     [[ "$status" -ne 0 ]]
     [[ "$output" == *"no release notes"* ]]
-    ! released
+    refute_released
 }
 
 @test "release_tag: refuses whitespace-only notes at the target" {
@@ -165,7 +175,7 @@ released() { grep -q "release create" "$GH_CALLS"; }
         run "$SCRIPT" v9.9.9 "$head"
     [[ "$status" -ne 0 ]]
     [[ "$output" == *"empty"* ]]
-    ! released
+    refute_released
 }
 
 @test "release_tag: reads the notes from the target, not the working tree" {
@@ -175,7 +185,7 @@ released() { grep -q "release create" "$GH_CALLS"; }
     run "$SCRIPT" v9.9.8 "$TARGET"
     [[ "$status" -ne 0 ]]
     [[ "$output" == *"no release notes"* ]]
-    ! released
+    refute_released
 }
 
 @test "release_tag: only the literal false publishes" {
@@ -192,7 +202,7 @@ released() { grep -q "release create" "$GH_CALLS"; }
         fi
         [[ "$status" -eq 0 ]]
         [[ "$output" == *"dry run"* ]]
-        ! released
+        refute_released
     done
 }
 
@@ -202,7 +212,7 @@ released() { grep -q "release create" "$GH_CALLS"; }
     released
     grep -q -- "--latest" "$GH_CALLS"
     grep -q -- "--target $TARGET" "$GH_CALLS"
-    ! grep -q -- "--generate-notes" "$GH_CALLS"
+    refute_call "--generate-notes"
 }
 
 @test "release_tag: --preview renders the version, commit, gate run and notes" {
@@ -211,7 +221,7 @@ released() { grep -q "release create" "$GH_CALLS"; }
     local summary="$TMP_DIR/summary.md"
     GITHUB_STEP_SUMMARY="$summary" RELEASE_DRY_RUN=false run "$SCRIPT" v9.9.9 "$TARGET" --preview
     [[ "$status" -eq 0 ]]
-    ! released
+    refute_released
     grep -q "v9.9.9" "$summary"
     grep -q "$TARGET" "$summary"
     grep -q "https://github.test/gate" "$summary"
@@ -223,11 +233,11 @@ released() { grep -q "release create" "$GH_CALLS"; }
         run "$SCRIPT" v9.9.9 "$TARGET" --preview
     [[ "$status" -ne 0 ]]
     [[ ! -f "$TMP_DIR/summary.md" ]]
-    ! released
+    refute_released
 }
 
 @test "release_tag: usage error on missing arguments" {
     run "$SCRIPT" v9.9.9
     [[ "$status" -eq 2 ]]
-    ! released
+    refute_released
 }

@@ -76,11 +76,21 @@ teardown() {
 
 dispatched() { grep -q "workflow run release.yml" "$GH_CALLS"; }
 
+# A bare `! cmd` is exempt from set -e unless it is a test's last command, so
+# negative assertions return 1 explicitly instead.
+refute_dispatched() {
+    if dispatched; then printf 'the release workflow was dispatched\n' >&2; return 1; fi
+}
+
+refute_released() {
+    if grep -q "release create" "$GH_CALLS"; then printf 'gh release create was reached\n' >&2; return 1; fi
+}
+
 @test "cut_release: rejects a non-semver version without dispatching" {
     run "$SCRIPT" 0.4.0
     [[ "$status" -ne 0 ]]
     [[ "$output" == *"must be vX.Y.Z"* ]]
-    ! dispatched
+    refute_dispatched
 }
 
 @test "cut_release: refuses when the notes file is missing at the target" {
@@ -89,7 +99,7 @@ dispatched() { grep -q "workflow run release.yml" "$GH_CALLS"; }
     run "$SCRIPT" v9.9.9
     [[ "$status" -ne 0 ]]
     [[ "$output" == *"no release notes"* ]]
-    ! dispatched
+    refute_dispatched
 }
 
 @test "cut_release: refuses a whitespace-only notes file without dispatching" {
@@ -100,7 +110,7 @@ dispatched() { grep -q "workflow run release.yml" "$GH_CALLS"; }
     run "$SCRIPT" v9.9.9
     [[ "$status" -ne 0 ]]
     [[ "$output" == *"empty"* ]]
-    ! dispatched
+    refute_dispatched
 }
 
 @test "cut_release: refuses when the tag already exists" {
@@ -109,13 +119,13 @@ dispatched() { grep -q "workflow run release.yml" "$GH_CALLS"; }
     run "$SCRIPT" v9.9.9
     [[ "$status" -ne 0 ]]
     [[ "$output" == *"already exists"* ]]
-    ! dispatched
+    refute_dispatched
 }
 
 @test "cut_release: usage error on missing arguments" {
     run "$SCRIPT"
     [[ "$status" -eq 2 ]]
-    ! dispatched
+    refute_dispatched
 }
 
 @test "cut_release: refuses a target that is not origin/main's HEAD" {
@@ -129,7 +139,7 @@ dispatched() { grep -q "workflow run release.yml" "$GH_CALLS"; }
     run "$SCRIPT" v9.9.9 --target "$ancestor"
     [[ "$status" -ne 0 ]]
     [[ "$output" == *"HEAD"* ]]
-    ! dispatched
+    refute_dispatched
 }
 
 @test "cut_release: refuses when the companion showcase pins another release" {
@@ -138,7 +148,7 @@ dispatched() { grep -q "workflow run release.yml" "$GH_CALLS"; }
     SHOWCASE_PIN_STATUS=1 run "$SCRIPT" v9.9.9
     [[ "$status" -ne 0 ]]
     [[ "$output" == *"companion showcase"* ]]
-    ! dispatched
+    refute_dispatched
 }
 
 @test "cut_release: refuses when the release environment allows every branch" {
@@ -149,7 +159,7 @@ dispatched() { grep -q "workflow run release.yml" "$GH_CALLS"; }
         run "$SCRIPT" v9.9.9
     [[ "$status" -ne 0 ]]
     [[ "$output" == *"allows every branch"* ]]
-    ! dispatched
+    refute_dispatched
 }
 
 @test "cut_release: refuses when the release environment deploys from more than main" {
@@ -157,7 +167,7 @@ dispatched() { grep -q "workflow run release.yml" "$GH_CALLS"; }
         run "$SCRIPT" v9.9.9
     [[ "$status" -ne 0 ]]
     [[ "$output" == *"restrict it to main"* ]]
-    ! dispatched
+    refute_dispatched
 }
 
 @test "cut_release: refuses when the release environment has no required reviewer" {
@@ -166,7 +176,7 @@ dispatched() { grep -q "workflow run release.yml" "$GH_CALLS"; }
         run "$SCRIPT" v9.9.9
     [[ "$status" -ne 0 ]]
     [[ "$output" == *"no required reviewer"* ]]
-    ! dispatched
+    refute_dispatched
 }
 
 @test "cut_release: dispatches the release workflow and never creates a release itself" {
@@ -178,7 +188,7 @@ dispatched() { grep -q "workflow run release.yml" "$GH_CALLS"; }
     grep -q -- "-f version=v9.9.9" "$GH_CALLS"
     grep -q -- "-f target=$(git -C "$REPO" rev-parse HEAD)" "$GH_CALLS"
     grep -q -- "-f dry-run=false" "$GH_CALLS"
-    ! grep -q "release create" "$GH_CALLS"
+    refute_released
     [[ "$output" == *"approval is waiting"* ]]
 }
 
@@ -186,5 +196,5 @@ dispatched() { grep -q "workflow run release.yml" "$GH_CALLS"; }
     run "$SCRIPT" v9.9.9 --dry-run
     [[ "$status" -eq 0 ]]
     grep -q -- "-f dry-run=true" "$GH_CALLS"
-    ! grep -q "release create" "$GH_CALLS"
+    refute_released
 }
