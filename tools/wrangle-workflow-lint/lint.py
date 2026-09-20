@@ -17,6 +17,8 @@ choice — see the "Why PyYAML" note below:
                verify|attestation|provenance|slsa|cosign|install) that sets
                `continue-on-error: true` must carry an adjacent justification
                comment — mirrors WSL005's documented-exception mechanism.
+  WWL004       a `uses:` that names wrangle's own repository must use the
+               `$/` self-repository form, not `TomHennen/wrangle/...@<ref>`.
 
 The sibling shell-AST rules live in wrangle-shell-lint: R3 (curl|sh) is WSL006
 and R5 (`set +f` outside a subshell) is WSL007.
@@ -27,11 +29,12 @@ a regex constraint), but it has no line-count constraint for WWL001 (a block
 scalar's physical span) and reaches comments only through brittle relational
 matching for WWL003's adjacent-justification rule. A small PyYAML pass gets
 node line ranges and raw-line access for both directly, making it the more
-maintainable home for these three rules; WWL002 stays alongside them rather
+maintainable home for these rules; WWL002 stays alongside them rather
 than splitting one rule out into a second tool.
 
 Inputs are file paths (workflows under .github/workflows and composite
-action.yml files). Both `jobs.*.steps[]` and `runs.steps[]` are walked.
+action.yml files). Both `jobs.*.steps[]` and `runs.steps[]` are walked, plus
+every `uses:` (step or job level) for WWL004.
 
 Exit: 0 clean, 1 violations found, 2 tool/usage error (fail closed).
 """
@@ -87,6 +90,11 @@ RUN_VERIFY_KEYWORDS = re.compile(
     r"notation|gitsign|in-?toto",
     re.IGNORECASE,
 )
+
+
+# WWL004: an owner/repo self-reference resolves a pinned ref, not the commit that
+# is running, so it can silently run stale code.
+SELF_REPO_USES_RE = re.compile(r"^TomHennen/wrangle(?:/|@)", re.IGNORECASE)
 
 
 def tolerates_failure(coe_node):
@@ -166,6 +174,38 @@ def run_body_physical_lines(node, raw_lines):
         return len(body)
     # Plain or quoted scalar: physical span (single line in the common case).
     return (end - start) + 1
+
+
+def find_uses(node):
+    """Yield every `uses:` ScalarNode at step or job level.
+
+    `with:` is not descended into, so an action input named `uses` is not
+    mistaken for a reference.
+    """
+    if isinstance(node, yaml.MappingNode):
+        for key, value in mapping_items(node):
+            if key == "uses" and isinstance(value, yaml.ScalarNode):
+                yield value
+            elif key != "with":
+                yield from find_uses(value)
+    elif isinstance(node, yaml.SequenceNode):
+        for item in node.value:
+            yield from find_uses(item)
+
+
+def check_self_reference(path, uses_node, findings):
+    if SELF_REPO_USES_RE.match(uses_node.value):
+        findings.append(
+            Finding(
+                path,
+                uses_node.start_mark.line + 1,
+                "WWL004",
+                f"`uses: {uses_node.value}` names wrangle's own repository by "
+                "owner/repo. Use the `$/` self-repository form "
+                "(`uses: $/actions/scan`) so it resolves to the commit that is "
+                "running.",
+            )
+        )
 
 
 def step_sub(step):
@@ -293,6 +333,8 @@ def lint_file(path):
     if root is not None:
         for step in find_steps(root):
             check_step_rules(path, step, raw_lines, findings)
+        for uses_node in find_uses(root):
+            check_self_reference(path, uses_node, findings)
     return findings
 
 

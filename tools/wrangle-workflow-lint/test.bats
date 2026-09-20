@@ -297,6 +297,23 @@ teardown() {
     [ "$status" -eq 2 ]
 }
 
+# --- WWL004: self-references use $/ -----------------------------------------
+
+@test "WWL004: owner/repo self-references are reported at step and job level" {
+    run "$LINTER" "$FIXTURES/bad_self_ref.yml"
+    [ "$status" -eq 1 ]
+    [ "$(grep -c 'WWL004' <<<"$output")" -eq 2 ]
+    [[ "$output" == *":6: WWL004:"* ]]
+    [[ "$output" == *":10: WWL004:"* ]]
+}
+
+@test "WWL004: \$/ references, third-party actions and a with: input named uses pass" {
+    run "$LINTER" "$FIXTURES/bad_self_ref.yml"
+    [[ "$output" != *":11: WWL004:"* ]]
+    [[ "$output" != *":12: WWL004:"* ]]
+    [[ "$output" != *":14: WWL004:"* ]]
+}
+
 # --- Output format -----------------------------------------------------------
 
 @test "output format includes path, line, and rule id" {
