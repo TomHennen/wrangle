@@ -1,0 +1,101 @@
+name: Release
+
+# Cut a wrangle release tag. `tools/cut_release.sh` dispatches this after its own
+# prechecks; the `release` environment then holds the tag job at "Waiting for
+# review" until the repository owner approves the deployment — that approval is
+# the human gate on an irreversible step, so the job re-verifies every
+# precondition itself instead of trusting the dispatcher.
+#
+# After the Release is published, the companion repo's curated showcase runs at
+# the new tag: the only thing that exercises a wrangle release the way adopters
+# do (a `refs/tags/` signer identity, which the strict consumer policy requires).
+# It detects, it cannot prevent — the tag is immutable, so a failure opens a
+# wrangle-alert issue and the remedy is the next patch release.
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: Release tag to cut (vX.Y.Z)
+        required: true
+        type: string
+      target:
+        description: Commit to tag (40-character hex sha on main)
+        required: true
+        type: string
+      dry-run:
+        description: Run every check and stop before creating the Release
+        type: boolean
+        default: false
+
+concurrency:
+  group: release
+  cancel-in-progress: false
+
+permissions: {}
+
+jobs:
+  tag:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    environment: release
+    permissions:
+      contents: write   # gh release create
+      actions: read     # read the Release Gate run's conclusion on the target
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          persist-credentials: false
+          # The target's ancestry and its release-notes blob are read from local
+          # history — the job never checks the target out.
+          fetch-depth: 0
+
+      - name: Verify the target and publish the Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          VERSION: ${{ inputs.version }}
+          TARGET: ${{ inputs.target }}
+          DRY_RUN: ${{ inputs['dry-run'] }}
+        run: |
+          if [[ "$DRY_RUN" == "true" ]]; then
+            exec ./tools/release_tag.sh "$VERSION" "$TARGET" --dry-run
+          fi
+          exec ./tools/release_tag.sh "$VERSION" "$TARGET"
+
+  showcase:
+    needs: [tag]
+    if: ${{ !inputs['dry-run'] }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    environment: integration-test
+    permissions:
+      contents: read   # checkout only; the companion tag is pushed with TEST_REPO_PAT
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          persist-credentials: false
+
+      - name: Run the companion showcase at the new tag
+        env:
+          GH_TOKEN: ${{ secrets.TEST_REPO_PAT }}
+          VERSION: ${{ inputs.version }}
+        run: ./test/integration/run_release_showcase.sh "$VERSION"
+
+  alert:
+    needs: [tag, showcase]
+    if: ${{ always() && !inputs['dry-run'] && needs.tag.result == 'success' && needs.showcase.result != 'success' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      issues: write   # the published tag cannot be withdrawn; an issue is the only remedy path
+    steps:
+      - name: Open a wrangle-alert issue
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          VERSION: ${{ inputs.version }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: |
+          gh issue create --label wrangle-alert \
+            --title "$VERSION is published but its showcase did not pass" \
+            --body "$VERSION stays published — its tag is immutable. The curated showcase at $VERSION did not pass ($RUN_URL); investigate it and ship the remedy in the next patch release."

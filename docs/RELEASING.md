@@ -54,9 +54,9 @@ where both repos are at known commits.
 - `TEST_REPO_PAT` secret on this repo, exposed to the
   `integration-test` environment. A fine-grained PAT (or GitHub App
   installation token) scoped to `contents: write` on `tomhennen/wrangle-test`
-  and nothing else. The same secret powers `integration-test.yml`; the
-  release-showcase workflow reuses it because the required scope is
-  identical.
+  plus `actions: read` so `release.yml` can read the curated showcase
+  run's verdict, and nothing else. The same secret powers
+  `integration-test.yml` and `release.yml`.
 - The `integration-test` environment must permit `main` as a deployment
   branch (it does today; verify after editing the environment's branch
   rules).
@@ -87,11 +87,23 @@ controls (below) are already configured on the repo.
    `gh_workflow_examples/` **and** across the adopter-facing docs and per-action
    READMEs (the `cut-release` skill enumerates the full set), not just the
    examples.
-2. Publish a Release on the target commit: GitHub's **Draft a new
-   release** UI (pick the commit, type `vX.Y.Z`, publish), or
-   `gh release create vX.Y.Z`. Never ship a bare `git tag && git push`
-   — it creates no Release, so no attestation.
-3. Leave the companion's `showcase.yml` pinned at `@main` — it is the
+2. Land the release notes at `docs/release-notes/vX.Y.Z.md`, and bump the
+   companion's `showcase-curated.yml` wrangle pin to `vX.Y.Z`. Both are read
+   from the commit being tagged, never from anyone's disk.
+3. Run `make cut-release VERSION=vX.Y.Z`. It prechecks, requires a green
+   Release Gate on the target, and dispatches
+   [`release.yml`](../.github/workflows/release.yml); its tag job runs under
+   the `release` environment, so GitHub holds it at "Waiting for review" until
+   the owner approves that deployment. The job re-verifies every precondition
+   itself rather than trusting the dispatcher, then publishes the Release.
+   Never ship a bare `git tag && git push` — it creates no Release, so no
+   attestation.
+4. Once the Release exists, the same workflow pushes `vX.Y.Z` to the companion
+   and waits for the curated showcase — the only run that exercises a wrangle
+   release the way adopters do, with a `refs/tags/` signer identity. It detects,
+   it cannot prevent: a failure opens a `wrangle-alert` issue, the Release stays
+   published, and the remedy is the next patch release.
+5. Leave the companion's `showcase.yml` pinned at `@main` — it is the
    current-state heartbeat — running the verify-vsa gate in non-release
    dogfood mode (`WRANGLE_VSA_NON_STRICT=1`), since an `@main` build is not
    release-tag signed and would otherwise fail the strict consumer policy.
@@ -99,6 +111,10 @@ controls (below) are already configured on the repo.
    so they pass the strict policy, and the source of the consumer-VSA test
    fixtures — come from a separate tag-pinned showcase path, not by repointing
    the heartbeat ([`wrangle-test#10`](https://github.com/TomHennen/wrangle-test/issues/10)).
+
+**The `release` environment — one-time setup.** The repository owner is its
+sole required reviewer (self-review allowed), which is what makes the tag
+job's pause a human gate, and `main` must be an allowed deployment branch.
 
 **Tag immutability — two controls, already enabled (one-time setup; not
 re-done per release):**
@@ -137,8 +153,3 @@ in a `0.2.x` *before* the producer emits it on every build type
 hard-fails adopters' release gates mid-train. Keep new outputs additive
 until the loop closes, and hold consumer-facing docs until the feature is
 validated end-to-end (don't document untested consumer commands).
-
-Wrangle does not currently ship a release-helper workflow; tagging is
-a release-management concern that belongs to the maintainer's chosen
-versioning policy (semver here). If that changes, this section is the
-place to document it.
