@@ -98,3 +98,19 @@ released() { grep -q "release create" "$GH_CALLS"; }
     [[ "$status" -eq 2 ]]
     ! released
 }
+
+@test "cut_release: refuses a target that is not origin/main's HEAD" {
+    # REGRESSION. workflow_dispatch takes a branch ref, never a raw sha (a sha
+    # 422s), so the gate can only be dispatched on main — a target that isn't
+    # main's HEAD would have the gate verify the wrong commit.
+    git -C "$REPO" branch -m main
+    git -C "$REPO" remote add origin "$REPO"
+    local ancestor; ancestor="$(git -C "$REPO" rev-parse HEAD)"
+    printf 'z\n' > "$REPO/f2"
+    git -C "$REPO" add -A
+    git -C "$REPO" commit -qm newer
+    run "$SCRIPT" v9.9.9 "$NOTES" --target "$ancestor"
+    [[ "$status" -ne 0 ]]
+    [[ "$output" == *"HEAD"* ]]
+    ! released
+}

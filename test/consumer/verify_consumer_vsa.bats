@@ -99,7 +99,7 @@ require_sigstore() {
 @test "consumer A: cosign verify-blob-attestation verifies the VSA's signer + subject" {
     [[ -x "$COSIGN_BIN" ]] || skip_or_fail "real cosign not available"
     require_sigstore
-    run "$COSIGN_BIN" verify-blob-attestation --bundle "$VSA" --new-bundle-format \
+    run "$COSIGN_BIN" verify-blob-attestation --bundle "$VSA" \
         --certificate-oidc-issuer "$ISSUER" \
         --certificate-identity-regexp "$SIGNER_REGEX" \
         --certificate-github-workflow-repository "$SIGNER_REPO" \
@@ -112,7 +112,7 @@ require_sigstore() {
 @test "consumer A: cosign rejects a wrong signer identity (fail-closed)" {
     [[ -x "$COSIGN_BIN" ]] || skip_or_fail "real cosign not available"
     require_sigstore
-    run "$COSIGN_BIN" verify-blob-attestation --bundle "$VSA" --new-bundle-format \
+    run "$COSIGN_BIN" verify-blob-attestation --bundle "$VSA" \
         --certificate-oidc-issuer "$ISSUER" \
         --certificate-identity-regexp '^https://github\.com/attacker/repo/' \
         --type "$VSA_PREDICATE" \
@@ -136,7 +136,7 @@ require_sigstore() {
 @test "consumer A (python): cosign verify-blob-attestation verifies the wheel's signer + subject" {
     [[ -x "$COSIGN_BIN" ]] || skip_or_fail "real cosign not available"
     require_sigstore
-    run "$COSIGN_BIN" verify-blob-attestation --bundle "$PY_VSA" --new-bundle-format \
+    run "$COSIGN_BIN" verify-blob-attestation --bundle "$PY_VSA" \
         --certificate-oidc-issuer "$ISSUER" \
         --certificate-identity-regexp "$PY_SIGNER_REGEX" \
         --certificate-github-workflow-repository "$SIGNER_REPO" \
@@ -149,7 +149,7 @@ require_sigstore() {
 @test "consumer A (python): cosign rejects a wrong signer identity (fail-closed)" {
     [[ -x "$COSIGN_BIN" ]] || skip_or_fail "real cosign not available"
     require_sigstore
-    run "$COSIGN_BIN" verify-blob-attestation --bundle "$PY_VSA" --new-bundle-format \
+    run "$COSIGN_BIN" verify-blob-attestation --bundle "$PY_VSA" \
         --certificate-oidc-issuer "$ISSUER" \
         --certificate-identity-regexp '^https://github\.com/attacker/repo/' \
         --type "$VSA_PREDICATE" \
@@ -495,7 +495,7 @@ _lines_with_predicate() {
     _lines_with_predicate "$SBOM_PREDICATE" > "$sbom"
     # Exactly one SBOM statement, and it must be signed by wrangle's go workflow.
     [[ "$(wc -l <"$sbom")" -eq 1 ]]
-    run "$COSIGN_BIN" verify-blob-attestation --bundle "$sbom" --new-bundle-format \
+    run "$COSIGN_BIN" verify-blob-attestation --bundle "$sbom" \
         --certificate-oidc-issuer "$ISSUER" \
         --certificate-identity-regexp "$GO_SIGNER_REGEX" \
         --certificate-github-workflow-repository "$META_REPO" \
@@ -521,7 +521,6 @@ _lines_with_predicate() {
     while IFS= read -r line; do
         printf '%s\n' "$line" > "$TMP/one-scan.jsonl"
         run "$COSIGN_BIN" verify-blob-attestation --bundle "$TMP/one-scan.jsonl" \
-            --new-bundle-format \
             --certificate-oidc-issuer "$ISSUER" \
             --certificate-identity-regexp "$GO_SIGNER_REGEX" \
             --certificate-github-workflow-repository "$META_REPO" \

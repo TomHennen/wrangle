@@ -29,6 +29,13 @@ setup() {
 ZERO_SUBJECT=sha256:0000000000000000000000000000000000000000000000000000000000000000
 VSA_CONTEXT=expectedResourceUri:ghcr.io/x/y@sha256:abc,sourceRepo:https://github.com/x/y
 
+# Reads a module's pinned version straight from tools/go.mod (`go list -m` isn't
+# available in this image), so the expectation can't drift from what's built.
+# NF >= 2 skips the versionless `tool (...)` directive line for the same module.
+wrangle_gomod_version() {
+    awk -v m="$1" '$1 == m && NF >= 2 { print $2; exit }' "$2"
+}
+
 # Run `ampel verify` in the image as the `docker run -u` value $1. The consumer
 # VSA policy fetches no remote fragments, so --network none proves no egress is
 # needed; the empty collector makes FAILED the expected verdict, but the VSA is
@@ -58,21 +65,27 @@ wrangle_ampel_verify_in_image() {
 }
 
 @test "attest-toolbox: ampel reports its version" {
+    local want; want="$(wrangle_gomod_version github.com/carabiner-dev/ampel "$ROOT/tools/go.mod")"
+    [[ -n "$want" ]]
     run docker run --rm "$IMG" ampel version
     [ "$status" -eq 0 ]
-    [[ "$output" == *v1.3.1* ]]
+    [[ "$output" == *"$want"* ]]
 }
 
 @test "attest-toolbox: cosign reports its version" {
+    local want; want="$(wrangle_gomod_version github.com/sigstore/cosign/v3 "$ROOT/tools/go.mod")"
+    [[ -n "$want" ]]
     run docker run --rm "$IMG" cosign version
     [ "$status" -eq 0 ]
-    [[ "$output" == *v3.1.3* ]]
+    [[ "$output" == *"$want"* ]]
 }
 
 @test "attest-toolbox: bnd reports its version" {
+    local want; want="$(wrangle_gomod_version github.com/carabiner-dev/bnd "$ROOT/tools/go.mod")"
+    [[ -n "$want" ]]
     run docker run --rm "$IMG" bnd version
     [ "$status" -eq 0 ]
-    [[ "$output" == *v0.4.3* ]]
+    [[ "$output" == *"$want"* ]]
 }
 
 @test "attest-toolbox: runs as a non-root user with HOME=/tmp" {
