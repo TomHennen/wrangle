@@ -103,11 +103,6 @@ setup() {
     [[ "$status" -eq 0 ]]
 }
 
-@test "push_showcase_tag.sh has a literal-idempotency check (tag already exists)" {
-    run grep 'git/ref/tags/' "$SCRIPT"
-    [[ "$status" -eq 0 ]]
-}
-
 @test "push_showcase_tag.sh has runtime-diff short-circuit against last tracking tag" {
     # Replaces the previously hand-maintained paths: allowlist.
     run grep 'matching-refs/tags/' "$SCRIPT"
@@ -116,23 +111,11 @@ setup() {
     [[ "$status" -eq 0 ]]
 }
 
-@test "push_showcase_tag.sh handles command-substitution failure (no unreachable empty checks)" {
-    # Previously had `TARGET_SHA=$(gh ...); if [[ -z $TARGET_SHA ]]`,
-    # which was unreachable under set -e + --jq. New form uses if-not
-    # on the assignment.
-    run grep -E 'if ! TARGET_SHA=' "$SCRIPT"
-    [[ "$status" -eq 0 ]]
-}
-
-@test "push_showcase_tag.sh targets the companion repo's main HEAD" {
-    run grep 'git/ref/heads/main' "$SCRIPT"
-    [[ "$status" -eq 0 ]]
-}
-
-@test "push_showcase_tag.sh creates the tag via gh api refs POST" {
-    run grep 'git/refs' "$SCRIPT"
-    [[ "$status" -eq 0 ]]
-    run grep '\-\-method POST' "$SCRIPT"
+@test "push_showcase_tag.sh creates the companion tag through the shared helper" {
+    # Tag creation itself (idempotency, main HEAD resolution, the POST and its
+    # failure modes) is exercised against the helper in test_companion_tag.bats;
+    # the execution tests below cover this script's path through it.
+    run grep -F 'companion_create_tag_at_main "$COMPANION_REPO" "$TAG"' "$SCRIPT"
     [[ "$status" -eq 0 ]]
 }
 

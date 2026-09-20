@@ -45,6 +45,8 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 # Tracking-tag shape also matched by tools/check_showcase_run_green.sh.
 # shellcheck source=../../lib/tracking_tag.sh
 source "$SCRIPT_DIR/../../lib/tracking_tag.sh"
+# shellcheck source=companion_tag.sh
+source "$SCRIPT_DIR/companion_tag.sh"
 
 WRANGLE_SHA="${1:?Usage: push_showcase_tag.sh <wrangle_sha>}"
 
@@ -78,7 +80,7 @@ SHORT_SHA="${WRANGLE_SHA:0:7}"
 TAG="v${COMMIT_DATE}-${SHORT_SHA}"
 
 # (a) Literal idempotency: tag already exists for this commit.
-if gh api "repos/${COMPANION_REPO}/git/ref/tags/${TAG}" >/dev/null 2>&1; then
+if companion_tag_exists "$COMPANION_REPO" "$TAG"; then
     printf 'Tag %s already exists on %s; nothing to do\n' "$TAG" "$COMPANION_REPO"
     exit 0
 fi
@@ -119,26 +121,9 @@ else
     printf 'No prior tracking tag on %s; bootstrapping\n' "$COMPANION_REPO"
 fi
 
-# Resolve the companion's main HEAD to use as the tag's target commit.
-# See the asymmetry note in this script's header: the tag *name*
-# encodes the wrangle SHA, but the tag *target* (and the showcase
-# content) is wrangle-test/main HEAD.
-if ! TARGET_SHA="$(gh api "repos/${COMPANION_REPO}/git/ref/heads/main" --jq .object.sha)"; then
-    printf 'ERROR: could not resolve %s main HEAD\n' "$COMPANION_REPO" >&2
-    exit 1
-fi
-if [[ -z "$TARGET_SHA" ]]; then
-    printf 'ERROR: empty SHA returned for %s main HEAD\n' "$COMPANION_REPO" >&2
-    exit 1
-fi
-
-printf 'Creating tag %s -> %s on %s\n' "$TAG" "$TARGET_SHA" "$COMPANION_REPO"
-
-# gh api emits the created ref JSON on success; route to /dev/null to
-# avoid leaking it into logs.
-gh api "repos/${COMPANION_REPO}/git/refs" \
-    --method POST \
-    --field "ref=refs/tags/${TAG}" \
-    --field "sha=${TARGET_SHA}" >/dev/null
+# See the asymmetry note in this script's header: the tag *name* encodes the
+# wrangle SHA, but the tag *target* (and the showcase content) is
+# wrangle-test/main HEAD.
+companion_create_tag_at_main "$COMPANION_REPO" "$TAG"
 
 printf 'Pushed %s — showcase.yml will run on %s\n' "$TAG" "$COMPANION_REPO"

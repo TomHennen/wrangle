@@ -25,6 +25,10 @@ set -f  # disable globbing — processes external input (version arg)
 #
 # Exit: 0 showcase passed (or the pin matches), 1 it did not, 2 bad usage.
 
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+# shellcheck source=companion_tag.sh
+source "$SCRIPT_DIR/companion_tag.sh"
+
 COMPANION_REPO="${COMPANION_REPO:-tomhennen/wrangle-test}"
 CURATED_WORKFLOW="showcase-curated.yml"
 WRANGLE_USES_RE='TomHennen/wrangle/[^@[:space:]]+@[^[:space:]]+'
@@ -57,20 +61,8 @@ check_pin() {
 }
 
 push_tag() {
-    local version="$1" target
-    if gh api "repos/${COMPANION_REPO}/git/ref/tags/${version}" >/dev/null 2>&1; then
-        printf 'run_release_showcase: tag %s already on %s; watching its run\n' \
-            "$version" "$COMPANION_REPO"
-        return 0
-    fi
-    target="$(gh api "repos/${COMPANION_REPO}/git/ref/heads/main" --jq .object.sha)" \
-        || die "could not resolve ${COMPANION_REPO} main HEAD"
-    GH_TOKEN="$COMPANION_PUSH_TOKEN" gh api "repos/${COMPANION_REPO}/git/refs" \
-        --method POST \
-        --field "ref=refs/tags/${version}" \
-        --field "sha=${target}" >/dev/null \
-        || die "could not create tag ${version} on ${COMPANION_REPO}"
-    printf 'run_release_showcase: created %s -> %s on %s\n' "$version" "$target" "$COMPANION_REPO"
+    companion_create_tag_at_main "$COMPANION_REPO" "$1" "$COMPANION_PUSH_TOKEN" \
+        || die "could not tag ${1} on ${COMPANION_REPO}"
 }
 
 # A tag push sets head_branch to the tag name, so --branch selects this run.
