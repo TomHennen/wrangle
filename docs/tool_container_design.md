@@ -169,7 +169,7 @@ The image digests are not pinned by each adopter; they live in a **wrangle-curat
 `tool → {digest, capabilities}` manifest the orchestrator reads (subsuming the #264 `tools.lock` idea).
 The catalog, not a per-tool action input, is the home for tool *definition*, because capabilities
 (network, secret, format) don't fit cleanly as action inputs, and because one manifest is the cleanest
-thing for the pin tooling to track and for adopters to read.
+thing for the catalog tooling to track and for adopters to read.
 
 - **Adopters inherit the catalog by pinning wrangle**, exactly as they already inherit every bundled
   tool version. Wrangle bumps a digest when it updates a tool.
@@ -355,10 +355,8 @@ not a meaningful per-delivery signal.)
   `tools/check_catalog_freshness.sh` (adoption-lag vs `:latest`, a release gate),
   `tools/check_catalog_provenance_freshness.sh` (checks each pinned image was built from current source:
   it reads the image's signed provenance for the commit it was built from, and fails if anything under
-  `tools/` or `lib/` changed since — a release gate, the OCI analog of `check_pin_ancestry`/`check_pin_freshness`),
-  `tools/bump_catalog_digest.sh` (the fix) — plus the DEP_MGMT.md image integrity rung; the git-pin tools
-  (`check_pin_ancestry`, `check_pin_freshness`, `bump_action_pins`, WL005) are left untouched, since
-  digests and git SHAs are different axes. Because the digest lives in one curated place (§3.6), this
+  `tools/` or `lib/` changed since — a release gate),
+  `tools/bump_catalog_digest.sh` (the fix) — plus the DEP_MGMT.md image integrity rung. Because the digest lives in one curated place (§3.6), this
   stays a narrow, wrangle-internal task, required only before *production consumption*, not before
   prototyping. Source-freshness (`check_catalog_provenance_freshness.sh`) runs release-blocking and as a
   weekly advisory — **not** per run: a stale-but-attested image passes the pull-time VSA gate and is
@@ -464,8 +462,7 @@ model. Still open:
 
 A digest-referenced image can't be built from the commit that references it — the image must be
 published before its digest is known. So there is always a one-commit skew between the image (built from
-commit C) and the catalog entry naming its digest (commit C+1). This is the same self-bootstrap the
-nested-action-SHA pins already carry, on a second axis (image digests).
+commit C) and the catalog entry naming its digest (commit C+1).
 
 The model that makes this work: **a tool image is an immutable, independently-versioned artifact — the
 digest *is* its version — and a wrangle release references a consistent set of current digests. Cutting a
@@ -480,12 +477,7 @@ release does not rebuild or re-tag tool images.**
   which a rebuild of wrangle's own reviewed source is not — so the bump merges on CI/review latency and
   keeps the catalog current. One source PR + one bump PR — not a manual double-bump.
 
-  The bot's commit carries `tools/catalog.json` and nothing else, because `GITHUB_TOKEN` cannot push
-  `.github/workflows/**` (that needs the `workflows` scope, which no `permissions:` block grants). The
-  catalog is inside every self-ref pin's freshness scope, so the bump PR **arrives red on
-  `check_pin_freshness` by design**: whoever picks it up runs `make converge-action-pins`, pushes the
-  convergence commits to the bump branch, and lands it as a merge commit (never a squash — see
-  [e2e_testing.md](e2e_testing.md)). The publish trigger is
+  The bot's commit carries `tools/catalog.json` and nothing else. The publish trigger is
   a path glob that matches `tools/catalog.json`, so a catalog-only digest change would re-trigger a rebuild;
   the trigger excludes `tools/catalog.json`, which is what keeps the bump from looping.
 - **Release tag** — precondition: the catalog is fresh. `check_catalog_freshness.sh` proves the shipped

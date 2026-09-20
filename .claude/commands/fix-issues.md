@@ -47,13 +47,12 @@ Print a table: `issue | agent label | review | PR | status`. Then tell the user 
 > - **Never merge, never enable auto-merge.** An owner `LGTM` is required before any wrangle PR merges. You open the PR and stop.
 > - **Verify before you push, using the most complete layer this environment supports.** Docker present → `./test.sh` (full; `./test.sh quick` for inner-loop). No Docker but the pinned host toolchain is installed → `make test` runs the *same* checks directly on the host. Neither (a locked sandbox) → run the narrowest relevant checks you can and **state plainly in your status that the full suite did not run locally.** CI runs the same checks on the PR and is authoritative — never push red, never claim a pass you didn't observe.
 > - **Self-review** against the CLAUDE.md checklist (SPEC adherence, no needless complexity, supply-chain discipline, shell preamble + quoting, no expression injection, minimum permissions, pin-drift) and fix what you find — this is in addition to the independent review you'll receive.
-> - If you changed a composite action a reusable workflow consumes, a self-ref **bootstrap pin** may be needed (CLAUDE.md §Dogfooding, docs/e2e_testing.md). Don't run the full pin lifecycle — note in your status that a pin bump is required after merge.
 > - Commit messages end with the `Co-Authored-By` trailer; the PR body ends with the `Generated with Claude Code` line and **its first line is prefixed `claude:`**. `gh pr create` targeting `main`.
 >
 > **Stay available.** The coordinator may `SendMessage` you with review findings or the user's follow-up questions. Address findings and answer questions on the *same* branch/PR; keep your worktree.
 >
 > **Your reply reaches only the coordinator's context, and it is the ONLY thing that does.** Reply with EXACTLY one line — no diff, no summary, no narration:
-> `#<ISSUE> — <DONE|BLOCKED> — <PR url, or one-line blocker reason> [— note: tests not run locally / pin bump needed, if applicable]`
+> `#<ISSUE> — <DONE|BLOCKED> — <PR url, or one-line blocker reason> [— note: tests not run locally, if applicable]`
 
 ## Reviewer template
 

@@ -45,11 +45,11 @@ All shell conventions — preamble form, quoting, `printf` over `echo`, `[[ ]]` 
 ## GitHub Actions
 
 - **No copy-paste across workflows.** A `run:` block or step sequence appearing in more than two workflow files → extract to a composite or shared script. (The one rule here not yet mechanically caught.)
-- Inline-shell length and expression injection (`${{ inputs.* }}` / `${{ github.event.* }}` or other attacker-controllable expressions in a `run:` body) are caught by `tools/wrangle-workflow-lint/` (WWL001–002) and zizmor; thread such expressions through `env:` first.
+- Inline-shell length, expression injection (`${{ inputs.* }}` / `${{ github.event.* }}` or other attacker-controllable expressions in a `run:` body) and owner/repo self-references are caught by `tools/wrangle-workflow-lint/` (WWL001–004) and zizmor; thread such expressions through `env:` first, and reference wrangle's own actions as `uses: $/…`.
 
 ## Dependencies & pinning
 
-- **Action reference pinning** — required pin format per context, the `@main` prohibition, and self-reference bumping: [DEP_MGMT.md](DEP_MGMT.md).
+- **Action reference pinning** — required pin format per context, the `@main` prohibition, and the `$/` self-reference form: [DEP_MGMT.md](DEP_MGMT.md).
 - **Installing and verifying tools** — install-method decision tree, integrity-tier ladder, and freshness-first rule: [DEP_MGMT.md](DEP_MGMT.md). Install-script mechanics (`lib/download_verify.sh`, `$WRANGLE_BIN_DIR`, idempotency, atomic `mv`) are the Install Script Interface contract in SPEC.md.
 - **Pin drift across files** — single-source or a divergence-fail test: [DEP_MGMT.md § Drift](DEP_MGMT.md#drift).
 - **Curated tool-image digests** (`tools/catalog.json`) — digest-pinned on the wrangle namespace, enforced by `tools/check_catalog.sh`; adoption-lag against `:latest` checked at release by `tools/check_catalog_freshness.sh` (fix with `tools/bump_catalog_digest.sh`).
@@ -66,7 +66,7 @@ Tools live in `tools/<name>/`, in one of three patterns:
 
 - **adapter** — `adapter.sh` (the tool image's entrypoint) + `test.bats`; binary built into the tool's image from a tools/go.mod `tool` directive, or a bespoke `install.sh` run at image-build time for tools no package manager ships; run.sh dispatches the image, wired into `actions/scan/action.yml`.
 - **action** — `action.yml` + `test.bats`, for tools with official GitHub Actions.
-- **developer tooling** — whatever it needs + `test.bats`, for things used only during development, not by adopters (e.g. `bump_action_pins`, `wrangle-shell-lint`).
+- **developer tooling** — whatever it needs + `test.bats`, for things used only during development, not by adopters (e.g. `bump_catalog_digest`, `wrangle-shell-lint`).
 
 Beyond the per-tool directory:
 
@@ -92,8 +92,6 @@ Run `make test` before pushing — it's the exact suite CI runs. With the host t
 ## Dogfooding
 
 Wrangle uses its own workflows. If a wrangle feature does not work on the wrangle repo itself, it is broken.
-
-A PR that changes a composite action (or a file it reads, like a `policies/*.hjson` PolicySet) and wires it into a reusable workflow needs a **bootstrap pin**: the nested `uses: TomHennen/wrangle/actions/<name>@<sha>` self-reference is fetched from its pinned (main) SHA, not the PR head, so the integration test otherwise runs the old action. The pin → merge → bump lifecycle and the `check_pin_ancestry` control are in [docs/e2e_testing.md](docs/e2e_testing.md).
 
 For throwaway end-to-end experiments before promoting to the integration companion or `wrangle-test`, use the scratch repos [`TomHennen/wrangle-agent-playground`](https://github.com/TomHennen/wrangle-agent-playground) (public) and [`TomHennen/wrangle-agent-playground-private`](https://github.com/TomHennen/wrangle-agent-playground-private) (private — for private-repo-specific behavior like Advanced-Security SARIF upload or attestation) — commit/push/PR there freely; nothing in them is permanent.
 

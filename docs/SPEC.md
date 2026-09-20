@@ -726,7 +726,7 @@ The scan action parses the `tools` input to dispatch adapter-pattern tools (thos
 
 The **step summary is the primary output**. It works on all repos — private, no Advanced Security, etc. SARIF upload to the Security tab is additive. The **metadata directory** (`$GITHUB_WORKSPACE/.wrangle/metadata/`) is a complete catalog of which tools ran and what they found, enabling future signed attestations.
 
-**Portability:** Shell script paths use `${{ github.action_path }}` for resolution relative to the composite action's own directory. Action-pattern tool steps use `./` paths (e.g., `uses: ./tools/scorecard`), which resolve to the same repo at the called ref — so when an adopter pins `@<sha>`, all internal actions resolve at that commit, and when wrangle's own CI runs on a PR branch, they resolve at the PR's code.
+**Portability:** Shell script paths use `${{ github.action_path }}` for resolution relative to the composite action's own directory. Action-pattern tool steps use GitHub's self-repository `$/` paths (e.g., `uses: $/tools/scorecard`), which resolve to wrangle's repo at the commit that is running — so when an adopter pins `@<sha>`, all internal actions resolve at that commit, and when wrangle's own CI runs on a PR branch, they resolve at the PR's code.
 
 **Path constraint:** The composite action resolves the orchestrator via `${{ github.action_path }}/../../run.sh`, which means the scan action MUST remain at exactly `actions/scan/` (two directories below the repo root). This is a hard structural constraint — moving the action to a different depth breaks the relative path. If the directory layout changes, these paths must be updated in the same commit.
 
@@ -1131,7 +1131,7 @@ All `uses:` references in wrangle's own workflows and examples MUST be pinned:
 |---------------|---------------------|
 | Third-party actions | Full commit SHA |
 | Wrangle's own actions (in examples) | Release tag `@vX.Y.Z` + `# zizmor: ignore[unpinned-uses] - immutable` (required) — wrangle's release tags are immutable; the ignore silences `unpinned-uses`, which can't tell. The tag pin records the `@refs/tags/vX.Y.Z` signer identity the consumer VSA policy requires; a bare commit SHA produces a VSA that fails verification |
-| Wrangle internal refs in reusable workflows | Relative path (`./`) — resolves to the workflow's own repo at the called ref |
+| Wrangle internal refs in reusable workflows and composites | Self-repository path (`$/`) — resolves to wrangle's repo at the commit that is running; enforced by `wrangle-workflow-lint` WWL004. Requires runner 2.336.0+. |
 | Wrangle internal refs in composite actions | Relative path (`./`) — resolves to the same repo at the called ref |
 
 Adopters MUST pin wrangle's reusable workflows by release tag `@vX.Y.Z` with `# zizmor: ignore[unpinned-uses] - immutable`. The signer identity in the VSA's certificate records the ref the build was pinned at: a tag pin yields `@refs/tags/vX.Y.Z`, which the consumer policy requires; a SHA pin yields a bare `@<sha>`, so the build still runs but its VSA fails both the adopter's own `verify-vsa` publish gate and any downstream consumer running wrangle's standard policy. Requiring a release tag raises the floor from "any commit" to "any release" — it does not prevent pinning an old, possibly vulnerable, release tag. The `@main` ref MUST NOT appear in any `uses:` line in the repo, including examples and documentation.
@@ -1167,7 +1167,7 @@ Layers:
 
 ### CI (integration)
 
-`.github/workflows/test.yml` runs `make test` (the containerized unit suite) plus the pin-ancestry check. The integration bats suites run through wrangle's dogfooded shell build: `local_build_shell.yml` calls `build_shell.yml` with `test/setup_integration.sh` as the setup-script, which also embeds the source scan (`uses: ./actions/scan` equivalent coverage).
+`.github/workflows/test.yml` runs `make test` (the containerized unit suite). The integration bats suites and the static catalog check run through wrangle's dogfooded shell build: `local_build_shell.yml` calls `build_shell.yml` with `test/setup_integration.sh` as the setup-script, which also embeds the source scan (`uses: ./actions/scan` equivalent coverage).
 
 ### End-to-end (cross-repo)
 
@@ -1313,10 +1313,6 @@ footguns that bite its development is on-theme. The adopter-facing config-drift
 footguns are already closed (`wrangle-lint` WL004 + the third-party pin
 divergence guard); what remains is the wrangle-internal set neither covers:
 
-- [ ] `bump_action_pins` / `check_pin_ancestry` walk only `.github/workflows/`,
-      so nested self-reference pins in `actions/`/`build/`/`tools/` age with no
-      freshness or reachability check — the gap that broke the scan dispatch in
-      #381. Single-source the path set across both scripts. Tracking: [#382](https://github.com/TomHennen/wrangle/issues/382)
 - [ ] Divergence-fail guard for the duplicated `govulncheck` version literal
       (`test/Dockerfile` ↔ `build/actions/go/checks` default), mirroring the
       zizmor parity guard. Tracking: [#286](https://github.com/TomHennen/wrangle/issues/286)
