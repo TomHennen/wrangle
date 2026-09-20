@@ -237,11 +237,14 @@ jobs:
           cache: ${{ needs.prep.outputs.should-release == 'true' && 'disabled' || 'enabled' }}
 
       # Transient handoff to the release job, which folds govulncheck.json into
-      # the unified metadata under scan/govulncheck/.
+      # the unified metadata under scan/govulncheck/. Uploaded on failure too,
+      # so a build the govulncheck gate turned red still hands over the traces.
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        if: ${{ !cancelled() }}
         with:
           name: ${{ needs.prep.outputs.checks }}
           path: ${{ steps.checks.outputs.metadata-dir }}/
+          # A gate that failed before govulncheck ran leaves the dir empty.
           if-no-files-found: warn
           retention-days: 1
 

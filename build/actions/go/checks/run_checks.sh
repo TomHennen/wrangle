@@ -167,6 +167,25 @@ unreached_ids() {
         | unique | map(select(IN($called[]) | not)) | .[]' "$1"
 }
 
+# Pure function: the ids in <ignored_ids> plus every advisory id the
+# stream reports as an alias of one of them. osv-scanner matches an
+# IgnoredVulns entry against an advisory's aliases as well as its id, so
+# an entry naming a CVE or GHSA id has to silence the GO- id govulncheck
+# reports for the same advisory. The aliases come from the stream's own
+# `osv` records — no second lookup, no network.
+#
+# Args: <json_path> <newline-separated ids>
+expand_aliases() {
+    local json="$1" ids="$2"
+    jq -rs --arg ids "$ids" '
+        ($ids | split("\n") | map(select(length > 0))) as $ignored
+        | [.[] | select(.osv != null) | .osv
+           | select([.id] + (.aliases // []) | any(IN($ignored[])))
+           | .id]
+          + $ignored
+        | unique | .[]' "$json"
+}
+
 # Decide the outcome of a finished govulncheck scan: prints the human
 # report to stderr and the step-summary cell to stdout, and returns 1
 # when <mode> is "fail" and an unsuppressed symbol-level finding
@@ -178,8 +197,9 @@ govulncheck_verdict() {
 
     # Explicit `|| return`: main calls this through `||`, which suppresses
     # errexit for the whole call, so a parse failure must be handled here.
-    local suppressed_list reachable_list unreached_list
-    suppressed_list="$(suppressed_ids "$config" "$now" | LC_ALL=C sort -u)" || return $?
+    local ignored_list suppressed_list reachable_list unreached_list
+    ignored_list="$(suppressed_ids "$config" "$now")" || return $?
+    suppressed_list="$(expand_aliases "$json" "$ignored_list" | LC_ALL=C sort -u)" || return $?
     reachable_list="$(reachable_ids "$json" | LC_ALL=C sort -u)" || return $?
     unreached_list="$(unreached_ids "$json" | LC_ALL=C sort -u)" || return $?
 

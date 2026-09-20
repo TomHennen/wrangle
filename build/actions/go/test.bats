@@ -122,6 +122,20 @@ verdict() {
         -- "$CHECKS_DIR/run_checks.sh" "$1" "$2" "$3" "$4"
 }
 
+# A symbol-level finding on GO-2024-2687, whose stream `osv` record carries
+# the CVE and GHSA ids osv-scanner would accept for the same advisory.
+write_aliased_stream() {
+    {
+        printf '{"config":{"scanner_name":"govulncheck"}}\n'
+        printf '{"osv":{"id":"GO-2024-2687","aliases":["CVE-2023-45288","GHSA-4v7x-pqxf-cx7m"]}}\n'
+        printf '{"finding":{"osv":"GO-2024-2687","trace":[{"module":"example.com/m","package":"example.com/m/p","function":"Bad"}]}}\n'
+    } > "$1"
+}
+
+write_ignore_entry() {
+    printf '[[IgnoredVulns]]\nid = "%s"\nignoreUntil = %s\nreason = "no fix upstream"\n' "$2" "$3" > "$1"
+}
+
 @test "go.checks: suppressed_ids honours an unexpired entry" {
     local config="$BATS_TEST_TMPDIR/osv-scanner.toml"
     printf '[[IgnoredVulns]]\nid = "GO-2026-5932"\nignoreUntil = 2026-10-11T00:00:00Z\nreason = "no fix upstream"\n' > "$config"
@@ -325,6 +339,83 @@ GO-1000-0002" ]]
     printf 'this is not toml {{\n' > "$config"
     verdict "$f" "$config" "fail" "2026-09-20T00:00:00Z"
     [[ "$status" -ne 0 ]]
+}
+
+@test "go.checks: govulncheck_verdict fails closed through a caller's || (regression: errexit suppression)" {
+    # main captures the verdict through `||` so it can still write the step
+    # summary, and bash suppresses errexit for the whole call — including
+    # this function's body. Reproduce that caller shape: without the
+    # explicit `|| return`, an unreadable config yields an empty allowlist
+    # and a silent pass on a stream with nothing else to fail on.
+    local f="$BATS_TEST_TMPDIR/govulncheck.json"
+    local config="$BATS_TEST_TMPDIR/osv-scanner.toml"
+    printf '{"config":{"scanner_name":"govulncheck"}}\n' > "$f"
+    printf 'this is not toml {{\n' > "$config"
+    # The inner stderr is dropped so $output is exactly the status the
+    # caller saw — bats folds stderr in, and the parse error's own output
+    # would satisfy the assertion on its own.
+    run bash -c 'source "$1"; st=0; c="$(govulncheck_verdict "$2" "$3" fail 2026-09-20T00:00:00Z 2>/dev/null)" || st=$?; printf "%s\n" "$st"' \
+        -- "$CHECKS_DIR/run_checks.sh" "$f" "$config"
+    [[ "$output" == "1" ]]
+}
+
+@test "go.checks: expand_aliases maps an ignored alias id onto the advisory id" {
+    local f="$BATS_TEST_TMPDIR/govulncheck.json"
+    write_aliased_stream "$f"
+    run bash -c 'source "$1"; expand_aliases "$2" "$3"' \
+        -- "$CHECKS_DIR/run_checks.sh" "$f" "GHSA-4v7x-pqxf-cx7m"
+    [[ "$status" -eq 0 ]]
+    [[ "$output" == *"GO-2024-2687"* ]]
+}
+
+@test "go.checks: expand_aliases leaves an id with no alias match alone" {
+    local f="$BATS_TEST_TMPDIR/govulncheck.json"
+    write_aliased_stream "$f"
+    run bash -c 'source "$1"; expand_aliases "$2" "$3"' \
+        -- "$CHECKS_DIR/run_checks.sh" "$f" "GHSA-zzzz-zzzz-zzzz"
+    [[ "$status" -eq 0 ]]
+    [[ "$output" != *"GO-2024-2687"* ]]
+}
+
+@test "go.checks: govulncheck_verdict honours an entry naming a GHSA alias" {
+    # osv-scanner ignores an advisory's aliases too, so the one
+    # osv-scanner.toml entry has to silence both scanners.
+    local f="$BATS_TEST_TMPDIR/govulncheck.json"
+    local config="$BATS_TEST_TMPDIR/osv-scanner.toml"
+    write_aliased_stream "$f"
+    write_ignore_entry "$config" "GHSA-4v7x-pqxf-cx7m" "2026-10-11T00:00:00Z"
+    verdict "$f" "$config" "fail" "2026-09-20T00:00:00Z"
+    [[ "$status" -eq 0 ]]
+    [[ "$output" == *"GO-2024-2687 is reachable but suppressed"* ]]
+}
+
+@test "go.checks: govulncheck_verdict honours an entry naming a CVE alias" {
+    local f="$BATS_TEST_TMPDIR/govulncheck.json"
+    local config="$BATS_TEST_TMPDIR/osv-scanner.toml"
+    write_aliased_stream "$f"
+    write_ignore_entry "$config" "CVE-2023-45288" "2026-10-11T00:00:00Z"
+    verdict "$f" "$config" "fail" "2026-09-20T00:00:00Z"
+    [[ "$status" -eq 0 ]]
+}
+
+@test "go.checks: govulncheck_verdict stops honouring an alias entry once it expires" {
+    local f="$BATS_TEST_TMPDIR/govulncheck.json"
+    local config="$BATS_TEST_TMPDIR/osv-scanner.toml"
+    write_aliased_stream "$f"
+    write_ignore_entry "$config" "GHSA-4v7x-pqxf-cx7m" "2026-10-11T00:00:00Z"
+    verdict "$f" "$config" "fail" "2026-10-11T00:00:01Z"
+    [[ "$status" -eq 1 ]]
+    [[ "$output" == *"GO-2024-2687"* ]]
+}
+
+@test "go.checks: govulncheck_verdict ignores an entry that is not an alias of the finding" {
+    local f="$BATS_TEST_TMPDIR/govulncheck.json"
+    local config="$BATS_TEST_TMPDIR/osv-scanner.toml"
+    write_aliased_stream "$f"
+    write_ignore_entry "$config" "GHSA-zzzz-zzzz-zzzz" "2026-10-11T00:00:00Z"
+    verdict "$f" "$config" "fail" "2026-09-20T00:00:00Z"
+    [[ "$status" -eq 1 ]]
+    [[ "$output" == *"GO-2024-2687"* ]]
 }
 
 # Step-function tests (these wrap real tool invocations, but the gofmt
@@ -1342,22 +1433,6 @@ func TestFails(t *testing.T) {
     [[ "$status" -eq 0 ]]
     [[ "$output" == *"govulncheck:"* ]]
     [[ -f "$metadata/govulncheck.json" ]]
-}
-
-@test "go.checks (L4): main() propagates a failing govulncheck verdict" {
-    need_go
-    # An unreadable osv-scanner.toml is the deterministic way to make the
-    # verdict fail on any toolchain; without the propagation, main()
-    # would write its summary and exit 0, silently dropping the gate.
-    local proj="$BATS_TEST_TMPDIR/proj"
-    local metadata="$BATS_TEST_TMPDIR/metadata/go/_"
-    init_go_module "$proj"
-    printf 'this is not toml {{\n' > "$proj/osv-scanner.toml"
-    GITHUB_STEP_SUMMARY="$BATS_TEST_TMPDIR/summary.md"
-    export GITHUB_STEP_SUMMARY
-    run "$CHECKS_DIR/run_checks.sh" "$proj" "$metadata" "v1.1.4" "true" "true" "fail"
-    [[ "$status" -ne 0 ]]
-    grep -q "Go quality checks" "$GITHUB_STEP_SUMMARY"
 }
 
 @test "go.checks (L4): main() with metadata_dir trailing slash resolves correctly (realpath -m)" {
