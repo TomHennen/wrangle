@@ -35,8 +35,7 @@ wrangle_run_scheduled_check() {
             ;;
         *)
             printf '\ncheck exited %s\n' "$rc" >> "$out"
-            # Unlike clear, a failed raise must not go silent: it's the one
-            # thing standing between a red run and nobody noticing.
+            # Unlike clear, a failed raise must not go silent.
             "$SCRIPT_DIR/wrangle_alert.sh" raise "$key" "$title" "$out" \
                 || printf '::error::%s: FAILED to file the wrangle-alert issue\n' "$title"
             ;;

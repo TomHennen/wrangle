@@ -13,21 +13,13 @@ set -f
 # A gate that cannot reach its backend (exit 2) reports UNVERIFIED and fails the
 # run: an unproven precondition is not a satisfied one.
 #
-# The wrangle-test showcase is judged by its own run history (the latest
-# completed tracking-tag run) rather than re-derived locally: nobody watches
-# it, so it went red for three weeks unnoticed (#839). It never re-runs the
-# workflow — a red run blocks with its URL, and the remedy is a human
-# re-running it.
+# The showcase gate judges the wrangle-test showcase by its latest completed
+# tracking-tag run (read-only; never re-runs the workflow — remedy for a red
+# run is a human re-running it, #839).
 #
-# Deliberately NOT gated the same way: wrangle's own scheduled freshness runs
-# (catalog_freshness.yml / catalog_provenance_freshness.yml). A run-history
-# check for them would be strictly weaker than the two live gates already
-# below — those re-derive freshness against the CURRENT catalog, so they catch
-# drift a stale green run-history would miss — and, unlike the showcase's
-# tracking tags, a freshness workflow's failed run replays the OLD commit on
-# re-run, so "re-run it" can never clear a run that already merged a fix.
-# wrangle-alert issues (raised by the scheduled workflows themselves) cover
-# "nobody noticed" for these instead.
+# Wrangle's own scheduled freshness workflows are deliberately not gated the
+# same way — the live checks below already re-derive freshness against the
+# current catalog, which a run-history check can't improve on (#839).
 #
 # Gates that need a human or a live run against the release content stay in
 # the skill, not here: milestone hygiene, a live showcase run for the actual

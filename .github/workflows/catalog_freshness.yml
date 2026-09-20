@@ -10,9 +10,7 @@ name: Catalog Freshness
 # release precondition is release_gate.yml, which runs the same check
 # fail-closed on exit 2.
 #
-# Nobody watches this workflow's runs (#839), so a real failure (exit 1) files
-# a `wrangle-alert` issue via tools/run_scheduled_check.sh; a green run closes
-# it. A registry blip (exit 2) only warns — see that script's header.
+# A real failure (exit 1) files a `wrangle-alert` issue via tools/run_scheduled_check.sh (#839); exit 2 only warns.
 
 on:
   schedule:

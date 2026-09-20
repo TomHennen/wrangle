@@ -20,8 +20,7 @@ set -f
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 # shellcheck source=../lib/gh_run_status.sh
 source "$SCRIPT_DIR/../lib/gh_run_status.sh"
-# The tracking-tag shape this gate looks for is produced by
-# test/integration/push_showcase_tag.sh; both source it from here.
+# Tracking-tag shape also produced by test/integration/push_showcase_tag.sh.
 # shellcheck source=../lib/tracking_tag.sh
 source "$SCRIPT_DIR/../lib/tracking_tag.sh"
 

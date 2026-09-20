@@ -60,10 +60,7 @@ wrangle_alert_raise() {
         || { printf 'wrangle_alert: could not list open %s issues\n' "$WRANGLE_ALERT_LABEL" >&2; return 2; }
 
     if [[ -n "$number" ]]; then
-        # Dedup: a standing red re-raising an unchanged failure (same output,
-        # same URL) updates nothing rather than piling up identical comments —
-        # simpler than a time-based cooldown, and precise instead of guessing
-        # at a schedule.
+        # An unchanged failure doesn't comment again; a newer/different one does.
         last="$(wrangle_alert_last_update "$number" "$key")" \
             || { printf 'wrangle_alert: could not read #%s to check for a duplicate\n' "$number" >&2; return 2; }
         if [[ "$last" == "$(cat "$body_file")" ]]; then

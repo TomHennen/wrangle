@@ -10,8 +10,7 @@ name: Release Gate
 # opposite polarity to the weekly advisories (catalog_freshness.yml,
 # catalog_provenance_freshness.yml), which warn on exit 2 so a transient blip
 # can't page — correct for a heads-up, wrong for a gate. Those two freshness
-# checks are deliberately NOT re-gated by run history here — see
-# tools/release_preflight.sh's header for why.
+# checks are deliberately not re-gated by run history (see release_preflight.sh).
 #
 # Dispatch-only on purpose: there is no automated release/tag workflow to hook
 # (releases are a manual `gh release create` against an immutable tag), and a
@@ -38,10 +37,7 @@ jobs:
 
       - name: Release preflight (catalog, fail-closed)
         env:
-          # Provenance freshness reads each image's build attestation. The
-          # showcase run-status gate lists wrangle-test's runs cross-repo,
-          # which needs no `actions:` permission here: it's a public repo's
-          # Actions API, readable by any authenticated (or unauthenticated)
-          # caller, and permissions: only scopes this token's OWN repo.
+          # Provenance freshness reads each image's build attestation; the
+          # cross-repo showcase read needs no extra permission (public API).
           GH_TOKEN: ${{ github.token }}
         run: ./tools/release_preflight.sh

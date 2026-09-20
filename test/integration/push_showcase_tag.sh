@@ -42,8 +42,7 @@ set -f  # disable globbing — processes external input (positional SHA arg)
 #   2  Bad usage / missing environment
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-# The tracking-tag shape produced here is also matched by
-# tools/check_showcase_run_green.sh; both source it from here.
+# Tracking-tag shape also matched by tools/check_showcase_run_green.sh.
 # shellcheck source=../../lib/tracking_tag.sh
 source "$SCRIPT_DIR/../../lib/tracking_tag.sh"
 
