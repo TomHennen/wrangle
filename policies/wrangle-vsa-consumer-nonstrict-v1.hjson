@@ -52,10 +52,11 @@
                 {
                     runtime: cel@v0
                     predicates: { types: ["https://slsa.dev/verification_summary/v1"] }
-                    code: "size(predicates) > 0 && predicates[0].data.verificationResult == 'PASSED' && predicates[0].data.resourceUri == context.expectedResourceUri && predicates[0].data.verifiedLevels.exists(l, l == 'SLSA_BUILD_LEVEL_3')"
+                    code: "outputs.levels != '' && predicates[0].data.verificationResult == 'PASSED' && predicates[0].data.resourceUri == context.expectedResourceUri && predicates[0].data.verifiedLevels.exists(l, l == 'SLSA_BUILD_LEVEL_3')"
                     outputs: {
-                        // Guarded: outputs evaluate even when the tenet FAILs,
-                        // and a missing field would error the eval instead.
+                        // Ampel evaluates outputs lazily: unless `code` reads it,
+                        // the assessment renders no levels. Its guard doubles as
+                        // the empty-predicates check `code` relies on.
                         levels: { code: "size(predicates) > 0 && has(predicates[0].data.verifiedLevels) ? predicates[0].data.verifiedLevels.join(', ') : ''" }
                     }
                     assessment: { message: "VSA PASSED for the expected resource at SLSA Build L3. verifiedLevels: {{ .Outputs.levels }}" }

@@ -180,6 +180,27 @@ require_sigstore() {
     [[ "$output" == *"PASS"* ]]
 }
 
+# The PASS assessment is the only place the ampel UX surfaces the VSA's
+# verifiedLevels (docs/verifying_artifacts.md §"What verifiedLevels carries").
+# It renders from the tenet's `levels` output, which ampel evaluates only if the
+# tenet code reads it — so a policy edit can empty this message while every
+# verdict assertion above stays green.
+@test "consumer B: the PASS assessment echoes the VSA's verifiedLevels" {
+    [[ -x "$AMPEL_BIN" ]] || skip_or_fail "real ampel not available"
+    require_sigstore
+    local rs="$TMP/consumer-results.json"
+    run "$AMPEL_BIN" verify --subject "$BLOB" \
+        --policy "$POLICY" --attestation "$VSA" \
+        --context "expectedResourceUri:$RESOURCE_URI" \
+        --context "sourceRepo:https://github.com/$SIGNER_REPO" \
+        --attest-results --attest-format=ampel --results-path="$rs"
+    [[ "$status" -eq 0 ]]
+    [[ -s "$rs" ]]
+    run jq -r '.predicate.results[] | select(.policy.id == "vsa-passed")
+               | .eval_results[0].assessment.message' "$rs"
+    [[ "$output" == *"verifiedLevels: SLSA_BUILD_LEVEL_3"* ]]
+}
+
 @test "consumer B: ampel verify FAILS on a wrong expected resourceUri" {
     [[ -x "$AMPEL_BIN" ]] || skip_or_fail "real ampel not available"
     require_sigstore
