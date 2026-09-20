@@ -554,7 +554,7 @@ func main() {}
     run grep -F 'source lib/shortname.sh' "$WORKFLOW"
     [[ "$status" -ne 0 ]]
     # The prep job derives the names via the prep action.
-    run grep -F 'TomHennen/wrangle/actions/prep@' "$WORKFLOW"
+    run grep -F '$/actions/prep' "$WORKFLOW"
     [[ "$status" -eq 0 ]]
 }
 
@@ -606,7 +606,7 @@ func main() {}
     run grep -E "^  scan:" "$WORKFLOW"
     [[ "$status" -eq 0 ]]
     section="$(awk '/^  [a-z][a-z_-]*:$/ { in_section = ($0 == "  scan:") } in_section' "$WORKFLOW")"
-    grep -qE 'uses:[[:space:]]*TomHennen/wrangle/actions/scan@' <<<"$section"
+    grep -qE 'uses:[[:space:]]*[$]/actions/scan' <<<"$section"
 }
 
 @test "go: scan steps are gated on scan-tools so empty disables scanning (job concludes success)" {
@@ -637,7 +637,7 @@ func main() {}
     job="$(awk '/^  [a-z][a-z_-]*:$/ { in_section = ($0 == "  publish:") } in_section' "$WORKFLOW")"
     grep -qE '^      contents: write([[:space:]]|$)' <<<"$job"
     ! grep -qE '^      (id-token|attestations):' <<<"$job"
-    grep -qF 'TomHennen/wrangle/actions/publish_release@' <<<"$job"
+    grep -qF '$/actions/publish_release' <<<"$job"
     grep -qF 'attest-and-verify: ${{ inputs.attest-and-verify }}' <<<"$job"
 }
 
@@ -690,7 +690,7 @@ func main() {}
     [[ "$status" -eq 0 ]]
     # The release job's packaging names come from the prep job, seeded with
     # the build type.
-    run grep -F 'TomHennen/wrangle/actions/prep@' "$WORKFLOW"
+    run grep -F '$/actions/prep' "$WORKFLOW"
     [[ "$status" -eq 0 ]]
     run grep -F 'build-type: go' "$WORKFLOW"
     [[ "$status" -eq 0 ]]
@@ -1313,7 +1313,7 @@ func TestFails(t *testing.T) {
 # --- attest-build-provenance (wrangle builder identity, #316) ---
 
 @test "go: attest job delegates to attest_provenance with go checksums subject" {
-    run bash -c "sed -n '/^  attest:/,/^  [a-z]/p' \"$WORKFLOW\" | grep -F 'TomHennen/wrangle/actions/attest_provenance@'"
+    run bash -c "sed -n '/^  attest:/,/^  [a-z]/p' \"$WORKFLOW\" | grep -F '\$/actions/attest_provenance'"
     [[ "$status" -eq 0 ]]
     run bash -c "sed -n '/^  attest:/,/^  [a-z]/p' \"$WORKFLOW\" | grep -F 'subject-checksums: dist/checksums.txt'"
     [[ "$status" -eq 0 ]]
@@ -1345,7 +1345,7 @@ func TestFails(t *testing.T) {
 }
 
 @test "go: attest job no longer references the verify_attestation action" {
-    run bash -c "sed -n '/^  attest:/,/^  [a-z]/p' \"$WORKFLOW\" | grep 'TomHennen/wrangle/actions/verify_attestation@'"
+    run bash -c "sed -n '/^  attest:/,/^  [a-z]/p' \"$WORKFLOW\" | grep 'actions/verify_attestation'"
     [[ "$status" -ne 0 ]]
 }
 

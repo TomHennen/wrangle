@@ -35,7 +35,7 @@ setup() {
 }
 
 @test "verify_release: calls actions/verify with computed metadata-dir + metadata name" {
-    run grep -F 'TomHennen/wrangle/actions/verify@' "$ACTION"
+    run grep -F '$/actions/verify' "$ACTION"
     [ "$status" -eq 0 ]
     run grep -F 'bundle-out: ${{ steps.names.outputs.metadata-dir }}' "$ACTION"
     [ "$status" -eq 0 ]

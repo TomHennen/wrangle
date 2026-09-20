@@ -1,0 +1,14 @@
+name: bad-self-ref
+on: workflow_call
+permissions: {}
+jobs:
+  nested:
+    uses: TomHennen/wrangle/.github/workflows/build_shell.yml@0123456789abcdef0123456789abcdef01234567 # main 2026-01-01
+  steps:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: TomHennen/wrangle/actions/scan@0123456789abcdef0123456789abcdef01234567 # main 2026-01-01
+      - uses: $/actions/prep
+      - uses: some/action@0123456789abcdef0123456789abcdef01234567 # v1
+        with:
+          uses: TomHennen/wrangle/not-a-reference@0123456789abcdef0123456789abcdef01234567

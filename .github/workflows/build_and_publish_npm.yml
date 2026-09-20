@@ -150,8 +150,7 @@ jobs:
       metadata: ${{ steps.prep.outputs.metadata }}
       metadata-pre: ${{ steps.prep.outputs.metadata-pre }}
     steps:
-      # TODO: replace with $/actions/prep when GitHub ships $/ syntax (#136)
-      - uses: TomHennen/wrangle/actions/prep@caf0de05382851b90296a7ef4136f5678addb38f # main 2026-09-19
+      - uses: $/actions/prep
         id: prep
         with:
           build-type: npm
@@ -170,8 +169,7 @@ jobs:
       contents: read
       security-events: write
     steps:
-      # TODO: replace with $/actions/scan when GitHub ships $/ syntax (#136)
-      - uses: TomHennen/wrangle/actions/scan@caf0de05382851b90296a7ef4136f5678addb38f # main 2026-09-19
+      - uses: $/actions/scan
         if: ${{ inputs.scan-tools != '' }}
         with:
           checkout: "true"
@@ -204,8 +202,7 @@ jobs:
           persist-credentials: false
           ref: ${{ inputs.ref || '' }}
 
-      # TODO: replace with $/build/actions/npm when GitHub ships $/ syntax (#136)
-      - uses: TomHennen/wrangle/build/actions/npm@caf0de05382851b90296a7ef4136f5678addb38f # main 2026-09-19
+      - uses: $/build/actions/npm
         id: build
         with:
           path: ${{ inputs.path }}
@@ -281,8 +278,7 @@ jobs:
     outputs:
       bundles-artifact-name: ${{ steps.attest.outputs.bundles-artifact-name }}
     steps:
-      # TODO: replace with $/actions/attest_provenance when GitHub ships $/ syntax (#136)
-      - uses: TomHennen/wrangle/actions/attest_provenance@caf0de05382851b90296a7ef4136f5678addb38f # main 2026-09-19
+      - uses: $/actions/attest_provenance
         id: attest
         with:
           build-type: npm
@@ -303,8 +299,7 @@ jobs:
       id-token: write       # wrangle-attest keyless-signs each VSA via this workflow's OIDC identity
       attestations: write   # post each VSA to the GitHub attestation store
     steps:
-      # TODO: replace with $/actions/verify_release when GitHub ships $/ syntax (#136)
-      - uses: TomHennen/wrangle/actions/verify_release@caf0de05382851b90296a7ef4136f5678addb38f # main 2026-09-19
+      - uses: $/actions/verify_release
         with:
           build-type: npm
           shortname: ${{ needs.prep.outputs.shortname }}
@@ -330,8 +325,7 @@ jobs:
     permissions:
       contents: write   # create the release if absent and upload the asset set
     steps:
-      # TODO: replace with $/actions/publish_release when GitHub ships $/ syntax (#136)
-      - uses: TomHennen/wrangle/actions/publish_release@caf0de05382851b90296a7ef4136f5678addb38f # main 2026-09-19
+      - uses: $/actions/publish_release
         with:
           build-type: npm
           shortname: ${{ needs.prep.outputs.shortname }}

@@ -108,22 +108,20 @@ runs:
     # Scorecard only runs on push events — it requires GITHUB_TOKEN scopes
     # that aren't available on PRs and uses Docker, which only mounts
     # $GITHUB_WORKSPACE. Skipping on PRs avoids guaranteed failures.
-    # TODO: replace with $/tools/scorecard when $/ syntax ships (#136, #137)
     - name: Scorecard
       if: always() && contains(inputs.tools, 'scorecard') && github.event_name != 'pull_request'
-      uses: TomHennen/wrangle/tools/scorecard@caf0de05382851b90296a7ef4136f5678addb38f # main 2026-09-19
+      uses: $/tools/scorecard
 
     # Dependency Review is PR-only — the upstream action requires
     # github.event.pull_request.base.sha / head.sha to compute the diff.
     # See tools/dependency-review/SPEC.md.
-    # TODO: replace with $/tools/dependency-review when $/ syntax ships (#136, #137)
     # Per-tool options are not plumbed through actions/scan inputs (#221):
     # each tool reads its native config file — dependency-review picks up
     # .github/dependency-review-config.yml when the scanned repo has one.
     # The wrapper's inline defaults (fail-on-severity: high) still apply.
     - name: Dependency Review
       if: always() && contains(inputs.tools, 'dependency-review') && github.event_name == 'pull_request'
-      uses: TomHennen/wrangle/tools/dependency-review@caf0de05382851b90296a7ef4136f5678addb38f # main 2026-09-19
+      uses: $/tools/dependency-review
 
     - name: Generate step summary
       if: always()

@@ -2,7 +2,7 @@
 name: cut-release
 description: >
   Operator runbook for cutting a wrangle release tag (vX.Y.Z) of TomHennen/wrangle.
-  Covers pin convergence, the adopter version-ref bump, milestone/dependabot hygiene,
+  Covers the adopter version-ref bump, milestone/dependabot hygiene,
   and the three pre-tag gates (working showcase, owner sign-off, empirically-verified
   verify commands). Use when preparing or cutting a release, or when asked "what's left
   to ship vX.Y.Z?". This is the runnable procedure; rationale and tag-immutability setup
@@ -14,8 +14,6 @@ description: >
 This is the *operator checklist*. The **why** (showcase model, milestone semantics,
 tag-immutability controls, ordering constraints) lives in
 [docs/RELEASING.md](../../../docs/RELEASING.md) — read it once, then drive from here.
-Pin lifecycle and the `check_pin_ancestry` control are in
-[docs/e2e_testing.md](../../../docs/e2e_testing.md).
 
 ## Ground rules (non-negotiable)
 
@@ -28,35 +26,7 @@ Pin lifecycle and the `check_pin_ancestry` control are in
 - Run from a **clean checkout of `main`** (`git status` clean, `gh auth status` good).
   Do not drive a release from a nested worktree.
 
-## Phase 1 — Converge self-reference pins to `main`
-
-Wrangle's actions pin each other by SHA. Before a release, every self-ref pin must
-resolve to released `main` content **and** be labelled `# main` — not a feature branch.
-
-```bash
-git switch main && git pull --ff-only
-tools/converge_action_pins.sh          # bump → commit → repeat until reachable AND fresh
-```
-
-- `converge_action_pins.sh` can emit **more than one commit** (one per nesting level).
-  Land them via a PR merged as a **merge commit — never a squash** (direct pushes to
-  `main` are blocked by branch protection), or the intermediate branch-SHA pins re-orphan
-  and `main` goes red.
-- **Then finalize onto the merge commit.** A converge lands its pins on commits that
-  live on the merge's *second-parent* line — reachable and content-fresh, but never on
-  `main`'s first-parent history. `main`'s first-parent line is all merge commits, and a
-  merge SHA does not exist until the merge does, so the pins can only reach it in a
-  second step: once the converge PR is merged, run `tools/bump_action_pins.sh <merge-sha>`
-  and land that as a one-line PR. Do this **once per release**, here — not after every
-  action PR; day-to-day, pins sitting on branch commits are harmless.
-- **`check_pin_freshness` is content-based** — it ignores pin-SHA-only diffs, so CI can
-  be green while the pin SHAs/labels are stale. Green CI does **not** prove the pins are
-  on `main`. `tools/check_pin_main_history.sh` is what proves it (run by the preflight
-  below): it fails any pin that is merged but off first-parent history, or mislabelled.
-
-> Until the pin-on-`main` release guard (#592) lands, this check is **manual** — do it.
-
-## Phase 2 — Bump adopter-facing version refs
+## Phase 1 — Bump adopter-facing version refs
 
 Adopters pin wrangle's reusable workflows at a release tag. Bump every adopter-facing
 tag pin from the current latest to the new version. There's no helper script and no
@@ -75,7 +45,7 @@ top-level README, and `docs/` (incl. policy-locator URLs). Don't hand-maintain t
 version, so the grep above is the source of truth. Leave third-party action refs and test
 fixtures alone. The bump is a normal PR — owner `LGTM` required.
 
-## Phase 3 — Milestone & dependabot hygiene
+## Phase 2 — Milestone & dependabot hygiene
 
 - **Milestone must be clean** before the minor tag — zero open issues, zero open PRs:
 
@@ -90,7 +60,7 @@ fixtures alone. The bump is a normal PR — owner `LGTM` required.
   outdated ones. Honour the **7-day cooldown** (WL005) — never adopt a brand-new upstream
   version as part of cutting a release.
 
-## Phase 4 — The three release gates
+## Phase 3 — The three release gates
 
 All three must hold before you ask the owner to cut. Do not shortcut.
 
@@ -104,9 +74,8 @@ All three must hold before you ask the owner to cut. Do not shortcut.
    (the milestone, the diff highlights) and get an explicit yes — separate from "cut it".
    Also confirm every code-level precondition: dispatch the **Release Gate** workflow
    (`.github/workflows/release_gate.yml`, `workflow_dispatch`) on the release commit and
-   require a green run. It runs `tools/release_preflight.sh` fail-closed — the self-ref pin
-   checks (reachability, content freshness, **main first-parent history**) and both
-   catalog-freshness checks. Any non-zero blocks, including exit 2 (backend unreachable =
+   require a green run. It runs `tools/release_preflight.sh` fail-closed — the static
+   catalog check and both catalog-freshness checks. Any non-zero blocks, including exit 2 (backend unreachable =
    precondition UNVERIFIED). Run the same thing locally to read a failure and drive
    remediation:
 
@@ -128,12 +97,6 @@ All three must hold before you ask the owner to cut. Do not shortcut.
    (registry unreachable) means the precondition is UNVERIFIED — do not proceed.**
    Retry until the result is 0 or 1; a visible exit-2 is not a satisfied gate.
 
-   After any catalog digest bump lands on `main`, re-run **Phase 1's**
-   `tools/converge_action_pins.sh`: freshness folds `tools/catalog.json` into every
-   pin's scope, so the bump stales the consumers until the pins are re-bumped onto
-   it. Same Phase 1 caveats — merge-commit-not-squash, and run so the labels land
-   `# main`. A stale-catalog release ships pins that resolve the *old* digest.
-
    Then confirm each digest was built from the **current** tool source (the
    stronger §11 guarantee the adoption-lag check does not prove — and the gate
    for the containerized signing path, #633). Run on a full-history checkout
@@ -153,7 +116,7 @@ All three must hold before you ask the owner to cut. Do not shortcut.
    release artifact this cycle (ampel, cosign, `gh attestation`, by-digest). Commands
    drift — never assert an untested command. Fix the doc if a recipe breaks.
 
-## Phase 5 — Cut the tag and publish the Release
+## Phase 4 — Cut the tag and publish the Release
 
 Only after the owner says "cut it". First write the notes **benefit-first, second
 person** — what the adopter gains, not a changelog of internal wins or code structure;
@@ -163,7 +126,7 @@ mention the producer/consumer policies that let adopters check the evidence. The
 gh release create vX.Y.Z --target <commit> --title vX.Y.Z --notes-file release-notes.md --latest
 ```
 
-- Pick the exact `main` commit that carries the converged pins and bumped refs.
+- Pick the exact `main` commit that carries the bumped refs and the fresh catalog.
 - Pass the hand-written notes via `--notes-file`. Don't use `--generate-notes` for the
   final notes — it emits an auto-changelog, not the benefit-first prose.
 - Tag immutability (immutable releases + a no-bypass tag ruleset) is **already configured

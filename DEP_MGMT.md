@@ -88,8 +88,7 @@ whatever is already set.
 | Dependency | Pin format |
 |---|---|
 | Third-party GitHub Action | `@<40-hex sha> # vX` |
-| Wrangle self-ref in a reusable workflow | `@<sha> # main YYYY-MM-DD` |
-| Wrangle composite → sibling composite | relative path `./actions/…` |
+| Wrangle self-reference (reusable workflow or composite) | `uses: $/actions/…` — GitHub's [self-repository syntax](https://github.blog/changelog/2026-07-30-reference-same-repository-actions-with-self-repository-syntax/) resolves it to the commit that is running, so there is no SHA to maintain. Enforced by `wrangle-workflow-lint` WWL004. Needs runner 2.336.0+. |
 | Wrangle action in examples/docs | release tag **required**: `@vX.Y.Z # zizmor: ignore[unpinned-uses] - immutable` (tags are immutable; the ignore silences `unpinned-uses`, which can't tell). A SHA pin still builds but its VSA fails verification. |
 | Go tool | `tool` directive + pinned `require` in `tools/go.mod` (+ `go.sum`) |
 | Python tool | `==version --hash=sha256:` in `requirements.txt` |
@@ -106,18 +105,7 @@ whatever is already set.
   after a delay" rule. This automatic patching is *why* branch 1 is the default.
   Updates are grouped `group-by: dependency-name` so a pin duplicated across
   directories (a shared action, a tool in two `requirements.txt`) moves in one
-  PR rather than a stale-leaving per-directory PR each. A grouped bump that
-  edits a composite `action.yml` leaves the self-ref pins that resolve that
-  composite stale (`check_pin_freshness` red); before merging, run
-  `make converge-action-pins` and land the PR as a **merge commit** (never a
-  squash, or the converged pins re-orphan). If one lands un-converged, main goes
-  red and `make bump-action-pins <main-sha>` rolls the pins forward to recover.
-- **`make bump-action-pins`** rewrites wrangle's own self-references after a
-  composite changes, across `.github/workflows/`, `actions/`, `build/`, and
-  `tools/` (the shared `tools/self_ref_pin_paths.sh` set, which
-  `check_pin_ancestry` reuses). **`make converge-action-pins`** repeats the bump
-  across commits when a nested chain needs more than one cycle — land its commits
-  as a merge commit (see [docs/e2e_testing.md](docs/e2e_testing.md)).
+  PR rather than a stale-leaving per-directory PR each.
 - **Curated tool images** (`tools/catalog.json`) — `tools/check_catalog.sh`
   fails any entry that isn't digest-pinned on the wrangle namespace (per-PR);
   `tools/check_catalog_freshness.sh` compares each pinned digest against the
@@ -138,8 +126,7 @@ whatever is already set.
   not exempt. A digest cooldown remains deferred (#623); when it lands it keys on
   the `ghcr.io/tomhennen/wrangle/*` namespace so only third-party overrides wait.
 - **Manual today:** the binary+provenance installs (branch 2) and the base-image
-  digest. Automating that surface — ideally one mechanism that also covers
-  wrangle's own self-references — is #264.
+  digest. Automating that surface is #264.
 
 ## Drift
 
@@ -155,7 +142,7 @@ likewise, by `tools/go.mod`). Known unguarded duplicates are tracked in #286.
 2. **Fresh?** Prefer a Dependabot-covered package manager. If it's a manual binary
    install, is that justified (no PM release, or a stronger tier genuinely needed)?
 3. **Tier not weakened for convenience.**
-4. **Pinned correctly** — `# vX` SHA for third-party actions, `# main DATE` for
+4. **Pinned correctly** — `# vX` SHA for third-party actions, `$/` for
    self-refs, no bare `@main`; a pinned version in the manifest or script.
 5. **No undocumented drift** — a pin literal you touched that also appears
    elsewhere must move together or be guarded.
@@ -163,8 +150,7 @@ likewise, by `tools/go.mod`). Known unguarded duplicates are tracked in #286.
 
 ## Tracking
 
-#264 (automate the manual binary surface, ideally covering wrangle's own refs too),
+#264 (automate the manual binary surface),
 #277 (install-method audit), #286 (divergence guards),
-#136 (`$/` same-repo syntax), #218 (self-ref impostor-commit gap),
 #247 (Ampel verify — ships the verify stage; ampel/bnd install via the
 `tools/go.mod` `go install` manifest, branch 1 / Dependabot-covered).

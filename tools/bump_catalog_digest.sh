@@ -3,9 +3,8 @@ set -euo pipefail
 set -f
 
 # tools/bump_catalog_digest.sh — repoint one curated tool's image to a new
-# @sha256: digest in tools/catalog.json, preserving its registry namespace. The
-# catalog analog of bump_action_pins.sh: the one-command fix when
-# check_catalog_freshness.sh reports an entry behind :latest.
+# @sha256: digest in tools/catalog.json, preserving its registry namespace: the
+# one-command fix when check_catalog_freshness.sh reports an entry behind :latest.
 #
 # Catalog path: $WRANGLE_CATALOG, else the catalog beside this script.
 #

@@ -48,12 +48,9 @@ jobs:
     secrets:
       gh_token: ${{ secrets.GITHUB_TOKEN }}
 
-  # Wrangle-internal (self-ref pins are not an adopter concern, so this
-  # lives in the dogfood caller, not the reusable build_shell.yml). Fails
-  # if any wrangle self-ref pin is unreachable from HEAD — catches a
-  # bootstrap pin (test/integration/SPEC.md §Known limitations) orphaned
-  # by a squash merge before the auto-showcase tries to resolve it.
-  pin-ancestry:
+  # Wrangle-internal, so it lives in the dogfood caller rather than the
+  # reusable build_shell.yml.
+  catalog:
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -61,18 +58,6 @@ jobs:
       - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
         with:
           persist-credentials: false
-          # check_pin_ancestry needs full history to test reachability of pinned shas.
-          fetch-depth: 0
-
-      - name: Check action pin ancestry
-        run: ./tools/check_pin_ancestry.sh
-
-      # Stale-but-reachable detection (#552): a pin can be an ancestor yet
-      # resolve OLD action code. An action-change PR converges its own pins
-      # in-PR (the merge commit keeps them reachable), so the chain is fresh
-      # at merge.
-      - name: Check action pin freshness
-        run: ./tools/check_pin_freshness.sh
 
       # Static catalog hygiene (#596): every curated tool image is digest-pinned
       # on the wrangle namespace and capabilities are default-closed. Network-free,

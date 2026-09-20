@@ -3,7 +3,7 @@ set -euo pipefail
 set -f  # values reach globs/case; disable pathname expansion
 
 # bump_version_refs.sh — retarget every adopter-facing wrangle release ref at a
-# new version tag (cut-release runbook, Phase 2).
+# new version tag (cut-release runbook, Phase 1).
 #
 # Usage: bump_version_refs.sh <new-version>      e.g. bump_version_refs.sh v0.4.0
 #
@@ -104,7 +104,7 @@ wrangle_bump_version_refs() {
     printf 'bump_version_refs: %s -> %s across %d file(s)\n' "$old" "$new" "${#files[@]}"
     printf '  %s\n' "${files[@]#"$REPO_ROOT"/}"
     printf '\nverifying_artifacts.md'\''s worked example still cites the published %s\n' "$old"
-    printf 'curated release; update it with the Phase 4 recipe re-verification.\n'
+    printf 'curated release; update it with the Phase 3 recipe re-verification.\n'
 }
 
 main() {
