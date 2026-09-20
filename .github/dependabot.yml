@@ -57,6 +57,23 @@ updates:
       - "/**"
     exclude-paths:
       - "tools/osv/testdata/**"
+    # Go records a `tool` directive's module as `// indirect`, and version
+    # updates cover only direct dependencies, so each tool module is named with
+    # `dependency-type: "all"`. `allow` replaces the direct-only default, so
+    # "direct" is relisted alongside to keep every other module covered.
+    # A new tool directive needs an entry here (a divergence test backstops a miss).
+    allow:
+      - dependency-type: "direct"
+      - dependency-name: "github.com/carabiner-dev/ampel"
+        dependency-type: "all"
+      - dependency-name: "github.com/carabiner-dev/bnd"
+        dependency-type: "all"
+      - dependency-name: "github.com/google/osv-scanner/v2"
+        dependency-type: "all"
+      - dependency-name: "github.com/sigstore/cosign/v3"
+        dependency-type: "all"
+      - dependency-name: "golang.org/x/vuln"
+        dependency-type: "all"
     groups:
       across-directories:
         patterns:

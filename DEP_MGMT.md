@@ -105,7 +105,16 @@ whatever is already set.
   after a delay" rule. This automatic patching is *why* branch 1 is the default.
   Updates are grouped `group-by: dependency-name` so a pin duplicated across
   directories (a shared action, a tool in two `requirements.txt`) moves in one
-  PR rather than a stale-leaving per-directory PR each.
+  PR rather than a stale-leaving per-directory PR each. Because the cooldown has
+  already imposed the 7-day adoption delay by the time a **version-update** PR
+  exists, that PR needs no further wait — merge it once CI is green and the owner
+  has signed off. The cooldown does not apply to **security updates**, so those
+  PRs still serve the delay, or get an explicit, reasoned exception.
+- **What Dependabot does not cover by itself.** Version updates are raised
+  [only for dependencies explicitly defined in a manifest](https://docs.github.com/en/code-security/how-tos/secure-your-supply-chain/manage-your-dependency-security/controlling-dependencies-updated#allowing-specific-dependencies-to-be-updated)
+  — and Go records a `tool` directive's module as `// indirect`, so every Go
+  tool wrangle ships is named in the gomod entry's `allow` (a divergence test
+  backstops a miss).
 - **Curated tool images** (`tools/catalog.json`) — `tools/check_catalog.sh`
   fails any entry that isn't digest-pinned on the wrangle namespace (per-PR);
   `tools/check_catalog_freshness.sh` compares each pinned digest against the
