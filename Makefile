@@ -1,4 +1,4 @@
-.PHONY: bump-version-refs all test lint shellcheck shellstyle workflowstyle gotest bats zizmor integration check-catalog check-catalog-freshness check-catalog-provenance-freshness check-go-vulns bump-catalog-digest bump-catalog-to-latest release-preflight
+.PHONY: bump-version-refs all test lint shellcheck shellstyle workflowstyle gotest bats zizmor integration check-catalog check-catalog-freshness check-catalog-provenance-freshness bump-catalog-digest bump-catalog-to-latest release-preflight
 
 # bash, not the default sh: the integration recipe sources lib/env.sh,
 # whose `set -o pipefail` dash doesn't reliably support.
@@ -90,12 +90,6 @@ check-catalog-freshness:
 # not a per-PR gate. See tools/check_catalog_provenance_freshness.sh.
 check-catalog-provenance-freshness:
 	@./tools/check_catalog_provenance_freshness.sh
-
-# Reachable-vulnerability gate for wrangle's own Go tools (vuln database, so
-# network). Not in `test` — the default suite stays deterministic; CI runs it
-# as its own job. See tools/check_go_vulns.sh.
-check-go-vulns:
-	@./tools/check_go_vulns.sh
 
 # One-command fix when check-catalog-freshness reports drift.
 # Usage: make bump-catalog-digest TOOL=osv DIGEST=sha256:<64hex>

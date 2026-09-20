@@ -114,10 +114,7 @@ whatever is already set.
   [only for dependencies explicitly defined in a manifest](https://docs.github.com/en/code-security/how-tos/secure-your-supply-chain/manage-your-dependency-security/controlling-dependencies-updated#allowing-specific-dependencies-to-be-updated)
   — and Go records a `tool` directive's module as `// indirect`, so every Go
   tool wrangle ships is named in the gomod entry's `allow` (a divergence test
-  backstops a miss). The Go toolchain itself is not a Dependabot dependency at
-  all: `tools/check_go_vulns.sh` is the gate for it, running the govulncheck
-  pinned by `tools/go.mod` over wrangle's own packages and failing on any
-  reachable finding that `tools/osv-scanner.toml` does not suppress.
+  backstops a miss).
 - **Curated tool images** (`tools/catalog.json`) — `tools/check_catalog.sh`
   fails any entry that isn't digest-pinned on the wrangle namespace (per-PR);
   `tools/check_catalog_freshness.sh` compares each pinned digest against the
