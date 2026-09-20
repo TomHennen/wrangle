@@ -104,8 +104,9 @@ controls (below) are already configured on the repo.
 4. Once the Release exists, the same workflow pushes `vX.Y.Z` to the companion
    and waits for the curated showcase — the only run that exercises a wrangle
    release the way adopters do, with a `refs/tags/` signer identity. It detects,
-   it cannot prevent: a failure opens a `wrangle-alert` issue, the Release stays
-   published, and the remedy is the next patch release.
+   it cannot prevent: a failure turns that run red with an error naming the tag
+   and the companion run, the Release stays published, and the remedy is the
+   next patch release.
 5. Leave the companion's `showcase.yml` pinned at `@main` — it is the
    current-state heartbeat — running the verify-vsa gate in non-release
    dogfood mode (`WRANGLE_VSA_NON_STRICT=1`), since an `@main` build is not

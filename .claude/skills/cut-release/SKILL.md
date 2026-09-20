@@ -153,8 +153,8 @@ repo (see RELEASING.md).
 
 ## After cutting
 
-- The same run pushes `vX.Y.Z` to the companion and waits for the curated showcase. A
-  failure opens a `wrangle-alert` issue: the tag is immutable, so the remedy is the next
-  patch release — never a retag.
+- The same run pushes `vX.Y.Z` to the companion and waits for the curated showcase; watch
+  it to the end. A failure turns the run red and names the companion run — the tag is
+  immutable, so the remedy is the next patch release, never a retag.
 - Confirm `gh release view vX.Y.Z` shows `--latest` and the showcase links resolve.
 - Roll deferred work into the next milestone; file follow-ups rather than holding the tag.

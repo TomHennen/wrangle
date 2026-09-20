@@ -13,8 +13,8 @@ name: Release
 # After the Release is published, the companion repo's curated showcase runs at
 # the new tag: the only thing that exercises a wrangle release the way adopters
 # do (a `refs/tags/` signer identity, which the strict consumer policy requires).
-# It detects, it cannot prevent — the tag is immutable, so a failure opens a
-# wrangle-alert issue and the remedy is the next patch release.
+# It detects, it cannot prevent — the tag is immutable, so a failure fails this
+# run red and the remedy is the next patch release.
 
 on:
   workflow_dispatch:
@@ -103,22 +103,3 @@ jobs:
           COMPANION_PUSH_TOKEN: ${{ secrets.TEST_REPO_PAT }}
           VERSION: ${{ inputs.version }}
         run: ./test/integration/run_release_showcase.sh "$VERSION"
-
-  alert:
-    needs: [tag, showcase]
-    if: ${{ always() && !inputs['dry-run'] && needs.tag.result == 'success' && needs.showcase.result != 'success' }}
-    runs-on: ubuntu-latest
-    timeout-minutes: 5
-    permissions:
-      issues: write   # the published tag cannot be withdrawn; an issue is the only remedy path
-    steps:
-      - name: Open a wrangle-alert issue
-        env:
-          GH_TOKEN: ${{ github.token }}
-          GH_REPO: ${{ github.repository }}
-          VERSION: ${{ inputs.version }}
-          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
-        run: |
-          gh issue create --label wrangle-alert \
-            --title "$VERSION is published but its showcase did not pass" \
-            --body "$VERSION stays published — its tag is immutable. The curated showcase at $VERSION did not pass ($RUN_URL); investigate it and ship the remedy in the next patch release."

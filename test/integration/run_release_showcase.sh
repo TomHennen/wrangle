@@ -74,20 +74,24 @@ push_tag() {
 }
 
 # A tag push sets head_branch to the tag name, so --branch selects this run.
+SHOWCASE_RUN_ID=""
+SHOWCASE_RUN_URL=""
 find_run() {
-    local version="$1" id="" i
+    local version="$1" run="" i
     for ((i = 0; i < START_POLL_ATTEMPTS; i++)); do
-        id="$(gh run list --repo "$COMPANION_REPO" --workflow "$CURATED_WORKFLOW" \
-            --branch "$version" --limit 1 --json databaseId -q '.[0].databaseId' 2>/dev/null || true)"
-        [[ -n "$id" ]] && break
+        run="$(gh run list --repo "$COMPANION_REPO" --workflow "$CURATED_WORKFLOW" \
+            --branch "$version" --limit 1 --json databaseId,url \
+            -q '.[0] | select(.databaseId) | "\(.databaseId) \(.url)"' 2>/dev/null || true)"
+        [[ -n "$run" ]] && break
         sleep "$START_POLL_SECONDS"
     done
-    [[ -n "$id" ]] || die "no ${CURATED_WORKFLOW} run appeared for ${version} on ${COMPANION_REPO}"
-    printf '%s' "$id"
+    [[ -n "$run" ]] || die "no ${CURATED_WORKFLOW} run appeared for ${version} on ${COMPANION_REPO}"
+    SHOWCASE_RUN_ID="${run%% *}"
+    SHOWCASE_RUN_URL="${run##* }"
 }
 
 main() {
-    local version="" id
+    local version=""
     case "${1:-}" in
         --check-pin)
             version="${2:-}"
@@ -110,12 +114,15 @@ main() {
 
     check_pin "$version"
     push_tag "$version"
-    id="$(find_run "$version")"
+    find_run "$version"
 
-    printf 'run_release_showcase: watching run %s on %s\n' "$id" "$COMPANION_REPO"
-    gh run watch "$id" --repo "$COMPANION_REPO" \
-        --interval "$WATCH_INTERVAL_SECONDS" --exit-status \
-        || die "showcase run ${id} did not pass for ${version}"
+    printf 'run_release_showcase: watching run %s on %s\n' "$SHOWCASE_RUN_ID" "$COMPANION_REPO"
+    if ! gh run watch "$SHOWCASE_RUN_ID" --repo "$COMPANION_REPO" \
+        --interval "$WATCH_INTERVAL_SECONDS" --exit-status; then
+        printf '::error::%s is published and its tag is immutable, but its showcase run did not pass: %s. The release stays published; ship the remedy in the next patch release.\n' \
+            "$version" "$SHOWCASE_RUN_URL" >&2
+        exit 1
+    fi
     printf 'run_release_showcase: showcase passed for %s\n' "$version"
 }
 

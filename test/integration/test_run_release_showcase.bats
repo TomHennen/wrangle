@@ -26,7 +26,7 @@ case "$*" in
     *"git/ref/tags/"*) exit "${TAG_EXISTS_STATUS:-1}" ;;
     *"git/ref/heads/main"*) printf 'deadbeefdeadbeefdeadbeefdeadbeefdeadbeef\n' ;;
     *"git/refs --method POST"*) printf 'created\n' > "$TAG_CREATED" ;;
-    *"run list"*) printf '%s\n' "${RUN_ID-4242}" ;;
+    *"run list"*) printf '%s\n' "${RUN_LINE-4242 https://github.test/companion/4242}" ;;
     *"run watch"*) exit "${WATCH_STATUS:-0}" ;;
 esac
 exit 0
@@ -140,14 +140,20 @@ refute_call() {
     grep -q "run watch 4242" "$GH_CALLS"
 }
 
-@test "run_release_showcase: fails when the showcase run fails" {
+@test "run_release_showcase: fails red and names the tag, the run and the remedy" {
+    # LOAD-BEARING. Nothing else reports a failed post-release showcase: the job
+    # failing with this annotation is the whole signal.
     WATCH_STATUS=1 run "$SCRIPT" v9.9.9
     [[ "$status" -eq 1 ]]
-    [[ "$output" == *"did not pass"* ]]
+    [[ "$output" == *"::error::"* ]]
+    [[ "$output" == *"v9.9.9"* ]]
+    [[ "$output" == *"https://github.test/companion/4242"* ]]
+    [[ "$output" == *"stays published"* ]]
+    [[ "$output" == *"next patch release"* ]]
 }
 
 @test "run_release_showcase: fails when no showcase run ever appears" {
-    RUN_ID='' run "$SCRIPT" v9.9.9
+    RUN_LINE='' run "$SCRIPT" v9.9.9
     [[ "$status" -eq 1 ]]
     [[ "$output" == *"no showcase-curated.yml run appeared"* ]]
 }

@@ -30,9 +30,8 @@ count() { grep -c "$1" "$WORKFLOW" || true; }
     job_block tag | grep -q 'contents: write'
 }
 
-@test "release.yml grants issues: write only to the alert job" {
-    [[ "$(count 'issues: write')" -eq 1 ]]
-    job_block alert | grep -q 'issues: write'
+@test "release.yml grants no write scope beyond the tag job's contents: write" {
+    [[ "$(count ': write')" -eq 1 ]]
 }
 
 @test "release.yml grants no workflow-level permissions" {
