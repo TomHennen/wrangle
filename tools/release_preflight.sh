@@ -3,7 +3,9 @@ set -euo pipefail
 set -f
 
 # release_preflight.sh — run every code-level gate that must hold before a
-# release tag is cut, and report one line per gate.
+# release tag is cut, and report one line per gate. Every gate is read-only
+# (no `gh` writes, no local mutations) and fast, so it's safe to run anytime
+# from any checkout — not just right before a release.
 #
 # The tag is immutable once created, so a check that fires on the tag is too
 # late: the frozen tag already embeds whatever digests were there.
@@ -13,8 +15,17 @@ set -f
 # A gate that cannot reach its backend (exit 2) reports UNVERIFIED and fails the
 # run: an unproven precondition is not a satisfied one.
 #
-# Gates that need a human or a live run stay in the skill, not here: milestone
-# hygiene, the wrangle-test showcase, and the verifying_artifacts.md recipes.
+# The showcase gate judges the wrangle-test showcase by its latest completed
+# tracking-tag run (read-only; never re-runs the workflow — remedy for a red
+# run is a human re-running it, #839).
+#
+# Wrangle's own scheduled freshness workflows are deliberately not gated the
+# same way — the live checks below already re-derive freshness against the
+# current catalog, which a run-history check can't improve on (#839).
+#
+# Gates that need a human or a live run against the release content stay in
+# the skill, not here: milestone hygiene, a live showcase run for the actual
+# release commit, and the verifying_artifacts.md recipes.
 #
 # Exit: 0 every gate passed, 1 a gate failed or could not be verified.
 
@@ -25,6 +36,7 @@ WRANGLE_RELEASE_GATES=(
     "curated tool images digest-pinned and default-closed|check_catalog.sh"
     "curated tool images not behind :latest|check_catalog_freshness.sh"
     "curated tool image digests built from current source|check_catalog_provenance_freshness.sh"
+    "wrangle-test showcase's last completed run is green|check_showcase_run_green.sh"
 )
 
 # Run one gate, echoing its own output (which carries the remediation) when it
@@ -65,8 +77,9 @@ wrangle_release_preflight() {
         return 1
     fi
     printf 'release preflight: all %d gate(s) satisfied.\n' "${#WRANGLE_RELEASE_GATES[@]}"
-    printf 'Still owner-run (see the cut-release skill): milestone hygiene, the wrangle-test\n'
-    printf 'showcase, and the docs/verifying_artifacts.md recipes against a real artifact.\n'
+    printf 'Still owner-run (see the cut-release skill): milestone hygiene, a live showcase\n'
+    printf 'run against the release commit, and the docs/verifying_artifacts.md recipes\n'
+    printf 'against a real artifact.\n'
 }
 
 main() {

@@ -41,6 +41,11 @@ set -f  # disable globbing — processes external input (positional SHA arg)
 #   1  Companion repo unreachable, or tag creation failed, or local git error
 #   2  Bad usage / missing environment
 
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+# Tracking-tag shape also matched by tools/check_showcase_run_green.sh.
+# shellcheck source=../../lib/tracking_tag.sh
+source "$SCRIPT_DIR/../../lib/tracking_tag.sh"
+
 WRANGLE_SHA="${1:?Usage: push_showcase_tag.sh <wrangle_sha>}"
 
 # Reject anything that isn't a full 40-char hex SHA. github.sha is
@@ -89,8 +94,8 @@ if MATCHING_TAGS_JSON="$(gh api "repos/${COMPANION_REPO}/git/matching-refs/tags/
     # Filter to vYYYYMMDD-<7hex>, sort lexically (date sorts correctly
     # as YYYYMMDD), take the last one.
     LATEST_TRACKING_TAG="$(printf '%s' "$MATCHING_TAGS_JSON" \
-        | jq -r '[.[] | .ref | sub("^refs/tags/"; "")
-            | select(test("^v[0-9]{8}-[0-9a-f]{7}$"))] | sort | last // ""')"
+        | jq -r --arg re "$WRANGLE_TRACKING_TAG_RE" '[.[] | .ref | sub("^refs/tags/"; "")
+            | select(test($re))] | sort | last // ""')"
 fi
 
 if [[ -n "$LATEST_TRACKING_TAG" ]]; then
