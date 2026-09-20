@@ -1,4 +1,4 @@
-.PHONY: bump-version-refs all test lint shellcheck shellstyle workflowstyle gotest bats zizmor integration bump-action-pins converge-action-pins check-catalog check-catalog-freshness check-catalog-provenance-freshness bump-catalog-digest bump-catalog-to-latest release-preflight
+.PHONY: bump-version-refs all test lint shellcheck shellstyle workflowstyle gotest bats zizmor integration check-catalog check-catalog-freshness check-catalog-provenance-freshness bump-catalog-digest bump-catalog-to-latest release-preflight
 
 # bash, not the default sh: the integration recipe sources lib/env.sh,
 # whose `set -o pipefail` dash doesn't reliably support.
@@ -74,20 +74,6 @@ zizmor:
 	@echo "=== zizmor ==="
 	@zizmor --no-online-audits .github/workflows actions/ tools/ build/
 
-# Bump every TomHennen/wrangle/...@<sha> ref in .github/workflows/ to current HEAD.
-# Idempotent. See tools/bump_action_pins.sh and #165.
-# Usage: make bump-action-pins             # bump to HEAD
-#        make bump-action-pins SHA=<sha>   # bump to a specific SHA
-bump-action-pins:
-	@./tools/bump_action_pins.sh $(SHA)
-
-# Loop bump + commit until the nested pin chain is both reachable and fresh
-# (check_pin_ancestry + check_pin_freshness green; a nested chain needs one
-# commit per level). Land the result as a merge commit, not a squash.
-# See tools/converge_action_pins.sh, #539, and #552.
-converge-action-pins:
-	@./tools/converge_action_pins.sh
-
 # Static, network-free catalog validator (digest-pinned, on-namespace, capability
 # enum). Runs every PR; see tools/check_catalog.sh.
 check-catalog:
@@ -121,7 +107,7 @@ release-preflight:
 	@./tools/release_preflight.sh
 
 # Retarget every adopter-facing wrangle release ref at a new version tag
-# (cut-release Phase 2). Usage: make bump-version-refs VERSION=v0.4.0
+# (cut-release Phase 1). Usage: make bump-version-refs VERSION=v0.4.0
 bump-version-refs:
 	@./tools/bump_version_refs.sh $(VERSION)
 
@@ -130,9 +116,3 @@ bump-version-refs:
 # confirmation. Usage: make cut-release VERSION=v0.4.0 NOTES=release-notes.md
 cut-release:
 	@./tools/cut_release.sh $(VERSION) $(NOTES)
-
-# Roll the self-ref pins onto main's first-parent history, labelled `# main`
-# (cut-release Phase 1, last step). Open the result as a PR; merge it as a
-# merge commit, never a squash.
-finalize-pins:
-	@./tools/finalize_pins.sh $(SHA)

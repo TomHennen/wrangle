@@ -11,11 +11,7 @@ set -f
 # is unchanged. First-party rebuilds are cooldown-exempt (§11), so the PR is meant
 # to be reviewed and merged on CI/review latency, not held for the 7-day
 # community-vetting delay. Uses git + the gh CLI with the ambient GITHUB_TOKEN.
-#
-# The commit carries tools/catalog.json and nothing else: GITHUB_TOKEN cannot push
-# .github/workflows/** (that needs the `workflows` scope, which no `permissions:`
-# block can grant), so pin convergence — which rewrites those files — is a human
-# step on the PR (`make converge-action-pins`) rather than part of this script.
+# The commit carries tools/catalog.json and nothing else.
 #
 # Setup requirement: the repository must have "Allow GitHub Actions to create and
 # approve pull requests" enabled, or `gh pr create` with GITHUB_TOKEN fails.
@@ -48,13 +44,6 @@ CI/review latency to keep the catalog current.
 
 Adopter-override entries (a foreign namespace) are never touched here; those
 pins stay adopter-owned.
-
-**Before merging, converge the pins.** This PR bumps `tools/catalog.json` only, so
-`check_pin_freshness` is red by design: the catalog is in every self-ref pin's
-scope, and a bot cannot push the `.github/workflows/**` edits a convergence makes.
-Check the digests out, run `make converge-action-pins`, and push the resulting
-commits to this branch — then merge it as a **merge commit, not a squash**, or the
-intermediate pins re-orphan.
 
 Refs #619, #596, #767.
 BODY

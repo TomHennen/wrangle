@@ -6,7 +6,7 @@ set -f
 # release tag is cut, and report one line per gate.
 #
 # The tag is immutable once created, so a check that fires on the tag is too
-# late: the frozen tag already embeds whatever pins and digests were there.
+# late: the frozen tag already embeds whatever digests were there.
 # This runs at the last point where they are settled but still mutable — right
 # before `gh release create` (the cut-release skill drives it).
 #
@@ -22,9 +22,6 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
 # name|script — order runs cheap/offline gates before the ones that hit a registry.
 WRANGLE_RELEASE_GATES=(
-    "self-ref pins reachable from HEAD|check_pin_ancestry.sh"
-    "self-ref pin content fresh|check_pin_freshness.sh"
-    "self-ref pins on main first-parent history|check_pin_main_history.sh"
     "curated tool images digest-pinned and default-closed|check_catalog.sh"
     "curated tool images not behind :latest|check_catalog_freshness.sh"
     "curated tool image digests built from current source|check_catalog_provenance_freshness.sh"
