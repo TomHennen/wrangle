@@ -35,8 +35,23 @@ wrangle_alert_find_open() {
     jq -r --arg m "$marker" 'map(select((.body // "") | contains($m))) | .[0].number // empty' <<<"$list"
 }
 
+# wrangle_alert_last_update <number> <key> — print the most recent content
+# already on the issue: the last comment if any, else the issue body with the
+# marker line stripped. Returns 2 on a gh/jq failure.
+wrangle_alert_last_update() {
+    local number="$1" key="$2" last
+    last="$(gh issue view "$number" --repo "$WRANGLE_ALERT_REPO" --json comments \
+        --jq '.comments[-1].body // empty')" || return 2
+    if [[ -z "$last" ]]; then
+        last="$(gh issue view "$number" --repo "$WRANGLE_ALERT_REPO" --json body \
+            --jq '.body // empty')" || return 2
+        last="$(printf '%s\n' "$last" | grep -vF "$(wrangle_alert_marker "$key")")"
+    fi
+    printf '%s' "$last"
+}
+
 wrangle_alert_raise() {
-    local key="$1" title="$2" body_file="$3" number body_with_marker
+    local key="$1" title="$2" body_file="$3" number body_with_marker last
 
     [[ "$key" =~ $KEY_RE ]] || { printf 'wrangle_alert: invalid key: %s\n' "$key" >&2; return 1; }
     [[ -f "$body_file" ]] || { printf 'wrangle_alert: body file not found: %s\n' "$body_file" >&2; return 1; }
@@ -45,6 +60,16 @@ wrangle_alert_raise() {
         || { printf 'wrangle_alert: could not list open %s issues\n' "$WRANGLE_ALERT_LABEL" >&2; return 2; }
 
     if [[ -n "$number" ]]; then
+        # Dedup: a standing red re-raising an unchanged failure (same output,
+        # same URL) updates nothing rather than piling up identical comments —
+        # simpler than a time-based cooldown, and precise instead of guessing
+        # at a schedule.
+        last="$(wrangle_alert_last_update "$number" "$key")" \
+            || { printf 'wrangle_alert: could not read #%s to check for a duplicate\n' "$number" >&2; return 2; }
+        if [[ "$last" == "$(cat "$body_file")" ]]; then
+            printf 'wrangle_alert: #%s for %s unchanged since the last update; not commenting\n' "$number" "$key"
+            return 0
+        fi
         gh issue comment "$number" --repo "$WRANGLE_ALERT_REPO" --body-file "$body_file" \
             || { printf 'wrangle_alert: could not comment on #%s\n' "$number" >&2; return 2; }
         printf 'wrangle_alert: commented on existing #%s for %s\n' "$number" "$key"

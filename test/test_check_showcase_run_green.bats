@@ -56,6 +56,13 @@ SHIM
     [[ "$output" == *"https://x/4"* ]]
 }
 
+@test "showcase run green: a startup_failure run is red" {
+    export SHIM_RUNS='[{"conclusion":"startup_failure","url":"https://x/5","headBranch":"v20260919-abc1234","createdAt":"2026-09-19T00:00:00Z"}]'
+    run "$SCRIPT"
+    [ "$status" -eq 1 ]
+    [[ "$output" == *"https://x/5"* ]]
+}
+
 @test "showcase run green: queries wrangle-test's showcase workflow, completed runs only" {
     cat > "$BIN_DIR/gh" <<'SHIM'
 #!/usr/bin/env bash

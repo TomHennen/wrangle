@@ -18,8 +18,10 @@ setup() {
 }
 
 # Fake `gh`: `issue list` prints $SHIM_ISSUES (a JSON array of {number,body});
-# every invocation is appended to $CALLS_LOG for assertion. Set
-# $SHIM_GH_FAIL to make every call fail.
+# `issue view --json comments` prints $SHIM_LAST_COMMENT (raw text, as gh's
+# own --jq would); `issue view --json body` prints $SHIM_ISSUE_BODY. Every
+# invocation is appended to $CALLS_LOG for assertion. Set $SHIM_GH_FAIL to
+# make every call fail.
 install_gh() {
     cat > "$BIN_DIR/gh" <<'SHIM'
 #!/usr/bin/env bash
@@ -27,6 +29,11 @@ printf '%s\n' "$*" >> "${CALLS_LOG:?}"
 [[ -n "${SHIM_GH_FAIL:-}" ]] && { printf 'gh: backend unreachable\n' >&2; exit 1; }
 if [[ "$1" == "issue" && "$2" == "list" ]]; then
     printf '%s\n' "${SHIM_ISSUES:-[]}"
+elif [[ "$1" == "issue" && "$2" == "view" ]]; then
+    case " $* " in
+        *' --json comments '*) printf '%s' "${SHIM_LAST_COMMENT:-}" ;;
+        *' --json body '*) printf '%s' "${SHIM_ISSUE_BODY:-}" ;;
+    esac
 fi
 SHIM
     chmod +x "$BIN_DIR/gh"
@@ -67,14 +74,61 @@ SHIM
     grep -q -- '<!-- wrangle-alert:drift -->' "$CREATED_BODY"
 }
 
-@test "wrangle_alert: raise comments instead of duplicating when an issue is already open for the key" {
+@test "wrangle_alert: raise comments (not duplicates) when an already-open issue's last update differs" {
     install_gh
     export SHIM_ISSUES='[{"number":42,"body":"red\n\n<!-- wrangle-alert:drift -->\n"}]'
+    export SHIM_ISSUE_BODY=$'an earlier, different failure\n\n<!-- wrangle-alert:drift -->\n'
     run "$SCRIPT" raise drift "Catalog freshness check is red" "$BODY_FILE"
     [ "$status" -eq 0 ]
     [[ "$output" == *"commented on existing #42"* ]]
     grep -q -- 'issue comment 42' "$CALLS_LOG"
     ! grep -q -- 'issue create' "$CALLS_LOG"
+}
+
+@test "wrangle_alert: raise does not comment when the last comment already matches" {
+    install_gh
+    local last_comment
+    last_comment="$(cat "$BODY_FILE")"
+    export SHIM_ISSUES='[{"number":42,"body":"red\n\n<!-- wrangle-alert:drift -->\n"}]'
+    export SHIM_LAST_COMMENT="$last_comment"
+    run "$SCRIPT" raise drift "Catalog freshness check is red" "$BODY_FILE"
+    [ "$status" -eq 0 ]
+    [[ "$output" == *"unchanged since the last update; not commenting"* ]]
+    ! grep -q -- 'issue comment' "$CALLS_LOG"
+}
+
+@test "wrangle_alert: raise does not comment when the issue body (no prior comments) already matches" {
+    install_gh
+    local issue_body
+    issue_body="$(printf '%s\n\n<!-- wrangle-alert:drift -->\n' "$(cat "$BODY_FILE")")"
+    export SHIM_ISSUES='[{"number":42,"body":"red\n\n<!-- wrangle-alert:drift -->\n"}]'
+    export SHIM_ISSUE_BODY="$issue_body"
+    run "$SCRIPT" raise drift "Catalog freshness check is red" "$BODY_FILE"
+    [ "$status" -eq 0 ]
+    [[ "$output" == *"unchanged since the last update; not commenting"* ]]
+    ! grep -q -- 'issue comment' "$CALLS_LOG"
+}
+
+@test "wrangle_alert: raising the same failure twice results in exactly one comment total (create, then dedup)" {
+    install_gh
+    # First raise: no issue open yet -> creates one.
+    export SHIM_ISSUES='[]'
+    run "$SCRIPT" raise drift "Catalog freshness check is red" "$BODY_FILE"
+    [ "$status" -eq 0 ]
+    [[ "$output" == *"opened a new"* ]]
+
+    # Second raise, same failure content: the issue is now open with that
+    # same content as its body, so this must not add a comment.
+    local issue_body
+    issue_body="$(printf '%s\n\n<!-- wrangle-alert:drift -->\n' "$(cat "$BODY_FILE")")"
+    export SHIM_ISSUES='[{"number":42,"body":"red\n\n<!-- wrangle-alert:drift -->\n"}]'
+    export SHIM_ISSUE_BODY="$issue_body"
+    run "$SCRIPT" raise drift "Catalog freshness check is red" "$BODY_FILE"
+    [ "$status" -eq 0 ]
+    [[ "$output" == *"not commenting"* ]]
+
+    [ "$(grep -c -- 'issue create' "$CALLS_LOG")" -eq 1 ]
+    [ "$(grep -c -- 'issue comment' "$CALLS_LOG")" -eq 0 ]
 }
 
 @test "wrangle_alert: raise ignores an open issue for a different key" {

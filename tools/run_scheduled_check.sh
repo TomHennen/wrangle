@@ -3,9 +3,12 @@ set -euo pipefail
 set -f
 
 # tools/run_scheduled_check.sh — run an unattended check and keep its
-# wrangle-alert issue in sync: clear on green, raise on a real failure,
-# warn-and-pass on exit 2 (a backend blip, not something a human should be
-# paged for every run). Lets a scheduled workflow's step stay one line.
+# wrangle-alert issue in sync: clear on exit 0, warn-and-pass on exit 2 (a
+# backend blip, not something a human should be paged for every run), raise
+# on ANY other exit — not just the documented 1, so a crash (missing binary,
+# an unguarded command dying under set -e, killed by the runner) still files
+# an alert instead of just leaving a red run nobody watches (#839). Lets a
+# scheduled workflow's step stay one line.
 #
 # Usage: run_scheduled_check.sh <alert-key> <title> <check-script> [args...]
 #
@@ -26,10 +29,16 @@ wrangle_run_scheduled_check() {
 
     case "$rc" in
         0) "$SCRIPT_DIR/wrangle_alert.sh" clear "$key" || true ;;
-        1) "$SCRIPT_DIR/wrangle_alert.sh" raise "$key" "$title" "$out" || true ;;
         2)
             printf '::warning::%s: undetermined this run (backend unreachable)\n' "$title"
             rc=0
+            ;;
+        *)
+            printf '\ncheck exited %s\n' "$rc" >> "$out"
+            # Unlike clear, a failed raise must not go silent: it's the one
+            # thing standing between a red run and nobody noticing.
+            "$SCRIPT_DIR/wrangle_alert.sh" raise "$key" "$title" "$out" \
+                || printf '::error::%s: FAILED to file the wrangle-alert issue\n' "$title"
             ;;
     esac
 
