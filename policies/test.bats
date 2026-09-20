@@ -25,12 +25,20 @@
 #    deliberate: against the production policy an unsigned fixture fails at the
 #    identity gate BEFORE the tenet CEL runs, so a FAIL test would pass
 #    vacuously even with broken builder-id logic.
+#    Ampel admits unverified evidence only when it is handed over explicitly
+#    (--attestation) AND the policy pins no identities; a collector drops it
+#    unconditionally. So verify() feeds the unsigned fixtures as --attestation,
+#    one flag per statement (ampel parses a single statement per file).
 # 2. IDENTITY ENFORCEMENT. The fail-closed test runs the PRODUCTION policy
-#    against the same good fixture that PASSES the variant, and asserts it is
-#    rejected specifically on signer-identity validation — proving the binding
-#    is wired and fail-closed without a --signer flag to forget.
+#    against the same good fixture — via the same --attestation route, so the
+#    identity gate is the only difference — and asserts it is rejected
+#    specifically on signer-identity validation, proving the binding is wired
+#    and fail-closed without a --signer flag to forget.
 #
 # The variant is derived (not committed) so it cannot drift from production.
+#
+# The collector path production uses is covered separately, against the real
+# SIGNED bundle: collectors admit signed evidence only.
 
 # Derive a logic-only PolicySet from a production one: delete the
 # marker-delimited common.identities block and the per-policy identity refs,
@@ -136,11 +144,32 @@ setup() {
     export DEFAULT_PYTHON SIGNED_BUNDLE SIGNED_WHEEL SIGNED_SUBJECT SIGNED_CTX
 }
 
+# split_attestations <bundle> <dir>
+# Write each statement of a JSONL bundle to its own file under <dir> and emit
+# the matching --attestation flags, one token per line. Ampel parses exactly one
+# statement per --attestation file, so a multi-line bundle needs one file each.
+split_attestations() {
+    local bundle="$1" dir="$2" line n=0
+    mkdir -p "$dir"
+    while IFS= read -r line; do
+        [ -n "$line" ] || continue
+        n=$((n + 1))
+        printf '%s\n' "$line" > "$dir/$n.json"
+        printf -- '--attestation\n%s\n' "$dir/$n.json"
+    done < "$bundle"
+}
+
 # verify <policy> <fixture-bundle> [extra ampel args...]
 verify() {
     local policy="$1" bundle="$2"; shift 2
-    "$AMPEL" verify -p "$policy" -s "$SUBJECT" -c "jsonl:$bundle" \
-        -x "$CTX" "$@"
+    local dir="$BATS_TEST_TMPDIR/evidence/${bundle##*/}"
+    rm -rf "$dir"
+    local -a evidence
+    mapfile -t evidence < <(split_attestations "$bundle" "$dir")
+    # Fail closed: an empty vector would make ampel error on "no evidence",
+    # which every FAILS-case assertion below would then satisfy vacuously.
+    [ "${#evidence[@]}" -gt 0 ] || return 1
+    "$AMPEL" verify -p "$policy" -s "$SUBJECT" "${evidence[@]}" -x "$CTX" "$@"
 }
 
 # expect_fail <policy> <fixture-bundle> <expected-failing-policy-id>
@@ -159,6 +188,10 @@ expect_fail() {
     [ "$output" = "FAIL" ]
     run jq -r --arg id "$want" '.predicate.results[] | select(.policy.id == $id) | .status' "$rs"
     [ "$output" = "FAIL" ]
+    # Non-vacuous: unadmitted evidence FAILs every tenet at once, which would
+    # satisfy the assertion above whatever the tenet CEL says.
+    run jq -r '[.predicate.results[] | select(.status == "PASS")] | length' "$rs"
+    [ "$output" -gt 0 ]
 }
 
 # expect_fail_closed <production-policy> <good-fixture>
@@ -277,35 +310,6 @@ expect_fail_closed() {
     [ "$output" = "SOFTFAIL" ]
 }
 
-# The verify job (actions/verify) feeds ampel TWO collectors: the provenance
-# and a second jsonl: of the engine-signed SBOM/scan statements. This is
-# the #541 regression — evaluating against the provenance-only collector failed
-# every scan tenet. Reproduce the exact wiring: provenance in one collector, the
-# four metadata statements in a second, and assert the verdict matches the
-# single-collector PASS. The provenance-only half asserts the bug fails closed.
-@test "ampel policy: default-go-v1 PASSES via the verify-job's split collectors (provenance + metadata)" {
-    local prov="$BATS_TEST_TMPDIR/prov.jsonl" meta="$BATS_TEST_TMPDIR/meta.jsonl"
-    head -1 "$TD/good-default.bundle.jsonl" > "$prov"
-    tail -n +2 "$TD/good-default.bundle.jsonl" > "$meta"
-    run "$AMPEL" verify -p "$DEFAULT_GO_LOGIC" -s "$SUBJECT" \
-        -c "jsonl:$prov" -c "jsonl:$meta" -x "$CTX" -f tty
-    [ "$status" -eq 0 ]
-}
-
-@test "ampel policy: default-go-v1 FAILS on the provenance-only collector (the #541 bug)" {
-    local prov="$BATS_TEST_TMPDIR/prov.jsonl"
-    head -1 "$TD/good-default.bundle.jsonl" > "$prov"
-    local rs="$BATS_TEST_TMPDIR/resultset.json"
-    run "$AMPEL" verify -p "$DEFAULT_GO_LOGIC" -s "$SUBJECT" -c "jsonl:$prov" -x "$CTX" \
-        --attest-results --attest-format=ampel --results-path="$rs" -f tty
-    [ "$status" -ne 0 ]
-    [ -s "$rs" ]
-    run jq -r '.predicate.results[] | select(.policy.id == "sbom-exists") | .status' "$rs"
-    [ "$output" = "FAIL" ]
-    run jq -r '.predicate.results[] | select(.policy.id == "osv-scan-clean") | .status' "$rs"
-    [ "$output" = "FAIL" ]
-}
-
 @test "ampel policy: default-go-v1 FAILS (osv) on an OSV scan with findings" {
     expect_fail "$DEFAULT_GO_LOGIC" "$TD/bad-osv-findings.bundle.jsonl" "osv-scan-clean"
 }
@@ -421,6 +425,40 @@ expect_fail_closed() {
     [ "$output" = "PASSED" ]
     run jq -r '.predicate.verifiedLevels | sort | join(",")' "$vsa"
     [ "$output" = "SLSA_BUILD_LEVEL_3,WRANGLE_HAS_SBOM,WRANGLE_LINTED,WRANGLE_VULN_SCANNED,WRANGLE_WORKFLOWS_LINTED" ]
+}
+
+# The verify job (actions/verify) feeds ampel TWO collectors: the provenance and
+# a second jsonl: of the engine-signed SBOM/scan statements. This is the #541
+# regression — evaluating against the provenance-only collector failed every scan
+# tenet. Reproduce the exact wiring on the signed bundle (a collector admits
+# signed evidence only): provenance in one collector, the metadata statements in
+# a second, and assert the verdict matches the single-collector PASS above. The
+# provenance-only half asserts the bug fails closed.
+@test "ampel policy: default-python-v1 PASSES via the verify-job's split collectors (provenance + metadata)" {
+    local prov="$BATS_TEST_TMPDIR/prov.jsonl" meta="$BATS_TEST_TMPDIR/meta.jsonl"
+    head -1 "$SIGNED_BUNDLE" > "$prov"
+    tail -n +2 "$SIGNED_BUNDLE" > "$meta"
+    run "$AMPEL" verify -p "$DEFAULT_PYTHON" -s "$SIGNED_SUBJECT" \
+        -c "jsonl:$prov" -c "jsonl:$meta" -x "$SIGNED_CTX" -f tty
+    [ "$status" -eq 0 ]
+}
+
+@test "ampel policy: default-python-v1 FAILS on the provenance-only collector (the #541 bug)" {
+    local prov="$BATS_TEST_TMPDIR/prov.jsonl"
+    head -1 "$SIGNED_BUNDLE" > "$prov"
+    local rs="$BATS_TEST_TMPDIR/resultset.json"
+    run "$AMPEL" verify -p "$DEFAULT_PYTHON" -s "$SIGNED_SUBJECT" -c "jsonl:$prov" \
+        -x "$SIGNED_CTX" --attest-results --attest-format=ampel --results-path="$rs" -f tty
+    [ "$status" -ne 0 ]
+    [ -s "$rs" ]
+    run jq -r '.predicate.results[] | select(.policy.id == "sbom-exists") | .status' "$rs"
+    [ "$output" = "FAIL" ]
+    run jq -r '.predicate.results[] | select(.policy.id == "osv-scan-clean") | .status' "$rs"
+    [ "$output" = "FAIL" ]
+    # Non-vacuous: the provenance tenets still PASS off the one collector, so the
+    # metadata tenets fail on absent evidence, not on a wholly dropped bundle.
+    run jq -r '.predicate.results[] | select(.policy.id == "slsa-builder-id") | .status' "$rs"
+    [ "$output" = "PASS" ]
 }
 
 # The release-tag identity is advisory-only, so no fail-closed test can prove

@@ -2,10 +2,16 @@
 
 Fixture attestation bundles for `policies/test.bats` — the drift detector for
 the wrangle Ampel PolicySets (`docs/ampel_research.md` §5). Each `*.jsonl` file
-is a bundle of unsigned in-toto Statements (one per line) that `ampel verify`
-reads via the offline `jsonl:` collector, so the harness needs no signing or
-sigstore reachability (it still needs `github.com` to resolve the SHA-pinned
-upstream policy locators).
+is a bundle of unsigned in-toto Statements (one per line), so the harness needs
+no signing or sigstore reachability (it still needs `github.com` to resolve the
+SHA-pinned upstream policy locators).
+
+Ampel admits unverified evidence only when it was passed explicitly with
+`--attestation` and the policy pins no signer identities, so `test.bats` splits
+each bundle into one file per statement and passes a `--attestation` per file
+(ampel parses exactly one statement per file). The `jsonl:` collector — what
+production uses — drops unsigned evidence outright, and is covered by the tests
+that run the signed bundle below.
 
 All bundles describe the same subject artifact, `wrangle-app-1.0.0.tgz`, whose
 digest is the literal string's sha256:
@@ -62,7 +68,9 @@ carrying a `tlogEntries` (Rekor) proof. The unsigned fixtures above can only run
 against the logic variant, so the signer-identity admission is never exercised
 against a real signature; this bundle runs the FULL production
 `wrangle-default-python-v1` tier and PASSES cleanly (every tenet PASS), proving
-each tenet's signer identity validates end to end. Its subject is digested at
+each tenet's signer identity validates end to end. It is also the only fixture
+that can exercise the `jsonl:` collector, so the split-collector tests (the #541
+regression) run against it. Its subject is digested at
 test time from the checked-in wheel
 (`wrangle_test_fixture-0.0.1.dev27905469742-py3-none-any.whl`), as
 `actions/verify` does, so the test proves the bundle is about that artifact; the
@@ -79,8 +87,9 @@ fixture is the "wrong builder" for another type's policy (e.g. `good-go` FAILs
 
 ¹ Each shipped PolicySet binds its SLSA provenance tenets to a signer identity
 (`common.identities`): every policy to wrangle's `build_and_publish_<eco>.yml`
-keyless identity. These fixtures are **unsigned**,
-so against the *production* PolicySets they fail closed on identity validation.
+keyless identity. These fixtures are **unsigned**, so against the *production*
+PolicySets they fail closed on identity validation (and an identity-pinned
+policy never admits unverified evidence, however it is supplied).
 `policies/test.bats` therefore evaluates the tenet-logic rows above against a
 logic-only *variant* (identity gate stripped), and separate tests run each good
 fixture against its production PolicySet to prove it fails closed. See the
