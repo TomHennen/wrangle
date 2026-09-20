@@ -11,12 +11,12 @@
 #     && python3 -m pip hash /tmp/ag/*
 # and replace every hash below in the same commit.
 
-ast-grep-cli==0.45.2 \
-    --hash=sha256:19aab16ad9bc361d1a750c8e5e36b2d746e9c256c9bd83be08925cb1469c6e6b \
-    --hash=sha256:1d5ab9db412f3f95dce9eadc3c3bd4d37d0ae7d1182b148c03fff81a8c6c3f40 \
-    --hash=sha256:300bd5161bd7e6db532ea330647137381f461e0e995b72e56e5e3abcd611ebc3 \
-    --hash=sha256:bd41060e56fd4c7611050d0dbb3f0741336725b0741ba3eec2ff0d0059042d45 \
-    --hash=sha256:c4afe7aa52171d8d482b95e5db6289cc97e2678adee15ad15af25a41da036d02 \
-    --hash=sha256:cbaf74b65ea2c3918b23e9578e1790aec6951d5aa8070b7d912e5fb79a7afedb \
-    --hash=sha256:ecc6edefd6e87a53ed41997071802b8b81e9417a6009089887d930968755aa18 \
-    --hash=sha256:f613a82dcb51527ef0d63b26261f10ea24990ffb0c8b9dda2abbacfa45d1d982
+ast-grep-cli==0.45.3 \
+    --hash=sha256:13dfb43b2028bb585f41b2f399e8b30bf0310e9bbeff2369d60a2e36accbb2e6 \
+    --hash=sha256:2d151b89c6d45c2640338fe5d24b2ee0810224902d603cb271803bf7418054ea \
+    --hash=sha256:6c4222e17ac7a9e23c839b6eefb3a7858349e7a37a704acd451c266beadf75b4 \
+    --hash=sha256:7afbe49870d8a34c0b224ac940da1fbf736617fcc81aa846884e377eddf8c1a0 \
+    --hash=sha256:b96c897dc44052c7b1d08ba6086d0c270fe89d37645e38f08e2d4fa15948ea3c \
+    --hash=sha256:ced023ae9fbc7c779570cd8bcc0fa7626d9561afd60369d3c335bfce2ca565b3 \
+    --hash=sha256:d8b527b71655eede16637311bc3ca49624b8198c48bffeb5dcf06a78332bf917 \
+    --hash=sha256:ebc1510a6775f65a8681345dd422590fb257fe48036a7c599a5ca9f54dea8801

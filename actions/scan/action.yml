@@ -60,7 +60,7 @@ runs:
     # double-checkout.
     - name: Check out source
       if: inputs.checkout == 'true'
-      uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+      uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       with:
         persist-credentials: false
         ref: ${{ inputs.ref }}
@@ -173,7 +173,7 @@ runs:
     # produced — see issue #189.
     - name: Upload OSV SARIF
       if: always() && contains(inputs.tools, 'osv')
-      uses: github/codeql-action/upload-sarif@db488ddef3bf6cb639b32c2e9a7c0a7ea8271d28 # v4.37.8
+      uses: github/codeql-action/upload-sarif@b96794f015dfd88f77b49b1c93e0fa7110f94c63 # v4.38.0
       continue-on-error: true
       with:
         sarif_file: ${{ github.workspace }}/.wrangle/metadata/osv/output.sarif
@@ -181,7 +181,7 @@ runs:
 
     - name: Upload wrangle-lint SARIF
       if: always() && contains(inputs.tools, 'wrangle-lint')
-      uses: github/codeql-action/upload-sarif@db488ddef3bf6cb639b32c2e9a7c0a7ea8271d28 # v4.37.8
+      uses: github/codeql-action/upload-sarif@b96794f015dfd88f77b49b1c93e0fa7110f94c63 # v4.38.0
       continue-on-error: true
       with:
         sarif_file: ${{ github.workspace }}/.wrangle/metadata/wrangle-lint/output.sarif
@@ -189,7 +189,7 @@ runs:
 
     - name: Upload Zizmor SARIF
       if: always() && contains(inputs.tools, 'zizmor')
-      uses: github/codeql-action/upload-sarif@db488ddef3bf6cb639b32c2e9a7c0a7ea8271d28 # v4.37.8
+      uses: github/codeql-action/upload-sarif@b96794f015dfd88f77b49b1c93e0fa7110f94c63 # v4.38.0
       continue-on-error: true
       with:
         sarif_file: ${{ github.workspace }}/.wrangle/metadata/zizmor/output.sarif
@@ -208,7 +208,7 @@ runs:
     # failure. Gating on the marker preserves the prior valid state.
     - name: Upload Dependency Review SARIF
       if: always() && contains(inputs.tools, 'dependency-review') && github.event_name == 'pull_request' && hashFiles('.wrangle/metadata/dependency-review/error') == ''
-      uses: github/codeql-action/upload-sarif@db488ddef3bf6cb639b32c2e9a7c0a7ea8271d28 # v4.37.8
+      uses: github/codeql-action/upload-sarif@b96794f015dfd88f77b49b1c93e0fa7110f94c63 # v4.38.0
       continue-on-error: true
       with:
         sarif_file: ${{ github.workspace }}/.wrangle/metadata/dependency-review/output.sarif
