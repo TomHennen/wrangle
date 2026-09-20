@@ -53,7 +53,7 @@ inputs:
       How govulncheck findings are treated, mirroring the scan
       action's `:info` idiom. "fail" (default) fails this job on a
       finding govulncheck traced to a called symbol, unless
-      `<path>/osv-scanner.toml` suppresses its id. "info" reports
+      `<path>/govulncheck-ignore.toml` suppresses its id. "info" reports
       those findings without failing. Findings that could not be
       traced to a symbol are always warnings only.
     required: false

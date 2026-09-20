@@ -1,0 +1,12 @@
+# Reachable vulnerabilities accepted for the Go module in this directory
+# (tools/go.mod), read by the Go checks action's govulncheck gate. Separate
+# from osv-scanner.toml on purpose: an entry here accepts that wrangle's own
+# code calls a known-vulnerable symbol, which is a stronger claim than osv's
+# "a module I depend on has an advisory" and needs its own sign-off. The
+# ignoreUntil is a forced-revisit tripwire: once it passes the finding
+# resurfaces, so the acceptance is re-decided rather than inherited.
+
+[[IgnoredVulns]]
+id = "GO-2026-5932"
+ignoreUntil = 2026-10-11T00:00:00Z
+reason = "x/crypto/openpgp is reachable from wrangle-attest through rekor's PGP path (pki/pgp), and no fix will ever ship: x/crypto froze openpgp as deprecated and unmaintained. The only exit is dropping the PGP path, which no advisory will signal — so this revisit date is what forces reconsideration."

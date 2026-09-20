@@ -56,7 +56,7 @@ on:
           How govulncheck findings are treated, mirroring the scan
           tools' `:info` idiom. `fail` (default) fails the checks job
           on a vulnerability govulncheck traced to a called symbol,
-          unless `<path>/osv-scanner.toml` suppresses its id. `info`
+          unless `<path>/govulncheck-ignore.toml` suppresses its id. `info`
           reports those findings without failing. Findings that could
           not be traced to a symbol are always warnings only.
         required: false

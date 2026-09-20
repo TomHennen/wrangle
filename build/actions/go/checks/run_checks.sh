@@ -23,7 +23,7 @@
 # Failure semantics:
 #   - gofmt/vet/test failures fail the build (these are quality gates).
 #   - a govulncheck finding traced to a called symbol fails the build
-#     unless <path>/osv-scanner.toml suppresses its id; govulncheck_mode
+#     unless <path>/govulncheck-ignore.toml suppresses its id; govulncheck_mode
 #     "info" downgrades that to a report.
 #   - findings govulncheck could not trace to a symbol are printed as
 #     warnings and never fail the build.
@@ -102,13 +102,13 @@ list_unformatted() {
     )
 }
 
-# Pure function: vulnerability ids <osv_config> still suppresses at
+# Pure function: vulnerability ids <ignore_config> still suppresses at
 # <now> (RFC 3339 UTC), one per line. An entry whose `ignoreUntil` has
-# passed no longer suppresses, matching osv-scanner: the expiry is a
-# forced-revisit tripwire, not an inherited pass. A missing config
-# suppresses nothing; an unreadable one fails closed.
+# passed no longer suppresses: the expiry is a forced-revisit tripwire,
+# not an inherited pass. A missing config suppresses nothing; an
+# unreadable one, or an entry missing `id` or `reason`, fails closed.
 #
-# Args: <osv_config> <now>
+# Args: <ignore_config> <now>
 suppressed_ids() {
     local config="$1" now="$2"
     [[ -f "$config" ]] || return 0
@@ -119,8 +119,8 @@ suppressed_ids() {
     python3 -c '
 import datetime, sys, tomllib
 
-# osv-scanner documents ignoreUntil as a bare date; TOML also admits a datetime,
-# with or without an offset. Normalise all three to an aware UTC datetime.
+# ignoreUntil may be a bare date or a datetime with or without an offset.
+# Normalise all three to an aware UTC datetime.
 def as_utc(value):
     if not isinstance(value, datetime.datetime):
         value = datetime.datetime.combine(value, datetime.time.min)
@@ -128,10 +128,18 @@ def as_utc(value):
         value = value.replace(tzinfo=datetime.timezone.utc)
     return value
 
-with open(sys.argv[1], "rb") as fh:
+path = sys.argv[1]
+with open(path, "rb") as fh:
     config = tomllib.load(fh)
 now = as_utc(datetime.datetime.fromisoformat(sys.argv[2]))
-for entry in config.get("IgnoredVulns", []):
+for index, entry in enumerate(config.get("IgnoredVulns", [])):
+    if "id" not in entry:
+        raise SystemExit("%s: [[IgnoredVulns]] entry %d has no id" % (path, index))
+    if not str(entry.get("reason", "")).strip():
+        raise SystemExit(
+            "%s: [[IgnoredVulns]] entry for %s needs a non-empty reason saying why "
+            "shipping a reachable vulnerability is acceptable" % (path, entry["id"])
+        )
     until = entry.get("ignoreUntil")
     if until is None or as_utc(until) > now:
         print(entry["id"])
@@ -167,39 +175,19 @@ unreached_ids() {
         | unique | map(select(IN($called[]) | not)) | .[]' "$1"
 }
 
-# Pure function: the ids in <ignored_ids> plus every advisory id the
-# stream reports as an alias of one of them. osv-scanner matches an
-# IgnoredVulns entry against an advisory's aliases as well as its id, so
-# an entry naming a CVE or GHSA id has to silence the GO- id govulncheck
-# reports for the same advisory. The aliases come from the stream's own
-# `osv` records — no second lookup, no network.
-#
-# Args: <json_path> <newline-separated ids>
-expand_aliases() {
-    local json="$1" ids="$2"
-    jq -rs --arg ids "$ids" '
-        ($ids | split("\n") | map(select(length > 0))) as $ignored
-        | [.[] | select(.osv != null) | .osv
-           | select([.id] + (.aliases // []) | any(IN($ignored[])))
-           | .id]
-          + $ignored
-        | unique | .[]' "$json"
-}
-
 # Decide the outcome of a finished govulncheck scan: prints the human
 # report to stderr and the step-summary cell to stdout, and returns 1
 # when <mode> is "fail" and an unsuppressed symbol-level finding
 # remains. Errors reading either input propagate (fail closed).
 #
-# Args: <json_path> <osv_config> <mode> <now>
+# Args: <json_path> <ignore_config> <mode> <now>
 govulncheck_verdict() {
     local json="$1" config="$2" mode="$3" now="$4"
 
     # Explicit `|| return`: main calls this through `||`, which suppresses
     # errexit for the whole call, so a parse failure must be handled here.
-    local ignored_list suppressed_list reachable_list unreached_list
-    ignored_list="$(suppressed_ids "$config" "$now")" || return $?
-    suppressed_list="$(expand_aliases "$json" "$ignored_list" | LC_ALL=C sort -u)" || return $?
+    local suppressed_list reachable_list unreached_list
+    suppressed_list="$(suppressed_ids "$config" "$now" | LC_ALL=C sort -u)" || return $?
     reachable_list="$(reachable_ids "$json" | LC_ALL=C sort -u)" || return $?
     unreached_list="$(unreached_ids "$json" | LC_ALL=C sort -u)" || return $?
 
@@ -226,12 +214,18 @@ govulncheck_verdict() {
         return 0
     fi
 
-    printf 'govulncheck: reachable vulnerabilities with no entry in %s:\n' "$config" >&2
+    printf 'govulncheck: your code calls a known-vulnerable symbol:\n' >&2
     for id in "${blocking[@]}"; do
         printf '  %s  https://pkg.go.dev/vuln/%s\n' "$id" "$id" >&2
     done
-    printf 'Upgrade the affected module (or the Go toolchain, for a stdlib finding). If upstream\n' >&2
-    printf 'has no fix, add an [[IgnoredVulns]] entry with a reason and an ignoreUntil to %s.\n' "$config" >&2
+    printf '\nPrefer the fix: upgrade the affected module, or the Go toolchain for a stdlib\n' >&2
+    printf 'finding. Only when upstream has no fix, accept it in %s:\n\n' "$config" >&2
+    for id in "${blocking[@]}"; do
+        printf '  [[IgnoredVulns]]\n' >&2
+        printf '  id = "%s"\n' "$id" >&2
+        printf '  ignoreUntil = 2026-01-01T00:00:00Z  # a date to re-decide by\n' >&2
+        printf '  reason = "why shipping this reachable vulnerability is acceptable"\n\n' >&2
+    done
 
     if [[ "$mode" != "fail" ]]; then
         printf '%d reachable finding(s) — informational (govulncheck: info)\n' "${#blocking[@]}"
@@ -365,8 +359,8 @@ run_test_step() {
 # Install govulncheck, run it, write JSON to <metadata_dir>/govulncheck.json,
 # and hand the stream to govulncheck_verdict. Prints the step-summary
 # cell to stdout; the report goes to stderr. Tool errors propagate.
-# The suppression allowlist is the osv-scanner.toml beside the scanned
-# go.mod, which is where osv-scanner itself looks for it.
+# The suppression allowlist is the govulncheck-ignore.toml beside the
+# scanned go.mod.
 # Args: <input_path> <metadata_dir_abs> <govulncheck_version> <mode>
 run_govulncheck_step() {
     local input_path="$1"
@@ -394,7 +388,7 @@ run_govulncheck_step() {
     printf 'JSON output: %s\n' "$govuln_out" >&2
     local now
     now="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
-    govulncheck_verdict "$govuln_out" "$input_path/osv-scanner.toml" "$mode" "$now"
+    govulncheck_verdict "$govuln_out" "$input_path/govulncheck-ignore.toml" "$mode" "$now"
 }
 
 # Append the quality-checks step summary block to $GITHUB_STEP_SUMMARY.
