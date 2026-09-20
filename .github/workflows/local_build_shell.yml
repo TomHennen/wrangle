@@ -87,4 +87,7 @@ jobs:
           HEAD_REF: ${{ github.event.pull_request.head.sha || github.sha }}
         run: |
           git worktree add --detach "$RUNNER_TEMP/base-ref" "$BASE_REF"
-          "$RUNNER_TEMP/base-ref/tools/check_catalog_bump_pr.sh" "$BASE_REF" "$HEAD_REF"
+          check="$RUNNER_TEMP/base-ref/tools/check_catalog_bump_pr.sh"
+          # A base ref that ships no check grants no exception, so say so and pass.
+          [[ -x "$check" ]] || { printf 'base ref has no catalog-bump check; normal review applies\n'; exit 0; }
+          "$check" "$BASE_REF" "$HEAD_REF"
