@@ -477,12 +477,14 @@ release does not rebuild or re-tag tool images.**
   which a rebuild of wrangle's own reviewed source is not — so the bump merges on CI/review latency and
   keeps the catalog current. One source PR + one bump PR — not a manual double-bump.
 
-  The bump PR is machine-verified by `tools/check_catalog_bump_pr.sh` (the `catalog-bump` check), run
-  from the base ref: the diff is `tools/catalog.json` alone, nothing but curated digests moved, and every
-  digest re-resolves to the registry's current `:latest`. That is what lets it merge on green CI without
-  the per-digest human read (CLAUDE.md); nothing auto-merges it. Because a `GITHUB_TOKEN`-opened PR fires
-  no `pull_request` event, `open_catalog_bump_pr.sh` dispatches the required-check workflows onto the bot
-  branch so those checks report on the PR's head commit.
+  The bump PR is machine-verified by `tools/check_catalog_bump_pr.sh`, run from the base ref: the diff is
+  `tools/catalog.json` alone, nothing but curated digests moved, and every digest re-resolves to the
+  registry's current `:latest`. A PR whose only changed file is `tools/catalog.json` may merge once the
+  `catalog-bump-verified` check has **succeeded** (skipped is not success) — that is what replaces the
+  per-digest human read (CLAUDE.md); nothing auto-merges it. Because a `GITHUB_TOKEN`-opened PR fires no
+  `pull_request` event, `open_catalog_bump_pr.sh` dispatches the workflows carrying main's required checks
+  onto the bot branch so those checks report on the PR's head commit; that list must be revisited whenever
+  a required check moves or is added, or the bump PR silently loses it.
 
   The bot's commit carries `tools/catalog.json` and nothing else. The publish trigger is
   a path glob that matches `tools/catalog.json`, so a catalog-only digest change would re-trigger a rebuild;

@@ -65,11 +65,38 @@ jobs:
       - name: Validate tool catalog
         run: ./tools/check_catalog.sh
 
-  # On a catalog-only change, green means the change is exactly what
-  # bump_catalog_to_latest.sh produces against the registry — the one case
-  # CLAUDE.md lets merge without an owner LGTM. A wider change is out of scope:
-  # it passes here and still needs the LGTM.
-  catalog-bump:
+  # Does this change touch tools/catalog.json and nothing else? Only that shape
+  # can claim the CLAUDE.md LGTM exception, so it alone runs the verifier below.
+  catalog-bump-scope:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    outputs:
+      catalog-only: ${{ steps.scope.outputs.catalog-only }}
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+
+      - id: scope
+        env:
+          BASE_REF: ${{ github.event.pull_request.base.sha || 'origin/main' }}
+          HEAD_REF: ${{ github.event.pull_request.head.sha || github.sha }}
+        run: |
+          changed="$(git diff --name-only --no-renames "$BASE_REF...$HEAD_REF")"
+          if [[ "$changed" == "tools/catalog.json" ]]; then only=true; else only=false; fi
+          printf 'catalog-only=%s\n' "$only" >>"$GITHUB_OUTPUT"
+          printf '::notice::catalog-only change: %s\n' "$only"
+
+  # Success here means one thing only: this change is byte-identical to what
+  # bump_catalog_to_latest.sh produces against the registry. It is skipped —
+  # never green — on anything else, so success is what the CLAUDE.md exception
+  # keys on. The base ref's copy of the verifier renders the verdict, so a change
+  # that also rewrites the check or the bump script cannot vouch for itself.
+  catalog-bump-verified:
+    needs: catalog-bump-scope
+    if: needs.catalog-bump-scope.outputs.catalog-only == 'true'
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -79,15 +106,12 @@ jobs:
           fetch-depth: 0
           persist-credentials: false
 
-      # The base ref's copy decides scope, so a change that also rewrites the
-      # check, the bump script or the catalog reader cannot vouch for itself.
-      - name: Verify catalog bump reproducibility
+      - name: Verify the catalog bump reproduces
         env:
           BASE_REF: ${{ github.event.pull_request.base.sha || 'origin/main' }}
           HEAD_REF: ${{ github.event.pull_request.head.sha || github.sha }}
         run: |
           git worktree add --detach "$RUNNER_TEMP/base-ref" "$BASE_REF"
-          check="$RUNNER_TEMP/base-ref/tools/check_catalog_bump_pr.sh"
-          # A base ref that ships no check grants no exception, so say so and pass.
-          [[ -x "$check" ]] || { printf 'base ref has no catalog-bump check; normal review applies\n'; exit 0; }
-          "$check" "$BASE_REF" "$HEAD_REF"
+          ./tools/check_catalog_bump_pr.sh --from-base "$RUNNER_TEMP/base-ref" "$BASE_REF" "$HEAD_REF"
+          printf '::notice::catalog bump verified reproducible against the registry\n'
+          printf 'Catalog bump verified reproducible against the registry.\n' >>"$GITHUB_STEP_SUMMARY"

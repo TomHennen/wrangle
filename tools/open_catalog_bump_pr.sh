@@ -27,7 +27,9 @@ BOT_NAME="github-actions[bot]"
 BOT_EMAIL="41898282+github-actions[bot]@users.noreply.github.com"
 # The workflows carrying main's required checks. A GITHUB_TOKEN-opened PR fires
 # no `pull_request` event, but a `workflow_dispatch` always creates a run, and
-# its check runs land on the branch head SHA the PR points at.
+# its check runs land on the branch head SHA the PR points at. This list must
+# cover every required check; one that moves to an unlisted workflow is absent
+# from the bump PR rather than red.
 CHECK_WORKFLOWS=(local_build_shell.yml test.yml)
 
 pr_title() {

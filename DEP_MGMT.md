@@ -123,8 +123,10 @@ whatever is already set.
   workflows onto the bot branch (requires the repo setting *"Allow GitHub Actions to
   create and approve pull requests"*). `tools/check_catalog_bump_pr.sh` then proves
   the PR reproducible — catalog-only diff, nothing but curated digests moved, each
-  digest the registry's current `:latest` — which is what lets it merge on green CI
-  without an owner `LGTM` (the one exception; see CLAUDE.md). Nothing auto-merges it.
+  digest the registry's current `:latest`. A PR whose only changed file is
+  `tools/catalog.json` may merge once the `catalog-bump-verified` check has
+  **succeeded** (skipped is not success) — the one exception to the owner `LGTM`
+  (see CLAUDE.md). Nothing auto-merges it.
   First-party curated-image bumps are **cooldown-exempt** — a rebuild of wrangle's
   own reviewed source is not a third-party update — so they merge on review latency;
   an adopter override is not exempt. A digest cooldown remains deferred (#623); when
@@ -152,8 +154,8 @@ likewise, by `tools/go.mod`). Known unguarded duplicates are tracked in #286.
 5. **No undocumented drift** — a pin literal you touched that also appears
    elsewhere must move together or be guarded.
 6. **No auto-merge** — dependency updates wait out the cooldown and get a human
-   review. A catalog-bump PR skips the human read only when `catalog-bump` is
-   green; it is still merged by hand.
+   review. A catalog-bump PR skips the human read only once `catalog-bump-verified`
+   has **succeeded** (skipped is not success); it is still merged by hand.
 
 ## Tracking
 
