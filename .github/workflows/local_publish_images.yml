@@ -1,17 +1,22 @@
 name: publish tool images
 
 # Build, publish, and attest wrangle's containerized tool images. One matrix
-# entry per tool — enroll a new tool by adding a line. See
-# docs/tool_container_design.md.
+# entry per tool — enroll a new tool by adding a line, plus its Dockerfile's
+# build-context paths to `paths:` below and to the release gate's
+# PROVENANCE_DIFF_PATHS. See docs/tool_container_design.md.
 
 on:
   workflow_dispatch:
   push:
     branches: [main]
-    # Every path an image Dockerfile reads from the build context; a missed
-    # rebuild ships a stale image behind green CI, so test/check_publish_trigger.py
-    # holds this list, the Dockerfiles and the release gate's diff-set in agreement.
+    # Every path that changes a tool image: what each Dockerfile reads from the
+    # build context, plus what builds it. A missed rebuild ships a stale image
+    # behind green CI, so test/check_publish_trigger.py holds this list, the
+    # Dockerfiles and the release gate's diff-set in agreement.
     paths:
+      - .dockerignore
+      - .github/workflows/build_and_publish_container.yml
+      - build/actions/container/**
       - lib/download_verify.sh
       - lib/sanitize.sh
       - lib/sarif_adapter_exit.sh

@@ -25,10 +25,13 @@ PROVENANCE_PREDICATE_TYPE='https://slsa.dev/provenance/v1'
 COMMIT_RE='^[0-9a-f]{40}$'
 # A build commit is trusted only from a resolvedDependency on wrangle's own repo.
 WRANGLE_SOURCE_URI_PREFIX='git+https://github.com/tomhennen/wrangle@'
-# Every path an image Dockerfile reads from the build context, so anything
-# flagged stale here is something a push to main already rebuilt: this is the
-# publish trigger's path set, held to it by test/check_publish_trigger.py.
+# Every path that changes a tool image, so anything flagged stale here is
+# something a push to main already rebuilt: this is the publish trigger's path
+# set, held to it by test/check_publish_trigger.py.
 PROVENANCE_DIFF_PATHS=(
+    .dockerignore
+    .github/workflows/build_and_publish_container.yml
+    build/actions/container
     lib/download_verify.sh
     lib/sanitize.sh
     lib/sarif_adapter_exit.sh

@@ -44,11 +44,12 @@ fake_repo() {
     cat > "$TMP_DIR/tools/faketool/Dockerfile"
 }
 
-# fake_workflow <job> <trigger-path>... — a stand-in publish workflow whose
-# <job> builds tools/faketool on the given on.push.paths.
+# fake_workflow <file> <job> <trigger-path>... — a stand-in publish workflow at
+# .github/workflows/<file> whose <job> builds tools/faketool on those paths.
 fake_workflow() {
-    local job="$1"
-    shift
+    local file="$1" job="$2"
+    shift 2
+    mkdir -p "$TMP_DIR/.github/workflows"
     {
         printf 'on:\n  push:\n    paths:\n'
         printf '      - %s\n' "$@"
@@ -56,7 +57,7 @@ fake_workflow() {
         printf '    uses: ./.github/workflows/build_and_publish_container.yml\n'
         printf '    strategy:\n      matrix:\n        include:\n          - path: tools/faketool\n'
         printf '    with:\n      dockerfile: ${{ matrix.path }}/Dockerfile\n'
-    } > "$TMP_DIR/publish.yml"
+    } > "$TMP_DIR/.github/workflows/$file"
 }
 
 # gate_script_with <pathspec>... — a stand-in release gate diffing those paths.
@@ -70,7 +71,7 @@ gate_script_with() {
 
 run_check() {
     run "$PYTHON" "$CHECK" --repo-root "$TMP_DIR" \
-        --workflow "$TMP_DIR/publish.yml" --gate-script "$TMP_DIR/gate.sh"
+        --workflow .github/workflows/publish.yml --gate-script "$TMP_DIR/gate.sh"
 }
 
 @test "publish-trigger: every image build input is matched by the trigger and the release gate" {
@@ -89,7 +90,7 @@ run_check() {
 FROM scratch
 COPY tools/faketool/adapter.sh /adapter.sh
 DOCKERFILE
-    fake_workflow publish tools/faketool/Dockerfile
+    fake_workflow publish.yml publish tools/faketool/Dockerfile
     gate_script_with tools/faketool/Dockerfile
     run_check
     [ "$status" -eq 1 ]
@@ -103,7 +104,7 @@ DOCKERFILE
 FROM scratch
 COPY tools/faketool/adapter.sh /adapter.sh
 DOCKERFILE
-    fake_workflow publish tools/faketool/Dockerfile tools/faketool/adapter.sh
+    fake_workflow publish.yml publish tools/faketool/Dockerfile tools/faketool/adapter.sh
     gate_script_with tools/faketool/Dockerfile
     run_check
     [ "$status" -eq 1 ]
@@ -118,7 +119,7 @@ DOCKERFILE
 FROM scratch
 COPY tools/faketool/adapter.sh /adapter.sh
 DOCKERFILE
-    fake_workflow publish tools/faketool/Dockerfile tools/faketool/adapter.sh
+    fake_workflow publish.yml publish tools/faketool/Dockerfile tools/faketool/adapter.sh
     gate_script_with tools/faketool/Dockerfile tools/faketool/adapter.sh lib
     run_check
     [ "$status" -eq 1 ]
@@ -133,11 +134,26 @@ DOCKERFILE
 FROM scratch
 COPY tools/faketool/adapter.sh /adapter.sh
 DOCKERFILE
-    fake_workflow publish-more tools/faketool/Dockerfile
+    fake_workflow publish.yml publish-more tools/faketool/Dockerfile
     gate_script_with tools/faketool/Dockerfile
     run_check
     [ "$status" -eq 1 ]
     [[ "$output" == *"tools/faketool/adapter.sh"* ]]
+}
+
+@test "publish-trigger: a second workflow that builds images fails the check" {
+    # Only the checked workflow's trigger is proven, so another workflow building
+    # images would publish from a filter nothing holds to its Dockerfiles.
+    fake_repo <<'DOCKERFILE'
+FROM scratch
+COPY tools/faketool/adapter.sh /adapter.sh
+DOCKERFILE
+    fake_workflow publish.yml publish tools/faketool/Dockerfile tools/faketool/adapter.sh
+    fake_workflow extra.yml publish-extra tools/faketool/Dockerfile
+    gate_script_with tools/faketool/Dockerfile tools/faketool/adapter.sh
+    run_check
+    [ "$status" -eq 2 ]
+    [[ "$output" == *"extra.yml"* ]]
 }
 
 @test "publish-trigger: a build context this check cannot model fails closed" {
@@ -152,7 +168,7 @@ DOCKERFILE
         'COPY tools/faketool/*.sh /'
     do
         printf 'FROM scratch AS build\nFROM scratch\n%s\n' "$body" | fake_repo
-        fake_workflow publish 'tools/**'
+        fake_workflow publish.yml publish 'tools/**'
         gate_script_with tools
         run_check
         [ "$status" -eq 2 ]
@@ -183,4 +199,16 @@ DOCKERFILE
             return 1
         }
     done <<< "$output"
+}
+
+@test "publish-trigger: inputs outside the build context still trigger a rebuild" {
+    # These change an image without appearing in any COPY, so no Dockerfile can
+    # reveal them and only this list keeps them covered.
+    run "$PYTHON" "$CHECK" --repo-root "$REPO_ROOT" --match \
+        .dockerignore \
+        .github/workflows/build_and_publish_container.yml \
+        build/actions/container/action.yml \
+        build/actions/container/resolve_cache.sh
+    [ "$status" -eq 0 ]
+    [[ "$output" != *NO-MATCH* ]]
 }

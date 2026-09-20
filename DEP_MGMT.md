@@ -116,8 +116,9 @@ whatever is already set.
   reads each pinned digest's signed SLSA provenance, takes the build commit, and
   fails if any image build input changed between that commit and HEAD (also a
   release gate, needs full git history). Its diff-set is the publish trigger's
-  path set; `test/check_publish_trigger.py` derives that set from the Dockerfiles
-  and fails if the trigger, the gate, or a Dockerfile `COPY` drifts from it.
+  path set; `test/check_publish_trigger.py` derives that set's build-context part
+  from the Dockerfiles and fails if the trigger, the gate, or a Dockerfile `COPY`
+  drifts from it.
   After a publish, `local_publish_images.yml`
   auto-**opens** (never auto-merges) a bump PR — `tools/bump_catalog_to_latest.sh`
   repoints each drifted `ghcr.io/tomhennen/wrangle/*` entry to its new `:latest`,

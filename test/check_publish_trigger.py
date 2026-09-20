@@ -14,6 +14,9 @@ holds the release gate's pathspecs to the trigger element by element, under the
 only two pattern forms whose GitHub-glob and git-pathspec meanings coincide: an
 exact path, and a whole directory (`X/**` here, `X` there).
 
+Only this one workflow's trigger is checked, so it must be the only one that
+builds images; a second one is refused rather than left unchecked.
+
 Over-triggering is safe, under-triggering is not, so the Dockerfile direction is
 one-way: the filter may match more than the Dockerfiles read, never less. The
 gate must equal the trigger in both directions — a gap on one side calls a moved
@@ -28,6 +31,7 @@ Exit: 0 in agreement, 1 a disagreement, 2 tool/usage error (fail closed).
 """
 
 import argparse
+import glob
 import json
 import os
 import re
@@ -42,6 +46,7 @@ except ImportError:
     raise SystemExit(2)
 
 WORKFLOW = ".github/workflows/local_publish_images.yml"
+WORKFLOW_DIR = ".github/workflows"
 GATE_SCRIPT = "tools/check_catalog_provenance_freshness.sh"
 BUILDER_WORKFLOW = "build_and_publish_container.yml"
 DOCKERFILE_EXPR = "${{ matrix.path }}/Dockerfile"
@@ -76,6 +81,31 @@ def trigger_patterns(triggers):
     if not all(isinstance(p, str) for p in patterns):
         fail("on.push.paths must be a list of strings")
     return patterns
+
+
+def builds_images(doc):
+    jobs = doc.get("jobs") if isinstance(doc, dict) else None
+    if not isinstance(jobs, dict):
+        return False
+    return any(
+        isinstance(job, dict) and BUILDER_WORKFLOW in str(job.get("uses", ""))
+        for job in jobs.values()
+    )
+
+
+def publishing_workflows(repo_root):
+    """Every workflow with a job that builds an image, repo-root-relative."""
+    found = []
+    for ext in ("yml", "yaml"):
+        for path in glob.glob(os.path.join(repo_root, WORKFLOW_DIR, "*.%s" % ext)):
+            try:
+                with open(path, encoding="utf-8") as fh:
+                    doc = yaml.safe_load(fh)
+            except (OSError, yaml.YAMLError) as err:
+                fail("cannot read %s: %s" % (path, err))
+            if builds_images(doc):
+                found.append(os.path.relpath(path, repo_root))
+    return sorted(found)
 
 
 def image_dockerfiles(doc):
@@ -258,6 +288,15 @@ def main():
         for path in args.match:
             print("%s %s" % ("MATCH" if matches(path, patterns) else "NO-MATCH", path))
         return 0
+
+    # Images built from a workflow whose own paths: filter nobody checks would
+    # go stale unseen, so this one must be the only one that builds them.
+    checked = os.path.relpath(os.path.join(args.repo_root, args.workflow), args.repo_root)
+    publishers = publishing_workflows(args.repo_root)
+    if publishers != [checked]:
+        fail("%s is checked here, but the workflows that build images are %s — "
+             "every one needs its trigger checked against its Dockerfiles"
+             % (checked, ", ".join(publishers)))
 
     inputs = build_inputs(doc, args.repo_root)
     uncovered = sorted(
