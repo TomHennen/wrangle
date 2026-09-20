@@ -48,9 +48,16 @@ repoints each drifted first-party entry to the digest just published.
 source under `ghcr.io/tomhennen/wrangle/*`, not third-party updates — the 7-day
 community-vetting cooldown does not apply.
 
-The `catalog-bump` check re-resolves every digest against the registry and fails
-unless this PR is exactly what `tools/bump_catalog_to_latest.sh` produces, so it
-may be merged on green CI without an owner `LGTM`.
+**Merging this without an owner `LGTM`** needs both, and you confirm both:
+
+1. `gh pr view <n> --json files` lists `tools/catalog.json` and nothing else.
+2. The `catalog-bump-verified` check **succeeded** — skipped is not success.
+
+Check (1) yourself rather than leaving it to CI: a `pull_request` run takes its
+workflow and scripts from this PR, so only a catalog-only diff makes the tooling
+that produced (2) the base ref's. Given both, `tools/check_catalog_bump_pr.sh`
+has re-resolved every digest against the registry and found this PR byte-identical
+to what `tools/bump_catalog_to_latest.sh` produces.
 
 Adopter-override entries (a foreign namespace) are never touched here; those
 pins stay adopter-owned.

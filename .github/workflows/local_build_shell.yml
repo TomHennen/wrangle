@@ -112,6 +112,6 @@ jobs:
           HEAD_REF: ${{ github.event.pull_request.head.sha || github.sha }}
         run: |
           git worktree add --detach "$RUNNER_TEMP/base-ref" "$BASE_REF"
-          ./tools/check_catalog_bump_pr.sh --from-base "$RUNNER_TEMP/base-ref" "$BASE_REF" "$HEAD_REF"
+          "$RUNNER_TEMP/base-ref/tools/check_catalog_bump_pr.sh" --from-base "$RUNNER_TEMP/base-ref" "$BASE_REF" "$HEAD_REF"
           printf '::notice::catalog bump verified reproducible against the registry\n'
           printf 'Catalog bump verified reproducible against the registry.\n' >>"$GITHUB_STEP_SUMMARY"

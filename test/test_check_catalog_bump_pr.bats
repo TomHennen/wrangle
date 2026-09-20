@@ -101,6 +101,35 @@ reset_to_base() {
     git -C "$REPO" checkout -q -B head "$BASE"
 }
 
+in_list() {
+    local needle="$1" item
+    shift
+    for item in "$@"; do
+        [[ "$item" == "$needle" ]] && return 0
+    done
+    return 1
+}
+
+# job_block <workflow> <job> — that job's lines, up to the next top-level job.
+job_block() {
+    awk -v j="$2" '
+        $0 == "  " j ":"                          { in_block=1; print; next }
+        in_block && /^  [a-zA-Z][a-zA-Z0-9_-]*:$/ { in_block=0 }
+        in_block                                  { print }
+    ' "$1"
+}
+
+# script_refs <file> — repo-relative tools/ and lib/ scripts the file runs or
+# sources. Comment lines are dropped: a script named in prose is not a dependency.
+script_refs() {
+    local body
+    body="$(grep -vE '^[[:space:]]*#' "$1" || true)"
+    {
+        printf '%s\n' "$body" | grep -oE '(tools|lib)/[a-z0-9_-]+\.sh' || true
+        printf '%s\n' "$body" | grep -oE '\$SCRIPT_DIR/[a-z0-9_-]+\.sh' | sed 's|^\$SCRIPT_DIR/|tools/|' || true
+    } | sort -u
+}
+
 @test "check_catalog_bump_pr: a catalog-only bump to the current :latest verifies" {
     install_curl
     write_catalog "$DIGEST_B"
@@ -144,6 +173,45 @@ reset_to_base() {
         [ "$status" -eq 1 ] || { printf 'expected refusal for %s, got %s\n' "$f" "$status" >&2; return 1; }
         [[ "$output" == *"NOT VERIFIED"* ]]
     done
+}
+
+# Closure check: the workflow declaring the verdict job, plus every script
+# reachable from it, must be protected. A job that moves to another workflow, or
+# a new helper script, fails here instead of quietly widening what a VERIFIED
+# diff may rewrite.
+@test "check_catalog_bump_pr: the whole implementation of the verdict is protected" {
+    local wf="" cand cur ref queue=() seen=" "
+    for cand in "$REPO_ROOT"/.github/workflows/*.yml; do
+        if grep -qE '^  catalog-bump-verified:' "$cand"; then
+            wf="${cand#"$REPO_ROOT"/}"
+        fi
+    done
+    [ -n "$wf" ]
+    in_list "$wf" "${IMPLEMENTATION_FILES[@]}"
+
+    job_block "$REPO_ROOT/$wf" catalog-bump-verified >"$BATS_TEST_TMPDIR/block"
+    while IFS= read -r ref; do
+        queue+=("$ref")
+    done < <(script_refs "$BATS_TEST_TMPDIR/block")
+    [ "${#queue[@]}" -gt 0 ]
+
+    while [ "${#queue[@]}" -gt 0 ]; do
+        cur="${queue[0]}"
+        queue=("${queue[@]:1}")
+        case "$seen" in *" $cur "*) continue ;; esac
+        seen="$seen$cur "
+        if ! in_list "$cur" "${IMPLEMENTATION_FILES[@]}"; then
+            printf '%s renders the catalog-bump verdict but is not protected\n' "$cur" >&2
+            return 1
+        fi
+        while IFS= read -r ref; do
+            if [ -f "$REPO_ROOT/$ref" ]; then
+                queue+=("$ref")
+            fi
+        done < <(script_refs "$REPO_ROOT/$cur")
+    done
+    # The closure must have reached past the entrypoint into its helpers.
+    [[ "$seen" == *"tools/check_catalog.sh"* && "$seen" == *"lib/registry.sh"* ]]
 }
 
 @test "check_catalog_bump_pr: a base ref shipping no verifier fails" {

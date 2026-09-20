@@ -106,7 +106,7 @@ For throwaway end-to-end experiments before promoting to the integration compani
 - Branch from `main` with descriptive names; PRs must pass CI (`make test`), shellcheck, and actionlint cleanly.
 - **Don't delete a branch that's the base of an open stacked PR** — GitHub auto-closes the dependent; rebase dependents onto `main` first (and `--delete-branch` fails from inside a worktree, where `main` is checked out elsewhere).
 - **No merge without an `LGTM` from the repository owner** — green CI alone is never authorization to merge.
-- **One exception:** any PR — bot- or human-authored — whose only changed file is `tools/catalog.json` may merge once the `catalog-bump-verified` check has **succeeded** (skipped is not success), which happens only when `tools/check_catalog_bump_pr.sh` has proven it byte-identical to what `tools/bump_catalog_to_latest.sh` produces against the registry's current `:latest`.
+- **One exception:** any PR — bot- or human-authored — may merge without an `LGTM` once the merger has confirmed **both** that `gh pr view <n> --json files` lists `tools/catalog.json` and nothing else **and** that the `catalog-bump-verified` check **succeeded** (skipped is not success), which together mean `tools/check_catalog_bump_pr.sh` proved it byte-identical to what `tools/bump_catalog_to_latest.sh` produces against the registry's current `:latest`.
 - If a PR fully fixes a tracked issue, close it from the description with a closing keyword (`Fixes #NNN`); if unsure it fully resolves the issue, ask the owner.
 - Update the README and `gh_workflow_examples/` if the adoption interface changes.
 - For personal-environment preferences that shouldn't be checked in, use `CLAUDE.local.md` (git-ignored).

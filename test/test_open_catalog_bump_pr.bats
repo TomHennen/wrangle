@@ -103,6 +103,31 @@ SHIM
     grep -q 'workflow run test.yml .* --ref bot/catalog-autobump' "$GH_LOG"
 }
 
+# catalog-bump-verified is the only check that authorises a bump PR's merge, so
+# a bump PR that never runs it is one that can never be merged under the rule.
+@test "open_catalog_bump_pr: a dispatched workflow declares catalog-bump-verified" {
+    local repo_root wf found=0
+    repo_root="$(cd "$TOOLS_DIR/.." && pwd)"
+    run bash -c 'source "$1"; printf "%s\n" "${CHECK_WORKFLOWS[@]}"' _ "$SCRIPT"
+    [ "$status" -eq 0 ]
+    while IFS= read -r wf; do
+        if grep -qE '^  catalog-bump-verified:' "$repo_root/.github/workflows/$wf"; then
+            found=1
+        fi
+    done <<< "$output"
+    [ "$found" -eq 1 ]
+}
+
+@test "open_catalog_bump_pr: the PR body states both merge conditions" {
+    printf '{"tools":{"osv":{"image":"x"}}}\n' > "$WORK/tools/catalog.json"
+    run "$SCRIPT"
+    [ "$status" -eq 0 ]
+    grep -q 'catalog-bump-verified' "$GH_LOG"
+    grep -q 'skipped is not success' "$GH_LOG"
+    grep -q -- '--json files' "$GH_LOG"
+    ! grep -q 'green CI' "$GH_LOG"
+}
+
 # A dispatched workflow that lost its workflow_dispatch trigger would leave the
 # bump PR permanently unchecked, with nothing else to notice.
 @test "open_catalog_bump_pr: every dispatched workflow exists and is dispatchable" {

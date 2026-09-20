@@ -479,8 +479,9 @@ release does not rebuild or re-tag tool images.**
 
   The bump PR is machine-verified by `tools/check_catalog_bump_pr.sh`, run from the base ref: the diff is
   `tools/catalog.json` alone, nothing but curated digests moved, and every digest re-resolves to the
-  registry's current `:latest`. A PR whose only changed file is `tools/catalog.json` may merge once the
-  `catalog-bump-verified` check has **succeeded** (skipped is not success) — that is what replaces the
+  registry's current `:latest`. Such a PR may merge without an owner `LGTM` once the merger has confirmed
+  **both** that `gh pr view <n> --json files` lists `tools/catalog.json` and nothing else **and** that the
+  `catalog-bump-verified` check **succeeded** (skipped is not success) — together those replace the
   per-digest human read (CLAUDE.md); nothing auto-merges it. Because a `GITHUB_TOKEN`-opened PR fires no
   `pull_request` event, `open_catalog_bump_pr.sh` dispatches the workflows carrying main's required checks
   onto the bot branch so those checks report on the PR's head commit; that list must be revisited whenever
