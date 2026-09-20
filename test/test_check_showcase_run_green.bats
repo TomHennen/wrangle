@@ -42,6 +42,20 @@ SHIM
     [[ "$output" == *"https://x/tracking"* ]]
 }
 
+@test "showcase run green: a timed-out run is red, not just an explicit failure" {
+    export SHIM_RUNS='[{"conclusion":"timed_out","url":"https://x/3","headBranch":"v20260919-abc1234","createdAt":"2026-09-19T00:00:00Z"}]'
+    run "$SCRIPT"
+    [ "$status" -eq 1 ]
+    [[ "$output" == *"https://x/3"* ]]
+}
+
+@test "showcase run green: a cancelled run is red (e.g. cancel-in-progress concurrency)" {
+    export SHIM_RUNS='[{"conclusion":"cancelled","url":"https://x/4","headBranch":"v20260919-abc1234","createdAt":"2026-09-19T00:00:00Z"}]'
+    run "$SCRIPT"
+    [ "$status" -eq 1 ]
+    [[ "$output" == *"https://x/4"* ]]
+}
+
 @test "showcase run green: queries wrangle-test's showcase workflow, completed runs only" {
     cat > "$BIN_DIR/gh" <<'SHIM'
 #!/usr/bin/env bash

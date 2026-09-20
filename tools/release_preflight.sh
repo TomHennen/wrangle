@@ -13,11 +13,21 @@ set -f
 # A gate that cannot reach its backend (exit 2) reports UNVERIFIED and fails the
 # run: an unproven precondition is not a satisfied one.
 #
-# Three gates judge an unattended check by its own run history rather than
-# re-deriving the result locally: the wrangle-test showcase and wrangle's own
-# scheduled freshness workflows are watched by nobody, so a red run can sit for
-# weeks until a release is being cut (#839). They never re-run the workflow —
-# a red run blocks with its URL, and the remedy is a human re-running it.
+# The wrangle-test showcase is judged by its own run history (the latest
+# completed tracking-tag run) rather than re-derived locally: nobody watches
+# it, so it went red for three weeks unnoticed (#839). It never re-runs the
+# workflow — a red run blocks with its URL, and the remedy is a human
+# re-running it.
+#
+# Deliberately NOT gated the same way: wrangle's own scheduled freshness runs
+# (catalog_freshness.yml / catalog_provenance_freshness.yml). A run-history
+# check for them would be strictly weaker than the two live gates already
+# below — those re-derive freshness against the CURRENT catalog, so they catch
+# drift a stale green run-history would miss — and, unlike the showcase's
+# tracking tags, a freshness workflow's failed run replays the OLD commit on
+# re-run, so "re-run it" can never clear a run that already merged a fix.
+# wrangle-alert issues (raised by the scheduled workflows themselves) cover
+# "nobody noticed" for these instead.
 #
 # Gates that need a human or a live run against the release content stay in
 # the skill, not here: milestone hygiene, a live showcase run for the actual
@@ -32,8 +42,6 @@ WRANGLE_RELEASE_GATES=(
     "curated tool images digest-pinned and default-closed|check_catalog.sh"
     "curated tool images not behind :latest|check_catalog_freshness.sh"
     "curated tool image digests built from current source|check_catalog_provenance_freshness.sh"
-    "scheduled catalog freshness run is green|check_catalog_freshness_run_green.sh"
-    "scheduled catalog provenance freshness run is green|check_catalog_provenance_freshness_run_green.sh"
     "wrangle-test showcase's last completed run is green|check_showcase_run_green.sh"
 )
 

@@ -75,11 +75,13 @@ All three must hold before you ask the owner to cut. Do not shortcut.
    Also confirm every code-level precondition: dispatch the **Release Gate** workflow
    (`.github/workflows/release_gate.yml`, `workflow_dispatch`) on the release commit and
    require a green run. It runs `tools/release_preflight.sh` fail-closed — the static
-   catalog check, both catalog-freshness checks, and whether the wrangle-test showcase
-   and wrangle's own scheduled freshness workflows were last green (so a red one that
-   nobody noticed blocks here instead of surfacing mid-release, #839). Any non-zero
-   blocks, including exit 2 (backend unreachable = precondition UNVERIFIED). Run the
-   same thing locally to read a failure and drive remediation:
+   catalog check, both catalog-freshness checks, and whether the wrangle-test showcase's
+   latest completed tracking-tag run was green (so a red one that nobody noticed blocks
+   here instead of surfacing mid-release, #839; a `wrangle-alert` issue also gets filed
+   automatically when the showcase or either scheduled freshness workflow goes red — see
+   `tools/wrangle_alert.sh`). Any non-zero blocks, including exit 2 (backend unreachable =
+   precondition UNVERIFIED). Run the same thing locally to read a failure and drive
+   remediation:
 
    ```bash
    make release-preflight     # or: ./tools/release_preflight.sh

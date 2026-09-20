@@ -20,15 +20,18 @@ set -f
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 # shellcheck source=../lib/gh_run_status.sh
 source "$SCRIPT_DIR/../lib/gh_run_status.sh"
+# The tracking-tag shape this gate looks for is produced by
+# test/integration/push_showcase_tag.sh; both source it from here.
+# shellcheck source=../lib/tracking_tag.sh
+source "$SCRIPT_DIR/../lib/tracking_tag.sh"
 
 WRANGLE_SHOWCASE_REPO="${WRANGLE_SHOWCASE_REPO:-TomHennen/wrangle-test}"
 WRANGLE_SHOWCASE_WORKFLOW="${WRANGLE_SHOWCASE_WORKFLOW:-showcase.yml}"
-TRACKING_TAG_RE='^v[0-9]{8}-[0-9a-f]{7}$'
 
 check_showcase_run_green() {
     local result conclusion url
 
-    if ! result="$(wrangle_latest_completed_run "$WRANGLE_SHOWCASE_REPO" "$WRANGLE_SHOWCASE_WORKFLOW" "$TRACKING_TAG_RE")"; then
+    if ! result="$(wrangle_latest_completed_run "$WRANGLE_SHOWCASE_REPO" "$WRANGLE_SHOWCASE_WORKFLOW" "$WRANGLE_TRACKING_TAG_RE")"; then
         printf 'check_showcase_run_green: could not determine the wrangle-test showcase status\n' >&2
         return 2
     fi

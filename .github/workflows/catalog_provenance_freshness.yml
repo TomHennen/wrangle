@@ -2,6 +2,10 @@ name: Catalog Provenance Freshness
 
 # Weekly advisory that each published tool image was built from current source.
 # release_gate.yml runs the same check fail-closed as the release gate.
+#
+# Nobody watches this workflow's runs (#839), so a real failure (exit 1) files
+# a `wrangle-alert` issue via tools/run_scheduled_check.sh; a green run closes
+# it. A registry/Sigstore blip (exit 2) only warns — see that script's header.
 
 on:
   schedule:
@@ -16,22 +20,15 @@ jobs:
     timeout-minutes: 10
     permissions:
       contents: read
+      # tools/wrangle_alert.sh files/clears a wrangle-alert issue.
+      issues: write
     steps:
       - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
         with:
           persist-credentials: false
           fetch-depth: 0   # the diff needs each image's build commit in history
 
-      # Advisory: a registry/Sigstore blip (exit 2) warns but does not fail.
-      - name: Check catalog image provenance freshness
+      - name: Check catalog image provenance freshness (and keep the wrangle-alert issue in sync)
         env:
           GH_TOKEN: ${{ github.token }}
-        run: |
-          set +e
-          ./tools/check_catalog_provenance_freshness.sh
-          rc=$?
-          if [[ "$rc" -eq 2 ]]; then
-            printf '::warning::registry/attestation unreachable; provenance freshness undetermined this run\n'
-            exit 0
-          fi
-          exit "$rc"
+        run: ./tools/run_scheduled_check.sh catalog-provenance-freshness "Catalog provenance freshness check is red" ./tools/check_catalog_provenance_freshness.sh

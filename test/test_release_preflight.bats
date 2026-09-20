@@ -30,7 +30,6 @@ fake_gate() {
 all_gates_exit() {
     local code="$1" msg="${2:-}"
     for g in check_catalog.sh check_catalog_freshness.sh check_catalog_provenance_freshness.sh \
-        check_catalog_freshness_run_green.sh check_catalog_provenance_freshness_run_green.sh \
         check_showcase_run_green.sh; do
         fake_gate "$g" "$code" "$msg"
     done
@@ -40,7 +39,7 @@ all_gates_exit() {
     all_gates_exit 0
     run "$TMP_DIR/tools/release_preflight.sh"
     [[ "$status" -eq 0 ]]
-    [[ "$output" == *"all 6 gate(s) satisfied"* ]]
+    [[ "$output" == *"all 4 gate(s) satisfied"* ]]
     [[ "$output" == *"PASS"* ]]
     [[ "$output" != *"FAIL"* ]]
 }
@@ -77,7 +76,7 @@ all_gates_exit() {
     all_gates_exit 1
     run "$TMP_DIR/tools/release_preflight.sh"
     [[ "$status" -eq 1 ]]
-    [[ "$output" == *"6 of 6 gate(s) not satisfied"* ]]
+    [[ "$output" == *"4 of 4 gate(s) not satisfied"* ]]
 }
 
 @test "release_preflight: names the gates it does not cover, so they aren't assumed green" {
