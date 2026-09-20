@@ -66,10 +66,19 @@ wrangle_check_target_on_main() {
 # Dispatch the Release Gate on the target and poll it. A locally-run preflight
 # cannot substitute: provenance freshness diffs against full history, so a stale
 # or shallow checkout can produce a confident false green.
+#
+# workflow_dispatch only accepts a branch or tag ref, never a raw sha, so this
+# dispatches origin/main and refuses unless the target IS origin/main's HEAD —
+# otherwise the gate would verify a different commit than the one being tagged.
 wrangle_release_gate_green() {
     local sha="$1"
-    printf 'cut_release: dispatching %s on %s\n' "$GATE_WORKFLOW" "${sha:0:8}"
-    gh workflow run "$GATE_WORKFLOW" --ref "$sha" >/dev/null \
+    local head
+    head="$(git -C "$REPO_ROOT" rev-parse origin/main)"
+    [[ "$head" == "$sha" ]] || wrangle_die \
+        "target ${sha:0:8} is not origin/main's HEAD (${head:0:8}) — the gate can only be dispatched on a branch"
+
+    printf 'cut_release: dispatching %s on main (%s)\n' "$GATE_WORKFLOW" "${sha:0:8}"
+    gh workflow run "$GATE_WORKFLOW" --ref main >/dev/null \
         || wrangle_die "could not dispatch $GATE_WORKFLOW"
 
     local id="" i
