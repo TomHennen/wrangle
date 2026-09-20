@@ -1167,7 +1167,7 @@ Layers:
 
 ### CI (integration)
 
-`.github/workflows/test.yml` runs `make test` (the containerized unit suite). The integration bats suites and the static catalog check run through wrangle's dogfooded shell build: `local_build_shell.yml` calls `build_shell.yml` with `test/setup_integration.sh` as the setup-script, which also embeds the source scan (`uses: ./actions/scan` equivalent coverage).
+`.github/workflows/test.yml` runs `make test` (the containerized unit suite) plus a `go-vulns` job running `tools/check_go_vulns.sh` — govulncheck over wrangle's own Go tools, which needs the vulnerability database and so stays out of the hermetic suite. The integration bats suites and the static catalog check run through wrangle's dogfooded shell build: `local_build_shell.yml` calls `build_shell.yml` with `test/setup_integration.sh` as the setup-script, which also embeds the source scan (`uses: ./actions/scan` equivalent coverage).
 
 ### End-to-end (cross-repo)
 

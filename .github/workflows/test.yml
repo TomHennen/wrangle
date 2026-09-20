@@ -60,6 +60,25 @@ jobs:
           WRANGLE_TEST_IMAGE_PREBUILT: "1"
         run: ./test.sh
 
+  # Reachable-vulnerability scan of wrangle's own Go tools. It queries the Go
+  # vulnerability database, so it stays out of the hermetic unit suite.
+  go-vulns:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          persist-credentials: false
+
+      - uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16 # v6.5.0
+        with:
+          go-version-file: tools/go.mod
+          cache-dependency-path: tools/go.sum
+
+      - name: Scan the Go tools for reachable vulnerabilities
+        run: ./tools/check_go_vulns.sh
+
   # Real keyless signing through the engine: the unit suite is hermetic
   # (local-key) and the dispatch e2e proves the full bnd-push + ampel round-trip,
   # so this job covers the one path neither does — that wrangle-attest --sign
