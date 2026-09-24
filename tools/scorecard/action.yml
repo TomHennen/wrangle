@@ -25,7 +25,7 @@ runs:
       # with specific scopes and only fully works on default branch pushes.
       # continue-on-error prevents this from blocking result collection.
       continue-on-error: true
-      uses: ossf/scorecard-action@4eaacf0543bb3f2c246792bd56e8cdeffafb205a # v2.4.3
+      uses: ossf/scorecard-action@2d1146689b8cda280b9bc96326124645441f03bc # v2.4.4
       with:
         results_file: ${{ github.workspace }}/.wrangle/metadata/scorecard/output.json
         results_format: json
