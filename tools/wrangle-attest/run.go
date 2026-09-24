@@ -32,6 +32,9 @@ func run(args []string, stderr io.Writer) int {
 	if len(args) > 0 && args[0] == "assemble" {
 		return runAssemble(args[1:], stderr)
 	}
+	if len(args) > 0 && args[0] == "verify" {
+		return runVerify(args[1:], os.Stdout, stderr)
+	}
 
 	fs := flag.NewFlagSet("wrangle-attest", flag.ContinueOnError)
 	fs.SetOutput(stderr)
@@ -190,6 +193,13 @@ func signStatementFile(path, out, appendTo string, stderr io.Writer) int {
 		}
 	}
 
+	return signAndDeliver(raw, out, appendTo, stderr)
+}
+
+// signAndDeliver keyless-signs raw statement bytes verbatim, writes the single
+// signed line to out, and (when appendTo is set) appends the identical line to
+// that bundle.
+func signAndDeliver(raw []byte, out, appendTo string, stderr io.Writer) int {
 	sg, closeFn, err := newSigner()
 	if err != nil {
 		return failClosed(stderr, err)
@@ -201,7 +211,7 @@ func signStatementFile(path, out, appendTo string, stderr io.Writer) int {
 		return failClosed(stderr, err)
 	}
 	if len(bytes.TrimSpace(line)) == 0 {
-		return failClosed(stderr, fmt.Errorf("signing produced no output for %s", path))
+		return failClosed(stderr, fmt.Errorf("signing produced no output"))
 	}
 
 	var buf bytes.Buffer
