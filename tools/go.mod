@@ -1,6 +1,6 @@
 module github.com/TomHennen/wrangle/tools
 
-go 1.26.8
+go 1.27.0
 
 tool (
 	github.com/TomHennen/wrangle/tools/wrangle-attest
@@ -30,7 +30,7 @@ require (
 	cel.dev/cel-go v0.32.0 // indirect
 	cel.dev/expr v0.25.3 // indirect
 	charm.land/glamour/v2 v2.0.1 // indirect
-	charm.land/lipgloss/v2 v2.0.5 // indirect
+	charm.land/lipgloss/v2 v2.0.6 // indirect
 	cloud.google.com/go v0.123.0 // indirect
 	cloud.google.com/go/auth v0.20.0 // indirect
 	cloud.google.com/go/auth/oauth2adapt v0.2.8 // indirect
@@ -42,8 +42,8 @@ require (
 	cuelabs.dev/go/oci/ociregistry v0.0.0-20251212221603-3adeb8663819 // indirect
 	cuelang.org/go v0.16.1 // indirect
 	dario.cat/mergo v1.0.2 // indirect
-	deps.dev/api/v3 v3.0.0-20260727054525-2946ae4a6141 // indirect
-	deps.dev/api/v3alpha v0.0.0-20260727054525-2946ae4a6141 // indirect
+	deps.dev/api/v3 v3.0.0-20260811035547-133c155ce203 // indirect
+	deps.dev/api/v3alpha v0.0.0-20260811035547-133c155ce203 // indirect
 	deps.dev/util/maven v0.0.0-20260727054525-2946ae4a6141 // indirect
 	deps.dev/util/pypi v0.0.0-20260727054525-2946ae4a6141 // indirect
 	deps.dev/util/resolve v0.0.0-20260727054525-2946ae4a6141 // indirect
@@ -153,8 +153,8 @@ require (
 	github.com/charmbracelet/bubbletea v1.3.10 // indirect
 	github.com/charmbracelet/colorprofile v0.4.3 // indirect
 	github.com/charmbracelet/lipgloss v1.1.1-0.20250404203927-76690c660834 // indirect
-	github.com/charmbracelet/ultraviolet v0.0.0-20260803092147-8b693049ce2a // indirect
-	github.com/charmbracelet/x/ansi v0.11.7 // indirect
+	github.com/charmbracelet/ultraviolet v0.0.0-20260811164956-006e29f97886 // indirect
+	github.com/charmbracelet/x/ansi v0.11.8 // indirect
 	github.com/charmbracelet/x/cellbuf v0.0.15 // indirect
 	github.com/charmbracelet/x/exp/slice v0.0.0-20260803091719-3755ebad01b1 // indirect
 	github.com/charmbracelet/x/term v0.2.2 // indirect
@@ -253,8 +253,8 @@ require (
 	github.com/google/go-github/v88 v88.0.0 // indirect
 	github.com/google/go-querystring v1.2.0 // indirect
 	github.com/google/jsonschema-go v0.4.3 // indirect
-	github.com/google/osv-scalibr v0.5.3-0.20260814002154-23fa66ca68dd // indirect
-	github.com/google/osv-scanner/v2 v2.5.1 // indirect
+	github.com/google/osv-scalibr v0.5.3-0.20260911142458-3090dbb7aaa2 // indirect
+	github.com/google/osv-scanner/v2 v2.6.0 // indirect
 	github.com/google/s2a-go v0.1.9 // indirect
 	github.com/google/trillian v1.7.3 // indirect
 	github.com/google/uuid v1.6.0 // indirect
@@ -338,7 +338,7 @@ require (
 	github.com/opencontainers/go-digest v1.0.0 // indirect
 	github.com/opencontainers/image-spec v1.1.1 // indirect
 	github.com/openvex/go-vex v0.2.9 // indirect
-	github.com/ossf/osv-schema/bindings/go v0.0.0-20260730052020-9509daabeece // indirect
+	github.com/ossf/osv-schema/bindings/go v0.0.0-20260902031056-b388a18021a3 // indirect
 	github.com/package-url/packageurl-go v0.1.7 // indirect
 	github.com/pandatix/go-cvss v0.6.4 // indirect
 	github.com/pborman/uuid v1.2.1 // indirect
@@ -413,7 +413,7 @@ require (
 	github.com/transparency-dev/formats v0.1.1 // indirect
 	github.com/transparency-dev/merkle v0.0.2 // indirect
 	github.com/ulikunitz/xz v0.5.16 // indirect
-	github.com/urfave/cli/v3 v3.10.1 // indirect
+	github.com/urfave/cli/v3 v3.11.0 // indirect
 	github.com/valyala/fastjson v1.6.10 // indirect
 	github.com/vektah/gqlparser/v2 v2.5.33 // indirect
 	github.com/withfig/autocomplete-tools/integrations/cobra v1.2.1 // indirect
