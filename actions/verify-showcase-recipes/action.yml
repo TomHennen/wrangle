@@ -1,0 +1,76 @@
+name: Wrangle verify documented recipes
+description: >
+  Run the artifact-verification recipes documented in docs/verifying_artifacts.md
+  against live wrangle-built artifacts, proving the documented adopter commands
+  (raw ampel / cosign / gh attestation) still verify. Installs the pinned ampel
+  and cosign from wrangle's tools/go.mod and calls tools/verify_documented_recipes.sh.
+  Intended for a showcase run, not adopter workflows.
+
+inputs:
+  file:
+    description: File artifact (Go / Python / npm dist) to verify.
+    required: false
+    default: ""
+  bundle:
+    description: The <artifact>.intoto.jsonl bundle for --file.
+    required: false
+    default: ""
+  image:
+    description: Container image name without a digest (e.g. ghcr.io/org/name).
+    required: false
+    default: ""
+  digest:
+    description: sha256 hex (no "sha256:" prefix) of --image.
+    required: false
+    default: ""
+  resource-uri:
+    description: The resourceUri the VSA must name (purl or OCI ref).
+    required: false
+    default: ""
+  repo:
+    description: Origin repository the VSA/provenance signer must name (<owner>/<repo>).
+    required: false
+    default: ${{ github.repository }}
+  build-type:
+    description: Build type for the cosign/gh signer literal (go, python, npm, container).
+    required: false
+    default: ""
+  provenance:
+    description: Also run the `gh attestation verify` recipe (needs file + repo + build-type).
+    required: false
+    default: "false"
+  attestation-store:
+    description: Also run the `github:` collector recipe (needs repo + resource-uri).
+    required: false
+    default: "false"
+  non-strict:
+    description: Relax to the non-strict policy/identity (wrangle's own dogfood builds).
+    required: false
+    default: "false"
+  github-token:
+    description: Token for `gh attestation verify` and the `github:` collector reads.
+    required: false
+    default: ${{ github.token }}
+
+runs:
+  using: composite
+  steps:
+    - name: Install ampel + cosign
+      shell: bash
+      run: "${{ github.action_path }}/install_tools.sh"
+
+    - name: Run documented recipes
+      shell: bash
+      env:
+        FILE: ${{ inputs.file }}
+        BUNDLE: ${{ inputs.bundle }}
+        IMAGE: ${{ inputs.image }}
+        DIGEST: ${{ inputs.digest }}
+        RESOURCE_URI: ${{ inputs.resource-uri }}
+        REPO: ${{ inputs.repo }}
+        BUILD_TYPE: ${{ inputs.build-type }}
+        PROVENANCE: ${{ inputs.provenance }}
+        ATTESTATION_STORE: ${{ inputs.attestation-store }}
+        NON_STRICT: ${{ inputs.non-strict }}
+        GITHUB_TOKEN: ${{ inputs.github-token }}
+      run: "${{ github.action_path }}/run_recipes.sh"
