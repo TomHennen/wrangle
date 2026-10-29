@@ -1,6 +1,6 @@
 module github.com/TomHennen/wrangle/tools
 
-go 1.26.8
+go 1.26.10
 
 tool (
 	github.com/TomHennen/wrangle/tools/wrangle-attest
@@ -16,7 +16,7 @@ require (
 	github.com/carabiner-dev/hasher v0.2.4
 	github.com/carabiner-dev/signer v0.6.2
 	github.com/in-toto/attestation v1.2.0
-	github.com/owenrumney/go-sarif/v3 v3.3.1
+	github.com/owenrumney/go-sarif/v3 v3.3.2
 	github.com/sigstore/protobuf-specs v0.5.2
 	github.com/sigstore/sigstore-go v1.3.0
 	google.golang.org/protobuf v1.36.12
