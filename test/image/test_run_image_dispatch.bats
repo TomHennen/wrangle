@@ -22,15 +22,6 @@ REGISTRY_IMAGE="registry:2@sha256:a3d8aaa63ed8681a604f1dea0aa03f100d5895b6a58ace
 REGISTRY_PORT=5000
 REGISTRY_HOST="localhost:${REGISTRY_PORT}"
 
-# _push_for_digest <local-tag> <repo-name> — tag into the local registry, push,
-# and echo the engine-portable <host>/<repo>@sha256:<digest> reference.
-_push_for_digest() {
-    local local_tag="$1" ref="${REGISTRY_HOST}/$2:test"
-    docker tag "$local_tag" "$ref" >/dev/null
-    docker push -q "$ref" >/dev/null
-    docker inspect --format '{{index .RepoDigests 0}}' "$ref"
-}
-
 setup_file() {
     load "../lib/bats_helpers"
     load "../lib/image_test_harness.sh"
@@ -46,7 +37,7 @@ setup_file() {
     # Mock contract image: <src>/MODE selects clean|findings|error.
     docker build -q -t wrangle-mock-tool:test \
         "$root/test/fixtures/image-contract" >/dev/null
-    MOCK_IMAGE="$(_push_for_digest wrangle-mock-tool:test wrangle-mock-tool)"
+    MOCK_IMAGE="$(wrangle_push_for_digest "$REGISTRY_HOST" wrangle-mock-tool:test wrangle-mock-tool)"
     export MOCK_IMAGE
 
     # The osv tool image, built locally from this repo (the published image is
@@ -55,7 +46,7 @@ setup_file() {
     if wrangle_prebuilt_image wrangle-osv:test \
         || docker build -q -f "$root/tools/osv/Dockerfile" -t wrangle-osv:test \
             "$root" >/dev/null 2>&1; then
-        OSV_IMAGE="$(_push_for_digest wrangle-osv:test wrangle-osv)"
+        OSV_IMAGE="$(wrangle_push_for_digest "$REGISTRY_HOST" wrangle-osv:test wrangle-osv)"
         export OSV_IMAGE
     fi
 }
