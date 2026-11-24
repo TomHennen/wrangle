@@ -126,7 +126,8 @@ are read from the commit being tagged, not from your disk:
 
 - `docs/release-notes/vX.Y.Z.md`. Never `--generate-notes`.
   - **A release that only bumps dependency versions gets extremely short notes:** one
-    line, then a bulleted list of what was bumped (old → new). No prose sections.
+    line, then a bulleted list: one dependency per bullet, each with its old → new
+    version. No prose sections.
   - **Write prose only for features or adopter-facing changes**, and then
     **benefit-first, second person**: what the adopter gains, not a changelog of
     internal wins or code structure; mention the producer/consumer policies that let
