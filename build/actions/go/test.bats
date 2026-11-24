@@ -915,8 +915,8 @@ EOF
     # the GOPATH cache; second call should be a no-op (under a second).
     # In the test image, the cache is pre-populated.
     local first second
-    first="$(bash -c 'source "$1"; install_govulncheck "v1.1.4"' -- "$CHECKS_DIR/run_checks.sh")"
-    second="$(bash -c 'source "$1"; install_govulncheck "v1.1.4"' -- "$CHECKS_DIR/run_checks.sh")"
+    first="$(bash -c 'source "$1"; install_govulncheck "v1.9.0"' -- "$CHECKS_DIR/run_checks.sh")"
+    second="$(bash -c 'source "$1"; install_govulncheck "v1.9.0"' -- "$CHECKS_DIR/run_checks.sh")"
     [[ "$first" == "$second" ]]
     [[ -x "$first" ]]
 }
@@ -979,7 +979,7 @@ SH
     capture="$(printf '%s\n' "$shim_info" | sed -n '2p')"
 
     PATH="$shim_dir:$PATH" \
-        bash -c 'source "$1"; install_govulncheck "v1.1.4"' \
+        bash -c 'source "$1"; install_govulncheck "v1.9.0"' \
         -- "$CHECKS_DIR/run_checks.sh"
 
     [[ -f "$capture" ]]
@@ -994,7 +994,7 @@ SH
     shim_dir="$(printf '%s\n' "$shim_info" | sed -n '1p')"
 
     run env PATH="$shim_dir:$PATH" GOPRIVATE='*' \
-        bash -c 'source "$1"; install_govulncheck "v1.1.4"' \
+        bash -c 'source "$1"; install_govulncheck "v1.9.0"' \
         -- "$CHECKS_DIR/run_checks.sh"
 
     [[ "$status" -ne 0 ]]
@@ -1008,7 +1008,7 @@ SH
     shim_dir="$(printf '%s\n' "$shim_info" | sed -n '1p')"
 
     run env PATH="$shim_dir:$PATH" GONOSUMDB='*' \
-        bash -c 'source "$1"; install_govulncheck "v1.1.4"' \
+        bash -c 'source "$1"; install_govulncheck "v1.9.0"' \
         -- "$CHECKS_DIR/run_checks.sh"
 
     [[ "$status" -ne 0 ]]
@@ -1022,7 +1022,7 @@ SH
     shim_dir="$(printf '%s\n' "$shim_info" | sed -n '1p')"
 
     run env PATH="$shim_dir:$PATH" GOINSECURE='*' \
-        bash -c 'source "$1"; install_govulncheck "v1.1.4"' \
+        bash -c 'source "$1"; install_govulncheck "v1.9.0"' \
         -- "$CHECKS_DIR/run_checks.sh"
 
     [[ "$status" -ne 0 ]]
@@ -1036,7 +1036,7 @@ SH
     shim_dir="$(printf '%s\n' "$shim_info" | sed -n '1p')"
 
     run env PATH="$shim_dir:$PATH" GOFLAGS='-insecure' \
-        bash -c 'source "$1"; install_govulncheck "v1.1.4"' \
+        bash -c 'source "$1"; install_govulncheck "v1.9.0"' \
         -- "$CHECKS_DIR/run_checks.sh"
 
     [[ "$status" -ne 0 ]]
@@ -1052,7 +1052,7 @@ SH
 
     # GOFLAGS without -insecure must not trip the bypass-var check.
     PATH="$shim_dir:$PATH" GOFLAGS='-mod=mod' \
-        bash -c 'source "$1"; install_govulncheck "v1.1.4"' \
+        bash -c 'source "$1"; install_govulncheck "v1.9.0"' \
         -- "$CHECKS_DIR/run_checks.sh"
 
     [[ -f "$capture" ]]
@@ -1068,7 +1068,7 @@ SH
     init_go_module "$proj"
     GITHUB_STEP_SUMMARY="$BATS_TEST_TMPDIR/summary.md"
     export GITHUB_STEP_SUMMARY
-    run "$CHECKS_DIR/run_checks.sh" "$proj" "$metadata" "v1.1.4" "true" "true"
+    run "$CHECKS_DIR/run_checks.sh" "$proj" "$metadata" "v1.9.0" "true" "true"
     [[ "$status" -eq 0 ]]
     [[ -f "$metadata/govulncheck.json" ]]
     # Step summary should be populated.
@@ -1085,7 +1085,7 @@ SH
 
 func Dirty(   ) string{return "dirty"}
 '
-    run "$CHECKS_DIR/run_checks.sh" "$proj" "$metadata" "v1.1.4" "true" "true"
+    run "$CHECKS_DIR/run_checks.sh" "$proj" "$metadata" "v1.9.0" "true" "true"
     [[ "$status" -ne 0 ]]
     [[ "$output" == *"not gofmt-clean"* ]]
     [[ "$output" == *"dirty.go"* ]]
@@ -1104,7 +1104,7 @@ func Dirty(   ) string{return "dirty"}
     # and the build continues. go vet WILL still parse this — but the
     # file is syntactically valid Go (just badly formatted), so vet
     # passes. Tests don't reference Dirty so they pass too.
-    run "$CHECKS_DIR/run_checks.sh" "$proj" "$metadata" "v1.1.4" "true" "false"
+    run "$CHECKS_DIR/run_checks.sh" "$proj" "$metadata" "v1.9.0" "true" "false"
     [[ "$status" -eq 0 ]]
     [[ "$output" == *"Skipped (run-gofmt-check: false)"* ]]
 }
@@ -1123,7 +1123,7 @@ func TestFails(t *testing.T) {
     t.Fatal("intentional failure")
 }
 '
-    run "$CHECKS_DIR/run_checks.sh" "$proj" "$metadata" "v1.1.4" "true" "true"
+    run "$CHECKS_DIR/run_checks.sh" "$proj" "$metadata" "v1.9.0" "true" "true"
     [[ "$status" -ne 0 ]]
 }
 
@@ -1134,7 +1134,7 @@ func TestFails(t *testing.T) {
     init_go_module "$proj"
     GITHUB_STEP_SUMMARY="$BATS_TEST_TMPDIR/summary.md"
     export GITHUB_STEP_SUMMARY
-    run "$CHECKS_DIR/run_checks.sh" "$proj" "$metadata" "v1.1.4" "false" "true"
+    run "$CHECKS_DIR/run_checks.sh" "$proj" "$metadata" "v1.9.0" "false" "true"
     [[ "$status" -eq 0 ]]
     [[ "$output" == *"race detector skipped via run-race-detector: false"* ]]
 }
@@ -1151,7 +1151,7 @@ func TestFails(t *testing.T) {
     # so govulncheck has something to report (otherwise the test
     # could be vacuously true on a clean Go release).
     printf 'module example.com/wrangle-test-go\n\ngo 1.22\n' > "$proj/go.mod"
-    run "$CHECKS_DIR/run_checks.sh" "$proj" "$metadata" "v1.1.4" "true" "true"
+    run "$CHECKS_DIR/run_checks.sh" "$proj" "$metadata" "v1.9.0" "true" "true"
     [[ "$status" -eq 0 ]]
     # Output should mention govulncheck whether or not findings show
     # up (informational either way).
@@ -1168,7 +1168,7 @@ func TestFails(t *testing.T) {
     local proj="$BATS_TEST_TMPDIR/proj"
     local metadata="$BATS_TEST_TMPDIR/metadata/go/_/"   # trailing slash
     init_go_module "$proj"
-    run "$CHECKS_DIR/run_checks.sh" "$proj" "$metadata" "v1.1.4" "true" "true"
+    run "$CHECKS_DIR/run_checks.sh" "$proj" "$metadata" "v1.9.0" "true" "true"
     [[ "$status" -eq 0 ]]
     # JSON should be at metadata/go/_/govulncheck.json (without the
     # trailing slash collapsing the path one level up).

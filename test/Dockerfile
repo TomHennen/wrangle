@@ -1,4 +1,4 @@
-FROM ubuntu:26.04@sha256:513c074113a871b51a8d16ab445c88779d6452d937a164fb5cc479f32668a41d
+FROM ubuntu:26.04@sha256:da6fc2be547864451aa253836dd926da33623312df4a9a243e35dc877c378a78
 
 RUN apt-get update -q && \
     apt-get install -y -q --no-install-recommends \
@@ -55,9 +55,9 @@ RUN set -euo pipefail && \
 # tests don't need Go; cost is ~80MB on the image but avoids the
 # cross-repo wrangle-test dispatch loop for catching regressions in
 # run_checks.sh and friends.
-ARG GO_VERSION=1.26.8
-ARG GO_CHECKSUM_ARM64=211ffced9dcb9633a55eac6364816ec0ddd951389a740e88fa8b3337971bdda0
-ARG GO_CHECKSUM_AMD64=d0f743b33e8d8945e6b1f432edd15785c70507121d6e2a723b21285eddf8b57b
+ARG GO_VERSION=1.27.4
+ARG GO_CHECKSUM_ARM64=3392582988a273a87ab5043ee1b2c9c17a2c3c00580bf9326c47a2e0aaaeac92
+ARG GO_CHECKSUM_AMD64=7226736c2339719cda28fbf3a54d71aa63bcefe376e98cef00034268dab24840
 RUN set -euo pipefail && \
     ARCH="$(uname -m)" && \
     case "$ARCH" in \
@@ -80,7 +80,7 @@ ENV PATH="/usr/local/go/bin:${PATH}"
 # hits the cache.
 ENV GOPATH=/opt/go
 ENV PATH="/opt/go/bin:${PATH}"
-ARG GOVULNCHECK_VERSION=v1.1.4
+ARG GOVULNCHECK_VERSION=v1.9.0
 RUN set -euo pipefail && \
     mkdir -p /opt/go && \
     go install "golang.org/x/vuln/cmd/govulncheck@${GOVULNCHECK_VERSION}"

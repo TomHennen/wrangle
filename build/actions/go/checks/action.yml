@@ -50,12 +50,12 @@ inputs:
     default: "true"
   govulncheck-version:
     description: |
-      Pinned semver for govulncheck (e.g., "v1.1.4"). Wrangle does
+      Pinned semver for govulncheck (e.g., "v1.9.0"). Wrangle does
       not accept `latest`/`main` — see CLAUDE.md "Supply Chain
       Discipline." sum.golang.org's Trillian-backed Merkle log
       provides install-time integrity.
     required: false
-    default: "v1.1.4"
+    default: "v1.9.0"
 
 outputs:
   shortname:
