@@ -124,10 +124,13 @@ All three must hold before you ask the owner to cut. Do not shortcut.
 Only after the owner says "cut it". Two things must already be **merged**, because both
 are read from the commit being tagged, not from your disk:
 
-- `docs/release-notes/vX.Y.Z.md` — **benefit-first, second person**: what the adopter
-  gains, not a changelog of internal wins or code structure; mention the
-  producer/consumer policies that let adopters check the evidence. Never
-  `--generate-notes`.
+- `docs/release-notes/vX.Y.Z.md`. Never `--generate-notes`.
+  - **A release that only bumps dependency versions gets extremely short notes:** one
+    line, then a bulleted list of what was bumped (old → new). No prose sections.
+  - **Write prose only for features or adopter-facing changes**, and then
+    **benefit-first, second person**: what the adopter gains, not a changelog of
+    internal wins or code structure; mention the producer/consumer policies that let
+    adopters check the evidence.
 - the companion's `showcase-curated.yml` wrangle pin, bumped to `vX.Y.Z` (a `uses:` ref
   can't be an expression, so it is hand-bumped) — otherwise the post-release showcase
   exercises the previous release.
