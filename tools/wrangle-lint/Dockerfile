@@ -4,7 +4,7 @@
 # deps) and runs its adapter as the contract entrypoint:
 #   docker run <image> <src> <output>  ->  <output>/output.sarif, exit 0/1/2
 # Build context is the repo root (the build needs tools/go.mod + tools/wrangle-lint + lib/).
-FROM golang:1.26.8@sha256:6c2a5538f964f1c82f97ad14988bf05de100d922d159d0e398b54c7b0ca0c6c9 AS build
+FROM golang:1.27.4@sha256:5f1b98fa02fe396ebce2a0227a0e08309e11792915b9dd2e1f71053d7e7e6666 AS build
 WORKDIR /src
 COPY tools/ ./tools/
 RUN cd tools && CGO_ENABLED=0 go build -trimpath \
