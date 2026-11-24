@@ -1,0 +1,23 @@
+name: Notify Weekly PR
+
+# GitHub sends no notification for a PR opened under the owner's own account.
+
+on:
+  pull_request:
+    types: [opened]
+
+permissions: {}
+
+jobs:
+  notify:
+    if: startsWith(github.head_ref, 'deps/weekly-') && github.event.pull_request.head.repo.full_name == github.repository
+    runs-on: ubuntu-latest
+    permissions:
+      pull-requests: write # to comment on the PR
+    steps:
+      - name: Comment so the PR author is notified
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+          PR: ${{ github.event.pull_request.number }}
+        run: gh pr comment "$PR" -R "$REPO" --body "Weekly maintenance PR is ready for review."
