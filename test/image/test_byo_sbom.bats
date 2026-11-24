@@ -18,15 +18,9 @@ REGISTRY_IMAGE="registry:2@sha256:a3d8aaa63ed8681a604f1dea0aa03f100d5895b6a58ace
 REGISTRY_PORT=5001
 REGISTRY_HOST="localhost:${REGISTRY_PORT}"
 
-_push_for_digest() {
-    local local_tag="$1" ref="${REGISTRY_HOST}/$2:test"
-    docker tag "$local_tag" "$ref" >/dev/null
-    docker push -q "$ref" >/dev/null
-    docker inspect --format '{{index .RepoDigests 0}}' "$ref"
-}
-
 setup_file() {
     load "../lib/bats_helpers"
+    load "../lib/image_test_harness.sh"
     command -v docker >/dev/null 2>&1 && docker info >/dev/null 2>&1 || return 0
     local root
     root="$(cd "$(dirname "$BATS_TEST_FILENAME")/../.." && pwd)"
@@ -40,7 +34,7 @@ setup_file() {
     # SBOM tool; <src>/MODE selects sbom-real (a populated SPDX).
     docker build -q -t wrangle-mock-tool:test \
         "$root/test/fixtures/image-contract" >/dev/null
-    BYO_IMAGE="$(_push_for_digest wrangle-mock-tool:test wrangle-byo-sbom)"
+    BYO_IMAGE="$(wrangle_push_for_digest "$REGISTRY_HOST" wrangle-mock-tool:test wrangle-byo-sbom)"
     export BYO_IMAGE
 }
 
