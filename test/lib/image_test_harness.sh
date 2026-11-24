@@ -18,6 +18,23 @@ wrangle_require_docker() {
     fi
 }
 
+# wrangle_push_for_digest <registry-host> <local-tag> <repo-name> — tag into the
+# local registry, push, and echo <host>/<repo>@sha256:<digest>. An image can
+# carry several RepoDigests in no guaranteed order, so select this repo's.
+wrangle_push_for_digest() {
+    local local_tag="$2" repo="$1/$3" digest
+    docker tag "$local_tag" "$repo:test" >/dev/null
+    docker push -q "$repo:test" >/dev/null
+    while IFS= read -r digest; do
+        if [[ "$digest" == "$repo@sha256:"* ]]; then
+            printf '%s\n' "$digest"
+            return 0
+        fi
+    done < <(docker inspect --format '{{range .RepoDigests}}{{println .}}{{end}}' "$repo:test")
+    printf 'wrangle_push_for_digest: no repo digest for %s\n' "$repo" >&2
+    return 1
+}
+
 # wrangle_prebuilt_image <tag> — true when build_shell.yml's image-cache
 # restored <tag>, letting a setup_file skip its build.
 wrangle_prebuilt_image() {
