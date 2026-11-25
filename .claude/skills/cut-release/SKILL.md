@@ -30,20 +30,16 @@ tag-immutability controls, ordering constraints) lives in
 ## Phase 1 — Bump adopter-facing version refs
 
 Adopters pin wrangle's reusable workflows at a release tag. Bump every adopter-facing
-tag pin from the current latest to the new version. There's no helper script and no
-hardcoded list — discover the surface each time, then replace and review the diff:
+tag pin from the current latest to the new version, then review the diff:
 
 ```bash
-PREV=$(gh release view --json tagName -q .tagName)   # current latest
-NEW=v0.0.0                                            # set to the release you're cutting
-grep -rlE "TomHennen/wrangle[^ ]*@${PREV}" \
-  --include='*.yml' --include='*.yaml' --include='*.md' . | grep -v '\.claude/'
+make bump-version-refs VERSION=v0.0.0   # the release you're cutting
 ```
 
 The surface is the example workflows, the per-build-type and action READMEs, the
 top-level README, and `docs/` (incl. policy-locator URLs). Don't hand-maintain that list:
 `test/test_pin_consistency.bats` fails closed if any adopter-facing pin disagrees on the
-version, so the grep above is the source of truth. Leave third-party action refs and test
+version, so that test is the source of truth. Leave third-party action refs and test
 fixtures alone. The bump is a normal PR — owner `LGTM` required.
 
 ## Phase 2 — Milestone & dependabot hygiene
