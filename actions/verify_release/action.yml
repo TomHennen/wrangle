@@ -56,7 +56,7 @@ runs:
       run: '"${{ github.action_path }}/../../lib/derive_names.sh" "$BUILD_TYPE" "$SHORTNAME"'
 
     # Skipped for container: the artifact is the image, not a workflow-artifact dist.
-    - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+    - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
       if: ${{ inputs.oci-target == '' }}
       with:
         name: ${{ steps.names.outputs.dist }}
@@ -64,7 +64,7 @@ runs:
 
     # Stage the build job's sbom + scan/ so verify's completed bundles land beside
     # them under the metadata dir.
-    - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+    - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
       with:
         name: ${{ steps.names.outputs.metadata-pre }}
         path: ${{ steps.names.outputs.metadata-dir }}/
@@ -73,7 +73,7 @@ runs:
     # SBOM/scan, all build types); verify appends the VSA to each. attest owns the
     # signing + store push (and, for container, the OCI referrer push) (#550, #566).
     # Land them in the metadata dir so verify appends in place.
-    - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+    - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
       with:
         name: ${{ steps.names.outputs.bundles }}
         path: ${{ steps.names.outputs.metadata-dir }}/
