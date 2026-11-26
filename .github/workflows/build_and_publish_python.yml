@@ -225,7 +225,7 @@ jobs:
           fi
           printf 'files=%s\n' "$files" >> "$GITHUB_OUTPUT"
 
-      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: ${{ needs.prep.outputs.dist }}
           path: ${{ inputs.path }}/dist/
@@ -242,7 +242,7 @@ jobs:
       # On an attested release the verify job appends the signed bundle and owns
       # the final metadata upload; otherwise (non-release or unattested) this
       # sbom + scan/ is itself the final metadata artifact.
-      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: ${{ needs.prep.outputs.should-attest == 'true' && needs.prep.outputs.metadata-pre || needs.prep.outputs.metadata }}
           path: ${{ steps.build.outputs.metadata-dir }}/
