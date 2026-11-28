@@ -13,7 +13,7 @@ It verifies the **VSA**, not the raw provenance, on purpose: the VSA is the arti
 Drop it into your publish job between `download-artifact` and the publish step:
 
 ```yaml
-- uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+- uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
   with:
     name: ${{ needs.build.outputs.dist-artifact-name }}
     path: dist/
