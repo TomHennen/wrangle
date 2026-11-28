@@ -216,7 +216,7 @@ func TestRunAssembleKeyless(t *testing.T) {
 }
 
 // verifyKeylessBundle verifies the signed bundle bytes with the upstream
-// carabiner-dev/signer verifier against the embedded Sigstore trust root,
+// policylabs/signer verifier against the embedded Sigstore trust root,
 // asserting the GitHub Actions OIDC identity and proving the signature is
 // valid. It re-verifies a tampered copy to confirm the check actually fails.
 func verifyKeylessBundle(t *testing.T, bundleBytes []byte) {
