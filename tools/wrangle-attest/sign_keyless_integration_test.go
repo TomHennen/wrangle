@@ -13,8 +13,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/carabiner-dev/signer"
-	"github.com/carabiner-dev/signer/options"
+	"github.com/policylabs/signer"
+	"github.com/policylabs/signer/options"
 	intoto "github.com/in-toto/attestation/go/v1"
 	sbundle "github.com/sigstore/sigstore-go/pkg/bundle"
 	"google.golang.org/protobuf/encoding/protojson"

@@ -7,9 +7,9 @@ import (
 	"path/filepath"
 	"testing"
 
-	"github.com/carabiner-dev/signer"
-	"github.com/carabiner-dev/signer/key"
-	"github.com/carabiner-dev/signer/options"
+	"github.com/policylabs/signer"
+	"github.com/policylabs/signer/key"
+	"github.com/policylabs/signer/options"
 	intoto "github.com/in-toto/attestation/go/v1"
 	sdsse "github.com/sigstore/protobuf-specs/gen/pb-go/dsse"
 	"google.golang.org/protobuf/encoding/protojson"
