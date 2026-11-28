@@ -14,9 +14,9 @@ tool (
 
 require (
 	github.com/carabiner-dev/hasher v0.2.4
+	github.com/carabiner-dev/signer v0.6.2
 	github.com/in-toto/attestation v1.2.0
 	github.com/owenrumney/go-sarif/v3 v3.3.2
-	github.com/policylabs/signer v0.6.4
 	github.com/sigstore/protobuf-specs v0.5.2
 	github.com/sigstore/sigstore-go v1.4.0
 	google.golang.org/protobuf v1.36.12
@@ -72,7 +72,7 @@ require (
 	github.com/GehirnInc/crypt v0.0.0-20230320061759-8cc1b52080c5 // indirect
 	github.com/Masterminds/semver/v3 v3.5.0 // indirect
 	github.com/Microsoft/go-winio v0.6.3-0.20251027160822-ad3df93bed29 // indirect
-	github.com/ProtonMail/go-crypto v1.5.2 // indirect
+	github.com/ProtonMail/go-crypto v1.4.1 // indirect
 	github.com/Velocidex/json v0.0.0-20220224052537-92f3c0326e5a // indirect
 	github.com/Velocidex/ordereddict v0.0.0-20250821063524-02dc06e46238 // indirect
 	github.com/Velocidex/yaml/v2 v2.2.8 // indirect
@@ -128,23 +128,22 @@ require (
 	github.com/canonical/chisel-manifest v1.2.0 // indirect
 	github.com/carabiner-dev/ampel v1.3.10 // indirect
 	github.com/carabiner-dev/attestation v0.2.1 // indirect
-	github.com/carabiner-dev/bnd v0.4.7 // indirect
-	github.com/carabiner-dev/collector v0.3.17 // indirect
-	github.com/carabiner-dev/command v0.3.4 // indirect
+	github.com/carabiner-dev/bnd v0.4.6 // indirect
+	github.com/carabiner-dev/collector v0.3.16 // indirect
+	github.com/carabiner-dev/command v0.3.2 // indirect
 	github.com/carabiner-dev/deadrop v0.0.0-20260228173914-d95e9ea2877d // indirect
 	github.com/carabiner-dev/ghrfs v0.3.7 // indirect
 	github.com/carabiner-dev/github v0.2.3 // indirect
 	github.com/carabiner-dev/jsonl v0.2.2 // indirect
 	github.com/carabiner-dev/openeox v1.0.0 // indirect
 	github.com/carabiner-dev/osv v0.1.2 // indirect
-	github.com/carabiner-dev/policy v0.5.6 // indirect
-	github.com/carabiner-dev/predicates v0.5.4 // indirect
+	github.com/carabiner-dev/policy v0.5.5 // indirect
+	github.com/carabiner-dev/predicates v0.5.1 // indirect
 	github.com/carabiner-dev/sbomfs v0.2.0 // indirect
-	github.com/carabiner-dev/signer v0.6.2 // indirect
 	github.com/carabiner-dev/spdx3 v0.1.0 // indirect
-	github.com/carabiner-dev/stash v0.0.0-20261004182444-008b3bad7a45 // indirect
+	github.com/carabiner-dev/stash v0.0.0-20260908191435-d6225e020426 // indirect
 	github.com/carabiner-dev/termtable v1.1.0 // indirect
-	github.com/carabiner-dev/vcslocator v0.5.1 // indirect
+	github.com/carabiner-dev/vcslocator v0.5.0 // indirect
 	github.com/cenkalti/backoff/v4 v4.3.0 // indirect
 	github.com/cenkalti/backoff/v5 v5.0.3 // indirect
 	github.com/cespare/xxhash/v2 v2.3.0 // indirect
@@ -209,8 +208,8 @@ require (
 	github.com/go-chi/chi/v5 v5.5.0 // indirect
 	github.com/go-errors/errors v1.5.1 // indirect
 	github.com/go-git/gcfg v1.5.1-0.20230307220236-3a3c6141e376 // indirect
-	github.com/go-git/go-billy/v5 v5.9.2 // indirect
-	github.com/go-git/go-git/v5 v5.19.3 // indirect
+	github.com/go-git/go-billy/v5 v5.9.1 // indirect
+	github.com/go-git/go-git/v5 v5.19.2 // indirect
 	github.com/go-jose/go-jose/v4 v4.1.6 // indirect
 	github.com/go-logr/logr v1.4.4 // indirect
 	github.com/go-logr/stdr v1.2.2 // indirect
@@ -286,6 +285,7 @@ require (
 	github.com/json-iterator/go v1.1.12 // indirect
 	github.com/kevinburke/ssh_config v1.6.0 // indirect
 	github.com/klauspost/compress v1.20.4 // indirect
+	github.com/klauspost/cpuid/v2 v2.4.0 // indirect
 	github.com/kylelemons/godebug v1.1.0 // indirect
 	github.com/lestrrat-go/blackmagic v1.0.4 // indirect
 	github.com/lestrrat-go/dsig v1.3.0 // indirect
@@ -345,17 +345,13 @@ require (
 	github.com/pelletier/go-toml/v2 v2.4.3 // indirect
 	github.com/phuslu/lru v1.0.18 // indirect
 	github.com/pierrec/lz4/v4 v4.1.27 // indirect
-	github.com/pjbgf/sha1cd v0.7.0 // indirect
+	github.com/pjbgf/sha1cd v0.6.0 // indirect
 	github.com/pkg/browser v0.0.0-20240102092130-5ac0b6a4141c // indirect
 	github.com/pkg/errors v0.9.1 // indirect
 	github.com/pkg/xattr v0.4.12 // indirect
 	github.com/planetscale/vtprotobuf v0.6.1-0.20240319094008-0393e58bdf10 // indirect
-	github.com/policylabs/attestation v0.3.0 // indirect
-	github.com/policylabs/collector v0.4.0 // indirect
-	github.com/policylabs/policy v0.5.7-0.20261004134513-55e5473eef09 // indirect
-	github.com/policylabs/predicates v0.6.0 // indirect
 	github.com/protobom/cel v0.1.3 // indirect
-	github.com/protobom/protobom v0.6.2 // indirect
+	github.com/protobom/protobom v0.6.1 // indirect
 	github.com/protocolbuffers/txtpbfmt v0.0.0-20260420112717-c39628bde8b5 // indirect
 	github.com/rcrowley/go-metrics v0.0.0-20250401214520-65e299d6c5c9 // indirect
 	github.com/regclient/regclient v0.11.6 // indirect
@@ -474,7 +470,7 @@ require (
 	gopkg.in/ini.v1 v1.67.3 // indirect
 	gopkg.in/warnings.v0 v0.1.2 // indirect
 	k8s.io/api v0.37.0 // indirect
-	k8s.io/apimachinery v0.37.1 // indirect
+	k8s.io/apimachinery v0.37.0 // indirect
 	k8s.io/client-go v0.37.0 // indirect
 	k8s.io/klog/v2 v2.140.0 // indirect
 	k8s.io/kube-openapi v0.0.0-20260721132016-d427ff9ee9ad // indirect
@@ -486,7 +482,7 @@ require (
 	osv.dev/bindings/go v0.0.0-20260805021707-3a57b89df3b6 // indirect
 	sigs.k8s.io/json v0.0.0-20250730193827-2d320260d730 // indirect
 	sigs.k8s.io/randfill v1.0.0 // indirect
-	sigs.k8s.io/release-sdk v0.13.0 // indirect
+	sigs.k8s.io/release-sdk v0.12.7 // indirect
 	sigs.k8s.io/release-utils v0.12.5 // indirect
 	sigs.k8s.io/structured-merge-diff/v6 v6.4.2 // indirect
 	sigs.k8s.io/yaml v1.6.0 // indirect

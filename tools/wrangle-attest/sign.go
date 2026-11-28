@@ -4,8 +4,8 @@ import (
 	"bytes"
 	"fmt"
 
-	"github.com/policylabs/signer"
-	"github.com/policylabs/signer/options"
+	"github.com/carabiner-dev/signer"
+	"github.com/carabiner-dev/signer/options"
 )
 
 // statementSigner signs one in-toto statement and returns its canonical

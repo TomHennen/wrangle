@@ -92,7 +92,7 @@ into a buffer before `--out` is touched, so a failure on the Nth manifest — a
 malformed manifest or a signing failure — never leaves a partial/unsigned file.
 Exit 0 on success; non-zero (fail closed) on any error.
 
-Transient Sigstore I/O is retried by the signer itself (`policylabs/signer`
+Transient Sigstore I/O is retried by the signer itself (`carabiner-dev/signer`
 configures retries on the Fulcio, Rekor, and TSA hops, and on TUF/OIDC fetches),
 so the engine adds no retry of its own and signs exactly as `bnd` does.
 

@@ -13,8 +13,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/policylabs/signer"
-	"github.com/policylabs/signer/options"
+	"github.com/carabiner-dev/signer"
+	"github.com/carabiner-dev/signer/options"
 	intoto "github.com/in-toto/attestation/go/v1"
 	sbundle "github.com/sigstore/sigstore-go/pkg/bundle"
 	"google.golang.org/protobuf/encoding/protojson"
@@ -216,7 +216,7 @@ func TestRunAssembleKeyless(t *testing.T) {
 }
 
 // verifyKeylessBundle verifies the signed bundle bytes with the upstream
-// policylabs/signer verifier against the embedded Sigstore trust root,
+// carabiner-dev/signer verifier against the embedded Sigstore trust root,
 // asserting the GitHub Actions OIDC identity and proving the signature is
 // valid. It re-verifies a tampered copy to confirm the check actually fails.
 func verifyKeylessBundle(t *testing.T, bundleBytes []byte) {
